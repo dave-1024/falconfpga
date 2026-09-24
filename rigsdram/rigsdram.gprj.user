@@ -1,0 +1,13 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE ProjectUserData>
+<UserConfig>
+    <Version>1.0</Version>
+    <FlowState>
+        <Process ID="Synthesis" State="0"/>
+        <Process ID="Pnr" State="4"/>
+        <Process ID="Gao" State="4"/>
+        <Process ID="Rtl_Gao" State="0"/>
+        <Process ID="Gvio" State="0"/>
+        <Process ID="Place" State="2"/>
+    </FlowState>
+</UserConfig>
