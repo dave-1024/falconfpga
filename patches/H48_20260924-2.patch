@@ -1,6 +1,6 @@
 --- a/rigsdram/src/rigsdram_top.vhd
 +++ b/rigsdram/src/rigsdram_top.vhd
-@@ -140,10 +140,11 @@
+@@ -140,10 +140,9 @@
      signal por_cnt   : unsigned(15 downto 0) := (others => '0');
      signal por_n     : std_logic := '0';
      signal rstn_sync : std_logic_vector(2 downto 0) := "000";
@@ -14,15 +14,17 @@
      signal sys_rst_pipe   : std_logic_vector(1 downto 0) := "00";
      signal sys_rst_n_50   : std_logic := '0';
      signal sys_rst_n      : std_logic := '0';  -- core_clk domain
-@@ -268,23 +269,33 @@
+@@ -271,11 +270,17 @@
+                    clkout1  => core_clk,   -- 12.5 MHz
                     lock     => pll_lock );
  
-     -- POR and the RSTN synchroniser run on clk50 (always toggling once
+-    -- POR and the RSTN synchroniser run on clk50 (always toggling once
 -    -- the PLL locks).  [H48] pll_lock is synced two flops on clk50
 -    -- before it enters sys_rst_n_50; that reset is then synced two
 -    -- flops on core_clk before it enters sys_rst_n.  Do not AND raw
 -    -- pll_lock into either domain.
-+    -- the PLL locks).  [H48-2] lock sync is its own process: D <= pll_lock
++    -- POR and the RSTN synchroniser run on clk50.
++    -- [H48-2] lock synchroniser is a process of its own: D <= pll_lock
 +    -- only.  Mixing it into the POR process let Gowin use RESET.
 +    process(clk50)
 +    begin
@@ -35,10 +37,7 @@
      process(clk50)
      begin
          if rising_edge(clk50) then
-             if por_cnt /= x"FFFF" then
-                 por_cnt <= por_cnt + 1;
-                 por_n   <= '0';
-             else
+@@ -286,8 +291,7 @@
                  por_n   <= '1';
              end if;
              rstn_sync    <= rstn_sync(1 downto 0) & RSTN;
