@@ -1,0 +1,13 @@
+impl/
+CurrentBuildReports/
+*.fs
+*.bin
+*.adx
+*.bit
+*.so
+*.o
+*.elf
+src/New folder/
+**/New folder/
+.gowin/
+*.user
