@@ -140,10 +140,9 @@ architecture RTL of RIGSDRAM_TOP is
     signal por_cnt   : unsigned(15 downto 0) := (others => '0');
     signal por_n     : std_logic := '0';
     signal rstn_sync : std_logic_vector(2 downto 0) := "000";
-    -- [H48] pll_lock is made on clk_ref inside pll_init.  Using it
-    -- combinationally as reset into clk50 / core_clk was the 28-hold
-    -- launch (state_1_s0 -> SET/RESET/CE).  Two-flop sync per domain.
-    signal pll_lock_50    : std_logic_vector(1 downto 0) := "00";
+    -- [H48-2] dedicated D-type lock sync.  Do not reuse as RESET.
+    signal lock_meta      : std_logic := '0';
+    signal lock_sync      : std_logic := '0';
     signal sys_rst_pipe   : std_logic_vector(1 downto 0) := "00";
     signal sys_rst_n_50   : std_logic := '0';
     signal sys_rst_n      : std_logic := '0';  -- core_clk domain
@@ -271,11 +270,17 @@ begin
                    clkout1  => core_clk,   -- 12.5 MHz
                    lock     => pll_lock );
 
-    -- POR and the RSTN synchroniser run on clk50 (always toggling once
-    -- the PLL locks).  [H48] pll_lock is synced two flops on clk50
-    -- before it enters sys_rst_n_50; that reset is then synced two
-    -- flops on core_clk before it enters sys_rst_n.  Do not AND raw
-    -- pll_lock into either domain.
+    -- POR and the RSTN synchroniser run on clk50.
+    -- [H48-2] lock synchroniser is a process of its own: D <= pll_lock
+    -- only.  Mixing it into the POR process let Gowin use RESET.
+    process(clk50)
+    begin
+        if rising_edge(clk50) then
+            lock_meta <= pll_lock;
+            lock_sync <= lock_meta;
+        end if;
+    end process;
+
     process(clk50)
     begin
         if rising_edge(clk50) then
@@ -286,8 +291,7 @@ begin
                 por_n   <= '1';
             end if;
             rstn_sync    <= rstn_sync(1 downto 0) & RSTN;
-            pll_lock_50  <= pll_lock_50(0) & pll_lock;
-            sys_rst_n_50 <= por_n and rstn_sync(2) and pll_lock_50(1);
+            sys_rst_n_50 <= por_n and rstn_sync(2) and lock_sync;
         end if;
     end process;
 
