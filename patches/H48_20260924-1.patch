@@ -1,0 +1,119 @@
+--- a/rigsdram/src/rigsdram_top.vhd
++++ b/rigsdram/src/rigsdram_top.vhd
+@@ -54,11 +54,11 @@
+         -- Do NOT enable both a live dump (TRIG_MODE/=3) and AUTO_WARM=1
+         -- in the same flash -- the second pulse re-arms the tracer and
+         -- you will capture the *working* path.
+-        AUTO_WARM  : integer := 1;   -- [PRODUCT] auto warm-reset pulse after
+-                                     -- first release. Warm is a healthy
+-                                     -- machine (see warmboot.log: $7F00
+-                                     -- write, H=1, 16 cycles of real code).
+-                                     -- This makes power-on do what S1 does.
++        AUTO_WARM  : integer := 0;   -- [H48] trial: prove/disprove PLL-lock
++                                     -- CDC as the cold-boot fault.  Oracle
++                                     -- shipped 1.  If this bitstream cold-
++                                     -- boots, leave at 0.  If it fails,
++                                     -- revert this file (tag oracle).
+         AW_FREE    : integer := 256
+     );
+     port(
+@@ -140,7 +140,13 @@
+     signal por_cnt   : unsigned(15 downto 0) := (others => '0');
+     signal por_n     : std_logic := '0';
+     signal rstn_sync : std_logic_vector(2 downto 0) := "000";
+-    signal sys_rst_n : std_logic;
++    -- [H48] pll_lock is made on clk_ref inside pll_init.  Using it
++    -- combinationally as reset into clk50 / core_clk was the 28-hold
++    -- launch (state_1_s0 -> SET/RESET/CE).  Two-flop sync per domain.
++    signal pll_lock_50    : std_logic_vector(1 downto 0) := "00";
++    signal sys_rst_pipe   : std_logic_vector(1 downto 0) := "00";
++    signal sys_rst_n_50   : std_logic := '0';
++    signal sys_rst_n      : std_logic := '0';  -- core_clk domain
+ 
+     component Gowin_PLL
+         port ( clkin    : in  std_logic;
+@@ -266,10 +272,10 @@
+                    lock     => pll_lock );
+ 
+     -- POR and the RSTN synchroniser run on clk50 (always toggling once
+-    -- the PLL locks).  sys_rst_n additionally holds until pll_lock, so
+-    -- the CPU and controller never see a pre-lock or unlocked clock --
+-    -- which, given how much of this bring-up turned on power-up state,
+-    -- is deliberate, not incidental.
++    -- the PLL locks).  [H48] pll_lock is synced two flops on clk50
++    -- before it enters sys_rst_n_50; that reset is then synced two
++    -- flops on core_clk before it enters sys_rst_n.  Do not AND raw
++    -- pll_lock into either domain.
+     process(clk50)
+     begin
+         if rising_edge(clk50) then
+@@ -279,11 +285,19 @@
+             else
+                 por_n   <= '1';
+             end if;
+-            rstn_sync <= rstn_sync(1 downto 0) & RSTN;
++            rstn_sync    <= rstn_sync(1 downto 0) & RSTN;
++            pll_lock_50  <= pll_lock_50(0) & pll_lock;
++            sys_rst_n_50 <= por_n and rstn_sync(2) and pll_lock_50(1);
+         end if;
+     end process;
+ 
+-    sys_rst_n <= por_n and rstn_sync(2) and pll_lock;
++    process(core_clk)
++    begin
++        if rising_edge(core_clk) then
++            sys_rst_pipe <= sys_rst_pipe(0) & sys_rst_n_50;
++            sys_rst_n    <= sys_rst_pipe(1);
++        end if;
++    end process;
+ 
+     -- ---------------- boot broker -----------------------------------
+     -- RESET_INn AND HALT_INn low together, 128 core clocks (>= 16).
+@@ -291,18 +305,13 @@
+     begin
+         if rising_edge(core_clk) then
+             if sys_rst_n = '0' then
++                -- [H48] lock is already inside sys_rst_n (synced).
++                -- Raw pll_lock must not appear in this process.
+                 brk_cnt    <= (others => '0');
+                 cpu_rst_n  <= '0';
+                 cpu_halt_n <= '0';
+                 aw_st      <= AW_WAIT;
+                 aw_cnt     <= (others => '0');
+-            elsif pll_lock = '0' then
+-                -- [F53] Hold the CPU in reset for the WHOLE PLL acquisition.
+-                cpu_rst_n  <= '0';
+-                cpu_halt_n <= '0';
+-                brk_cnt    <= (others => '0');
+-                aw_st      <= AW_WAIT;
+-                aw_cnt     <= (others => '0');
+             elsif warm_req = '1' then
+                 -- [WARM] CPU-only reset. Deliberately does NOT clear
+                 -- brk_cnt and does NOT wait on init_done again, so the
+@@ -410,7 +419,7 @@
+     O_sdram_clk <= not clk50;   -- [F43] was not CLK
+ 
+     U_ADP: entity work.sdram_bus_adapter
+-        port map(clk => clk50, rst_n => sys_rst_n,   -- [F43] was CLK
++        port map(clk => clk50, rst_n => sys_rst_n_50,  -- [H48] clk50 domain
+                  sel => sd_sel, ASn => ASn, RWn => RWn, SIZE => SIZE,
+                  ADR => ADR_OUT(24 downto 0), DATA_OUT => DATA_OUT,
+                  done => sd_done, rdata_out => sd_rdata,
+@@ -421,7 +430,7 @@
+     U_SDR: entity work.sdram_ctrl
+         generic map(CLK_KHZ => CLK_HZ/1000, CAS_LATENCY => CAS_LATENCY,
+                     tREFI_NS => REFI_NS)
+-        port map(clk => clk50, rst_n => sys_rst_n,   -- [F43] was CLK
++        port map(clk => clk50, rst_n => sys_rst_n_50,  -- [H48] clk50 domain
+                  req => s_req, we => s_we, addr => s_addr,
+                  wdata => s_wdata, be => s_be, rdata => s_rd,
+                  ack => s_ack, ready => s_ready,
+@@ -437,7 +446,7 @@
+     process(clk50)
+     begin
+         if rising_edge(clk50) then
+-            if sys_rst_n = '0' then init_done <= '0';
++            if sys_rst_n_50 = '0' then init_done <= '0';
+             elsif s_ready = '1'   then init_done <= '1'; end if;
+         end if;
+     end process;
