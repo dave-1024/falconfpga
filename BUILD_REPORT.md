@@ -3,64 +3,142 @@
 OWNER: Grok bot. Grok chat: read only (may reset to this template after reading).
 
 ```
-REQUEST_ID: 20260924-3b
+REQUEST_ID: 20260925-mn1
+ACTION: PREPARE
 RESULT: PASS
-GOWIN_VERSION: V1.9.12.03
-PROJECT: rigsdram
-TOP: RIGSDRAM_TOP
+GOWIN_VERSION: NOT_RUN (gw_sh not run, per request)
+PROJECT: misterynano_tc138k
+TOP: top
 DEVICE: GW5AST-LV138PG484AC1/I0
 DEVICE_VERSION: C
 
-ERRORS:
-(none — synthesis/PnR completed; bitstream written)
+UPSTREAM:
+  repo:   https://github.com/MiSTle-Dev/MiSTeryNano (primary; fallback not needed)
+  commit: c8e4601fbf7264e13f4b18ac2d452444de6b51c5 (2026-08-14 17:50 +0200, "Add rtc support (via NTP for now)")
+  gprj:   upstream src/atarist_tc138k.gprj (identical to our misterynano_tc138k/atarist_tc138k.gprj, ignoring line endings)
 
-WARNINGS:
-(summarised; non-fatal)
-AG0100 logical loop signals in wf68k30L core ×17 (same family as prior builds)
-EX4664 VHDL port-mode buffer/out mismatches in wf68k30L_* ×6
-EX4967 / EX4749 / EX3791 ×2 each; EX4545 / EX4387 / EX4160 ×1 (wf68k30L / bus_trace; unchanged family)
-NL0002 BUS_TRACE instance swept in optimising (as prior)
-AG0101 netlist is not one directed acyclic graph (as prior with AG0100)
-PR1014 generic routing for clock net CLK_d (as prior)
+IMPORT COMMIT: a5d09dbaed81262374f0068e6a51fb2506010987
+  "Add misterynano_tc138k Console 138K HDL from upstream"
 
-RESOURCES:
-LUT: 19163 / 138240 (Logic; 17665 LUT + 1498 ALU, 14%)
-FF: 3555 / 138240 (3%)
-BSRAM: 32 / 340 (10%)
-DSP: 9 / 298 (4%)
+FILES ADDED: 95
+  92 = every <File path> in atarist_tc138k.gprj (91 HDL/cst/sdc + mem/hex; all present upstream, byte-identical copies)
+   2 = fx68k/LICENSE, fx68k/fx68k.txt
+   1 = UPSTREAM.md (attribution: upstream repo + commit; upstream has no top-level LICENSE)
+  Kept unchanged: our atarist_tc138k.gprj, build_tc138k.tcl, README.md, .gitignore, HOW_TO_FILL.md
 
-TIMING:
-Fmax:
-  clk_ref  50.000 MHz constraint → 310.692 MHz actual
-  clk50    50.000 MHz constraint → 124.060 MHz actual
-  core_clk 12.500 MHz constraint → 18.228 MHz actual
-CPU_TARGET_MHZ: 16.0 — PASS (core_clk Fmax 18.228 >= 16.0)
-Setup: 0 violated endpoints; worst slack in top-25 table +11.939 ns; TNS 0 all clocks
-Hold: per-clock hold TNS reported 0; 1 cross-clock hold path with negative slack (see table)
-
-HOLD TABLE (top hold paths):
-  Slack    From                                      To                       Clocks
-  -0.680   u_pll/u_pll_init/state_2_s0/Q             u_lock_meta/D            clk_ref→clk50
-  +0.247   (next paths are same-clock SDRAM/CPU regs)
+LAYOUT:
+  upstream src/<path> -> misterynano_tc138k/<path> (same relative paths as the gprj).
+  No path adjustments. All 92 gprj paths verified present under misterynano_tc138k/ and tracked in git.
 
 CHECK:
-  1. PnR completes / bitstream written: YES (impl/pnr/rigsdram.fs)
-  2. Fmax table present; core_clk 18.228 >= 16.0: PASS
-  3. Hold fabric RESET/SET/CE from state_1_s0: NONE
-     lock_meta D false_path (state_1_s0/Q → u_lock_meta/D): Actived (TC_FALSE_PATH)
-     Remaining hold is state_2_s0/Q → u_lock_meta/D (not covered by the state_1 false_path)
-  4. Not flashed
-  Replicate Resources: TRUE (build.tcl set_option -replicate_resources 1; process_config true)
-  AUTO_WARM: 0 (HDL generic default; unchanged)
+  tang/console138k/top.sv       present
+  fx68k/fx68k.sv                present
+  fx68k/microrom.mem            present
+  misterynano.sv                present
+  tang/mega138kpro/sdram.v      present
+  rigsdram/                     untouched (not in either commit)
 
-UART:
-(not flashed; the bot cannot flash hardware)
+MISSING / SKIPPED:
+  Missing upstream: none.
+  gprj references no *.fs or impl/ files.
+  Not copied (per request): other tops (nano20k/primer/mega/console60k), firmware, images, other .gprj/.tcl.
+  Note: misc/sysctrl.v also names atarist_t20_xml.hex and ikbd/rom/MCU_BIROM.v names ../src/ikbd/rom/ikbd.hex,
+        but only inside non-Gowin `ifdef branches (Efinix / Verilator). Not needed; atarist_t20_xml.hex does not exist upstream anyway.
 
-NOTES:
-Applied only patches/H48_20260924-3b.patch with `git apply --recount --ignore-whitespace`
-(deleted the dead lock_meta_s0/RESET false_path that caused TA2003 on 20260924-3).
-Did NOT re-apply H48-3 VHDL (already on main). Did NOT need to delete the
-u_lock_meta/D false_path — no TA2003; constraint Actived.
-SDC change left unstaged (bot commits only BUILD_REPORT.md).
-No PLL / wf68k30L edits. Bitstream: rigsdram/impl/pnr/rigsdram.fs (gitignored).
+COPIED PATHS (relative to misterynano_tc138k/):
+  UPSTREAM.md
+  atarist/acia.v
+  atarist/acsi.v
+  atarist/atarist.v
+  atarist/cubase2_dongle.v
+  atarist/cubase3_dongle.v
+  atarist/dma.v
+  atarist/io_fifo.v
+  atarist/mfp.v
+  atarist/mfp_hbit16.v
+  atarist/mfp_srff16.v
+  atarist/mfp_timer.v
+  atarist/stBlitter.sv
+  atarist/ste_joypad.v
+  fdc1772/fdc1772.v
+  fdc1772/floppy.v
+  fx68k/LICENSE
+  fx68k/fx68k.sv
+  fx68k/fx68k.txt
+  fx68k/fx68kAlu.sv
+  fx68k/microrom.mem
+  fx68k/nanorom.mem
+  fx68k/uaddrPla.sv
+  gstmcu/hdl/clockgen.v
+  gstmcu/hdl/gstmcu.v
+  gstmcu/hdl/gstshifter.v
+  gstmcu/hdl/hdegen.v
+  gstmcu/hdl/hsyncgen.v
+  gstmcu/hdl/latch.v
+  gstmcu/hdl/mcucontrol.v
+  gstmcu/hdl/modules.v
+  gstmcu/hdl/register.v
+  gstmcu/hdl/shifter_video.v
+  gstmcu/hdl/sndcnt.v
+  gstmcu/hdl/vdegen.v
+  gstmcu/hdl/vidcnt.v
+  gstmcu/hdl/vsyncgen.v
+  hdmi/audio_clock_regeneration_packet.sv
+  hdmi/audio_info_frame.sv
+  hdmi/audio_sample_packet.sv
+  hdmi/auxiliary_video_information_info_frame.sv
+  hdmi/hdmi.sv
+  hdmi/packet_assembler.sv
+  hdmi/packet_picker.sv
+  hdmi/serializer.sv
+  hdmi/source_product_description_info_frame.sv
+  hdmi/tmds_channel.sv
+  ikbd/hd63701/HD63701.v
+  ikbd/hd63701/HD63701_ALU.v
+  ikbd/hd63701/HD63701_CORE.v
+  ikbd/hd63701/HD63701_EXEC.v
+  ikbd/hd63701/HD63701_MCODE.i
+  ikbd/hd63701/HD63701_MCROM.v
+  ikbd/hd63701/HD63701_SEQ.v
+  ikbd/hd63701/HD63701_defs.i
+  ikbd/ikbd.sv
+  ikbd/rom/MCU_BIROM.v
+  ikbd/rom/ikbd.hex
+  jt49/filter/jt49_dcrm.v
+  jt49/filter/jt49_dcrm2.v
+  jt49/filter/jt49_dly.v
+  jt49/filter/jt49_mave.v
+  jt49/jt49.v
+  jt49/jt49_bus.v
+  jt49/jt49_cen.v
+  jt49/jt49_div.v
+  jt49/jt49_eg.v
+  jt49/jt49_exp.v
+  jt49/jt49_noise.v
+  misc/atarist_keymap.v
+  misc/atarist_xml.hex
+  misc/dualshock2.v
+  misc/hid.v
+  misc/mcu_spi.v
+  misc/osd_u8g2.v
+  misc/scandoubler.v
+  misc/sd_card.v
+  misc/sd_rw.v
+  misc/sdcmd_ctrl.v
+  misc/sysctrl.v
+  misc/video_analyzer.v
+  misterynano.sv
+  tang/console138k/atarist.cst
+  tang/console138k/atarist.sdc
+  tang/console138k/gowin_pll/pll_160m.v
+  tang/console138k/gowin_pll/pll_160m_mod.v
+  tang/console138k/pll_init.v
+  tang/console138k/top.sv
+  tang/console60k/flash_dspi.v
+  tang/mega138kpro/gowin_dpb/fdc_dpram.v
+  tang/mega138kpro/gowin_dpb/sector_dpram.v
+  tang/mega138kpro/sdram.v
+  tang/nano20k/video.v
+  tang/nano20k/video2hdmi.v
+  tang/nano20k/ws2812.v
 ```
