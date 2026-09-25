@@ -6,9 +6,11 @@ Source and `build_falcon_m28.bat` are not in this folder yet. They arrive with D
 
 This is **not** the destination CPU. Do not treat a successful `.bin` as a substitute for `rigsdram/`.
 
-## TOS
+## TOS and the SD card
 
-Any TOS image can be loaded from an **SD card** if the user supplies it. That is how the hybrid was designed. This repo may include an **EmuTOS 1.4** C array (GPL-2, source: https://github.com/emutos/emutos tag `VERSION_1_4`). It does **not** ship Atari TOS. Put TOS 4.04 (or any other TOS you own) on the card yourself.
+Any TOS image can be loaded from an **SD card** if the user supplies it. That is how the hybrid was designed. See **[HOWTO.md](HOWTO.md)** for `FALCON.CFG`, FAT32, and the green-LED power-off rule.
+
+This repo may include an **EmuTOS 1.4** C array (GPL-2, source: https://github.com/emutos/emutos tag `VERSION_1_4`). It does **not** ship Atari TOS.
 
 ## Compile (when the bats are here)
 
