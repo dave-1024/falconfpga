@@ -22,6 +22,18 @@ Embedded **EmuTOS 1.4** inside the firmware is only the fallback if the card has
 
 Do not use exFAT.
 
+## If it feels slow: turn the log off
+
+**`LOG=1` is the default even if `FALCON.CFG` has no `LOG=` line.** The firmware prints a running trace on the UART while the 68k guest runs. That costs real time. You do not need a serial cable plugged in for it to hurt — the guest just feels sluggish and you will not see why.
+
+Put this in `FALCON.CFG` for normal use:
+
+```
+LOG=0
+```
+
+F12 still toggles the log at runtime if you later want the UART back.
+
 ## `FALCON.CFG` — files
 
 ```
@@ -32,6 +44,7 @@ HDD0=HD0.IMG
 HDD1=HD1.IMG
 HD0NAME=IDE MASTER
 HD1NAME=IDE SLAVE
+LOG=0
 ```
 
 | Line | Meaning |
@@ -56,8 +69,8 @@ These are optional. Defaults are what m28 already uses if the line is absent.
 
 | Line | Default | Meaning |
 |---|---|---|
-| `LOG=0` / `LOG=1` | on (`1`) | UART boot log. F12 toggles at runtime. |
-| `CACHEOPT=0` / `CACHEOPT=1` | on (`1`) | `0` forces the old whole-cache `WBINVAL_ALL` path (slow). Leave `1`. |
+| `LOG=0` / `LOG=1` | **on (`1`)** | UART trace while the guest runs. **Makes the machine feel slow.** You will not see this unless a serial adaptor is connected. Put `LOG=0` in the cfg for desktop use. F12 toggles at runtime. |
+| `CACHEOPT=0` / `CACHEOPT=1` | on (`1`) | `0` forces the old whole-cache `WBINVAL_ALL` path (also slow). Leave `1`. |
 | `FLUSHDIV=N` | `1` | Divider on the cache-flush cadence. `0` is treated as `1`. |
 | `BUS=32` | off (24-bit Falcon mask) | First character `3` enables 32-bit addresses (`BUS=32`). Anything else stays masked. |
 | `VBL=50` / `VBL=60` | firmware default | Pins VBL to 50 Hz or 60 Hz. |
@@ -74,6 +87,7 @@ These are optional. Defaults are what m28 already uses if the line is absent.
 ```
 ROM=TOS404.IMG
 DISKA=DISKA.ST
+LOG=0
 ```
 
 5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash.
@@ -87,6 +101,7 @@ ROM=TOS404.IMG
 DISKA=DISKA.ST
 HDD0=HD0.IMG
 HD0NAME=FALCON HD
+LOG=0
 ```
 
 Partition and format that image with Atari tools (HDX / AHDI / GEM) on the hybrid, or copy an image you already prepared. Do not put a `.ST` floppy file on `HDD0=`.
