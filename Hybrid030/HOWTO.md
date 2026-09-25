@@ -34,6 +34,12 @@ LOG=0
 
 F12 still toggles the log at runtime if you later want the UART back.
 
+## Sound
+
+There is **no HDMI audio** on this hybrid. Picture is HDMI; sound is not.
+
+Wire a speaker (or a small amp) to the **speaker jumpers on the Tang Console**. Silent HDMI is normal. F11 still switches PSG ↔ 440 Hz so you can hear whether that header is alive.
+
 ## Host keys (USB, not on a real Atari keyboard)
 
 Checked in `falcon_m28.c` (`hid_consume`). These keys do not exist on a Falcon keyboard, so firmware swallows them. TOS never sees the scancode.
@@ -46,7 +52,7 @@ A real Falcon on VGA runs 60 Hz. PAL titles and a lot of chip music were written
 
 ### F11 — audio source
 
-Toggles the audio path between the **YM/PSG** and a **440 Hz test tone**. Use it to prove the HDMI/I2S path is alive when a title is silent. It does not change frame rate.
+Toggles the audio path between the **YM/PSG** and a **440 Hz test tone**. Use it on the Console speaker header when a title is silent. It does not change frame rate and it does not put sound on HDMI.
 
 ### F12 — UART log
 
