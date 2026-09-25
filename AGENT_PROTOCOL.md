@@ -29,10 +29,20 @@ Two files so Grok chat and Grok bot never overwrite each other.
 - `RESULT` — `PASS` | `FAIL` | `NOT_RUN`
 - `GOWIN_VERSION` — or `NOT_RUN`
 - Errors with **file:line**, LUT/FF/BSRAM/DSP, Fmax/hold if PnR ran
+- Bitstream **size in bytes** only. Never attach the file.
+
+## Git is source only (hard rule)
+
+Bot and chat **never** push:
+
+- `*.fs` `*.bin` `*.bit` `*.sof` `*.rbf`
+- `impl/` (synth, pnr, timing html, reports)
+- TOS ROMs, disk images, object files
+
+Build products stay on the machine that ran Gowin. Report the path and byte count in `BUILD_REPORT.md`. David rebuilds locally when he wants a flash file.
 
 ## Rules
 
 - Bot never edits `BUILD_REQUEST.md` or HDL unless the request names a patch to apply.
 - Chat never edits `BUILD_REPORT.md` except after consuming a report.
-- `impl/`, `*.fs`, `*.bin` stay out of git.
 - `NO_BUILD` means idle even if the bot wakes.
