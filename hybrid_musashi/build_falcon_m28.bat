@@ -9,7 +9,6 @@ REM  Produces:  output\falcon_m28.bin  (flash to 0x600000, firmware only)
 REM ============================================================================
 setlocal enabledelayedexpansion
 
-REM Folder that contains this bat (trailing backslash).
 set "HERE=%~dp0"
 
 if exist "%HERE%env.bat" (
@@ -40,12 +39,11 @@ set "DEMO=%SDK%\library\demo"
 set "REFDEMO=%SDK%\ref_design\MCU_RefDesign\ae350_demo\src\demo"
 set "LDSCRIPT=%BSP%\sag\ae350-ddr.ld"
 
-set INC=-I"%BSP%\ae350" -I"%BSP%config" -I"%BSP%\driver\ae350" -I"%BSP%\driver\include" -I"%BSP%\lib" -I"%REFDEMO%" -I"%MUSASHI%"
+set INC=-I"%BSP%\ae350" -I"%BSP%\config" -I"%BSP%\driver\ae350" -I"%BSP%\driver\include" -I"%BSP%\lib" -I"%REFDEMO%" -I"%MUSASHI%"
 
 REM Dave 2026-08-03: -O2 in BOTH CFLAGS and LDFLAGS (gcc honours the LAST -O).
 set CFLAGS=-DREF_TEST_CLK %INC% -O2 -DBUILD_O2 -DFALCON_NO_FPU -mcmodel=medium -g3 -Wall -mcpu=a25 -ffunction-sections -fdata-sections -fmessage-length=0 -fno-builtin -fomit-frame-pointer -fno-strict-aliasing
 
-REM Heap ceiling 0x03000000: above _end, below ST-RAM at 0x04000000.
 set LDFLAGS=-mcpu=a25 -O2 -nostartfiles -static -T"%LDSCRIPT%" -Wl,--defsym=_heap_end=0x03000000 -Wl,--gc-sections -Wl,-Map,"%OUT%\falcon_m28.map"
 
 if not exist "%OUT%" mkdir "%OUT%"
@@ -59,7 +57,6 @@ echo Found gcc and cygwin1.dll.
 
 if not exist "%MUSASHI%\falcon_blitter.c" (
   echo ERROR: cannot find %MUSASHI%\falcon_blitter.c
-  echo         falcon_m28.c #includes it. Put sources next to this bat.
   exit /b 1
 )
 if not exist "%MUSASHI%\falcon_m28.c" (
@@ -67,16 +64,16 @@ if not exist "%MUSASHI%\falcon_m28.c" (
   exit /b 1
 )
 if not exist "%MUSASHI%\emutos_rom.c" (
-  echo ERROR: cannot find %MUSASHI%\emutos_rom.c -- the EmuTOS ROM array
+  echo ERROR: cannot find %MUSASHI%\emutos_rom.c
   exit /b 1
 )
 if not exist "%MUSASHI%\m68kops.c" (
-  echo ERROR: cannot find %MUSASHI%\m68kops.c -- pre-generated opcode tables
+  echo ERROR: cannot find %MUSASHI%\m68kops.c
   exit /b 1
 )
 
 echo.
-echo === Assembling source list (BSP + Musashi + EmuTOS array + m28) ===
+echo === Assembling source list ===
 set SRCS=%BSP%\ae350\start.S
 set SRCS=%SRCS% %BSP%\ae350\ae350.c %BSP%\ae350\cache.c %BSP%\ae350\initfini.c %BSP%\ae350\interrupt.c %BSP%\ae350\loader.c %BSP%\ae350\reset.c %BSP%\ae350\trap.c
 set SRCS=%SRCS% %BSP%\driver\ae350\gpio_ae350.c %BSP%\driver\ae350\uart_ae350.c %BSP%\driver\ae350\pit_ae350.c %BSP%\driver\ae350\rtc_ae350.c %BSP%\driver\ae350\wdt_ae350.c %BSP%\driver\ae350\dma_ae350.c %BSP%\driver\ae350\i2c_ae350.c %BSP%\driver\ae350\pwm_ae350.c %BSP%\driver\ae350\spi_ae350.c
@@ -87,29 +84,18 @@ set SRCS=%SRCS% "%MUSASHI%\emutos_rom.c"
 set SRCS=%SRCS% "%MUSASHI%\falcon_m28.c"
 
 echo.
-echo === Compiling + linking (big sources, be patient) ===
+echo === Compiling + linking ===
 "%GCC%" %CFLAGS% %LDFLAGS% %SRCS% -o "%OUT%\falcon_m28.adx" -lc -lm -lgcc
 if errorlevel 1 (
-  echo.
-  echo ===============================================================
-  echo  BUILD FAILED. Copy ALL the error text above.
-  echo ===============================================================
+  echo BUILD FAILED. Copy ALL the error text above.
   exit /b 1
 )
 
-echo.
-echo === ELF -^> BIN ===
 "%OBJCOPY%" -S -O binary "%OUT%\falcon_m28.adx" "%OUT%\falcon_m28.bin"
 if errorlevel 1 ( echo objcopy failed & exit /b 1 )
 
-echo.
-echo === Sections + size ===
 "%OBJDUMP%" -h "%OUT%\falcon_m28.adx" | findstr /i ".text .data .bss .bootloader .loader .vector"
 "%SIZE%" "%OUT%\falcon_m28.adx"
-echo.
 for %%F in ("%OUT%\falcon_m28.bin") do echo Output: %%~fF  (%%~zF bytes)
-echo.
-echo Flash .bin to 0x600000. Bitstream untouched.
-echo TOS and disks come from the SD card. See HOWTO.md.
-echo.
+echo Flash .bin to 0x600000. TOS from SD. See HOWTO.md.
 endlocal
