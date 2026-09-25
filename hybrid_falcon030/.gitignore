@@ -1,0 +1,6 @@
+impl/
+*.user
+*.fs
+*.bin
+CurrentBuildReports/
+**/temp/
