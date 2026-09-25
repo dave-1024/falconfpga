@@ -1,0 +1,264 @@
+// =====================================================================
+// ae350_stage0.cst -- Tang Console 138K (dock V32001C Rev 1.3 + Mega 138K SOM)
+// GW5AST-LV138PG484AC1/I0, device version C.
+// Matches ae350_stage0_top.v REV10 (16-bit DDR3, lanes 0-1; SD on GPIO).
+//
+// REV10 (2026-07-20): SD Stage A. Four spare AE350 GPIO bits, previously
+//   unused/diagnostic (old LED[1]/LED[2]/KEY[1]/KEY[2] at V18/F15/G21/G22),
+//   are re-LOC'd to the TF (microSD) slot for SPI-mode SD. The GPIO port
+//   is now 6 bits {SD_DAT3,SD_DAT0,KEY0,SD_CMD,SD_CLK,LED0}; LED[0] and
+//   KEY[0] retain their pins. SD pad balls from 486tang console.cst (a
+//   core that boots from this slot on the retail Tang Console).
+//
+// Constraint-audit invariants (verify every build):
+//   1. AE350 system PLL pinned to PLL_R[0] (MUG1031 8.4.1) -- MANDATORY.
+//   2. DDR3 PHY/PLL placement block present (FLAG-2).
+//   3. FLASH_SPI six pins constrained (needs Dual-Purpose Pin: MSPI+CPU).
+//   4. SD pads at V15/Y16/AA15/W15 -- confirm in post-place report.
+// =====================================================================
+
+// ---- System clock: 50 MHz ----
+IO_LOC  "CLK" V22;
+IO_PORT "CLK" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
+// ---- Reset: dock S1 (EX_KEY.0), active-low ----
+IO_LOC  "RSTN" AA13;
+IO_PORT "RSTN" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ---- GPIO[0] = on-board green LED1 (V13), firmware liveness blink ----
+IO_LOC  "LED[0]" V13;
+IO_PORT "LED[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// ---- GPIO[3] = dock S2 button (EX_KEY.1) ----
+IO_LOC  "KEY[0]" AB13;
+IO_PORT "KEY[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// =====================================================================
+// TF (microSD) slot -- SPI mode (REV10). GPIO map:
+//   GPIO[1]=SD_CLK  V15   clock       (out)
+//   GPIO[2]=SD_CMD  Y16   MOSI        (out)
+//   GPIO[4]=SD_DAT0 AA15  MISO        (in)
+//   GPIO[5]=SD_DAT3 W15   CS_n        (out)
+//   SD_DAT1 AB15, SD_DAT2 W14  pull-up only, unused in SPI mode
+// Pull-ups on all lines per SD SPI convention (card has its own too).
+// =====================================================================
+IO_LOC  "SD_CLK"   V15;
+IO_PORT "SD_CLK"   IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_CMD"   Y16;
+IO_PORT "SD_CMD"   IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_DAT0"  AA15;
+IO_PORT "SD_DAT0"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "SD_DAT3"  W15;
+IO_PORT "SD_DAT3"  IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC  "SD_DAT1"  AB15;
+IO_PORT "SD_DAT1"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "SD_DAT2"  W14;
+IO_PORT "SD_DAT2"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ---- UART2 console -> U1201 pigtail 7(TX)/6(RX) ----
+// Shared with dock BL616 link (3R series); if console garbled, suspect
+// BL616 contention before the AE350.
+IO_LOC  "UART2_TXD" U15;
+IO_LOC  "UART2_RXD" V14;
+IO_PORT "UART2_TXD" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "UART2_RXD" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ---- AE350 debug TAP -> PMOD1 J7 (OpenOCD/gdb) ----
+IO_LOC  "TCK_IN"  E21;
+IO_LOC  "TMS_IN"  E22;
+IO_LOC  "TDI_IN"  D22;
+IO_LOC  "TDO_OUT" D21;
+IO_LOC  "TRST_IN" F19;
+IO_PORT "TCK_IN"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_PORT "TMS_IN"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "TDI_IN"  IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "TRST_IN" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "TDO_OUT" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// =====================================================================
+// DDR3 -- 16-bit: byte lanes 0-1 only (physical chip 1). SSTL15/1.5V.
+// Balls from Sipeed reference cst (cheatsheet). DRAM A14 (ball D1) is
+// intentionally NOT constrained -- controller drives ADDR[13:0] only.
+// =====================================================================
+IO_LOC  "DDR3_CK"       L3, K3;
+IO_LOC  "DDR3_RESET_N"  L6;
+IO_LOC  "DDR3_ODT"      M2;
+IO_LOC  "DDR3_CKE"      K6;
+IO_LOC  "DDR3_CS_N"     P4;
+IO_LOC  "DDR3_RAS_N"    L5;
+IO_LOC  "DDR3_CAS_N"    L4;
+IO_LOC  "DDR3_WE_N"     M5;
+IO_LOC  "DDR3_BANK[2]"  M6;
+IO_LOC  "DDR3_BANK[1]"  P2;
+IO_LOC  "DDR3_BANK[0]"  P5;
+IO_LOC  "DDR3_ADDR[13]" K1;
+IO_LOC  "DDR3_ADDR[12]" K4;
+IO_LOC  "DDR3_ADDR[11]" H3;
+IO_LOC  "DDR3_ADDR[10]" L1;
+IO_LOC  "DDR3_ADDR[9]"  H5;
+IO_LOC  "DDR3_ADDR[8]"  J5;
+IO_LOC  "DDR3_ADDR[7]"  J1;
+IO_LOC  "DDR3_ADDR[6]"  G3;
+IO_LOC  "DDR3_ADDR[5]"  H2;
+IO_LOC  "DDR3_ADDR[4]"  J2;
+IO_LOC  "DDR3_ADDR[3]"  J4;
+IO_LOC  "DDR3_ADDR[2]"  G2;
+IO_LOC  "DDR3_ADDR[1]"  K2;
+IO_LOC  "DDR3_ADDR[0]"  M1;
+// byte lane 0
+IO_LOC  "DDR3_DQ[7]"    AB1;
+IO_LOC  "DDR3_DQ[6]"    AB5;
+IO_LOC  "DDR3_DQ[5]"    AB2;
+IO_LOC  "DDR3_DQ[4]"    AA1;
+IO_LOC  "DDR3_DQ[3]"    V4;
+IO_LOC  "DDR3_DQ[2]"    AA5;
+IO_LOC  "DDR3_DQ[1]"    AB3;
+IO_LOC  "DDR3_DQ[0]"    Y4;
+// byte lane 1
+IO_LOC  "DDR3_DQ[15]"   Y9;
+IO_LOC  "DDR3_DQ[14]"   AB6;
+IO_LOC  "DDR3_DQ[13]"   W9;
+IO_LOC  "DDR3_DQ[12]"   AB8;
+IO_LOC  "DDR3_DQ[11]"   Y7;
+IO_LOC  "DDR3_DQ[10]"   AB7;
+IO_LOC  "DDR3_DQ[9]"    Y8;
+IO_LOC  "DDR3_DQ[8]"    AA8;
+// strobes + masks
+IO_LOC  "DDR3_DQS[1]"   V9, V8;
+IO_LOC  "DDR3_DQS[0]"   Y3, AA3;
+IO_LOC  "DDR3_DM[1]"    V7;
+IO_LOC  "DDR3_DM[0]"    AA4;
+
+IO_PORT "DDR3_CK"       IO_TYPE=SSTL15D PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_RESET_N"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ODT"      IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_CKE"      IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_CS_N"     IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_RAS_N"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_CAS_N"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_WE_N"     IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_BANK[0]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_BANK[1]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_BANK[2]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[0]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[1]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[2]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[3]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[4]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[5]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[6]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[7]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[8]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[9]"  IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[10]" IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[11]" IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[12]" IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_ADDR[13]" IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[0]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[1]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[2]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[3]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[4]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[5]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[6]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[7]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[8]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[9]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[10]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[11]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[12]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[13]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[14]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQ[15]"   IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQS[0]"   IO_TYPE=SSTL15D PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DQS[1]"   IO_TYPE=SSTL15D PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DM[0]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+IO_PORT "DDR3_DM[1]"    IO_TYPE=SSTL15  PULL_MODE=NONE DRIVE=8 BANK_VCCIO=1.5;
+
+// =====================================================================
+// DDR3 PHY/PLL placement (FLAG-2). From Sipeed reference, hierarchy
+// rewritten to this design's AE350-embedded DDR3 path.
+// =====================================================================
+INS_LOC   "u_RiscV_AE350_SOC_Top/u_RiscV_AE350_SOC/u_riscv_ae350_ddr3_top/u_ddr3_memory_ahb_top/u_ddr3/gw3_top/u_ddr_phy_top/u_dll"    DDRDLLM_BL;
+INS_LOC   "u_RiscV_AE350_SOC_Top/u_RiscV_AE350_SOC/u_riscv_ae350_ddr3_top/u_ddr3_memory_ahb_top/u_ddr3/gw3_top/u_ddr_phy_top/fclkdiv"  LEFTSIDE[4];
+INS_LOC   "u_gowin_pll_ddr3/u_pll/PLL_inst"  PLL_L[0];
+SET_PARAM "u_RiscV_AE350_SOC_Top/u_RiscV_AE350_SOC/u_riscv_ae350_ddr3_top/u_ddr3_memory_ahb_top/u_ddr3/gw3_top/u_ddr_phy_top/u_dll"    CLKIN_SEL=CLKIN5;
+
+// =====================================================================
+// AE350 SYSTEM PLL PLACEMENT -- MANDATORY (MUG1031 8.4.1).
+// The A25 core clock is provided by PLL_R[0] > clkout1 directly. If P&R
+// places this PLL elsewhere, the A25 has no valid 800 MHz core clock and
+// never executes -- root cause of the original Stage-0 blockage. If P&R
+// errors "object not found", check gowin_pll_ae350_MOD in the generated
+// netlist and adjust the inner instance name.
+// =====================================================================
+INS_LOC "u_gowin_pll_ae350/u_pll/PLL_inst" PLL_R[0];
+
+// =====================================================================
+// SPI flash (XT25F128) -- AE350 instruction-fetch path. PG484 dedicated
+// MSPI balls. REQUIRES Place&Route > Dual-Purpose Pin > "Use MSPI as
+// regular IO" = TICKED, or these error out. Without them the flash
+// controller floats and nothing boots.
+// =====================================================================
+IO_LOC "FLASH_SPI_CSN"    T19;
+IO_LOC "FLASH_SPI_CLK"    L12;
+IO_LOC "FLASH_SPI_MOSI"   P22;    // DO[0] DI
+IO_LOC "FLASH_SPI_MISO"   R22;    // DO[1] DO
+IO_LOC "FLASH_SPI_WPN"    P21;    // DO[2]
+IO_LOC "FLASH_SPI_HOLDN"  R21;    // DO[3]
+IO_PORT "FLASH_SPI_CSN"    IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "FLASH_SPI_CLK"    IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "FLASH_SPI_MOSI"   IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "FLASH_SPI_MISO"   IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "FLASH_SPI_WPN"    IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_PORT "FLASH_SPI_HOLDN"  IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// ---- HDMI (Tier C) -- verified on this carrier with a real monitor ----
+IO_LOC "tmds_clk_p"  G15;
+IO_PORT "tmds_clk_p"  PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_clk_n"  G16;
+IO_PORT "tmds_clk_n"  PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_p[0]" J14;
+IO_PORT "tmds_d_p[0]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_n[0]" H14;
+IO_PORT "tmds_d_n[0]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_p[1]" J15;
+IO_PORT "tmds_d_p[1]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_n[1]" H15;
+IO_PORT "tmds_d_n[1]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_p[2]" K17;
+IO_PORT "tmds_d_p[2]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+IO_LOC "tmds_d_n[2]" J17;
+IO_PORT "tmds_d_n[2]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
+
+// ---- USB HID (m6) -- from the working NESTang Tang Console port ----
+IO_LOC  "usb1_dp" H13;
+IO_PORT "usb1_dp" IO_TYPE=LVCMOS33;
+IO_LOC  "usb1_dn" G13;
+IO_PORT "usb1_dn" IO_TYPE=LVCMOS33;
+IO_LOC  "usb2_dp" M15;
+IO_PORT "usb2_dp" IO_TYPE=LVCMOS33;
+IO_LOC  "usb2_dn" M16;
+IO_PORT "usb2_dn" IO_TYPE=LVCMOS33;
+// ---- FalconFPGA audio egress: onboard MAX98357A I2S DAC (REV12) -----
+// All four pins now schematic-certified (layout-text + word-coordinates
+// + rendered-drawing crop, 2026-08-07). I2S pins cross-checked against
+// the silicon-proven SD balls on the same J2 sheet.
+
+// I2S (J2-26/28/30) -- ordinary 3.3V IO, same class as the proven SD pins.
+IO_LOC  "i2s_bclk"  Y17;    IO_PORT "i2s_bclk"  IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "i2s_lrck"  AB17;   IO_PORT "i2s_lrck"  IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "i2s_din"   AA16;   IO_PORT "i2s_din"   IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// PA_EN = J2-52 = ball Y14 -> MAX98357A ~SD_MODE via R54 (0R), with R89
+// 51K pulldown (default = amp shutdown). NOTE: Y14 carries the schematic's
+// "60K BANK9 1.5V IO" annotation -- the bank rail is 1.5V, so the pin
+// physically drives ~1.5V high regardless of the declared type. That is
+// FINE here: SD_MODE's only critical threshold is shutdown-exit (~0.16V),
+// and the 1.4V tri-level channel-select ambiguity is harmless because we
+// transmit identical samples in both I2S slots. Declared LVCMOS33 to
+// mirror the silicon-proven precedent on this exact pin class
+// (KEY[0]=AB13, same note, LVCMOS33 in the working cst).
+IO_LOC  "pa_en"     Y14;
+IO_PORT "pa_en"     IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+
