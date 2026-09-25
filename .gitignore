@@ -1,5 +1,7 @@
 impl/
 CurrentBuildReports/
+env.bat
+output/
 *.fs
 *.bin
 *.adx
@@ -7,6 +9,7 @@ CurrentBuildReports/
 *.so
 *.o
 *.elf
+*.map
 src/New folder/
 **/New folder/
 .gowin/
