@@ -62,9 +62,9 @@ LOG=0
 | `ROM=` | TOS image loaded to the guest ROM window at `0x00E00000`. You supply the file. This bench used 512K TOS 4.04 **or** a current 512K EmuTOS. Missing or failed load → **older embedded EmuTOS 1.4** (fallback only). |
 | `DISKA=` | Floppy A: `.ST` image. Default if omitted: look for `DISKA.ST`. Failed load → blank 720K A:. Writes go to the card if the file is contiguous. |
 | `DISKB=` | Floppy B: same firmware idea. **Seen working under EmuTOS. Not useful under TOS 4.04** — a real Falcon has no second floppy port, and TOS 4.04 does not drive B:. Omit this line on a TOS 4.04 card. |
-| `HDD0=` | IDE unit 0 **hardfile**. Raw sector image on the card (not a `.ST`). Presented as the Falcon IDE master. AHDI / HDX / GEM partitions work on this file — that is how this bench partitioned C:. Omit → no IDE 0. |
+| `HDD0=` | IDE unit 0 **hardfile**. Raw sector image on the card (not a `.ST`). Presented as the Falcon IDE master. Omit → no IDE 0. |
 | `HDD1=` | IDE unit 1 (slave), same rules. |
-| `HD0NAME=` | IDENTIFY model string for unit 0, up to 40 characters. Else the 8.3 stem (`HD0.IMG` → `HD0`), else the firmware default. |
+| `HD0NAME=` | **IDE IDENTIFY model string** for unit 0 (≤40 chars). This is what tools see on the IDE chain. It is **not** the filename. If omitted, firmware uses the 8.3 stem (`HD0.IMG` → `HD0`). |
 | `HD1NAME=` | Same for unit 1. |
 
 You supply Atari TOS, EmuTOS, and any hardfile. This repo does not ship Atari TOS.
@@ -76,6 +76,20 @@ A missing card, missing FAT, or missing line does not brick the firmware. Hardfi
 ## Floppy B
 
 The firmware will still attach `DISKB=` if the file is there. EmuTOS will show drive B. TOS 4.04 will not: Falcon TOS only knows one floppy. That is TOS, not a dead image. Use `HDD0=` for a second volume under TOS 4.04.
+
+## Hardfile name (`HD0NAME=` / `HD1NAME=`)
+
+Some Atari HD tools only accept **legacy drive model names** — strings that shipped with a real Falcon or with a period IDE box. They look at the IDENTIFY model, not at `HD0.IMG`.
+
+If a partitioner refuses the image, the file is often fine and the **name does not match** what that tool was written for. Set `HD0NAME=` to a model that tool already knows, then try again.
+
+This bench has used the IDE hardfile with:
+
+- **HDDRIVER**
+- Atari’s own Falcon setup disks (**AHDI / HDX**)
+- other partitioning software that talks **IDE** (GEM partitions included)
+
+That is a workbench result, not a promise every HD tool will like every name.
 
 ## `FALCON.CFG` — behaviour knobs
 
@@ -129,7 +143,7 @@ HD0NAME=FALCON HD
 LOG=0
 ```
 
-Partition and format that image with Atari tools (HDX / AHDI / GEM) on the hybrid, or copy an image you already prepared. Do not put a `.ST` floppy file on `HDD0=`.
+`HD0NAME=` is the string on the IDE chain. Change it to a legacy Falcon-era model if HDDRIVER / HDX / AHDI will not touch the disk. Do not put a `.ST` floppy file on `HDD0=`.
 
 ## Green LED (power-off contract)
 
