@@ -3,7 +3,7 @@
 OWNER: Grok bot. Grok chat: read only (may reset to this template after reading).
 
 ```
-REQUEST_ID: 20260925-mn3
+REQUEST_ID: 20260925-mn4
 ACTION: BUILD
 RESULT: PASS
 GOWIN_VERSION: V1.9.12.03 (gw_sh via /usr/local/bin/gowin-sh, Linux)
@@ -14,16 +14,15 @@ TOP: top
 DEVICE: GW5AST-LV138PG484AC1/I0
 DEVICE_VERSION: C
 REPLICATE_RESOURCES: TRUE (set_option -replicate_resources 1 in build_tc138k.tcl)
-REPO COMMIT BUILT: 042fdc3 (includes mn3 top.sv patch commit)
+REPO COMMIT BUILT: ea8f905 (toolchain replay; no HDL change vs mn3)
 
-STAGE REACHED: full flow — GowinSynthesis, place, route, timing, bitstream, power. Exit 0 in ~4.2 min.
+STAGE REACHED: full flow — GowinSynthesis, place, route, timing, bitstream, power. Exit 0 in ~4.3 min.
 LICENCE: OK (attempt 1, no retries)
 
 WHAT WAS RUN:
-  1. git apply --recount --ignore-whitespace patches/MN_20260925-mn3.patch
-     -> removed .clk ( clk ), from misterynano instance in tang/console138k/top.sv (EX3990 fix)
-  2. Committed top.sv only as 042fdc3; pushed. rigsdram/ untouched.
-  3. cd misterynano_tc138k && gowin-sh build_tc138k.tcl
+  1. git pull origin main (to ea8f905)
+  2. cd misterynano_tc138k && gowin-sh build_tc138k.tcl
+  No patch. No HDL edits. rigsdram/ untouched.
 
 ERRORS: none (no ERROR lines in build log)
 
@@ -63,12 +62,9 @@ BITSTREAM:
   (also .bin 4564062 bytes; not committed)
 
 CHECK:
-  1. PnR complete / impl/pnr/atarist_tc138k.fs   PASS (36538618 bytes)
-  2. device_version C / use_jtag_as_gpio 1       PASS — tcl has set_device ... -device_version C
-                                                 and set_option -use_jtag_as_gpio 1;
-                                                 log: "current device: GW5AST-138C GW5AST-LV138PG484AC1/I0"
-  3. ERRORS / LUT/FF/BSRAM/DSP / Fmax / .fs      PASS — reported above
-  4. FAIL on first error with file:line          N/A (no errors)
+  1. RESULT PASS with file:line                  PASS — no errors
+  2. LUT/FF/BSRAM/DSP and .fs bytes              PASS — same as mn3 (36538618 bytes)
+  3. device_version C in log                     PASS — "current device: GW5AST-138C GW5AST-LV138PG484AC1/I0"
 
 NOTES:
   Not flashed. rigsdram/ HDL and local dirt left alone. impl/ and build logs untracked.
