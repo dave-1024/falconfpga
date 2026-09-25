@@ -1,0 +1,7 @@
+--- a/rigsdram/src/rigsdram.sdc
++++ b/rigsdram/src/rigsdram.sdc
+@@ -90,5 +90,4 @@
+ // [H48-3] first lock CDC flop. pll_lock is made on clk_ref / pll_init.
+ // One command per line. Do not false-path the whole clk_ref domain.
+ set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {u_lock_meta/D}]
+-set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {lock_meta_s0/RESET}]
