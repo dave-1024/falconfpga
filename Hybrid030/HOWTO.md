@@ -36,21 +36,34 @@ F12 still toggles the log at runtime if you later want the UART back.
 
 ## Host keys (USB, not on a real Atari keyboard)
 
-Checked in `falcon_m28.c` (`hid_consume`). These keys are swallowed so TOS never sees them.
+Checked in `falcon_m28.c` (`hid_consume`). These keys do not exist on a Falcon keyboard, so firmware swallows them. TOS never sees the scancode.
 
-| Key | What it does |
+### F10 — 50 Hz / 60 Hz
+
+Toggles the guest VBL between **50 Hz (PAL)** and **60 Hz (VGA)**. Boot default is 60 Hz unless `VBL=50` is in the cfg.
+
+A real Falcon on VGA runs 60 Hz. PAL titles and a lot of chip music were written for 50 Hz VBL, so on 60 Hz they run about 20% fast. If a game or a tune is rushed, press F10 before assuming the CPU is wrong.
+
+### F11 — audio source
+
+Toggles the audio path between the **YM/PSG** and a **440 Hz test tone**. Use it to prove the HDMI/I2S path is alive when a title is silent. It does not change frame rate.
+
+### F12 — UART log
+
+Toggles the same flag as `LOG=` in the cfg. On = firmware prints while the 68k runs (slow). Off = desktop speed.
+
+### Print Screen — keyboard joystick
+
+Toggles **IKBD joystick 1** (the ST joystick port, not the mouse port). Games that expect a stick on port 1 can be played from the USB keyboard.
+
+| Control | Keys |
 |---|---|
-| **F10** | Toggle VBL **50 Hz / 60 Hz** live. Default after boot is 60 Hz (VGA). A PAL game or a tune that runs fast is usually this — press F10. `VBL=50` / `VBL=60` in the cfg only sets the *boot* rate. |
-| **F11** | Toggle audio source: PSG ↔ 440 Hz test tone. Not the frame rate. |
-| **F12** | Toggle the UART log (`LOG=`). |
-| **Print Screen** | Toggle **joystick 1** from the keyboard. |
+| Up / down / left / right | arrows **or** numpad 8 / 2 / 4 / 6 |
+| Fire | Space **or** numpad 0 |
 
-Joystick mode (Print Screen): IKBD joystick 1 packets.
+While the mode is on, those keys are **consumed** — they are not also typed into TOS, so a game that reads both keyboard and stick cannot see double input. Turning the mode off sends an all-released packet so a direction cannot stick.
 
-- Direction: arrow keys **or** numpad 8 / 2 / 4 / 6
-- Fire: Space **or** numpad 0
-
-While it is on, those keys are consumed (they do not also arrive as typing). Turning it off sends a release packet so a direction cannot stick.
+There is no on-screen flag. If a title starts acting like a stick is held, press Print Screen again.
 
 ## EmuTOS vs TOS 4.04
 
@@ -111,17 +124,21 @@ That is a workbench result, not a promise every HD tool will like every name.
 
 ## `FALCON.CFG` — behaviour knobs
 
-These are optional. Defaults are what m28 already uses if the line is absent.
+Leave these alone unless you know why you are changing them. Defaults are what m28 uses if the line is absent.
 
-| Line | Default | Meaning |
-|---|---|---|
-| `LOG=0` / `LOG=1` | **on (`1`)** | UART trace while the guest runs. **Makes the machine feel slow.** You will not see this unless a serial adaptor is connected. Put `LOG=0` in the cfg for desktop use. F12 toggles at runtime. |
-| `CACHEOPT=0` / `CACHEOPT=1` | on (`1`) | `0` forces the old whole-cache `WBINVAL_ALL` path (also slow). Leave `1`. |
-| `FLUSHDIV=N` | `1` | Divider on the cache-flush cadence. `0` is treated as `1`. |
-| `BUS=32` | off (24-bit Falcon mask) | First character `3` enables 32-bit addresses (`BUS=32`). Anything else stays masked. |
-| `VBL=50` / `VBL=60` | 60 Hz | Boot VBL rate. **F10** toggles 50/60 live after boot. |
-| `PALSPLIT=0` / `PALSPLIT=1` | on (`1`) | `0` disables the pal-split path. |
-| `SLICE=n` | automatic (`0`) | Cap on the 68k slice. `SLICE=10000` is the documented “restore old cap” value. |
+**`LOG=0` / `LOG=1`** — default **on**. UART trace while the guest runs. See above. F12 toggles live.
+
+**`VBL=50` / `VBL=60`** — boot frame rate only. Default 60 Hz. F10 toggles live after boot. Use `VBL=50` if every PAL title on this card should start at PAL speed.
+
+**`BUS=32`** — default is **24-bit**, like a stock Falcon (addresses masked to 16 MB). That is the mode that matched Hatari and this bench for TOS and games. `BUS=32` turns the mask off. Only for experiments that need a full 32-bit address. Do not set it to “make it faster”.
+
+**`CACHEOPT=1`** (default) — range flushes of the framebuffer and mailbox. **`CACHEOPT=0`** forces the old whole-cache `WBINVAL_ALL` every VBL. That is much slower. Leave `1`.
+
+**`FLUSHDIV=N`** — default `1` (flush every VBL). Higher N skips flushes (`FLUSHDIV=8` = every 8th VBL). That was a diagnostic: it can make the guest feel quicker and will tear or stale the picture. `0` is treated as `1`. Do not leave this above `1` for a desktop card.
+
+**`PALSPLIT=1`** (default) — raster palette-split list published to the video fabric, so mid-frame palette changes can display. **`PALSPLIT=0`** turns that path off (fabric falls back). Only if a title misbehaves on splits and you want to prove it.
+
+**`SLICE=n`** — how many 68k cycles the AE350 runs per host slice. Default `0` = automatic (coarse 10000, finer only when a short timer IRQ or a palette split needs it). **`SLICE=10000`** pins the old pre-M28 cap for bisection. Smaller numbers make the host check hardware more often and cost AE350 time. Leave unset unless you are chasing a timer or split bug.
 
 ## Suggested first card (TOS 4.04)
 
