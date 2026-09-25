@@ -18,7 +18,7 @@ This repository is **source only**. Bitstreams, `impl/`, TOS ROMs and disk image
 
 The long goal is a Falcon-class machine in FPGA: Motorola **68030** guest, ST-compatible chipset first, Falcon hardware later.
 
-The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes — until it matched a real 030 well enough to trust. What lives in `rigsdram/` is that tree, not an unmodified download. It is not a Musashi rewrite and it is not fx68k.
+The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes. It was also **heavily audited for CPU instruction errors** against a real 68030: opcode by opcode, including cases where the tests passed and the silicon still disagreed. What lives in `rigsdram/` is that tree, not an unmodified download. It is not a Musashi rewrite and it is not fx68k.
 
 PMMU is a later fabric + RISC-V walk, not inside the CPU core. First silicon for this core does not turn cache or PMMU on.
 
@@ -53,7 +53,7 @@ DONE P
 
 `12345` is the healthy UART signature. `112345` only means the AUTO_WARM broker pulse fired late. PnR uses **Replicate Resources = TRUE**. CPU target is **16 MHz**; current Fmax on that tree is above that.
 
-Verification was against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 and the instruction audit before it). The A1200 overturned more than one paper argument about `$A`/`$B` boundaries. That audit is the oracle for CPU behaviour. Do not drop a fresh upstream wf68k30L on top of this tree and expect the same results.
+The instruction audit was run against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 session and the work before it). The audit was treated as complete for the scoped instruction set. The A1200 overturned more than one paper argument about `$A`/`$B` boundaries — F38 looked fine in tests and was still wrong. That machine is the oracle for CPU behaviour. Do not drop a fresh upstream wf68k30L on top of this tree and expect the same results.
 
 Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
 
@@ -78,7 +78,7 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 
 - **Silicon first.** A passing Gowin log is not a passing board.
 - **One golden guest at a time.** Do not judge Line-F work against a shorter test that was never the flashed image.
-- **Real 030 as CPU oracle** (A1200 + ACA1230-55N). Hatari + state saves for TOS/game behaviour on the hybrid.
+- **Instruction audit against a real 030** (A1200 + ACA1230-55N). Tests that pass can still be wrong; the Amiga was allowed to overrule them. Hatari + state saves for TOS/game behaviour on the hybrid.
 - **Gowin on this SOM:** device Version **C**, Replicate Resources **TRUE** when chasing Fmax. Do not flip that flag to “compare” old reports.
 - **Git handshake** for the compile box: `BUILD_REQUEST.md` (chat) / `BUILD_REPORT.md` (bot). See `AGENT_PROTOCOL.md`. The bot compiles and reports; it does not invent HDL. Chat writes the RTL.
 - **No double-reset as a product.** AUTO_WARM is a board workaround, not a core fix.
@@ -93,7 +93,7 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 
 | Path | Role |
 |---|---|
-| `rigsdram/` | re-engineered wf68k30L + SDRAM guest tests |
+| `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only |
 | `patches/` | named diffs the bot may apply when a request says so |
 | `AGENT_PROTOCOL.md` | chat / bot rules |
