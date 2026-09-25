@@ -1,5 +1,15 @@
 # FalconFPGA
 
+Hello — thanks for opening this.
+
+This is a private workshop for bringing an **Atari Falcon** up on a small modern FPGA board. It is not a finished core you download and play. It is the notes, HDL, and build plumbing for one machine on the bench: a Sipeed Tang Console with a 138K SOM, a real 68030 as the teacher, and a lot of patience.
+
+The owner of the board is David. If you are reading this as a future-me, or as someone helping compile, the useful sentence is: we already had a software 68030 that could boot TOS and render for a day without drifting a byte. Now we are teaching the same machine to exist in gates, carefully, on hardware we can hold.
+
+Grab a coffee. The technical map starts just below.
+
+---
+
 FPGA work toward an Atari Falcon on a **Sipeed Tang Console** with the **GW5AST-138K** SOM (device `GW5AST-LV138PG484AC1/I0`, **Version C**). Toolchain is **Gowin IDE / gw_sh V1.9.12** on Windows, plus a Linux headless Gowin box used only to compile.
 
 This repository is **source only**. Bitstreams, `impl/`, TOS ROMs and disk images stay on the machine that built or flashed them.
