@@ -1,0 +1,7 @@
+env.bat
+output/
+*.elf
+*.bin
+*.o
+*.map
+*.lst
