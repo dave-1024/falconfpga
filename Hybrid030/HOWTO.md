@@ -34,6 +34,24 @@ LOG=0
 
 F12 still toggles the log at runtime if you later want the UART back.
 
+## Host keys (USB, not on a real Atari keyboard)
+
+Checked in `falcon_m28.c` (`hid_consume`). These keys are swallowed so TOS never sees them.
+
+| Key | What it does |
+|---|---|
+| **F10** | Toggle VBL **50 Hz / 60 Hz** live. Default after boot is 60 Hz (VGA). A PAL game or a tune that runs fast is usually this — press F10. `VBL=50` / `VBL=60` in the cfg only sets the *boot* rate. |
+| **F11** | Toggle audio source: PSG ↔ 440 Hz test tone. Not the frame rate. |
+| **F12** | Toggle the UART log (`LOG=`). |
+| **Print Screen** | Toggle **joystick 1** from the keyboard. |
+
+Joystick mode (Print Screen): IKBD joystick 1 packets.
+
+- Direction: arrow keys **or** numpad 8 / 2 / 4 / 6
+- Fire: Space **or** numpad 0
+
+While it is on, those keys are consumed (they do not also arrive as typing). Turning it off sends a release packet so a direction cannot stick.
+
 ## EmuTOS vs TOS 4.04
 
 EmuTOS generally **runs faster** on this scaffold. It polls hardware and fails cleanly when a chip is missing or odd. Atari TOS 4.04 **assumes** Falcon hardware is present and waits on it. That is TOS, not a broken bitstream.
@@ -101,7 +119,7 @@ These are optional. Defaults are what m28 already uses if the line is absent.
 | `CACHEOPT=0` / `CACHEOPT=1` | on (`1`) | `0` forces the old whole-cache `WBINVAL_ALL` path (also slow). Leave `1`. |
 | `FLUSHDIV=N` | `1` | Divider on the cache-flush cadence. `0` is treated as `1`. |
 | `BUS=32` | off (24-bit Falcon mask) | First character `3` enables 32-bit addresses (`BUS=32`). Anything else stays masked. |
-| `VBL=50` / `VBL=60` | firmware default | Pins VBL to 50 Hz or 60 Hz. |
+| `VBL=50` / `VBL=60` | 60 Hz | Boot VBL rate. **F10** toggles 50/60 live after boot. |
 | `PALSPLIT=0` / `PALSPLIT=1` | on (`1`) | `0` disables the pal-split path. |
 | `SLICE=n` | automatic (`0`) | Cap on the 68k slice. `SLICE=10000` is the documented “restore old cap” value. |
 
