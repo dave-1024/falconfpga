@@ -10,7 +10,7 @@ The card contract is `cfg_load()` in `hybrid_musashi/falcon_m28.c`. Keys are mat
 2. **AE350 firmware** — `falcon_m28.bin` at **0x600000**. Build with `hybrid_musashi/build_falcon_m28.bat` (see `hybrid_musashi/FIRST_TIME.md`).
 3. **Nothing Atari TOS in flash.** TOS, floppies and hardfiles come from the **microSD** in the Console TF slot.
 
-Embedded **EmuTOS 1.4** inside the firmware is only the fallback if the card has no usable `ROM=` file.
+Firmware contains an **older EmuTOS 1.4** only so a dead or missing card still puts something on the screen. Do not use that copy on purpose. See [EmuTOS](#emutos-vs-tos-404) below.
 
 ## Card format
 
@@ -34,6 +34,16 @@ LOG=0
 
 F12 still toggles the log at runtime if you later want the UART back.
 
+## EmuTOS vs TOS 4.04
+
+EmuTOS generally **runs faster** on this scaffold. It polls hardware and fails cleanly when a chip is missing or odd. Atari TOS 4.04 **assumes** Falcon hardware is present and waits on it. That is TOS, not a broken bitstream.
+
+If you want EmuTOS, put a **current 512K EmuTOS** on the card and point `ROM=` at it. Do **not** rely on the copy burned into firmware.
+
+- The embedded image is an **older 1.4**. Some Falcon video resolutions misbehave on that build.
+- Current EmuTOS is **still labelled 1.4**, but those video bugs are fixed. Get a 512K image from the EmuTOS project and put it in the card root.
+- The burned copy exists only as a last resort: SD init failed, FAT missing, or `ROM=` load failed, and you still get a desktop instead of a black screen.
+
 ## `FALCON.CFG` — files
 
 ```
@@ -49,7 +59,7 @@ LOG=0
 
 | Line | Meaning |
 |---|---|
-| `ROM=` | TOS image loaded to the guest ROM window at `0x00E00000`. You supply the file. This bench used 512K TOS 4.04. Missing or failed load → embedded EmuTOS. |
+| `ROM=` | TOS image loaded to the guest ROM window at `0x00E00000`. You supply the file. This bench used 512K TOS 4.04 **or** a current 512K EmuTOS. Missing or failed load → **older embedded EmuTOS 1.4** (fallback only). |
 | `DISKA=` | Floppy A: `.ST` image. Default if omitted: look for `DISKA.ST`. Failed load → blank 720K A:. Writes go to the card if the file is contiguous. |
 | `DISKB=` | Floppy B: same firmware idea. **Seen working under EmuTOS. Not useful under TOS 4.04** — a real Falcon has no second floppy port, and TOS 4.04 does not drive B:. Omit this line on a TOS 4.04 card. |
 | `HDD0=` | IDE unit 0 **hardfile**. Raw sector image on the card (not a `.ST`). Presented as the Falcon IDE master. AHDI / HDX / GEM partitions work on this file — that is how this bench partitioned C:. Omit → no IDE 0. |
@@ -57,7 +67,7 @@ LOG=0
 | `HD0NAME=` | IDENTIFY model string for unit 0, up to 40 characters. Else the 8.3 stem (`HD0.IMG` → `HD0`), else the firmware default. |
 | `HD1NAME=` | Same for unit 1. |
 
-You supply Atari TOS and any hardfile. This repo does not.
+You supply Atari TOS, EmuTOS, and any hardfile. This repo does not ship Atari TOS.
 
 Hardfiles are mapped, not copied into RAM. Size is the file size on the card (sector count = bytes / 512). Same write-back rule as floppies: contiguous clusters can write through; fragmented files stay RAM-side for writes.
 
@@ -81,10 +91,10 @@ These are optional. Defaults are what m28 already uses if the line is absent.
 | `PALSPLIT=0` / `PALSPLIT=1` | on (`1`) | `0` disables the pal-split path. |
 | `SLICE=n` | automatic (`0`) | Cap on the 68k slice. `SLICE=10000` is the documented “restore old cap” value. |
 
-## Suggested first card (floppy only)
+## Suggested first card (TOS 4.04)
 
 1. Format FAT32.
-2. Copy a 512K TOS or EmuTOS image, e.g. `TOS404.IMG`.
+2. Copy a 512K TOS 4.04 image as `TOS404.IMG`.
 3. Copy a small `.ST` as `DISKA.ST` if you want a writable A:.
 4. Root `FALCON.CFG`:
 
@@ -96,11 +106,20 @@ LOG=0
 
 5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash.
 
-Add `DISKB=WORK.ST` only if that ROM is EmuTOS.
+## Suggested card (current EmuTOS)
+
+Same FAT32 card. Put a **current** 512K EmuTOS in the root (still called 1.4; not the firmware copy):
+
+```
+ROM=EMUTOS.IMG
+DISKA=DISKA.ST
+DISKB=WORK.ST
+LOG=0
+```
+
+`DISKB=` is only worth it on EmuTOS.
 
 ## Suggested card with a hardfile
-
-Same as above, plus a raw IDE image in the root:
 
 ```
 ROM=TOS404.IMG
