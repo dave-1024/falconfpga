@@ -2,34 +2,37 @@
 
 Two files so Grok chat and Grok bot never overwrite each other.
 
+## Bot poll (every 15 min, 08:00–22:00 UK)
+
+1. `git pull origin main`
+2. Read `BUILD_REQUEST.md` and `BUILD_REPORT.md`.
+3. Run if **all** of:
+   - `ACTION` is `BUILD`, `BUILD_AND_FLASH`, or `PREPARE`
+   - `REQUEST_ID` is **not** already the `REQUEST_ID` in `BUILD_REPORT.md`
+4. Otherwise stop. Do not rebuild a consumed ID.
+
+`PROJECT`, `WORKDIR`, and `BUILD_CMD` in the request say **what** to run. Do not assume `rigsdram`.
+
 ## BUILD_REQUEST.md — Grok chat only
 
-Written when chat wants a Gowin run. Fields:
-
 - `REQUEST_ID` — bump each cycle (`YYYYMMDD-N`)
-- `ACTION` — `BUILD` | `BUILD_AND_FLASH` | `NO_BUILD`
-- `PROJECT` — Gowin folder (`rigsdram`)
-- `TOP` — top module
-- `DEVICE` / `DEVICE_VERSION`
-- `REPLICATE_RESOURCES` — keep TRUE unless chat says otherwise
-- `WHAT_CHANGED` — files and why
-- `CHECK` — what the bot must paste back (Fmax, hold, errors with file:line)
+- `ACTION` — `BUILD` | `BUILD_AND_FLASH` | `PREPARE` | `NO_BUILD`
+- `PROJECT` — name only (`rigsdram` or `misterynano_tc138k`)
+- `WORKDIR` — repo-relative folder to `cd` into
+- `BUILD_CMD` — exact command (`gw_sh build_tc138k.tcl`). Empty on `PREPARE`/`NO_BUILD`
+- `TOP` `DEVICE` `DEVICE_VERSION` `REPLICATE_RESOURCES`
+- `WHAT_CHANGED` `CHECK`
 
 ## BUILD_REPORT.md — Grok bot only
 
-Written after each Gowin run. Fields:
-
-- `REQUEST_ID` — copy from the request that was built
+- `REQUEST_ID` — copy from the request that was run
 - `RESULT` — `PASS` | `FAIL` | `NOT_RUN`
-- `GOWIN_VERSION`
-- Errors / warnings with **file and line**
-- LUT / FF / BSRAM / DSP
-- Fmax and any hold/setup violations
-- UART log if flashed
+- `GOWIN_VERSION` — or `NOT_RUN`
+- Errors with **file:line**, LUT/FF/BSRAM/DSP, Fmax/hold if PnR ran
 
 ## Rules
 
-- Bot never edits `BUILD_REQUEST.md` or HDL unless the request says to apply a listed patch.
-- Chat never edits `BUILD_REPORT.md` except clearing it to the template after consuming a report.
+- Bot never edits `BUILD_REQUEST.md` or HDL unless the request names a patch to apply.
+- Chat never edits `BUILD_REPORT.md` except after consuming a report.
 - `impl/`, `*.fs`, `*.bin` stay out of git.
-- Chat does not notice a new report by itself. The human says: `read BUILD_REPORT.md and fix the errors`.
+- `NO_BUILD` means idle even if the bot wakes.
