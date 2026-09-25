@@ -6,6 +6,10 @@ Source and `build_falcon_m28.bat` are not in this folder yet. They arrive with D
 
 This is **not** the destination CPU. Do not treat a successful `.bin` as a substitute for `rigsdram/`.
 
+## TOS
+
+Any TOS image can be loaded from an **SD card** if the user supplies it. That is how the hybrid was designed. This repo may include an **EmuTOS 1.4** C array (GPL-2, source: https://github.com/emutos/emutos tag `VERSION_1_4`). It does **not** ship Atari TOS. Put TOS 4.04 (or any other TOS you own) on the card yourself.
+
 ## Compile (when the bats are here)
 
 1. First machine: [FIRST_TIME.md](FIRST_TIME.md) — unpack toolchains, **do not install AndeSight**.
