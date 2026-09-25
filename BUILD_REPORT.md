@@ -3,8 +3,8 @@
 OWNER: Grok bot. Grok chat: read only (may reset to this template after reading).
 
 ```
-REQUEST_ID: 20260924-3
-RESULT: FAIL
+REQUEST_ID: 20260924-3b
+RESULT: PASS
 GOWIN_VERSION: V1.9.12.03
 PROJECT: rigsdram
 TOP: RIGSDRAM_TOP
@@ -12,57 +12,55 @@ DEVICE: GW5AST-LV138PG484AC1/I0
 DEVICE_VERSION: C
 
 ERRORS:
-ERROR (TA2003): rigsdram/src/rigsdram.sdc:93 | Can't set timing constraint to object
-  Constraint: set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {lock_meta_s0/RESET}]
-  Cause: after H48-3 the first lock flop is instance u_lock_meta, so pin lock_meta_s0/RESET no longer exists.
-  Effect: Place&Route aborted; no bitstream, no post-PnR timing or resource totals from this run.
+(none — synthesis/PnR completed; bitstream written)
 
 WARNINGS:
-(summarised from synthesis; non-fatal; PnR did not run)
+(summarised; non-fatal)
 AG0100 logical loop signals in wf68k30L core ×17 (same family as prior builds)
 EX4664 VHDL port-mode buffer/out mismatches in wf68k30L_* ×6
-EX4967 / EX4749 / EX3791 / EX4160 / EX4387 / EX4545 (wf68k30L / pll_init / bus_trace; unchanged family)
+EX4967 / EX4749 / EX3791 ×2 each; EX4545 / EX4387 / EX4160 ×1 (wf68k30L / bus_trace; unchanged family)
 NL0002 BUS_TRACE instance swept in optimising (as prior)
 AG0101 netlist is not one directed acyclic graph (as prior with AG0100)
+PR1014 generic routing for clock net CLK_d (as prior)
 
 RESOURCES:
-(not available — PnR did not complete)
-LUT: n/a
-FF: n/a
-BSRAM: n/a
-DSP: n/a
+LUT: 19163 / 138240 (Logic; 17665 LUT + 1498 ALU, 14%)
+FF: 3555 / 138240 (3%)
+BSRAM: 32 / 340 (10%)
+DSP: 9 / 298 (4%)
 
 TIMING:
-Fmax table (constraint MHz → achieved MHz):
-  clk_ref  — n/a (PnR aborted)
-  clk50    — n/a (PnR aborted)
-  core_clk — n/a (PnR aborted)
-CPU_TARGET_MHZ: 16.0 — CANNOT VERIFY (no post-route Fmax)
-Setup: n/a
-Hold: n/a
+Fmax:
+  clk_ref  50.000 MHz constraint → 310.692 MHz actual
+  clk50    50.000 MHz constraint → 124.060 MHz actual
+  core_clk 12.500 MHz constraint → 18.228 MHz actual
+CPU_TARGET_MHZ: 16.0 — PASS (core_clk Fmax 18.228 >= 16.0)
+Setup: 0 violated endpoints; worst slack in top-25 table +11.939 ns; TNS 0 all clocks
+Hold: per-clock hold TNS reported 0; 1 cross-clock hold path with negative slack (see table)
+
+HOLD TABLE (top hold paths):
+  Slack    From                                      To                       Clocks
+  -0.680   u_pll/u_pll_init/state_2_s0/Q             u_lock_meta/D            clk_ref→clk50
+  +0.247   (next paths are same-clock SDRAM/CPU regs)
 
 CHECK:
-  1. u_lock_meta exists: YES in synth netlist (impl/gwsynthesis/rigsdram.vg)
-     Mapped as DFFRE u_lock_meta (.D(pll_lock_3), .CLK(clk50), .RESET(GND), .CE(VCC))
-     — Gowin promoted the declared DFF primitive to DFFRE with RESET tied to GND.
-  2. Hold / lock_meta RESET path: NOT EVALUATED (no PnR). Note: RESET pin still present on
-     the cell but driven by GND; lock_meta_s0 name is gone.
-  3. Setup met: NOT EVALUATED
-  4. Fmax table: missing (see TIMING)
-  5. core_clk Fmax >= 16.0 MHz: UNKNOWN — build FAILed before timing
-  6. Not flashed
+  1. PnR completes / bitstream written: YES (impl/pnr/rigsdram.fs)
+  2. Fmax table present; core_clk 18.228 >= 16.0: PASS
+  3. Hold fabric RESET/SET/CE from state_1_s0: NONE
+     lock_meta D false_path (state_1_s0/Q → u_lock_meta/D): Actived (TC_FALSE_PATH)
+     Remaining hold is state_2_s0/Q → u_lock_meta/D (not covered by the state_1 false_path)
+  4. Not flashed
+  Replicate Resources: TRUE (build.tcl set_option -replicate_resources 1; process_config true)
+  AUTO_WARM: 0 (HDL generic default; unchanged)
 
 UART:
 (not flashed; the bot cannot flash hardware)
 
 NOTES:
-Applied patches/H48_20260924-3.patch and patches/H48_20260924-3_sdc.patch with
-`git apply --recount --ignore-whitespace` (CRLF vs LF). Committed as
-08fc186 Apply H48_20260924-3: DFF lock_meta + SDC false_path.
-Replicate Resources: TRUE (build.tcl set_option -replicate_resources 1; process_config true).
-Synthesis completed; PnR stopped at SDC parse on line 93.
-Likely fix for Grok chat: drop or retarget the lock_meta_s0/RESET false_path (instance is
-now u_lock_meta). Optional: also false-path to u_lock_meta/D (line 92 was not reached as a
-second TA2003 because run aborted on 93; verify pin name against the vg).
-Do NOT change the PLL (per request). AUTO_WARM left 0.
+Applied only patches/H48_20260924-3b.patch with `git apply --recount --ignore-whitespace`
+(deleted the dead lock_meta_s0/RESET false_path that caused TA2003 on 20260924-3).
+Did NOT re-apply H48-3 VHDL (already on main). Did NOT need to delete the
+u_lock_meta/D false_path — no TA2003; constraint Actived.
+SDC change left unstaged (bot commits only BUILD_REPORT.md).
+No PLL / wf68k30L edits. Bitstream: rigsdram/impl/pnr/rigsdram.fs (gitignored).
 ```
