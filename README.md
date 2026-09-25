@@ -35,9 +35,11 @@ C was assembled with Windows batch files and `riscv32-elf-gcc`, not Andesight. D
 
 The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine. Locked AE350/DDR3/AHB errata from that era still apply to any RISC-V fabric path: do not use the dead write lane or 64-bit read upper half; keep AHB 32-bit.
 
+Archive slots: `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Source lands when David sends the final tree. Compile notes are already in `hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight.
+
 ## Where we are
 
-Two vehicles in this repo, on purpose. They do not share a top.
+Two **active** vehicles in this repo, on purpose. They do not share a top. The hybrid folders above are frozen history, not a third live Gowin target.
 
 ### `rigsdram/` — 030 + external SDRAM oracle
 
@@ -95,8 +97,8 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 |---|---|
 | `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only |
+| `hybrid_falcon030/` | hybrid HDL scaffold (source pending) |
+| `hybrid_musashi/` | hybrid C guest + bats (source pending; compile notes ready) |
 | `patches/` | named diffs the bot may apply when a request says so |
 | `AGENT_PROTOCOL.md` | chat / bot rules |
 | `BUILD_REQUEST.md` / `BUILD_REPORT.md` | current compile handshake |
-
-Hybrid C/HDL (Musashi + AE350) and reference manuals live outside this repo in the working tree.
