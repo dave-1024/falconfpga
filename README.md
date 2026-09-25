@@ -6,7 +6,18 @@ This is a private workshop for bringing an **Atari Falcon** up on a small modern
 
 The owner of the board is David. If you are reading this as a future-me, or as someone helping compile, the useful sentence is: we already had a software 68030 that could boot TOS and render for a day without drifting a byte. Now we are teaching the same machine to exist in gates, carefully, on hardware we can hold.
 
-Grab a coffee. The technical map starts just below.
+## This is not a product
+
+**Read this before you buy a Tang Console, an SDRAM module, or anything else because of this repository.**
+
+This is a **personal workbench**, published so other people can follow along if they want to. It is not a product. It is not a promise of a product. It is not a promise that a Falcon, an ST desktop, or any particular game will ever work on your board.
+
+- Do **not** buy hardware expecting a finished core you can plug in and use.
+- David will **not** provide technical support to get “X” working on your machine.
+- Issues, mail, and “it doesn’t boot” tickets are not a support channel.
+- Dates, checklists, and “where it is headed” are a map of *this* bench. They are not a delivery schedule.
+
+If you clone this anyway, you are on your own — same as any other public FPGA notebook.
 
 ---
 
