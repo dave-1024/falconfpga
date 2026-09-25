@@ -86,3 +86,8 @@ set_multicycle_path 1 -hold  -from [get_clocks {core_clk}] -to [get_clocks {clk5
 // 4. Timing Constraints Report lists BOTH multicycle exceptions as
 //    Actived.  If a core_clk -> clk50 path still shows Relation 20.000,
 //    the exception did not take.
+
+// [H48-3] first lock CDC flop. pll_lock is made on clk_ref / pll_init.
+// One command per line. Do not false-path the whole clk_ref domain.
+set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {u_lock_meta/D}]
+set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {lock_meta_s0/RESET}]

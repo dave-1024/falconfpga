@@ -140,9 +140,15 @@ architecture RTL of RIGSDRAM_TOP is
     signal por_cnt   : unsigned(15 downto 0) := (others => '0');
     signal por_n     : std_logic := '0';
     signal rstn_sync : std_logic_vector(2 downto 0) := "000";
-    -- [H48-2] dedicated D-type lock sync.  Do not reuse as RESET.
-    signal lock_meta      : std_logic := '0';
+    -- [H48-3] lock_meta is a Gowin DFF primitive (CLK+D only).
+    -- Inferred VHDL kept mapping pll_lock onto RESET.
+    signal lock_meta      : std_logic;
     signal lock_sync      : std_logic := '0';
+    component DFF
+        port ( CLK : in  std_logic;
+               D   : in  std_logic;
+               Q   : out std_logic );
+    end component;
     signal sys_rst_pipe   : std_logic_vector(1 downto 0) := "00";
     signal sys_rst_n_50   : std_logic := '0';
     signal sys_rst_n      : std_logic := '0';  -- core_clk domain
@@ -271,12 +277,13 @@ begin
                    lock     => pll_lock );
 
     -- POR and the RSTN synchroniser run on clk50.
-    -- [H48-2] lock synchroniser is a process of its own: D <= pll_lock
-    -- only.  Mixing it into the POR process let Gowin use RESET.
+    -- [H48-3] first lock flop is a DFF primitive: no RESET pin exists.
+    u_lock_meta: DFF
+        port map ( CLK => clk50, D => pll_lock, Q => lock_meta );
+
     process(clk50)
     begin
         if rising_edge(clk50) then
-            lock_meta <= pll_lock;
             lock_sync <= lock_meta;
         end if;
     end process;
