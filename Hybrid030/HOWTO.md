@@ -51,7 +51,7 @@ LOG=0
 |---|---|
 | `ROM=` | TOS image loaded to the guest ROM window at `0x00E00000`. You supply the file. This bench used 512K TOS 4.04. Missing or failed load → embedded EmuTOS. |
 | `DISKA=` | Floppy A: `.ST` image. Default if omitted: look for `DISKA.ST`. Failed load → blank 720K A:. Writes go to the card if the file is contiguous. |
-| `DISKB=` | Floppy B: same idea. Omit → blank 720K B:. |
+| `DISKB=` | Floppy B: same firmware idea. **Seen working under EmuTOS. Not useful under TOS 4.04** — a real Falcon has no second floppy port, and TOS 4.04 does not drive B:. Omit this line on a TOS 4.04 card. |
 | `HDD0=` | IDE unit 0 **hardfile**. Raw sector image on the card (not a `.ST`). Presented as the Falcon IDE master. AHDI / HDX / GEM partitions work on this file — that is how this bench partitioned C:. Omit → no IDE 0. |
 | `HDD1=` | IDE unit 1 (slave), same rules. |
 | `HD0NAME=` | IDENTIFY model string for unit 0, up to 40 characters. Else the 8.3 stem (`HD0.IMG` → `HD0`), else the firmware default. |
@@ -62,6 +62,10 @@ You supply Atari TOS and any hardfile. This repo does not.
 Hardfiles are mapped, not copied into RAM. Size is the file size on the card (sector count = bytes / 512). Same write-back rule as floppies: contiguous clusters can write through; fragmented files stay RAM-side for writes.
 
 A missing card, missing FAT, or missing line does not brick the firmware. Hardfile attach happens **after** the floppies so a bad `HDD0=` cannot take down A:.
+
+## Floppy B
+
+The firmware will still attach `DISKB=` if the file is there. EmuTOS will show drive B. TOS 4.04 will not: Falcon TOS only knows one floppy. That is TOS, not a dead image. Use `HDD0=` for a second volume under TOS 4.04.
 
 ## `FALCON.CFG` — behaviour knobs
 
@@ -91,6 +95,8 @@ LOG=0
 ```
 
 5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash.
+
+Add `DISKB=WORK.ST` only if that ROM is EmuTOS.
 
 ## Suggested card with a hardfile
 
