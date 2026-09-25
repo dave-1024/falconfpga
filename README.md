@@ -18,7 +18,9 @@ This repository is **source only**. Bitstreams, `impl/`, TOS ROMs and disk image
 
 The long goal is a Falcon-class machine in FPGA: Motorola **68030** guest, ST-compatible chipset first, Falcon hardware later.
 
-The 030 core is **wf68k30L** (the tree already verified against a real 030), not a rewrite of Musashi and not fx68k. PMMU is a later fabric + RISC-V walk, not inside the CPU core. First silicon for that core does not turn cache or PMMU on.
+The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes — until it matched a real 030 well enough to trust. What lives in `rigsdram/` is that tree, not an unmodified download. It is not a Musashi rewrite and it is not fx68k.
+
+PMMU is a later fabric + RISC-V walk, not inside the CPU core. First silicon for this core does not turn cache or PMMU on.
 
 ## Where it started
 
@@ -39,7 +41,7 @@ Two vehicles in this repo, on purpose. They do not share a top.
 
 ### `rigsdram/` — 030 + external SDRAM oracle
 
-wf68k30L plus a guest image that walks T0–T11 (BSRAM through vectors, including a 32 MB march). Last cold-and-warm silicon that is treated as known-good printed:
+The re-engineered wf68k30L plus a guest image that walks T0–T11 (BSRAM through vectors, including a 32 MB march). Last cold-and-warm silicon that is treated as known-good printed:
 
 ```
 12345
@@ -51,7 +53,9 @@ DONE P
 
 `12345` is the healthy UART signature. `112345` only means the AUTO_WARM broker pulse fired late. PnR uses **Replicate Resources = TRUE**. CPU target is **16 MHz**; current Fmax on that tree is above that.
 
-The 030 in this tree is not stock wf68k30L. It carries the instruction audit done against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 and earlier). That audit is the oracle for CPU behaviour. Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
+Verification was against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 and the instruction audit before it). The A1200 overturned more than one paper argument about `$A`/`$B` boundaries. That audit is the oracle for CPU behaviour. Do not drop a fresh upstream wf68k30L on top of this tree and expect the same results.
+
+Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
 
 ### `misterynano_tc138k/` — stock ST desktop on this board
 
@@ -63,7 +67,7 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 1. **Prove stock MiSTeryNano** on the Tang Console: repeated cold boots to a GEM desktop.
 2. **Freeze** that tree. Clone it (`misterynano_030/` or similar).
-3. **Splice wf68k30L** into the clone using TerribleFire **TF534** bus arbitration, not a drop-in replacement of fx68k. 030 bus (`SIZ` / `DSACKn` / `FC`) is not a 68000 bus.
+3. **Splice the re-engineered wf68k30L** into the clone using TerribleFire **TF534** bus arbitration, not a drop-in replacement of fx68k. 030 bus (`SIZ` / `DSACKn` / `FC`) is not a 68000 bus.
 4. First splice: **8 MHz CPU**, stock ST chipset. Caches off. PMMU off.
 5. Then: **16 MHz CPU**, chipset still stock ST speed — a real accelerator, wait-stated onto the 8 MHz bus.
 6. Only after that desktop validates the 030: move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map).
@@ -89,7 +93,7 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 
 | Path | Role |
 |---|---|
-| `rigsdram/` | wf68k30L + SDRAM guest tests |
+| `rigsdram/` | re-engineered wf68k30L + SDRAM guest tests |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only |
 | `patches/` | named diffs the bot may apply when a request says so |
 | `AGENT_PROTOCOL.md` | chat / bot rules |
