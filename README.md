@@ -12,7 +12,7 @@ Grab a coffee. The technical map starts just below.
 
 FPGA work toward an Atari Falcon on a **Sipeed Tang Console** with the **GW5AST-138K** SOM (device `GW5AST-LV138PG484AC1/I0`, **Version C**). Toolchain is **Gowin IDE / gw_sh V1.9.12** on Windows, plus a Linux headless Gowin box used only to compile.
 
-This repository is **source only**. Bitstreams, `impl/`, TOS ROMs and disk images stay on the machine that built or flashed them.
+This repository is **source only**. Bitstreams, `impl/`, and disk images stay on the machine that built or flashed them. **Atari TOS is not in git.** The hybrid was designed so **any TOS the user owns can be loaded from an SD card**.
 
 ## What this is
 
@@ -26,7 +26,7 @@ PMMU is a later fabric + RISC-V walk, not inside the CPU core. First silicon for
 
 The project began as a **hybrid scaffold**: HDL fabric plus C modules on the SOM’s **Andes AE350** RISC-V. The guest CPU in that scaffold was **Musashi**. That hybrid was accurate enough to:
 
-- boot **Atari TOS 4.04** (that became the default guest TOS; EmuTOS was not the only target)
+- boot **Atari TOS 4.04** from an SD image the user supplies (that became the default guest TOS; EmuTOS was not the only target)
 - run ST games on the Falcon model (Robocop, Treasure Island Dizzy, Frontier) through a GAMEX wrapper
 - accept Atari legacy HD tools and GEM partitions on IDE images
 - survive a 36-hour POV-Ray soak whose output file matched the same POV-Ray version on a real Atari STE
@@ -89,7 +89,8 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 
 - Tang Console + 138K SOM. External SDRAM module in J9 for the ST/rigsdram path.
 - FPGA-Companion / BL616 is required for MiSTeryNano OSD, keyboard and TOS load. It is **not** in this repo.
-- TOS flash offset on this board is measured from bitstream size after a real build (HDL map 0x500000 vs some docs 0x900000). Do not guess.
+- Hybrid TOS: user-supplied image on **SD**. EmuTOS 1.4 may ship as a GPL C array; Atari TOS does not.
+- Nano TOS flash offset is measured from bitstream size after a real build (HDL map 0x500000 vs some docs 0x900000). Do not guess.
 
 ## Layout
 
