@@ -92,6 +92,22 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 - Hybrid TOS: user-supplied image on **SD**. EmuTOS 1.4 may ship as a GPL C array; Atari TOS does not.
 - Nano TOS flash offset is measured from bitstream size after a real build (HDL map 0x500000 vs some docs 0x900000). Do not guess.
 
+## Credits
+
+Courtesy only — these people built the shoulders. Licenses stay in `NOTICE.md` and in their files. Nothing here assigns their work to David.
+
+- **Wolfgang Foerster** (Inventronik) — wf68k30L, the 030 core this project started from
+- **Karl Stenerud** — Musashi, the hybrid guest CPU
+- **Jorge Cwik** — fx68k, the 68000 in MiSTeryNano
+- **Till Harbaum** and **MiSTle-Dev** — MiSTeryNano and FPGA-Companion on the Tang boards
+- **György Szombathelyi** (gyurco) and the MiSTery authors — the STE FPGA core Nano ports
+- **Stephen J. Leary** — TF534 bus arbitration, the planned 030-on-ST splice
+- **The EmuTOS developers** — the optional GPL TOS image
+- **The Hatari developers** — the hybrid debug method (state saves and disassembly)
+- **Individual Computers** — the ACA1230-55N used as the real-030 instruction oracle
+
+If a name is missing, say so and it goes here.
+
 ## Layout
 
 | Path | Role |
@@ -103,3 +119,4 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 | `patches/` | named diffs the bot may apply when a request says so |
 | `AGENT_PROTOCOL.md` | chat / bot rules |
 | `BUILD_REQUEST.md` / `BUILD_REPORT.md` | current compile handshake |
+| `NOTICE.md` / `LICENSE-ORIGINAL.md` | license map; David’s original files are GPL-3.0-or-later |
