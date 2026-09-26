@@ -4,7 +4,17 @@ These are not bugs in this project's HDL. They were measured on the Andes **AE35
 
 They do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those trees do not use the SOM DDR3 IP. They use the plug-in SDRAM module.
 
-There is no separate probe log in git. The measurements are the file headers named below. A short locked list also lives in `CONTEXT.md`.
+## Not published elsewhere
+
+As of September 2026 these faults were not in Gowin's IP notes, not in Sipeed's board documentation, and not in Sipeed's public repositories. They were not found described anywhere else on the public web either. This file is the write-up so the next person does not have to find them the same way.
+
+There is no vendor workaround in those docs. Using the IP as documented does not work for the dead lanes.
+
+This project did **not** fix the IP. It stopped using the dead parts, and reached DDR3 through the Extended AHB master with 32-bit even-word transfers. That is an avoidance, not a repair.
+
+A real fix is to **write your own DDR3 controller** instead of the Gowin IP, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
+
+There is no separate probe log in git. The measurements are the file headers named below.
 
 ## Do not use
 
@@ -37,11 +47,11 @@ Records: `falcon_hid_ahb.v` (the measurement), `falcon_timebase_ahb.v` (**FAULT 
 
 ## Related, same IP, not a dead lane
 
-`WBINVAL_ALL` at 60 Hz spends the memory bandwidth. Flush a range with `CCTL`, not the whole cache, on the video/audio tick.
+`WBINVAL_ALL` at 60 Hz spends the memory bandwidth. Flush a range with `CCTL`, not the whole cache, on the video/audio tick. That one has a software workaround. The dead lanes do not.
 
 ## What a later fabric master must do
 
-If a new block writes DDR3 through the AE350:
+If a new block writes DDR3 through the AE350, and the Gowin IP is still the one with these faults:
 
 - do not instantiate the shared DDR3 write lane
 - one 32-bit AHB transfer at an even word address
@@ -50,3 +60,5 @@ If a new block writes DDR3 through the AE350:
 - do not place payload at +4 or +12
 
 `tb_mux_atomic.v` already fails a test that writes an odd word address. That check is the rule, not a suggestion.
+
+If the design actually needs the dead lanes, do not keep poking the IP. Replace the DDR3 controller, or wait for a Gowin update that says these lanes work.
