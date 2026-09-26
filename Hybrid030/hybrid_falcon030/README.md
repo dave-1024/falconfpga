@@ -6,10 +6,16 @@ Top is `src/Falcon030_top.v`, **REV 11b** (2026-07-24). Gowin project `Falcon030
 
 This is history. Destination CPU for new work is **wf68k30L** in `rigsdram/`, then the Nano splice. Do not treat a rebuild of this tree as the 030 HDL path.
 
+## Board
+
+**No Tang SDRAM module.** This fabric uses the DDR3 on the 138K SOM (AE350). Leave J9 empty for a hybrid flash.
+
+Any later HDL build (`misterynano_tc138k/`, `rigsdram/`, the 030 splice, Falcon HDL) **does** need the plug-in SDRAM module in J9.
+
 ## What is in the tree
 
 - Falcon glue: AHB mux, video mailbox, timebase, HID, audio/I2S, USB HID host
-- Gowin PLLs (AE350, DDR3, HDMI, USB)
+- Gowin PLLs (AE350, DDR3, HDMI, USB) — the DDR3 PLL is the SOM chip, not the J9 module
 - Generated Andes `riscv_ae350_soc` wrapper (needed to open the project)
 - Constraints: `tang_console_ae350_stage0.cst`, `ae350_stage0.sdc`
 
