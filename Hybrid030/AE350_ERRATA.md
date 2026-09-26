@@ -14,21 +14,25 @@ This project did **not** fix the IP. It stopped using the dead parts, and reache
 
 A real fix is to **write your own DDR3 controller** instead of the Gowin IP, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
 
-There is no separate probe log in git. The measurements are the file headers named below.
+## Where the measurement was written
+
+There is no separate probe log in git. The original note is the revision header of the bring-up top, `ae350_stage0_top.v` (the comment names the module `ae350_falcon_top`). A file referred to as the bug ledger is cited from `falcon_ahb_mux.v` ("bug-ledger family: never completes", ledger #9). That ledger is not in the repo.
+
+**REV 2, 11 July 2026.** Shared DDR3 lanes were cut from 64-bit to 32-bit after the 64-bit read lane's upper half was measured broken. Symptom: `fb_base` latched address-independent garbage while `magic[31:0]` validated. 32-bit is the width Gowin's own `DDR3_Shared` example validates.
+
+**REV 6, 14 July 2026.** HID writes moved off shared DDR3 write lane 4 onto the Extended AHB master. Lane 4 was tied off. `wr_done` never arrived, including on an isolated, exclusively granted, example-verbatim copy. `falcon_wprobe` returned zero signatures in every candidate address zone. Lane 5, the scanout read, was left on the DDR3 IP.
+
+The same facts are repeated in `hybrid_falcon030/src/falcon_hid_ahb.v` and `falcon_timebase_ahb.v`.
 
 ## Do not use
 
 **1. Shared DDR3 write lane 4 is dead.**
 
-The fabric write port into the shared DDR3 (lane 4) never completes. `wr_done` does not arrive, including on an isolated, exclusively granted copy of the vendor example. `falcon_wprobe` returned no signature in any address zone. Dated 13–14 July 2026.
-
-Do not use that port. The replacement used here is the AE350 **Extended AHB** master. Lane 5, the read side used by scanout, was left on the DDR3 IP.
-
-Record: `hybrid_falcon030/src/falcon_hid_ahb.v`, file header.
+The fabric write port into the shared DDR3 (lane 4) never completes. Do not use that port. The replacement used here is the AE350 **Extended AHB** master.
 
 **2. The upper half of a 64-bit DDR3 read is dead.**
 
-Use 32-bit lanes only. Do not consume the upper 32 bits of a 64-bit DDR3 read.
+Use 32-bit lanes only. Do not consume the upper 32 bits of a 64-bit DDR3 read. The 11 July symptom was garbage in the upper half while the low 32 bits of the same word were valid.
 
 **3. The upper 32 bits of Extended AHB `HWDATA` are dead.**
 
@@ -41,23 +45,29 @@ A 64-bit AHB write does not land in the upper half. The silicon-proven pattern i
 
 Odd-word writes were measured not to land, even with the data in the low lane. REV11 wrote `tick200` at +4 and `cyc50` at +12. Those values never arrived. REV11b moved the slot to even words only: +0, +8, +16, +24.
 
-The same rule is applied to reads on this port: trust `HRDATA[31:0]` only, even-word addresses only. Do not assume a read of the upper half works just because the write rule was the one that was probed.
+The same rule is applied to reads on this port: trust `HRDATA[31:0]` only, even-word addresses only.
 
-Records: `falcon_hid_ahb.v` (the measurement), `falcon_timebase_ahb.v` (**FAULT 2**, the lane rule), `falcon_audio_ahb.v` (the read-side copy of the rule), `Falcon030_top.v`, `hybrid_musashi/falcon_m28.c`.
+Records: `falcon_hid_ahb.v`, `falcon_timebase_ahb.v` (**FAULT 2**), `falcon_audio_ahb.v`, `Falcon030_top.v`, `hybrid_musashi/falcon_m28.c`.
 
-## Related, same IP, not a dead lane
+## Same IP, also measured, not a dead lane
 
-`WBINVAL_ALL` at 60 Hz spends the memory bandwidth. Flush a range with `CCTL`, not the whole cache, on the video/audio tick. That one has a software workaround. The dead lanes do not.
+These are from the scanout bring-up in `falcon_video.v`. They are the same unpublished class of fault. A replacement controller is the real fix for these too.
+
+- A DDR3 read burst whose length is not a multiple of 4 words wedges the read engine, at any address. A 117-beat mailbox burst did this. Lengths that had worked were 20, 40 and 160. Pad to a multiple of 4 and ignore the spare beats.
+- Issuing the next read one cycle after the previous burst's last beat does not complete. The lane model in simulation accepts it. Silicon does not. The working shape is a gap of about 20 us with `rd_en` / `rd_go` idle, then a new request.
+- `WBINVAL_ALL` at 60 Hz spends the memory bandwidth. Flush a range with `CCTL`, not the whole cache. This one has a software workaround. The dead lanes do not.
 
 ## What a later fabric master must do
 
 If a new block writes DDR3 through the AE350, and the Gowin IP is still the one with these faults:
 
 - do not instantiate the shared DDR3 write lane
+- do not use a 64-bit read lane
 - one 32-bit AHB transfer at an even word address
 - data in the low 32 bits
 - a second word at +8, after the first transfer completes
 - do not place payload at +4 or +12
+- a read burst length is a multiple of 4 words, and the next burst is not issued on the following cycle
 
 `tb_mux_atomic.v` already fails a test that writes an odd word address. That check is the rule, not a suggestion.
 
