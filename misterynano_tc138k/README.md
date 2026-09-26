@@ -9,7 +9,8 @@ This is **fx68k** (68000), not wf68k30L. It lives next to `rigsdram/` so the two
 - Device: `GW5AST-LV138PG484AC1/I0` **Version C**
 - Top: `tang/console138k/top.sv` (`module top`)
 - Output name: `atarist_tc138k`
-- SDRAM: Tang SDRAM X2 in J9 / SDRAM0 (`tang/mega138kpro/sdram.v`, CS0 tied low)
+- **Tang SDRAM module required**, in J9 / SDRAM0 (`tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
+- `Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `rigsdram/`, and the 030 splice.
 - TOS in SPI flash: if `tang/console60k/flash_dspi.v` stays, the address map in the HDL is **0x500000** family. The Console 138K doc table says **0x900000**. Measure `.fs` size after the first build before flashing TOS.
 
 ## Build (Windows Gowin V1.9.12)
@@ -25,7 +26,7 @@ gw_sh build_tc138k.tcl
 
 TCL sets Version C, `use_jtag_as_gpio 1`, MSPI/SSPI/DONE/CPU/READY as GPIO, `replicate_resources 1`.
 
-**IDE:** File → Open → `atarist_tc138k.gprj`. The `.gprj` is a file list. Confirm Process Configuration matches the TCL (especially JTAG-as-GPIO and device version C) before you hit Run.
+**IDE:** File → Open → `atarist_tc138k.gprj`. The `.gprj` is a file list. Confirm Process Configuration matches the TCL before you hit Run: SystemVerilog 2017, top module `top`, device version C, and dual-purpose pins JTAG / DONE / READY / MSPI / SSPI / CPU as GPIO. Leave MODE and I2C off.
 
 Bitstream: `impl/pnr/atarist_tc138k.fs` (gitignored).
 
