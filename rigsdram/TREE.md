@@ -2,6 +2,8 @@
 
 Matches the Gowin Design panel of the 2026-09-24 DONE P build, minus the two disabled files (red X) and minus binaries.
 
+**Needs the Tang SDRAM module in J9.** This is an HDL build. The hybrid (`Hybrid030/`) does not use that module; this tree does. Do not flash with the socket empty.
+
 Do not add: `src/New folder/`, `bus_trace_pkg.vhd`, `gowin_pll_sim.vhd`, `rigtest_sdram.hex`, `impl/`, `*.fs`.
 
 ```
