@@ -50,9 +50,23 @@ The project began as a **hybrid scaffold**: HDL fabric plus C modules on the SOM
 
 C was assembled with Windows batch files and `riscv32-elf-gcc`, not Andesight. Debug was Hatari state saves plus disassembly.
 
-The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine. Locked AE350/DDR3/AHB errata from that era still apply to any RISC-V fabric path. They are not bugs in this HDL. The write-up is [`Hybrid030/AE350_ERRATA.md`](Hybrid030/AE350_ERRATA.md).
+The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine.
 
 Archive: **`Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight. **No Tang SDRAM module** — see Hardware notes.
+
+## SOM DDR3 — faults that were not published
+
+These are not bugs in the HDL in this repo. They are faults in the **Gowin DDR3 IP** on this 138K SOM, used with the Andes AE350. They were measured here in July 2026.
+
+As of September 2026 they were not in Gowin's IP notes, not in Sipeed's board documentation, and not in Sipeed's public repositories. They were not found described anywhere else on the public web either. They are written here so the next person does not have to discover them the same way.
+
+- Shared DDR3 **write lane 4** never completes. `wr_done` does not arrive, including on an isolated copy of the vendor example.
+- The **upper half of a 64-bit DDR3 read** is dead. 32-bit lanes only.
+- The **upper 32 bits of Extended AHB `HWDATA`** are dead. 32-bit transfers, even-word addresses, payload at +0 and +8. A write at +4 does not land.
+
+There is no published workaround. Using the IP as documented does not work for those lanes. This project did not fix the IP. It stopped using the dead parts. A real fix is to **write your own DDR3 controller** instead of the Gowin IP, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
+
+These faults do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those trees do not use this IP. Dates, the probe, and the file headers are in [`Hybrid030/AE350_ERRATA.md`](Hybrid030/AE350_ERRATA.md).
 
 ## Where we are
 
@@ -143,7 +157,7 @@ If a name is missing, say so and it goes here.
 | `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
 | `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
-| `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. |
+| `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. Not in vendor docs. |
 | `Hybrid030/hybrid_falcon030/` | REV11b Gowin fabric |
 | `Hybrid030/hybrid_musashi/` | Musashi guest + bats |
 | `patches/` | named diffs the bot may apply when a request says so |
