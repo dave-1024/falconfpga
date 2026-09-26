@@ -9,11 +9,14 @@ Decode only if `CHANGED` is 1 and (`ACTION` is BUILD, BUILD_AND_FLASH, PREPARE, 
 Run only if ACTION is BUILD/BUILD_AND_FLASH/PREPARE/SIMULATE and this REQUEST_ID is not already in BUILD_REPORT.md.
 
 ```
-REQUEST_ID: 20260925-mn4-done
-ACTION: NO_BUILD
+REQUEST_ID: 20260926-hdmi1
+ACTION: SIMULATE
 PROJECT: misterynano_tc138k
 WORKDIR: misterynano_tc138k
-BUILD_CMD:
-WHAT_CHANGED: Idle. CONTEXT.md flags are HANDOFF 2026-09-26-4, CHANGED 0, READ 0. Do not decode.
-CHECK: Idle. No Gowin. No decode.
+BUILD_CMD: gw_sh build_tc138k.tcl; echo GW_EXIT:$?; bash sim/run_hdmi_sim.sh; echo SIM_EXIT:$?
+WHAT_CHANGED: No HDL change to the bitstream. Same tree David built. Added misterynano_tc138k/sim/ only. That folder is not in build_tc138k.tcl. CONTEXT.md is unchanged. Do not decode it.
+CHECK: Do both, even if the first fails. Do not flash. Do not push a bitstream, a vvp, or anything under impl/. Do not install packages.
+1. Gowin build of misterynano_tc138k with build_tc138k.tcl. Report PASS or FAIL, errors with file:line, and the bitstream size in bytes only.
+2. HDMI pin sim. Copy the HDMI_EDGES line and the HDMI_SIM line into the report. PASS means the encoder toggled. FAIL compile means paste the iverilog error. SIM_TOOL_MISSING means iverilog is not on this box; say so and stop. Do not try another simulator.
+This sim is the HDMI encoder with a free-running pixel clock and the logic serializer. It is not the Gowin PLL and not OSER10. It does not prove the placed pins on the board.
 ```
