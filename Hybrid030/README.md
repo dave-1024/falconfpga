@@ -13,13 +13,13 @@ Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 
 The Gowin DDR3 IP on this SOM, used with the AE350, has dead lanes. These are not bugs in the HDL here. As of September 2026 they were not in Gowin's IP notes, not in Sipeed's board docs, and not in Sipeed's public repositories. They were not found described anywhere else either.
 
-- Shared DDR3 **write lane 4** never completes, including on the vendor example granted alone.
-- The **upper half of a 64-bit DDR3 read** is dead. 32-bit lanes only.
+- Shared DDR3 **write lane 4** never completes, including on the vendor example granted alone. Tied off 14 July 2026. `falcon_wprobe` returned nothing.
+- The **upper half of a 64-bit DDR3 read** is dead. Measured 11 July 2026: `fb_base` latched address-independent garbage while `magic[31:0]` validated. Lanes were cut to 32-bit, the width Gowin's own `DDR3_Shared` example validates.
 - The **upper 32 bits of Extended AHB `HWDATA`** are dead. 32-bit transfers, even-word addresses, payload at +0 and +8. A write at +4 does not land.
 
 There is no published workaround. Using the IP as documented does not work for those lanes. This tree did not fix the IP. It stopped using the dead parts. A real fix is to **write your own DDR3 controller**, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
 
-Detail, dates, and the file headers that recorded the measurements: [AE350_ERRATA.md](AE350_ERRATA.md).
+The original note is the revision header of the bring-up top, `ae350_stage0_top.v`. Detail: [AE350_ERRATA.md](AE350_ERRATA.md).
 
 ## Board
 
