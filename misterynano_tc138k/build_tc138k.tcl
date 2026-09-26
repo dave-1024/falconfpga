@@ -1,5 +1,6 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
 # Run from this directory: gw_sh build_tc138k.tcl
+# -co-place_io_registers is not in Gowin 1.9.12.03. Left unset (tool default, off).
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
 
@@ -139,7 +140,6 @@ set_option -serdesRetiming 0
 set_option -enable_dsrm 0
 set_option -disable_io_insertion 0
 set_option -looplimit 2000
-set_option -co-place_io_registers 0
 set_option -replicate_resources 1
 set_option -show_init_in_vo 0
 
