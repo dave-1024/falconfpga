@@ -4,6 +4,12 @@ This is David’s hybrid scaffold (Musashi on the AE350 + REV11b HDL). It is **n
 
 The card contract is `cfg_load()` in `hybrid_musashi/falcon_m28.c`. Keys are matched **exactly** as written below (uppercase, no spaces around `=`).
 
+## Board
+
+**No Tang SDRAM module.** This hybrid uses the DDR3 on the 138K SOM. Leave the J9 socket empty.
+
+The plug-in SDRAM module is for the HDL trees only: `misterynano_tc138k/`, `rigsdram/`, and every HDL build after this one. Do not flash those with J9 empty.
+
 ## What you flash (three different things)
 
 1. **FPGA bitstream** — Gowin `.fs` built from `hybrid_falcon030/` (not in git).
