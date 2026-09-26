@@ -9,6 +9,18 @@ Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 | `hybrid_falcon030/` | Gowin project + Verilog (`Falcon030.gprj`, `src/`) |
 | `hybrid_musashi/` | C guest + `build_falcon_m28.bat` |
 
+## SOM DDR3 — unpublished faults
+
+The Gowin DDR3 IP on this SOM, used with the AE350, has dead lanes. These are not bugs in the HDL here. As of September 2026 they were not in Gowin's IP notes, not in Sipeed's board docs, and not in Sipeed's public repositories. They were not found described anywhere else either.
+
+- Shared DDR3 **write lane 4** never completes, including on the vendor example granted alone.
+- The **upper half of a 64-bit DDR3 read** is dead. 32-bit lanes only.
+- The **upper 32 bits of Extended AHB `HWDATA`** are dead. 32-bit transfers, even-word addresses, payload at +0 and +8. A write at +4 does not land.
+
+There is no published workaround. Using the IP as documented does not work for those lanes. This tree did not fix the IP. It stopped using the dead parts. A real fix is to **write your own DDR3 controller**, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
+
+Detail, dates, and the file headers that recorded the measurements: [AE350_ERRATA.md](AE350_ERRATA.md).
+
 ## Board
 
 **No Tang SDRAM module.** Guest RAM is the DDR3 on the 138K SOM, through the AE350. The plug-in module in J9 is not used here.
