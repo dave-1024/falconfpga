@@ -2,12 +2,19 @@
 
 Two files so Grok chat and Grok bot never overwrite each other.
 
-Session state that must survive a new chat lives in **`CONTEXT.md`**. Chat reads it when the window is empty and updates it when a bug, a test, a pinned idea, or the work state changes. Bump `HANDOFF` when it does.
+Session state that must survive a new chat lives in **`CONTEXT.md`**. The body is obfuscated, not encrypted. Chat reads it when the window is empty and updates it when a bug, a test, a pinned idea, or the work state changes. Bump `HANDOFF` when it does. Write the body back in the same obfuscated form.
+
+## Reading CONTEXT.md
+
+1. The `HANDOFF:` line above the block is plain. Use that id. Do not build because it changed.
+2. The fenced block is **standard base64** of the UTF-8 notes. Decode it before use.
+3. There is no key. This is so a casual glance at GitHub does not read the notes. It is not a secret. The plaintext is still in older commits.
+4. Bot never edits `CONTEXT.md`.
 
 ## Bot poll (every 15 min, 08:00–22:00 UK)
 
 1. `git pull origin main`
-2. Read **`CONTEXT.md` first.** Note `HANDOFF`. This file is state, not a job. A new id means the chat changed or the state file was updated. Re-read the open bugs, the in-flight test, and the pinned ideas. Do not start work because they are listed.
+2. Read **`CONTEXT.md` first.** Note the plain `HANDOFF` line. Decode the block. Re-read the open bugs, the in-flight test, and the pinned ideas. Do not start work because they are listed.
 3. Read `BUILD_REQUEST.md` and `BUILD_REPORT.md`.
 4. If `HANDOFF` differs from `HANDOFF_SEEN` in the last report, write one idle report and stop:
    - `RESULT: NOT_RUN`
@@ -34,7 +41,7 @@ Session state that must survive a new chat lives in **`CONTEXT.md`**. Chat reads
 
 - `REQUEST_ID` — copy from the request that was run, or the current id on a handoff-only idle report
 - `RESULT` — `PASS` | `FAIL` | `NOT_RUN`
-- `HANDOFF_SEEN` — the `HANDOFF` id from `CONTEXT.md` this poll
+- `HANDOFF_SEEN` — the plain `HANDOFF` id from `CONTEXT.md` this poll
 - `GOWIN_VERSION` — or `NOT_RUN`
 - Errors with **file:line**, LUT/FF/BSRAM/DSP, Fmax/hold if PnR ran
 - Bitstream **size in bytes** only. Never attach the file.
