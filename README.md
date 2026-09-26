@@ -52,7 +52,7 @@ C was assembled with Windows batch files and `riscv32-elf-gcc`, not Andesight. D
 
 The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine. Locked AE350/DDR3/AHB errata from that era still apply to any RISC-V fabric path: do not use the dead write lane or 64-bit read upper half; keep AHB 32-bit.
 
-Archive: **`Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight.
+Archive: **`Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight. **No Tang SDRAM module** — see Hardware notes.
 
 ## Where we are
 
@@ -76,11 +76,13 @@ The instruction audit was run against a real **68030 in an Amiga A1200 + ACA1230
 
 Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
 
+**Needs the Tang SDRAM module in J9.** Do not flash this bitstream with the socket empty.
+
 ### `misterynano_tc138k/` — stock ST desktop on this board
 
 Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano) (upstream snapshot `c8e4601`). CPU here is still **fx68k** (68000). Build with `gw_sh build_tc138k.tcl` from that folder (Version C, JTAG-as-GPIO). A one-line board fix dropped a stale `.clk` port map that upstream tc138k still carries (`20260925-mn3`). Replay `mn4` matched. Bitstream is not in git (~36.5 MB `.fs` on the build box).
 
-This tree is **not yet a proven desktop on David’s Console**. Companion firmware, TOS in SPI flash, and SDRAM in J9 are still required. Do not splice the 030 into this folder.
+This tree is **not yet a proven desktop on David’s Console**. Companion firmware, TOS in SPI flash, and the **Tang SDRAM module in J9** are still required. Do not splice the 030 into this folder. Do not flash it with J9 empty.
 
 ## Where it is headed
 
@@ -93,6 +95,8 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolated 030+SDRAM check.
 
+Every step from here is an HDL build. **All of them need the Tang SDRAM module.** The hybrid is the only tree that does not.
+
 ## Methods
 
 - **Silicon first.** A passing Gowin log is not a passing board.
@@ -104,8 +108,13 @@ Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolat
 
 ## Hardware notes
 
-- Tang Console + 138K SOM. External SDRAM module in J9 for the ST/rigsdram path.
-- FPGA-Companion / BL616 is required for MiSTeryNano OSD, keyboard and TOS load. It is **not** in this repo.
+The **Tang SDRAM module** is the plug-in board in **J9**. It is not the DDR3 soldered on the 138K SOM.
+
+- **`Hybrid030/` does not need the module.** Guest RAM is the SOM’s on-board DDR3, through the AE350. Console, HDMI, USB, TF card, and the speaker header are enough.
+- **Every HDL build from here does.** `misterynano_tc138k/`, `rigsdram/`, the 030 splice, and later Falcon HDL all use that module. Do not flash those bitstreams with J9 empty.
+
+- Tang Console + 138K SOM.
+- FPGA-Companion / BL616 is required for MiSTeryNano OSD, keyboard and TOS load. It is **not** in this repo. The hybrid does not use Companion.
 - Hybrid TOS: user-supplied image on **SD**. EmuTOS 1.4 may ship as a GPL C array; Atari TOS does not.
 - Nano TOS flash offset is measured from bitstream size after a real build (HDL map 0x500000 vs some docs 0x900000). Do not guess.
 
@@ -129,9 +138,9 @@ If a name is missing, say so and it goes here.
 
 | Path | Role |
 |---|---|
-| `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests |
-| `misterynano_tc138k/` | stock ST, fx68k, Console 138K only |
-| `Hybrid030/` | hybrid scaffold (C + HDL together) |
+| `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
+| `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
+| `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
 | `Hybrid030/hybrid_falcon030/` | REV11b Gowin fabric |
 | `Hybrid030/hybrid_musashi/` | Musashi guest + bats |
 | `patches/` | named diffs the bot may apply when a request says so |
