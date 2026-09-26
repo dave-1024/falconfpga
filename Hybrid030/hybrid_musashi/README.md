@@ -6,9 +6,13 @@ This is **not** the destination CPU. Do not treat a successful `.bin` as a subst
 
 `build_falcon_m28.bat` is portable: copy `env.bat.example` to `env.bat` and set three paths. It compiles `emutos_rom.c` from this folder. It does **not** read `emutos.map`, `etos512uk.img`, `falcon_diskA.c`, or `falcon_idex.c` — those were dropped.
 
+## Board
+
+**No Tang SDRAM module.** This firmware uses the DDR3 on the 138K SOM. The plug-in module in J9 is for the HDL trees (`misterynano_tc138k/`, `rigsdram/`, and everything after), not for this binary.
+
 ## TOS and the SD card
 
-Any TOS image can be loaded from an **SD card** if the user supplies it. See **[HOWTO.md](HOWTO.md)**.
+Any TOS image can be loaded from an **SD card** if the user supplies it. See **[HOWTO.md](../HOWTO.md)**.
 
 EmuTOS 1.4 ships as `emutos_rom.c` (GPL-2, https://github.com/emutos/emutos tag `VERSION_1_4`, licence in `LICENSE.TXT` in this folder). Atari TOS is not in git.
 
