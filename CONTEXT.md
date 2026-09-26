@@ -1,153 +1,150 @@
 # CONTEXT
 
-Engineering handoff. Not a product page. Not a build request.
+Not written in the clear, on purpose. Not a secret. Decode per AGENT_PROTOCOL.md before use.
+The handoff id stays in the clear so a poll can see a chat change without decoding.
 
-A new chat says: **read CONTEXT.md and continue.** Update this file when a bug, a test, a pinned idea, or the work state changes. Bump `HANDOFF` when you do. The bot re-reads this every poll and echoes `HANDOFF_SEEN`. A new id means the chat changed or the state file moved. It does not mean build.
-
-```
-HANDOFF: 2026-09-26-2
-UPDATED: 2026-09-26
-```
-
-## Current work
-
-Prove stock MiSTeryNano on David's Tang Console. Nothing else is open.
-
-- IDE build of `misterynano_tc138k` succeeded 2026-09-26, after SystemVerilog 2017, top module `top`, and the dual-purpose pin list below.
-- Not flashed. Not a desktop yet.
-- `Hybrid030/` is frozen history. Do not reopen it as the live target.
-- `rigsdram/` is the known-good 030 oracle. Leave it alone unless the Nano test dies and we need the isolated core.
-- Public repo, follow-only. No support. Source only.
-
-## Testing in flight
-
-**Nano bring-up. Not started on silicon.** Next bench session, not a compile:
-
-1. SDRAM module fitted in **J9**. This bitstream will not run with the socket empty.
-2. Flash the local IDE bitstream. Bot's last matching build was `atarist_tc138k.fs`, 36538618 bytes, not flashed.
-3. Companion / BL616 already on the board if the last partner flash is still there. Companion is not in this repo. OSD, keyboard, and TOS load need it.
-4. TOS goes in **SPI flash**, not on a hybrid `FALCON.CFG` card. A hybrid SD card will not boot this bitstream.
-5. TOS offset is still a measurement, not a number. HDL map is the `0x500000` family if `flash_dspi.v` stays. Some docs say `0x900000`. Measure `.fs` size before flashing TOS.
-6. Acceptance is **repeated cold boots to a GEM desktop**, not one boot. Stock `top.sv` already ties reset/user to 0 "to fix tc138k booting". Cold boot on this SOM is an open item.
-
-No other test is in flight. Do not start the 030 splice, a Line-F pipe trace, or a TT while this is open.
-
-## Unresolved bugs
-
-Found, not fixed. Do not rediscover them. Do not patch them sideways into the Nano test.
-
-**1. wf68k30L cold boot. Core-level. Still open.**
-
-Last accepted silicon boots only with the AUTO_WARM broker pulse (`rigsdram`, `IMG=74D8E373`, UART `12345`, T0–T11 PASS). `112345` means that pulse fired late. A later patch was flashed and did **not** remove the need for a soft reset: cold power-on produced nothing. The flip-flop chase after that was not confirmed on the board. Older F42–F45 simulations did not retire this on silicon. AUTO_WARM is a board workaround. David does not want it as the product.
-
-**2. False Line-F at `$406`. Parked. Next instrument is a pipe trace.**
-
-Vector 11 on opcode `247C` (not an `Fxxx` pattern). Warm executes the same word and continues. `SR_CPY=$0000` in the stacked frame despite FC=6 fetches. Only pre-fault divergence is one cycle of DELTA at `$406` (`000C` cold vs `000B` warm). A7 is exonerated. Do not patch another initialiser. Capture `IPIPE.D`, `OW_REQ`, `OP_I`, `TRAP_CODE_I` on cold silicon.
-
-This fault travels with the core. Nano's top may cold-boot fx68k and still not save us once wf68k30L is spliced in. Acceptance for that splice is repeated cold boots, not one warm desktop. Fix it with a pipe trace before Falcon depends on it.
-
-**3. Nano TOS offset. Unresolved on purpose.**
-
-See the in-flight test. Do not guess `0x500000` vs `0x900000`.
-
-**Locked, not open — do not re-investigate:**
-
-- DDR3 shared write lane 4 dead. Never use.
-- 64-bit DDR3 read upper half dead. 32-bit lanes only.
-- Extended AHB HWDATA upper 32 dead. 32-bit HSIZE, payload at +0/+8 only.
-- `WBINVAL_ALL` at 60 Hz kills bandwidth. CCTL range flush only.
-- Unmapped Falcon IO must BERR or TOS sees phantom chips.
-
-## Pinned ideas
-
-Not work. Do not open them.
-
-- **030 splice,** after Nano is a proven desktop. Freeze that tree, clone it, then splice wf68k30L with TF534 arbitration. Not a drop-in of fx68k. Bus is `SIZ` / `DSACKn` / `FC`. First clock **8 MHz**, chipset stock. Then **16 MHz** CPU, chipset still stock ST speed. Caches off. PMMU off.
-- **32 MHz core Fmax.** Realistically possible on this SOM later. Not free, not the ST goal. Critical-path work, not a placer flag. In-tree comment is still about 22 MHz. Replicate Resources stays TRUE.
-- **TT030.** Later third machine. Real TT is a 32 MHz 030, TT shifter, SCSI, ST-RAM / TT-RAM split, TOS 3. Clock is the easy part. Chipset is the project. Not Falcon, not MiSTeryNano.
-- **PMMU.** Fabric flat protection plus a RISC-V walk, not inside the core. Starts when MiNT is next. First task is a PTEST source audit.
-- **Falcon HDL** only after the ST desktop has validated this 030.
-
-## Who does what
-
-- David owns the board, the flashes, and what counts as known-good.
-- Grok chat writes HDL, docs, this file, and `BUILD_REQUEST.md`.
-- Grok bot compiles when a request says so, and writes `BUILD_REPORT.md`. Bot does not invent HDL and does not edit this file.
-- David has little HDL experience. Chat owns HDL guidance and review.
-
-## Hardware
-
-- Sipeed Tang Console + GW5AST-138 SOM. Device `GW5AST-LV138PG484AC1/I0`, **Version C**. Gowin **V1.9.12**.
-- Windows IDE on David's machine. A Linux box runs `gw_sh` only.
-- C builds use Windows bats + `riscv32-elf-gcc`. **Do not install AndeSight.**
-
-**SDRAM module** means the plug-in in **J9**, not the DDR3 on the SOM.
-
-- `Hybrid030/` does **not** need it. RAM is SOM DDR3 via the AE350.
-- Every HDL build from here **does**. Do not flash those with J9 empty.
-
-Hybrid audio is the Console **speaker header**, not HDMI. Do not mix that with the Nano audio path.
-
-## Trees
-
-| Path | What it is | Now |
-|---|---|---|
-| `Hybrid030/` | Frozen scaffold. Musashi on AE350 + REV11b fabric. | History. No SDRAM module. |
-| `rigsdram/` | Re-engineered, instruction-audited wf68k30L + SDRAM guest. | Known-good oracle. Needs J9. |
-| `misterynano_tc138k/` | Stock MiSTeryNano, fx68k, Console 138K only. | Built, not proven. Needs J9. |
-
-Do not splice the 030 into `misterynano_tc138k/`.
-
-Known-good `rigsdram` silicon:
+HANDOFF: 2026-09-26-3
 
 ```
-12345
-RIGSDRAM GUEST
-IMG=74D8E373
-T0–T11 PASS
-DONE P
+IyBDT05URVhUCgpFbmdpbmVlcmluZyBoYW5kb2ZmLiBOb3QgYSBwcm9kdWN0IHBhZ2UuIE5vdCBh
+IGJ1aWxkIHJlcXVlc3QuCgpBIG5ldyBjaGF0IHNheXM6ICoqcmVhZCBDT05URVhULm1kIGFuZCBj
+b250aW51ZS4qKiBEZWNvZGUgdGhlIGJhc2U2NCBibG9jayBmaXJzdC4gVXBkYXRlIHRoaXMgZmls
+ZSB3aGVuIGEgYnVnLCBhIHRlc3QsIGEgcGlubmVkIGlkZWEsIG9yIHRoZSB3b3JrIHN0YXRlIGNo
+YW5nZXMuIEJ1bXAgYEhBTkRPRkZgIHdoZW4geW91IGRvLiBUaGUgYm90IHJlLXJlYWRzIHRoaXMg
+ZXZlcnkgcG9sbCBhbmQgZWNob2VzIGBIQU5ET0ZGX1NFRU5gLiBBIG5ldyBpZCBtZWFucyB0aGUg
+Y2hhdCBjaGFuZ2VkIG9yIHRoZSBzdGF0ZSBmaWxlIG1vdmVkLiBJdCBkb2VzIG5vdCBtZWFuIGJ1
+aWxkLgoKYGBgCkhBTkRPRkY6IDIwMjYtMDktMjYtMwpVUERBVEVEOiAyMDI2LTA5LTI2CmBgYAoK
+IyMgQ3VycmVudCB3b3JrCgpQcm92ZSBzdG9jayBNaVNUZXJ5TmFubyBvbiBEYXZpZCdzIFRhbmcg
+Q29uc29sZS4gTm90aGluZyBlbHNlIGlzIG9wZW4uCgotIElERSBidWlsZCBvZiBgbWlzdGVyeW5h
+bm9fdGMxMzhrYCBzdWNjZWVkZWQgMjAyNi0wOS0yNiwgYWZ0ZXIgU3lzdGVtVmVyaWxvZyAyMDE3
+LCB0b3AgbW9kdWxlIGB0b3BgLCBhbmQgdGhlIGR1YWwtcHVycG9zZSBwaW4gbGlzdCBiZWxvdy4K
+LSBOb3QgZmxhc2hlZC4gTm90IGEgZGVza3RvcCB5ZXQuCi0gYEh5YnJpZDAzMC9gIGlzIGZyb3pl
+biBoaXN0b3J5LiBEbyBub3QgcmVvcGVuIGl0IGFzIHRoZSBsaXZlIHRhcmdldC4KLSBgcmlnc2Ry
+YW0vYCBpcyB0aGUga25vd24tZ29vZCAwMzAgb3JhY2xlLiBMZWF2ZSBpdCBhbG9uZSB1bmxlc3Mg
+dGhlIE5hbm8gdGVzdCBkaWVzIGFuZCB3ZSBuZWVkIHRoZSBpc29sYXRlZCBjb3JlLgotIFB1Ymxp
+YyByZXBvLCBmb2xsb3ctb25seS4gTm8gc3VwcG9ydC4gU291cmNlIG9ubHkuCgojIyBUZXN0aW5n
+IGluIGZsaWdodAoKKipOYW5vIGJyaW5nLXVwLiBOb3Qgc3RhcnRlZCBvbiBzaWxpY29uLioqIE5l
+eHQgYmVuY2ggc2Vzc2lvbiwgbm90IGEgY29tcGlsZToKCjEuIFNEUkFNIG1vZHVsZSBmaXR0ZWQg
+aW4gKipKOSoqLiBUaGlzIGJpdHN0cmVhbSB3aWxsIG5vdCBydW4gd2l0aCB0aGUgc29ja2V0IGVt
+cHR5LgoyLiBGbGFzaCB0aGUgbG9jYWwgSURFIGJpdHN0cmVhbS4gQm90J3MgbGFzdCBtYXRjaGlu
+ZyBidWlsZCB3YXMgYGF0YXJpc3RfdGMxMzhrLmZzYCwgMzY1Mzg2MTggYnl0ZXMsIG5vdCBmbGFz
+aGVkLgozLiBDb21wYW5pb24gLyBCTDYxNiBhbHJlYWR5IG9uIHRoZSBib2FyZCBpZiB0aGUgbGFz
+dCBwYXJ0bmVyIGZsYXNoIGlzIHN0aWxsIHRoZXJlLiBDb21wYW5pb24gaXMgbm90IGluIHRoaXMg
+cmVwby4gT1NELCBrZXlib2FyZCwgYW5kIFRPUyBsb2FkIG5lZWQgaXQuCjQuIFRPUyBnb2VzIGlu
+ICoqU1BJIGZsYXNoKiosIG5vdCBvbiBhIGh5YnJpZCBgRkFMQ09OLkNGR2AgY2FyZC4gQSBoeWJy
+aWQgU0QgY2FyZCB3aWxsIG5vdCBib290IHRoaXMgYml0c3RyZWFtLgo1LiBUT1Mgb2Zmc2V0IGlz
+IHN0aWxsIGEgbWVhc3VyZW1lbnQsIG5vdCBhIG51bWJlci4gSERMIG1hcCBpcyB0aGUgYDB4NTAw
+MDAwYCBmYW1pbHkgaWYgYGZsYXNoX2RzcGkudmAgc3RheXMuIFNvbWUgZG9jcyBzYXkgYDB4OTAw
+MDAwYC4gTWVhc3VyZSBgLmZzYCBzaXplIGJlZm9yZSBmbGFzaGluZyBUT1MuCjYuIEFjY2VwdGFu
+Y2UgaXMgKipyZXBlYXRlZCBjb2xkIGJvb3RzIHRvIGEgR0VNIGRlc2t0b3AqKiwgbm90IG9uZSBi
+b290LiBTdG9jayBgdG9wLnN2YCBhbHJlYWR5IHRpZXMgcmVzZXQvdXNlciB0byAwICJ0byBmaXgg
+dGMxMzhrIGJvb3RpbmciLiBDb2xkIGJvb3Qgb24gdGhpcyBTT00gaXMgYW4gb3BlbiBpdGVtLgoK
+Tm8gb3RoZXIgdGVzdCBpcyBpbiBmbGlnaHQuIERvIG5vdCBzdGFydCB0aGUgMDMwIHNwbGljZSwg
+YSBMaW5lLUYgcGlwZSB0cmFjZSwgb3IgYSBUVCB3aGlsZSB0aGlzIGlzIG9wZW4uCgojIyBVbnJl
+c29sdmVkIGJ1Z3MKCkZvdW5kLCBub3QgZml4ZWQuIERvIG5vdCByZWRpc2NvdmVyIHRoZW0uIERv
+IG5vdCBwYXRjaCB0aGVtIHNpZGV3YXlzIGludG8gdGhlIE5hbm8gdGVzdC4KCioqMS4gd2Y2OGsz
+MEwgY29sZCBib290LiBDb3JlLWxldmVsLiBTdGlsbCBvcGVuLioqCgpMYXN0IGFjY2VwdGVkIHNp
+bGljb24gYm9vdHMgb25seSB3aXRoIHRoZSBBVVRPX1dBUk0gYnJva2VyIHB1bHNlIChgcmlnc2Ry
+YW1gLCBgSU1HPTc0RDhFMzczYCwgVUFSVCBgMTIzNDVgLCBUMOKAk1QxMSBQQVNTKS4gYDExMjM0
+NWAgbWVhbnMgdGhhdCBwdWxzZSBmaXJlZCBsYXRlLiBBIGxhdGVyIHBhdGNoIHdhcyBmbGFzaGVk
+IGFuZCBkaWQgKipub3QqKiByZW1vdmUgdGhlIG5lZWQgZm9yIGEgc29mdCByZXNldDogY29sZCBw
+b3dlci1vbiBwcm9kdWNlZCBub3RoaW5nLiBUaGUgZmxpcC1mbG9wIGNoYXNlIGFmdGVyIHRoYXQg
+d2FzIG5vdCBjb25maXJtZWQgb24gdGhlIGJvYXJkLiBPbGRlciBGNDLigJNGNDUgc2ltdWxhdGlv
+bnMgZGlkIG5vdCByZXRpcmUgdGhpcyBvbiBzaWxpY29uLiBBVVRPX1dBUk0gaXMgYSBib2FyZCB3
+b3JrYXJvdW5kLiBEYXZpZCBkb2VzIG5vdCB3YW50IGl0IGFzIHRoZSBwcm9kdWN0LgoKKioyLiBG
+YWxzZSBMaW5lLUYgYXQgYCQ0MDZgLiBQYXJrZWQuIE5leHQgaW5zdHJ1bWVudCBpcyBhIHBpcGUg
+dHJhY2UuKioKClZlY3RvciAxMSBvbiBvcGNvZGUgYDI0N0NgIChub3QgYW4gYEZ4eHhgIHBhdHRl
+cm4pLiBXYXJtIGV4ZWN1dGVzIHRoZSBzYW1lIHdvcmQgYW5kIGNvbnRpbnVlcy4gYFNSX0NQWT0k
+MDAwMGAgaW4gdGhlIHN0YWNrZWQgZnJhbWUgZGVzcGl0ZSBGQz02IGZldGNoZXMuIE9ubHkgcHJl
+LWZhdWx0IGRpdmVyZ2VuY2UgaXMgb25lIGN5Y2xlIG9mIERFTFRBIGF0IGAkNDA2YCAoYDAwMENg
+IGNvbGQgdnMgYDAwMEJgIHdhcm0pLiBBNyBpcyBleG9uZXJhdGVkLiBEbyBub3QgcGF0Y2ggYW5v
+dGhlciBpbml0aWFsaXNlci4gQ2FwdHVyZSBgSVBJUEUuRGAsIGBPV19SRVFgLCBgT1BfSWAsIGBU
+UkFQX0NPREVfSWAgb24gY29sZCBzaWxpY29uLgoKVGhpcyBmYXVsdCB0cmF2ZWxzIHdpdGggdGhl
+IGNvcmUuIE5hbm8ncyB0b3AgbWF5IGNvbGQtYm9vdCBmeDY4ayBhbmQgc3RpbGwgbm90IHNhdmUg
+dXMgb25jZSB3ZjY4azMwTCBpcyBzcGxpY2VkIGluLiBBY2NlcHRhbmNlIGZvciB0aGF0IHNwbGlj
+ZSBpcyByZXBlYXRlZCBjb2xkIGJvb3RzLCBub3Qgb25lIHdhcm0gZGVza3RvcC4gRml4IGl0IHdp
+dGggYSBwaXBlIHRyYWNlIGJlZm9yZSBGYWxjb24gZGVwZW5kcyBvbiBpdC4KCioqMy4gTmFubyBU
+T1Mgb2Zmc2V0LiBVbnJlc29sdmVkIG9uIHB1cnBvc2UuKioKClNlZSB0aGUgaW4tZmxpZ2h0IHRl
+c3QuIERvIG5vdCBndWVzcyBgMHg1MDAwMDBgIHZzIGAweDkwMDAwMGAuCgoqKkxvY2tlZCwgbm90
+IG9wZW4g4oCUIGRvIG5vdCByZS1pbnZlc3RpZ2F0ZToqKgoKLSBERFIzIHNoYXJlZCB3cml0ZSBs
+YW5lIDQgZGVhZC4gTmV2ZXIgdXNlLgotIDY0LWJpdCBERFIzIHJlYWQgdXBwZXIgaGFsZiBkZWFk
+LiAzMi1iaXQgbGFuZXMgb25seS4KLSBFeHRlbmRlZCBBSEIgSFdEQVRBIHVwcGVyIDMyIGRlYWQu
+IDMyLWJpdCBIU0laRSwgcGF5bG9hZCBhdCArMC8rOCBvbmx5LgotIGBXQklOVkFMX0FMTGAgYXQg
+NjAgSHoga2lsbHMgYmFuZHdpZHRoLiBDQ1RMIHJhbmdlIGZsdXNoIG9ubHkuCi0gVW5tYXBwZWQg
+RmFsY29uIElPIG11c3QgQkVSUiBvciBUT1Mgc2VlcyBwaGFudG9tIGNoaXBzLgoKIyMgUGlubmVk
+IGlkZWFzCgpOb3Qgd29yay4gRG8gbm90IG9wZW4gdGhlbS4KCi0gKiowMzAgc3BsaWNlLCoqIGFm
+dGVyIE5hbm8gaXMgYSBwcm92ZW4gZGVza3RvcC4gRnJlZXplIHRoYXQgdHJlZSwgY2xvbmUgaXQs
+IHRoZW4gc3BsaWNlIHdmNjhrMzBMIHdpdGggVEY1MzQgYXJiaXRyYXRpb24uIE5vdCBhIGRyb3At
+aW4gb2YgZng2OGsuIEJ1cyBpcyBgU0laYCAvIGBEU0FDS25gIC8gYEZDYC4gRmlyc3QgY2xvY2sg
+Kio4IE1IeioqLCBjaGlwc2V0IHN0b2NrLiBUaGVuICoqMTYgTUh6KiogQ1BVLCBjaGlwc2V0IHN0
+aWxsIHN0b2NrIFNUIHNwZWVkLiBDYWNoZXMgb2ZmLiBQTU1VIG9mZi4KLSAqKjMyIE1IeiBjb3Jl
+IEZtYXguKiogUmVhbGlzdGljYWxseSBwb3NzaWJsZSBvbiB0aGlzIFNPTSBsYXRlci4gTm90IGZy
+ZWUsIG5vdCB0aGUgU1QgZ29hbC4gQ3JpdGljYWwtcGF0aCB3b3JrLCBub3QgYSBwbGFjZXIgZmxh
+Zy4gSW4tdHJlZSBjb21tZW50IGlzIHN0aWxsIGFib3V0IDIyIE1Iei4gUmVwbGljYXRlIFJlc291
+cmNlcyBzdGF5cyBUUlVFLgotICoqVFQwMzAuKiogTGF0ZXIgdGhpcmQgbWFjaGluZS4gUmVhbCBU
+VCBpcyBhIDMyIE1IeiAwMzAsIFRUIHNoaWZ0ZXIsIFNDU0ksIFNULVJBTSAvIFRULVJBTSBzcGxp
+dCwgVE9TIDMuIENsb2NrIGlzIHRoZSBlYXN5IHBhcnQuIENoaXBzZXQgaXMgdGhlIHByb2plY3Qu
+IE5vdCBGYWxjb24sIG5vdCBNaVNUZXJ5TmFuby4KLSAqKlBNTVUuKiogRmFicmljIGZsYXQgcHJv
+dGVjdGlvbiBwbHVzIGEgUklTQy1WIHdhbGssIG5vdCBpbnNpZGUgdGhlIGNvcmUuIFN0YXJ0cyB3
+aGVuIE1pTlQgaXMgbmV4dC4gRmlyc3QgdGFzayBpcyBhIFBURVNUIHNvdXJjZSBhdWRpdC4KLSAq
+KkZhbGNvbiBIREwqKiBvbmx5IGFmdGVyIHRoZSBTVCBkZXNrdG9wIGhhcyB2YWxpZGF0ZWQgdGhp
+cyAwMzAuCgojIyBXaG8gZG9lcyB3aGF0CgotIERhdmlkIG93bnMgdGhlIGJvYXJkLCB0aGUgZmxh
+c2hlcywgYW5kIHdoYXQgY291bnRzIGFzIGtub3duLWdvb2QuCi0gR3JvayBjaGF0IHdyaXRlcyBI
+REwsIGRvY3MsIHRoaXMgZmlsZSwgYW5kIGBCVUlMRF9SRVFVRVNULm1kYC4KLSBHcm9rIGJvdCBj
+b21waWxlcyB3aGVuIGEgcmVxdWVzdCBzYXlzIHNvLCBhbmQgd3JpdGVzIGBCVUlMRF9SRVBPUlQu
+bWRgLiBCb3QgZG9lcyBub3QgaW52ZW50IEhETCBhbmQgZG9lcyBub3QgZWRpdCB0aGlzIGZpbGUu
+Ci0gRGF2aWQgaGFzIGxpdHRsZSBIREwgZXhwZXJpZW5jZS4gQ2hhdCBvd25zIEhETCBndWlkYW5j
+ZSBhbmQgcmV2aWV3LgoKIyMgSGFyZHdhcmUKCi0gU2lwZWVkIFRhbmcgQ29uc29sZSArIEdXNUFT
+VC0xMzggU09NLiBEZXZpY2UgYEdXNUFTVC1MVjEzOFBHNDg0QUMxL0kwYCwgKipWZXJzaW9uIEMq
+Ki4gR293aW4gKipWMS45LjEyKiouCi0gV2luZG93cyBJREUgb24gRGF2aWQncyBtYWNoaW5lLiBB
+IExpbnV4IGJveCBydW5zIGBnd19zaGAgb25seS4KLSBDIGJ1aWxkcyB1c2UgV2luZG93cyBiYXRz
+ICsgYHJpc2N2MzItZWxmLWdjY2AuICoqRG8gbm90IGluc3RhbGwgQW5kZVNpZ2h0LioqCgoqKlNE
+UkFNIG1vZHVsZSoqIG1lYW5zIHRoZSBwbHVnLWluIGluICoqSjkqKiwgbm90IHRoZSBERFIzIG9u
+IHRoZSBTT00uCgotIGBIeWJyaWQwMzAvYCBkb2VzICoqbm90KiogbmVlZCBpdC4gUkFNIGlzIFNP
+TSBERFIzIHZpYSB0aGUgQUUzNTAuCi0gRXZlcnkgSERMIGJ1aWxkIGZyb20gaGVyZSAqKmRvZXMq
+Ki4gRG8gbm90IGZsYXNoIHRob3NlIHdpdGggSjkgZW1wdHkuCgpIeWJyaWQgYXVkaW8gaXMgdGhl
+IENvbnNvbGUgKipzcGVha2VyIGhlYWRlcioqLCBub3QgSERNSS4gRG8gbm90IG1peCB0aGF0IHdp
+dGggdGhlIE5hbm8gYXVkaW8gcGF0aC4KCiMjIFRyZWVzCgp8IFBhdGggfCBXaGF0IGl0IGlzIHwg
+Tm93IHwKfC0tLXwtLS18LS0tfAp8IGBIeWJyaWQwMzAvYCB8IEZyb3plbiBzY2FmZm9sZC4gTXVz
+YXNoaSBvbiBBRTM1MCArIFJFVjExYiBmYWJyaWMuIHwgSGlzdG9yeS4gTm8gU0RSQU0gbW9kdWxl
+LiB8CnwgYHJpZ3NkcmFtL2AgfCBSZS1lbmdpbmVlcmVkLCBpbnN0cnVjdGlvbi1hdWRpdGVkIHdm
+NjhrMzBMICsgU0RSQU0gZ3Vlc3QuIHwgS25vd24tZ29vZCBvcmFjbGUuIE5lZWRzIEo5LiB8Cnwg
+YG1pc3RlcnluYW5vX3RjMTM4ay9gIHwgU3RvY2sgTWlTVGVyeU5hbm8sIGZ4NjhrLCBDb25zb2xl
+IDEzOEsgb25seS4gfCBCdWlsdCwgbm90IHByb3Zlbi4gTmVlZHMgSjkuIHwKCkRvIG5vdCBzcGxp
+Y2UgdGhlIDAzMCBpbnRvIGBtaXN0ZXJ5bmFub190YzEzOGsvYC4KCktub3duLWdvb2QgYHJpZ3Nk
+cmFtYCBzaWxpY29uOgoKYGBgCjEyMzQ1ClJJR1NEUkFNIEdVRVNUCklNRz03NEQ4RTM3MwpUMOKA
+k1QxMSBQQVNTCkRPTkUgUApgYGAKClRoYXQgZ3Vlc3QgaXMgdGhlIGVtYmVkZGVkIFQw4oCTVDEx
+IGltYWdlLCBub3QgYSBzaG9ydGVyIHRlc3QgdXBsb2FkZWQgdGhlIHNhbWUgZGF5LiBDUFUgd2Fz
+IGF1ZGl0ZWQgYWdhaW5zdCBhbiBBbWlnYSBBMTIwMCArIEFDQTEyMzAtNTVOLiBEbyBub3QgZHJv
+cCB1cHN0cmVhbSB3ZjY4azMwTCBiYWNrIG9uIHRoaXMgdHJlZS4KCiMjIExvY2tlZCBydWxlcwoK
+LSBTaWxpY29uIGZpcnN0LiBBIHBhc3NpbmcgR293aW4gbG9nIGlzIG5vdCBhIHBhc3NpbmcgYm9h
+cmQuCi0gT25lIGdvbGRlbiBndWVzdCBhdCBhIHRpbWUuCi0gRGVzdGluYXRpb24gQ1BVIGlzIHdm
+NjhrMzBMIGluIGByaWdzZHJhbS9gLCBub3QgYSBNdXNhc2hpIHJld3JpdGUsIG5vdCBmeDY4ay4K
+LSBQblI6ICoqUmVwbGljYXRlIFJlc291cmNlcyA9IFRSVUUqKi4gRG8gbm90IGZsaXAgaXQgdG8g
+Y29tcGFyZSBvbGQgcmVwb3J0cy4gSnVkZ2UgYnkgRm1heC4KLSBHaXQgaXMgc291cmNlIG9ubHku
+IE5vIGAqLmZzYCwgYGltcGwvYCwgVE9TIGltYWdlcywgZGlzayBpbWFnZXMuCi0gUHVibGljIHJl
+cG8gaXMgZm9sbG93LW9ubHkuIFRoaXMgaXMgbm90IGEgcHJvZHVjdC4gTm8gc3VwcG9ydC4KCiMj
+IE5hbm8gSURFIHRyYXBzCgpgYnVpbGRfdGMxMzhrLnRjbGAgc2V0cyB0aGVzZS4gVGhlIGAuZ3By
+amAgZG9lcyBub3QuIENoZWNrIHRoZXNlIGJlZm9yZSBlZGl0aW5nIHNvdXJjZToKCi0gU3ludGhl
+c2l6ZTogKipTeXN0ZW1WZXJpbG9nIDIwMTcqKi4KLSBUb3AgbW9kdWxlIGlzIGV4YWN0bHkgYHRv
+cGAuIEEgd3JvbmcgdG9wIGlzIGEgd2FsbCBvZiBgQ1QxMTM1YC4gYGp0NDlfZGNybTJgIGlzIHRo
+ZSBZTSBmaWx0ZXIuCi0gRHVhbC1wdXJwb3NlICoqb24qKjogSlRBRywgRE9ORSwgUkVBRFksIE1T
+UEksIFNTUEksIENQVS4KLSBEdWFsLXB1cnBvc2UgKipvZmYqKjogTU9ERSwgSTJDLgotIERldmlj
+ZSB2ZXJzaW9uICoqQyoqLgotIElnbm9yZTogYG9sZF9mbGdgLCBgZmRjMTc3MmAgYWx3YXlzLWxv
+b3AsIGBydGNfaW5kZXhgLgoKIyMgSHlicmlkIGNvbnRyYWN0CgpGQVQzMiBpbiB0aGUgVEYgc2xv
+dC4gYEZBTENPTi5DRkdgIGluIHRoZSByb290LiBGaXJtd2FyZSBuZXZlciB3cml0ZXMgdGhlIEZB
+VC4gU29saWQgZ3JlZW4gTEVEIG1lYW5zIHNhZmUgdG8gZWplY3QuIEFueSB1c2VyLXN1cHBsaWVk
+IFRPUy4gQXRhcmkgVE9TIGlzIG5vdCBpbiBnaXQuCgotIGBMT0c9MWAgaXMgdGhlIGRlZmF1bHQg
+YW5kIG1ha2VzIHRoZSBndWVzdCBmZWVsIHNsb3cgd2l0aCBubyBzZXJpYWwgY2FibGUuIERlc2t0
+b3AgY2FyZHMgd2FudCBgTE9HPTBgLgotIGBESVNLQj1gIHdvcmtzIG9uIEVtdVRPUywgbm90IFRP
+UyA0LjA0LgotIEVtYmVkZGVkIEVtdVRPUyBpcyBhbiBvbGRlciAxLjQsIFNELWZhaWwgZmFsbGJh
+Y2sgb25seS4gVXNlIGEgY3VycmVudCA1MTJLIDEuNCBmcm9tIHRoZSBjYXJkLgotIGBIRDBOQU1F
+PWAgaXMgdGhlIElERSBJREVOVElGWSBtb2RlbCwgbm90IHRoZSBmaWxlbmFtZS4KLSBIb3N0IGtl
+eXM6ICoqRjEwKiogNTAvNjAsICoqRjExKiogUFNHIHZzIDQ0MCBIeiB0b25lLCAqKkYxMioqIGxv
+ZywgKipQcmludCBTY3JlZW4qKiBqb3lzdGljayAxLgoKRGV0YWlsczogYEh5YnJpZDAzMC9IT1dU
+Ty5tZGAuCgojIyBXaGVyZSB0byBsb29rCgp8IEZpbGUgfCBVc2UgfAp8LS0tfC0tLXwKfCBgUkVB
+RE1FLm1kYCB8IFB1YmxpYyBkZXNjcmlwdGlvbiB8CnwgYEh5YnJpZDAzMC9IT1dUTy5tZGAgfCBI
+eWJyaWQgU0QgY2FyZCB8CnwgYEFHRU5UX1BST1RPQ09MLm1kYCB8IENoYXQgLyBib3QgaGFuZHNo
+YWtlIHwKfCBgQlVJTERfUkVRVUVTVC5tZGAgLyBgQlVJTERfUkVQT1JULm1kYCB8IEN1cnJlbnQg
+Y29tcGlsZSBjeWNsZSB8CnwgYE5PVElDRS5tZGAgfCBVcHN0cmVhbSBsaWNlbnNlcyB8Cg==
 ```
-
-That guest is the embedded T0–T11 image, not a shorter test uploaded the same day. CPU was audited against an Amiga A1200 + ACA1230-55N. Do not drop upstream wf68k30L back on this tree.
-
-## Locked rules
-
-- Silicon first. A passing Gowin log is not a passing board.
-- One golden guest at a time.
-- Destination CPU is wf68k30L in `rigsdram/`, not a Musashi rewrite, not fx68k.
-- PnR: **Replicate Resources = TRUE**. Do not flip it to compare old reports. Judge by Fmax.
-- Git is source only. No `*.fs`, `impl/`, TOS images, disk images.
-- Public repo is follow-only. This is not a product. No support.
-
-## Nano IDE traps
-
-`build_tc138k.tcl` sets these. The `.gprj` does not. Check these before editing source:
-
-- Synthesize: **SystemVerilog 2017**.
-- Top module is exactly `top`. A wrong top is a wall of `CT1135`. `jt49_dcrm2` is the YM filter.
-- Dual-purpose **on**: JTAG, DONE, READY, MSPI, SSPI, CPU.
-- Dual-purpose **off**: MODE, I2C.
-- Device version **C**.
-- Ignore: `old_flg`, `fdc1772` always-loop, `rtc_index`.
-
-## Hybrid contract
-
-FAT32 in the TF slot. `FALCON.CFG` in the root. Firmware never writes the FAT. Solid green LED means safe to eject. Any user-supplied TOS. Atari TOS is not in git.
-
-- `LOG=1` is the default and makes the guest feel slow with no serial cable. Desktop cards want `LOG=0`.
-- `DISKB=` works on EmuTOS, not TOS 4.04.
-- Embedded EmuTOS is an older 1.4, SD-fail fallback only. Use a current 512K 1.4 from the card.
-- `HD0NAME=` is the IDE IDENTIFY model, not the filename.
-- Host keys: **F10** 50/60, **F11** PSG vs 440 Hz tone, **F12** log, **Print Screen** joystick 1.
-
-Details: `Hybrid030/HOWTO.md`.
-
-## Where to look
-
-| File | Use |
-|---|---|
-| `README.md` | Public description |
-| `Hybrid030/HOWTO.md` | Hybrid SD card |
-| `AGENT_PROTOCOL.md` | Chat / bot handshake |
-| `BUILD_REQUEST.md` / `BUILD_REPORT.md` | Current compile cycle |
-| `NOTICE.md` | Upstream licenses |
