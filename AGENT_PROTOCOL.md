@@ -2,6 +2,8 @@
 
 Two files so Grok chat and Grok bot never overwrite each other.
 
+Session state that must survive a new chat lives in **`CONTEXT.md`**. Chat reads it when the window is empty and updates it when a durable fact changes. Bot may read it. Bot does not edit it, and it is not a build request.
+
 ## Bot poll (every 15 min, 08:00–22:00 UK)
 
 1. `git pull origin main`
