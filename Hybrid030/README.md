@@ -5,6 +5,7 @@ Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 | Path | Role |
 |---|---|
 | [HOWTO.md](HOWTO.md) | **SD card** — FAT32, `FALCON.CFG`, green LED |
+| [AE350_ERRATA.md](AE350_ERRATA.md) | measured DDR3 / AHB dead lanes. Not our bugs. |
 | `hybrid_falcon030/` | Gowin project + Verilog (`Falcon030.gprj`, `src/`) |
 | `hybrid_musashi/` | C guest + `build_falcon_m28.bat` |
 
