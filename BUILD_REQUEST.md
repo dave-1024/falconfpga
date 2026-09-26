@@ -2,9 +2,11 @@
 
 OWNER: Grok chat. Grok bot: read only.
 
-Poll rule: every wake, read `CONTEXT.md` first. The `HANDOFF:` line is plain. The fenced block is standard base64 — decode it before use. There is no key. A new `HANDOFF` means the chat changed or the state file was updated. Re-read it. Do not build because of that. Echo `HANDOFF_SEEN` in the report.
+Poll rule: every wake, read only the plain `HANDOFF`, `CHANGED`, and `READ` lines in `CONTEXT.md`. Do not decode the block.
 
-Run only if ACTION is BUILD/BUILD_AND_FLASH/PREPARE and this REQUEST_ID is not already in BUILD_REPORT.md.
+Decode only if `CHANGED` is 1 and (`ACTION` is BUILD, BUILD_AND_FLASH, PREPARE, or SIMULATE, or `READ` is 1). If `CHANGED` is 0, do not decode. After a decode, set `CHANGED` and `READ` to 0 and echo `HANDOFF_SEEN`. An idle poll writes nothing.
+
+Run only if ACTION is BUILD/BUILD_AND_FLASH/PREPARE/SIMULATE and this REQUEST_ID is not already in BUILD_REPORT.md.
 
 ```
 REQUEST_ID: 20260925-mn4-done
@@ -12,6 +14,6 @@ ACTION: NO_BUILD
 PROJECT: misterynano_tc138k
 WORKDIR: misterynano_tc138k
 BUILD_CMD:
-WHAT_CHANGED: Idle. CONTEXT.md body is now obfuscated (base64, no key). HANDOFF 2026-09-26-3. Decode the block. Do not build.
-CHECK: Idle. Echo HANDOFF_SEEN. No Gowin.
+WHAT_CHANGED: Idle. CONTEXT.md flags are HANDOFF 2026-09-26-4, CHANGED 0, READ 0. Do not decode.
+CHECK: Idle. No Gowin. No decode.
 ```
