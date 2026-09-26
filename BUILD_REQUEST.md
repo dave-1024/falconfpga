@@ -9,12 +9,12 @@ Decode only if `CHANGED` is 1 and (`ACTION` is BUILD, BUILD_AND_FLASH, PREPARE, 
 Run only if ACTION is BUILD/BUILD_AND_FLASH/PREPARE/SIMULATE and this REQUEST_ID is not already in BUILD_REPORT.md.
 
 ```
-REQUEST_ID: 20260926-hdmi1
+REQUEST_ID: 20260926-hdmi2
 ACTION: SIMULATE
 PROJECT: misterynano_tc138k
 WORKDIR: misterynano_tc138k
 BUILD_CMD: gw_sh build_tc138k.tcl; echo GW_EXIT:$?; bash sim/run_hdmi_sim.sh; echo SIM_EXIT:$?
-WHAT_CHANGED: No HDL change to the bitstream. Same tree David built. Added misterynano_tc138k/sim/ only. That folder is not in build_tc138k.tcl. CONTEXT.md is unchanged. Do not decode it.
+WHAT_CHANGED: Dropped set_option -co-place_io_registers. Gowin 1.9.12.03 rejects it. It was 0, so the build is unchanged. Ignore 20260926-hdmi1 if you already failed it on that line. CONTEXT.md unchanged. Do not decode it.
 CHECK: Do both, even if the first fails. Do not flash. Do not push a bitstream, a vvp, or anything under impl/. Do not install packages.
 1. Gowin build of misterynano_tc138k with build_tc138k.tcl. Report PASS or FAIL, errors with file:line, and the bitstream size in bytes only.
 2. HDMI pin sim. Copy the HDMI_EDGES line and the HDMI_SIM line into the report. PASS means the encoder toggled. FAIL compile means paste the iverilog error. SIM_TOOL_MISSING means iverilog is not on this box; say so and stop. Do not try another simulator.
