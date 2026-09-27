@@ -6,6 +6,19 @@ Top is `src/Falcon030_top.v`, **REV 11b** (2026-07-24). Gowin project `Falcon030
 
 This is history. Destination CPU for new work is **wf68k30L** in `rigsdram/`, then the Nano splice. Do not treat a rebuild of this tree as the 030 HDL path.
 
+## GUI: tick these two boxes before you build
+
+The project file does **not** store them. If you open `Falcon030.gprj` in the IDE and skip this, the build fails on the flash pins, or it finishes and the AE350 never fetches.
+
+1. Open **Configuration**.
+2. **Place & Route → Dual-Purpose Pin**.
+3. Tick **Use MSPI as regular IO**.
+4. Tick **Use CPU as regular IO**.
+5. Leave JTAG, SSPI, READY and DONE **unticked**.
+6. Apply, then OK.
+
+Full note: [GUI.md](GUI.md).
+
 ## CLI build
 
 From this directory, with the live install (not `Gowin_V1.9.12_x64`):
@@ -14,7 +27,7 @@ From this directory, with the live install (not `Gowin_V1.9.12_x64`):
 C:\Dev\Gowin\Gowin_V1.9.12.03_x64\IDE\bin\gw_sh.exe build_hybrid.tcl
 ```
 
-`build_hybrid.tcl` sets device version C, top `falcon_top`, and the two dual-purpose ticks this fabric needs: **Use MSPI as regular IO** and **Use CPU as regular IO**. The other four stay off. Bitstream is `impl/pnr/Falcon030.fs`. Flash that at 0x0.
+`build_hybrid.tcl` sets device version C, top `falcon_top`, and the same two ticks. The other four stay off. Bitstream is `impl/pnr/Falcon030.fs`. Flash that at 0x0.
 
 ## Board
 
