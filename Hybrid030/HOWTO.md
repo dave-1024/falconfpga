@@ -20,13 +20,15 @@ Firmware contains an **older EmuTOS 1.4** only so a dead or missing card still p
 
 ## It takes a while to start
 
-Be patient. A dark screen at the start of a cold boot is normal.
+Be patient. A dark screen at the start of a **cold** boot is normal. This wait is a cold switch-on, or a reset that reloads the FPGA. It is not a TOS reset.
 
-The bitstream is large. From a cold switch-on, or a hard reset, the flash has to program the fabric before HDMI can sync. That can take about **20 seconds**. No instant picture, and no sync yet, is not a fault. Do not power-cycle again in that window.
+The bitstream is large. The flash has to program the fabric before HDMI can sync. That can take about **20 seconds**. No instant picture, and no sync yet, is not a fault. Do not power-cycle again in that window.
 
 The first picture is **colour bars**. The fabric is up. It is looking at the card and loading TOS, floppies, and hardfiles. It is not a crash and it is not the desktop.
 
 TOS starts after that. Allow about **30 seconds** from power-on. A card with large hardfiles takes longer, because those files are opened during the wait.
+
+**Ctrl-Alt-Del** is a soft computer reset. **Ctrl-Alt-Shift-Del** is a hard computer reset. Neither reloads the FPGA. The monitor stays synced, and TOS reboots at a normal Atari speed. No colour bars. No unsync.
 
 ## Card format
 
@@ -59,6 +61,8 @@ Wire a speaker (or a small amp) to the **speaker jumpers on the Tang Console**. 
 ## Host keys (USB, not on a real Atari keyboard)
 
 Checked in `falcon_m28.c` (`hid_consume`). These keys do not exist on a Falcon keyboard, so firmware swallows them. TOS never sees the scancode.
+
+Ctrl-Alt-Del and Ctrl-Alt-Shift-Del are not in that list. TOS sees them. They are computer resets, not an FPGA reload. See [It takes a while to start](#it-takes-a-while-to-start).
 
 ### F10 — 50 Hz / 60 Hz
 
@@ -175,7 +179,7 @@ DISKA=DISKA.ST
 LOG=0
 ```
 
-5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash. Then wait. Sync can take about 20 seconds. Colour bars come first.
+5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash. Then wait on that first power-on. Sync can take about 20 seconds. Colour bars come first. A later Ctrl-Alt-Del does not do that.
 
 ## Suggested card (current EmuTOS)
 
