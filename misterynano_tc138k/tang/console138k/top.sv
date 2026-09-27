@@ -166,7 +166,22 @@ wire [1:0]  vmode;
 wire [1:0]  screen;
 
 wire [5:0] leds_int_n;
-assign leds_n = ~leds_int_n[1:0];
+// Fabric-alive blink on leds_n[0] (G11, marked fpga done). Uses the 50 MHz
+// board clock, not the HDMI PLL and not the MFP. Timer C is the 200 Hz TOS
+// pulse, but it stays silent until TOS writes the timer, so a dark LED on
+// that pulse would not mean the fabric is dead. Toggle every 12,500,000
+// clocks: a 2 Hz flash.
+reg [23:0] alive_div;
+reg        alive_blink;
+always @(posedge clk) begin
+  if (alive_div == 24'd12_499_999) begin
+    alive_div   <= 24'd0;
+    alive_blink <= ~alive_blink;
+  end else
+    alive_div <= alive_div + 24'd1;
+end
+assign leds_n[0] = alive_blink;
+assign leds_n[1] = ~leds_int_n[1];
 
 assign lcd_bl = 1'bz;
    
@@ -370,4 +385,3 @@ endmodule
 // Local Variables:
 // tab-width: 4
 // End:
-
