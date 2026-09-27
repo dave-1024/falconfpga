@@ -76,18 +76,20 @@ Same cable. Same device, **GW5AST-138C**. Do not power-cycle between the two ste
 
 `falcon_m28.bin` is not TOS and not the bitstream. Address **0x0600000** only.
 
-## Be patient. A dark screen is normal at first.
+## Be patient on a cold start. A dark screen is normal then.
 
-The bitstream is large. From a cold switch-on, or a hard reset, the flash has to program the fabric before HDMI can do anything. That takes a few seconds, and the monitor can take longer to notice.
+This wait is only a **cold switch-on**, or a reset that reloads the FPGA. The bitstream is large. The flash has to program the fabric before HDMI can do anything. That takes a few seconds, and the monitor can take longer to notice.
 
 - **No instant picture is not a fault.** From power-on to monitor sync can take about **20 seconds**. Amber, or "no signal", in that window is normal. Do not pull power and try again yet.
 - The first picture is **colour bars**. That means the fabric is up. It is looking at the card and loading TOS, floppies, and hardfiles. It is not a crash and it is not the desktop.
 - TOS starts after that. Allow about **30 seconds** from power-on to a boot. A card with large hardfiles takes longer, because those files are opened during the wait.
 - Wait. Then decide it failed.
 
+A TOS reset does **not** do this. **Ctrl-Alt-Del** is a soft computer reset. **Ctrl-Alt-Shift-Del** is a hard computer reset. Neither reloads the FPGA. The monitor stays synced, and TOS reboots at a normal Atari speed. No colour bars. No unsync.
+
 ## 3. After both flashes
 
-1. Unplug USB. Wait a few seconds. Plug it back in. HDMI can stay connected. Then wait. See above. Do not expect a picture in the first second.
+1. Unplug USB. Wait a few seconds. Plug it back in. HDMI can stay connected. Then wait. See above. Do not expect a picture in the first second. That wait is a cold start only.
 2. A picture with **no card** can still appear, after that wait. That is an old EmuTOS 1.4 burned into the firmware, a fallback only. It is not the TOS to use. Some Falcon video modes misbehave on that copy.
 3. For a real card, follow [../HOWTO.md](../HOWTO.md). Short version: FAT32 microSD, files in the root, `FALCON.CFG` with `LOG=0`. **`LOG=1` is the default.** The guest feels slow even if you have no serial cable plugged in. Put `LOG=0` in the cfg.
 4. Solid green LED means the firmware is idle and the card is safe to eject. Dark or flickering means a card write is in flight. Do not pull power then.
@@ -99,5 +101,6 @@ Sound is not on HDMI. Speaker jumpers on the Console. F11 switches the YM and a 
 - No device in Programmer: try the other USB Debugger entry, another cable, another USB port. The device line must read **GW5AST-138C**.
 - Verify failed: flash that file again. Do not continue to the other file on a failed verify.
 - Log starts at `0x6000000`: that is the wrong address. The box ate a missing leading 0. Reflash the bitstream at `0x0`, then the firmware at `0x0600000`.
-- Still no sync after **30 seconds**, and no colour bars: power-cycle once and wait another 30 seconds. Then it is not something this folder will diagnose. No support.
+- Still no sync after **30 seconds** from a cold switch-on, and no colour bars: power-cycle once and wait another 30 seconds. Then it is not something this folder will diagnose. No support.
+- A TOS reset that unsyncs the monitor is not what Ctrl-Alt-Del or Ctrl-Alt-Shift-Del do. Those stay synced.
 - This page will not be updated to chase your board. No support.
