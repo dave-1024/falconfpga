@@ -54,6 +54,8 @@ The hybrid exists to **move modules from C to RTL one at a time**, not as the fi
 
 Archive: **`Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight. **No Tang SDRAM module** — see Hardware notes.
 
+**GUI build of that HDL fails until two boxes are ticked.** Configuration → Place & Route → Dual-Purpose Pin: tick **Use MSPI as regular IO** and **Use CPU as regular IO**. Leave JTAG, SSPI, READY and DONE unticked. Steps: [`Hybrid030/hybrid_falcon030/GUI.md`](Hybrid030/hybrid_falcon030/GUI.md). The CLI script `build_hybrid.tcl` sets them.
+
 ## SOM DDR3 — faults that were not published
 
 These are not bugs in the HDL in this repo. They are faults in the **Gowin DDR3 IP** on this 138K SOM, used with the Andes AE350. They were measured here in July 2026.
@@ -157,6 +159,7 @@ If a name is missing, say so and it goes here.
 | `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
 | `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
+| `Hybrid030/hybrid_falcon030/GUI.md` | GUI ticks before a hybrid Place & Route. MSPI and CPU only. |
 | `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. Not in vendor docs. |
 | `Hybrid030/hybrid_falcon030/` | REV11b Gowin fabric |
 | `Hybrid030/hybrid_musashi/` | Musashi guest + bats |
