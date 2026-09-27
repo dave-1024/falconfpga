@@ -2,15 +2,11 @@ impl/
 CurrentBuildReports/
 env.bat
 output/
-*.fs
-*.bin
 *.adx
 *.bit
 *.so
 *.o
 *.elf
 *.map
-src/New folder/
-**/New folder/
 .gowin/
 *.user
