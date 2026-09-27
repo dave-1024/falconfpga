@@ -8,7 +8,7 @@ Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 
 | Path | Role |
 |---|---|
-| [Binaries/README.md](Binaries/README.md) | **Flash and use.** Bitstream at 0x0, firmware at 0x600000. No support. |
+| [Binaries/README.md](Binaries/README.md) | **Flash and use.** Bitstream at 0x0, firmware at **0x0600000**. The Programmer box wants that leading 0. No support. |
 | [hybrid_falcon030/GUI.md](hybrid_falcon030/GUI.md) | **GUI ticks** before Place & Route. Read this if you open the project in the IDE. |
 | [HOWTO.md](HOWTO.md) | **SD card** — FAT32, `FALCON.CFG`, green LED |
 | [AE350_ERRATA.md](AE350_ERRATA.md) | measured DDR3 / AHB dead lanes. Not our bugs. |
