@@ -7,9 +7,21 @@ Unzip `Binaries.zip`. It holds two files, built from the hybrid source in this r
 | File | What it is | Where it goes |
 |---|---|---|
 | `Falcon030.fs` | FPGA bitstream. About 37 MB (38,476,459 bytes). | External flash, address **0x0** |
-| `falcon_m28.bin` | AE350 firmware. About 1 MB (1,021,320 bytes). | External flash, address **0x600000** |
+| `falcon_m28.bin` | AE350 firmware. About 1 MB (1,021,320 bytes). | External flash, address **0x0600000** |
 
 Packed 27 September 2026. If the source in git moves later, this zip is this snapshot. It is not rebuilt for you.
+
+## The firmware address
+
+Type **0x0600000**. Copy that. The Programmer box insists on the leading 0.
+
+`0x600000` is the same number on paper. In that box it is much too easy to type **0x6000000**, and that is a **different address**. The firmware will not land, and the board will not boot.
+
+- Yes: `0x0600000`
+- No: `0x600000`
+- No: `0x6000000`
+
+The log must say programming starts from `0x0600000`. The file is about 1 MB, so the end is near `0x0700000`. Not `0x700000`.
 
 ## What this is not
 
@@ -57,12 +69,12 @@ Same cable. Same device, **GW5AST-138C**. Do not power-cycle between the two ste
 1. Device configuration, Access Mode: **External Flash Mode**.
 2. Operation: **exFlash C Bin Program** if it is in the list. That writes the bin and does not erase the bitstream you just wrote. If the list only has **exFlash C Bin Erase, Program, Verify**, use that, but read the log in the next step before you walk away.
 3. Programming file: `falcon_m28.bin`.
-4. Start address: **0x600000**. Type it. Do not leave 0x0.
+4. Start address: **0x0600000**. Copy it, including the leading 0. Do not leave 0x0. Do not type `0x6000000`.
 5. Program.
-6. Read the log. It must say programming **starts from 0x600000** and ends somewhere near **0x700000** (the file is about 1 MB). The TOS-style line on this bench looked like `Programming Flash starts from 0x0600000`.
-7. If the log says it starts at **0x0**, or that it is erasing the whole flash, **stop**. That write is landing on the bitstream. Reflash `Falcon030.fs` at 0x0, then do this step again with the start address set.
+6. Read the log. It must say programming **starts from 0x0600000** and ends near **0x0700000** (the file is about 1 MB). Not `0x700000`.
+7. If the log says it starts at **0x0**, or at **0x6000000**, or that it is erasing the whole flash, **stop**. That write is not the firmware slot. Reflash `Falcon030.fs` at 0x0, then do this step again with **0x0600000**.
 
-`falcon_m28.bin` is not TOS and not the bitstream. Address **0x600000** only.
+`falcon_m28.bin` is not TOS and not the bitstream. Address **0x0600000** only.
 
 ## 3. After both flashes
 
@@ -77,5 +89,6 @@ Sound is not on HDMI. Speaker jumpers on the Console. F11 switches the YM and a 
 
 - No device in Programmer: try the other USB Debugger entry, another cable, another USB port. The device line must read **GW5AST-138C**.
 - Verify failed: flash that file again. Do not continue to the other file on a failed verify.
+- Log starts at `0x6000000`: that is the wrong address. The box ate a missing leading 0. Reflash the bitstream at `0x0`, then the firmware at `0x0600000`.
 - Black screen after a good verify of both files: power-cycle. Then try the card in [../HOWTO.md](../HOWTO.md). A missing card should still fall back to the embedded EmuTOS. No picture at all is not something this folder will diagnose.
 - This page will not be updated to chase your board. No support.
