@@ -1,6 +1,8 @@
 # Compile the hybrid RISC-V guest (Windows)
 
-The guest is C, not Andesight. One batch file. Flash the `.bin` to **0x600000**.
+The guest is C, not Andesight. One batch file. Flash the `.bin` to **0x0600000**.
+
+The Programmer box insists on that leading 0. `0x600000` is the same number, and in that box it is too easy to type `0x6000000`, which is a different address. Copy `0x0600000`. Flash steps: [../Binaries/README.md](../Binaries/README.md).
 
 Never installed the Andes/Gowin RISC-V kit before? Start with **FIRST_TIME.md** (downloads, folder names, what to click).
 
