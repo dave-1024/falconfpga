@@ -2,8 +2,11 @@
 
 Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 
+**GUI build of the HDL fails until two boxes are ticked.** Open Configuration → Place & Route → Dual-Purpose Pin. Tick **Use MSPI as regular IO** and **Use CPU as regular IO**. Leave JTAG, SSPI, READY and DONE unticked. Steps: [hybrid_falcon030/GUI.md](hybrid_falcon030/GUI.md). The CLI script `hybrid_falcon030/build_hybrid.tcl` sets them.
+
 | Path | Role |
 |---|---|
+| [hybrid_falcon030/GUI.md](hybrid_falcon030/GUI.md) | **GUI ticks** before Place & Route. Read this if you open the project in the IDE. |
 | [HOWTO.md](HOWTO.md) | **SD card** — FAT32, `FALCON.CFG`, green LED |
 | [AE350_ERRATA.md](AE350_ERRATA.md) | measured DDR3 / AHB dead lanes. Not our bugs. |
 | `hybrid_falcon030/` | Gowin project + Verilog (`Falcon030.gprj`, `src/`) |
