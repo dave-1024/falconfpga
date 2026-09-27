@@ -13,7 +13,7 @@ The plug-in SDRAM module is for the HDL trees only: `misterynano_tc138k/`, `rigs
 ## What you flash (three different things)
 
 1. **FPGA bitstream** — Gowin `.fs` built from `hybrid_falcon030/` (not in git). If you build in the GUI, tick **Use MSPI as regular IO** and **Use CPU as regular IO** first, or Place & Route fails. Steps: [hybrid_falcon030/GUI.md](hybrid_falcon030/GUI.md). CLI: `build_hybrid.tcl` sets them.
-2. **AE350 firmware** — `falcon_m28.bin` at **0x600000**. Build with `hybrid_musashi/build_falcon_m28.bat` (see `hybrid_musashi/FIRST_TIME.md`).
+2. **AE350 firmware** — `falcon_m28.bin` at **0x0600000**. The Programmer box wants that leading 0. Do not type `0x6000000` — that is a different address. Build with `hybrid_musashi/build_falcon_m28.bat` (see `hybrid_musashi/FIRST_TIME.md`).
 3. **Nothing Atari TOS in flash.** TOS, floppies and hardfiles come from the **microSD** in the Console TF slot.
 
 Firmware contains an **older EmuTOS 1.4** only so a dead or missing card still puts something on the screen. Do not use that copy on purpose. See [EmuTOS](#emutos-vs-tos-404) below.
