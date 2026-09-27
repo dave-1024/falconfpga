@@ -6,6 +6,16 @@ Top is `src/Falcon030_top.v`, **REV 11b** (2026-07-24). Gowin project `Falcon030
 
 This is history. Destination CPU for new work is **wf68k30L** in `rigsdram/`, then the Nano splice. Do not treat a rebuild of this tree as the 030 HDL path.
 
+## CLI build
+
+From this directory, with the live install (not `Gowin_V1.9.12_x64`):
+
+```
+C:\Dev\Gowin\Gowin_V1.9.12.03_x64\IDE\bin\gw_sh.exe build_hybrid.tcl
+```
+
+`build_hybrid.tcl` sets device version C, top `falcon_top`, and the two dual-purpose ticks this fabric needs: **Use MSPI as regular IO** and **Use CPU as regular IO**. The other four stay off. Bitstream is `impl/pnr/Falcon030.fs`. Flash that at 0x0.
+
 ## Board
 
 **No Tang SDRAM module.** This fabric uses the DDR3 on the 138K SOM (AE350). Leave J9 empty for a hybrid flash.
