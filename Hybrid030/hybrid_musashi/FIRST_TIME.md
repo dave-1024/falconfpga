@@ -105,4 +105,4 @@ Do not run it. You may **copy** `toolchains\nds32le-elf-newlib-v5` and `cygwin\b
 
 ## Flash note
 
-`falcon_m28.bin` is AE350 firmware at **0x600000**. It is not the FPGA bitstream and not TOS.
+`falcon_m28.bin` is AE350 firmware at **0x0600000**. The Programmer box wants that leading 0. Do not type `0x6000000` — that is a different address. It is not the FPGA bitstream and not TOS.
