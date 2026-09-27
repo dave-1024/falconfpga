@@ -21,6 +21,6 @@ EmuTOS 1.4 ships as `emutos_rom.c` (GPL-2, https://github.com/emutos/emutos tag 
 1. [FIRST_TIME.md](FIRST_TIME.md) — unpack toolchains, **do not install AndeSight**.
 2. Copy `env.bat.example` to `env.bat`.
 3. [COMPILE.md](COMPILE.md) — run `build_falcon_m28.bat`.
-4. Flash `output\falcon_m28.bin` to **0x600000**.
+4. Flash `output\falcon_m28.bin` to **0x0600000**. The Programmer box wants that leading 0. Do not type `0x6000000` — that is a different address. Steps: [../Binaries/README.md](../Binaries/README.md).
 
 `env.bat` and `output/` stay off git.
