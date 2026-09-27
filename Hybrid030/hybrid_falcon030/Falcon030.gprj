@@ -26,7 +26,6 @@
         <File path="src/key_debounce.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
         <File path="src/riscv_ae350_soc/riscv_ae350_soc.v" type="file.verilog" enable="1"/>
-        <File path="src/tb_mux_atomic.v" type="file.verilog" enable="1"/>
         <File path="src/tmds_encoder.v" type="file.verilog" enable="1"/>
         <File path="src/usb_hid_host.v" type="file.verilog" enable="1"/>
         <File path="src/tang_console_ae350_stage0.cst" type="file.cst" enable="1"/>
