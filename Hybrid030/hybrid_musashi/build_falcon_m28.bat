@@ -5,7 +5,7 @@ REM
 REM  Paths live in env.bat (copy env.bat.example). Do not install AndeSight.
 REM  See FIRST_TIME.md and COMPILE.md.
 REM
-REM  Produces:  output\falcon_m28.bin  (flash to 0x600000, firmware only)
+REM  Produces:  output\falcon_m28.bin  (flash to 0x0600000, firmware only. Programmer box wants the leading 0. Not 0x6000000.)
 REM ============================================================================
 setlocal enabledelayedexpansion
 
@@ -113,7 +113,8 @@ echo === Sections + size ===
 echo.
 for %%F in ("%OUT%\falcon_m28.bin") do echo Output: %%~fF  (%%~zF bytes)
 echo.
-echo Flash .bin to 0x600000. Bitstream untouched.
+echo Flash .bin to 0x0600000. Leading 0. Not 0x6000000.
+echo Bitstream untouched.
 echo TOS and disks come from the SD card. See HOWTO.md.
 echo.
 endlocal
