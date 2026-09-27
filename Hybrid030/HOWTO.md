@@ -18,6 +18,16 @@ The plug-in SDRAM module is for the HDL trees only: `misterynano_tc138k/`, `rigs
 
 Firmware contains an **older EmuTOS 1.4** only so a dead or missing card still puts something on the screen. Do not use that copy on purpose. See [EmuTOS](#emutos-vs-tos-404) below.
 
+## It takes a while to start
+
+Be patient. A dark screen at the start of a cold boot is normal.
+
+The bitstream is large. From a cold switch-on, or a hard reset, the flash has to program the fabric before HDMI can sync. That can take about **20 seconds**. No instant picture, and no sync yet, is not a fault. Do not power-cycle again in that window.
+
+The first picture is **colour bars**. The fabric is up. It is looking at the card and loading TOS, floppies, and hardfiles. It is not a crash and it is not the desktop.
+
+TOS starts after that. Allow about **30 seconds** from power-on. A card with large hardfiles takes longer, because those files are opened during the wait.
+
 ## Card format
 
 - microSD, **FAT32** (MBR partition or superfloppy).
@@ -165,7 +175,7 @@ DISKA=DISKA.ST
 LOG=0
 ```
 
-5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash.
+5. Eject cleanly. Insert in the Console **TF** slot. Power with bitstream + `falcon_m28.bin` already in flash. Then wait. Sync can take about 20 seconds. Colour bars come first.
 
 ## Suggested card (current EmuTOS)
 
