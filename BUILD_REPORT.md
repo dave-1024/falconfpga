@@ -3,73 +3,73 @@
 OWNER: Grok bot. Grok chat: read only (may reset to this template after reading).
 
 ```
-REQUEST_ID: 20260927-1
+REQUEST_ID: 20260928-2
 ACTION: BUILD
 RESULT: PASS
 GOWIN_VERSION: V1.9.12.03 (gw_sh via /usr/local/bin/gowin-sh / /workspace/tools/bin/gowin-sh, Linux)
-PROJECT: misterynano_tc138k
-WORKDIR: misterynano_tc138k
-BUILD_CMD: gw_sh build_tc138k.tcl; echo GW_EXIT:$?
-TOP: top
+PROJECT: rigsdram
+WORKDIR: rigsdram
+BUILD_CMD: gw_sh build_rigsdram.tcl; echo GW_EXIT:$?
+TOP: RIGSDRAM_TOP
 DEVICE: GW5AST-LV138PG484AC1/I0
 DEVICE_VERSION: C
-REPLICATE_RESOURCES: TRUE (set_option -replicate_resources 1 in build_tc138k.tcl)
-REPO COMMIT BUILT: ea767ec
+REPLICATE_RESOURCES: TRUE (set_option -replicate_resources 1; PnR cmd.do has -replicate)
+REPO COMMIT BUILT: 50a188d
 
-STAGE REACHED: Gowin full flow PASS (synthesis, place, route, timing, bitstream). GW_EXIT:0. ~5.2 min. No sim (CHECK: sanity build only).
+STAGE REACHED: Gowin full flow PASS (synthesis, place, route, timing, bitstream). GW_EXIT:0. ~4.5 min.
 LICENCE: OK (attempt 1, no retries)
 
 WHAT WAS RUN:
-  1. git pull origin main (457eb74..ea767ec; HDMI constraint pin fix in atarist.cst)
-  2. cd misterynano_tc138k && gw_sh build_tc138k.tcl (gowin-sh wrapper)
-  No patch. No HDL edits. No sim. rigsdram/ untouched. setup_after_update.sh not needed (gowin-sh already on PATH).
+  1. git pull (5c809f7..50a188d; includes aaac988 SDC RESET false-path removal, new build_rigsdram.tcl)
+  2. cd rigsdram && gw_sh build_rigsdram.tcl
+  No patch. No HDL edits. No sim. No flash. misterynano_tc138k not built.
 
 GW:
   GW_RESULT: PASS
   GW_EXIT: 0
-  ERRORS: none (no ERROR lines in Gowin log)
-  CT1135 count: 0 (top is correct)
-  current device: GW5AST-138C GW5AST-LV138PG484AC1/I0
-  NOTE (EX0101): Current top module is "top"
-  tmds_clk_n constrained and placed: IO_LOC G16 (IOR105[B], LVCMOS33D), pair with tmds_clk_p G15
-  WARNINGS OF NOTE (non-fatal; ignored per CHECK: old_flg, fdc1772 always-loop, rtc_index):
-    TA1123: clk_spi / clk_32 frequency vs PLL CLKOUT4/CLKOUT2 mismatch
-    TA1132: inferred clocks without create_clock (i2s_bclk_d, ds2_p1/clk_spi, misterynano/mcu/n4_24, video2hdmi/clk_audio)
-    PR1014: clk_d routed on generic routing (skew/delay risk)
-    Many PA1001 dangling nets in hdmi (typical for this core)
+  ERRORS: none (no ERROR lines)
+  TA2003: none (lock_meta_s0/RESET not named anywhere)
+  current device: GW5AST-138C GW5AST-LV138PG484AC1/I0; PnR report Device Version: C
+  NOTE (EX0101): Current top module is "RIGSDRAM_TOP"
+  WARNINGS OF NOTE (non-fatal):
+    NL0002: BUS_TRACE U_TRC swept (rigsdram_top.vhd:401) - expected per CHECK 4
+    AG0100: 17 lines (wf68k30L loops) - expected per CHECK 4
+    PR1014: CLK_d routed on generic routing (skew/delay risk)
+    EX4160: latch inferred P_BITFIELD_OP.BF_NZ (wf68k30L_alu.vhd:494); 0 latches after PnR
 
-RESOURCES (from impl/pnr/atarist_tc138k.rpt.txt):
-  Logic:    19268/138240 (14%)  — LUT 17366 + ALU 1704
-  Register: 7518/139095 (6%)    — Logic FF 7483 + I/O FF 35
-  BSRAM:    21/340 (7%)
-  DSP:      1.5/298 (<1%)
+RESOURCES (impl/pnr/rigsdram.rpt.txt):
+  Logic:    19187/138240 (14%) - LUT 17665 + ALU 1498 (+4 SSRAM)
+  Register: 3555/139095 (3%)  - all logic FF
+  BSRAM:    32/340 (10%) SDPB
+  DSP:      9/298 (4%)
 
 FMAX (Max Frequency Summary):
-  clk_osc                                              constraint 50.000  actual 234.087 MHz
-  i2s_bclk_d                                           constraint 100.000 actual 477.640 MHz
-  ds2_p1/clk_spi                                       constraint 100.000 actual 174.146 MHz
-  misterynano/mcu/n4_24                                constraint 100.000 actual 551.078 MHz
-  video2hdmi/clk_audio                                 constraint 100.000 actual 461.161 MHz
-  pll_hdmi/.../CLKOUT1.default_gen_clk (pixel ~31.7)   constraint 31.667  actual 33.313 MHz
-  pll_hdmi/.../CLKOUT3.default_gen_clk                 constraint 95.000  actual 245.685 MHz
+  clk_ref   constraint 50.000  actual 310.691 MHz
+  clk50     constraint 50.000  actual 124.059 MHz
+  core_clk  constraint 12.500  actual 18.228 MHz (42 logic levels)
 
-SETUP / HOLD SUMMARY:
-  Cross-clock Setup Paths Table worst −19.679 ns:
-    from ds2_p1/rx_buffer[4]_7_s0/Q (ds2_p1/clk_spi)
-    to   misterynano/atarist/ikbd/.../rP_13_s0/D (CLKOUT1 pixel clock)
-  Cross-clock Hold Paths Table worst −2.065 ns (video2hdmi packet_picker CDC / audio paths).
-  Same-clock Fmax for CLKOUT1 is only just above constraint (33.313 vs 31.667 MHz).
+SETUP / HOLD:
+  Setup violated endpoints: 0. Worst setup +11.939 ns
+    U_SDR/act_age[0]_0_s1/Q -> U_SDR/act_age[2]_10_s1/D (clk50 -> clk50)
+  Hold violated endpoints: 1. Worst hold -0.680 ns
+    from u_pll/u_pll_init/state_2_s0/Q (clk_ref) to u_lock_meta/D (clk50), skew -1.296
+    NOTE: the false path covers state_1_s0/Q only; this path starts at state_2_s0/Q so it is still timed.
+    TNS summary shows 0 (cross-clock not counted, as the SDC warns). Next worst hold +0.247 (clk50 same-clock).
+  Timing Constraints Report: all 6 SDC commands Actived (clk_ref, clk50, core_clk, both multicycles, lock false path).
 
 BITSTREAM:
-  impl/pnr/atarist_tc138k.fs 36538618 bytes (not committed)
+  impl/pnr/rigsdram.fs 36345089 bytes (not committed)
 
 CHECK:
-  1. Sanity build PASS/FAIL, errors, bitstream bytes   PASS — GW_EXIT 0, no ERROR lines, .fs 36538618 bytes
-  2. Top is exactly top                                 PASS — EX0101 Current top module is "top"; CT1135=0
-  3. tmds_clk_n constrained                             PASS — IO_LOC "tmds_clk_n" G16, placed IOR105[B]
+  1. git pull, build rigsdram only with build_rigsdram.tcl     DONE
+  2. No sim, flash, HDL edit, patch, impl/bitstream push        DONE
+  3. PASS only if GW_EXIT 0 and no TA2003                        PASS - GW_EXIT 0, no TA2003
+  4. NL0002 BUS_TRACE / AG0100 not failures                      seen, ignored
+  5. top RIGSDRAM_TOP, device version C, replicate 1             CONFIRMED
+  6. core_clk Fmax 18.228 MHz; worst hold state_2_s0/Q -> u_lock_meta/D -0.680 ns;
+     LUT 17665 / FF 3555 / BSRAM 32 / DSP 9; .fs 36345089 bytes
 
 NOTES:
   CONTEXT.md CHANGED is 0: not decoded, not edited. No HANDOFF_SEEN.
-  HDMI constraint-only change (P and N as separate pins). No HDL change.
   Nothing flashed. No bitstream, logs, or impl/ committed.
 ```
