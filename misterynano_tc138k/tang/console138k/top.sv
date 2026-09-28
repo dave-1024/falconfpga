@@ -166,13 +166,19 @@ wire [1:0]  vmode;
 wire [1:0]  screen;
 
 wire [5:0] leds_int_n;
-// Fabric-alive blink on leds_n[0] (G11, marked fpga done). Uses the 50 MHz
-// board clock, not the HDMI PLL and not the MFP. Timer C is the 200 Hz TOS
-// pulse, but it stays silent until TOS writes the timer, so a dark LED on
-// that pulse would not mean the fabric is dead. Toggle every 12,500,000
-// clocks: a 2 Hz flash.
+// Bring-up life sign on leds_n[0] (G11, marked fpga done).
+// Until TOS starts MFP Timer C this is the 50 MHz fabric blink: toggle
+// every 12,500,000 clocks, a 2 Hz flash. Timer C is the 200 Hz TOS tick
+// and stays silent until TOS writes the timer. After 100 timeouts the
+// LED switches to a 1 Hz flash. Slower means TOS programmed the MFP.
+// Fast, and it never slows, means the CPU never started Timer C.
+// Dark means this bitstream did not configure.
+wire       timerc_pulse;
 reg [23:0] alive_div;
 reg        alive_blink;
+reg [6:0]  tc_div;
+reg        tos_seen;
+reg        tos_blink;
 always @(posedge clk) begin
   if (alive_div == 24'd12_499_999) begin
     alive_div   <= 24'd0;
@@ -180,7 +186,17 @@ always @(posedge clk) begin
   end else
     alive_div <= alive_div + 24'd1;
 end
-assign leds_n[0] = alive_blink;
+always @(posedge clk32) begin
+  if (timerc_pulse) begin
+    if (tc_div == 7'd99) begin
+      tc_div    <= 7'd0;
+      tos_seen  <= 1'b1;
+      tos_blink <= ~tos_blink;
+    end else
+      tc_div <= tc_div + 7'd1;
+  end
+end
+assign leds_n[0] = tos_seen ? tos_blink : alive_blink;
 assign leds_n[1] = ~leds_int_n[1];
 
 assign lcd_bl = 1'bz;
@@ -260,6 +276,7 @@ misterynano misterynano (
 
   // clock and power on reset from system
   .clk32 ( clk32 ),         // 32 Mhz system clock input
+  .timerc_pulse ( timerc_pulse ),
   .flash_clk ( flash_clk ), // 95 Mhz flash clock
   .por   ( por ),           // True while not all PLLs locked
 
