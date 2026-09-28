@@ -173,7 +173,8 @@ wire [5:0] leds_int_n;
 // LED switches to a 1 Hz flash. Slower means TOS programmed the MFP.
 // Fast, and it never slows, means the CPU never started Timer C.
 // Dark means this bitstream did not configure.
-wire       timerc_pulse;
+// Hierarchical probe so misterynano and atarist do not need a new port.
+wire timerc_pulse = misterynano.atarist.mfp.timerc_pulse;
 reg [23:0] alive_div;
 reg        alive_blink;
 reg [6:0]  tc_div;
@@ -276,7 +277,6 @@ misterynano misterynano (
 
   // clock and power on reset from system
   .clk32 ( clk32 ),         // 32 Mhz system clock input
-  .timerc_pulse ( timerc_pulse ),
   .flash_clk ( flash_clk ), // 95 Mhz flash clock
   .por   ( por ),           // True while not all PLLs locked
 
