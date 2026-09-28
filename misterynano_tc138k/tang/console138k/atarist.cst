@@ -35,26 +35,15 @@ IO_PORT "leds_n[1]"   IO_TYPE=LVCMOS33 DRIVE=4 PULL_MODE=NONE BANK_VCCIO=3.3;
 //IO_LOC "leds[2]" V13;
 //IO_PORT "leds[2]" PULL_MODE=NONE IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;
 
-// HDMI. Same balls as before. P and N are separate ports, same style as the
-// hybrid bitstream that syncs on this dock. Do not fold these back into
-// "Pball,Nball" pair locs. ELVDS_OBUF .OB did not land, and the monitor
-// stayed amber. Balls: clk G15/G16, d0 J14/H14, d1 J15/H15, d2 K17/J17.
-IO_LOC "tmds_clk_p" G15;
+// HDMI
+IO_LOC "tmds_clk_p" G15,G16;
 IO_PORT "tmds_clk_p" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_clk_n" G16;
-IO_PORT "tmds_clk_n" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_p[0]" J14;
+IO_LOC "tmds_d_p[0]" J14,H14;
 IO_PORT "tmds_d_p[0]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_n[0]" H14;
-IO_PORT "tmds_d_n[0]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_p[1]" J15;
+IO_LOC "tmds_d_p[1]" J15,H15;
 IO_PORT "tmds_d_p[1]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_n[1]" H15;
-IO_PORT "tmds_d_n[1]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_p[2]" K17;
+IO_LOC "tmds_d_p[2]" K17,J17;
 IO_PORT "tmds_d_p[2]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
-IO_LOC "tmds_d_n[2]" J17;
-IO_PORT "tmds_d_n[2]" PULL_MODE=NONE IO_TYPE=LVCMOS33D;
 
 // DualShock controller on PMOD1
 IO_LOC "ds1_csn" W19; // 11/IO0
@@ -311,3 +300,4 @@ IO_LOC "i2s_din" AA16;
 IO_PORT "i2s_din" PULL_MODE=NONE BANK_VCCIO=3.3;
 IO_LOC "pa_en" Y14;
 IO_PORT "pa_en" PULL_MODE=NONE BANK_VCCIO=3.3;
+

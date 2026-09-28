@@ -11,7 +11,7 @@ This is **fx68k** (68000), not wf68k30L. It lives next to `rigsdram/` so the two
 - Output name: `atarist_tc138k`
 - **Tang SDRAM module required**, in J9 / SDRAM0 (`tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
 - `Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `rigsdram/`, and the 030 splice.
-- TOS in SPI flash: this core fetches it. There is no added offset. Primary ST slot is byte **0x0100000**. STE is **0x0140000**. The OSD second slots are **0x0180000** and **0x01C0000**. The programmer box wants the leading 0. `0x500000` and the Console doc-table `0x900000` are not this map, and a ROM flashed there will not be read. Do not flash TOS until HDMI syncs and the programmed bitstream length is known, so the slot is not sitting inside the bitstream.
+- TOS in SPI flash: if `tang/console60k/flash_dspi.v` stays, the address map in the HDL is **0x500000** family. The Console 138K doc table says **0x900000**. Measure `.fs` size after the first build before flashing TOS.
 
 ## Build (Windows Gowin V1.9.12)
 
