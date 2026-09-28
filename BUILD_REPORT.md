@@ -73,3 +73,28 @@ NOTES:
   CONTEXT.md CHANGED is 0: not decoded, not edited. No HANDOFF_SEEN.
   Nothing flashed. No bitstream, logs, or impl/ committed.
 ```
+
+```
+REQUEST_ID: manual-20260928-rollback
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD (misterynano_tc138k, gw_sh build_tc138k.tcl)
+REPO COMMIT BUILT: 66f57bb (rollback of misterynano_tc138k to 687446a)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines, no TA2003. Licence OK on attempt 1. ~4.7 min.
+CO-PLACE: -co-place_io_registers 0 accepted by Gowin 1.9.12, no error or warning. tcl unmodified.
+BITSTREAM: misterynano_tc138k/impl/pnr/atarist_tc138k.fs 36538618 bytes (same as mn3/mn4; not committed)
+RESOURCES: Logic 19268/138240 (14%) = LUT 17366 + ALU 1704, SSRAM 33; Reg 7518 (FF 7483, IOFF 35);
+  CLS 12333 (18%); I/O 118/297; IOLOGIC 6 (OSER10 3); BSRAM 21/340; DSP 1.5/298; PLL 1; PRIMARY clk 8/8
+FMAX: CLKOUT1 (pixel) target 31.667, actual 33.313 MHz (27 levels); CLKOUT3 95.000 -> 245.685;
+  clk_osc 50 -> 234.087. TNS summary 0 for every clock.
+WORST SETUP: -19.679 ns ds2_p1/rx_buffer[4]_7_s0/Q -> ikbd/HD63701V0_M6/core/EXEC/rP_13_s0/D
+  (ds2_p1/clk_spi -> CLKOUT1, relation 0.526 ns). All 25 top setup paths start at the auto-derived
+  clock ds2_p1/clk_spi (TA1132, not in SDC). This is a cross-domain artefact, not pixel-clock logic.
+WORST HOLD: -2.065 ns video2hdmi packet_picker audio_sample_word_transfer_control_s0/Q -> sync chain
+  (video2hdmi/clk_audio -> CLKOUT1). Also misterynano/mcu/n4_24 -> CLKOUT1. Auto-derived clocks, CDC.
+HDMI/CONSTRAINT WARNINGS: no HDMI pin or CST errors. TA1123 clk_32/clk_spi frequency does not match
+  PLL CLKOUT2/CLKOUT4; TA1132 x4 (i2s_bclk_d, ds2_p1/clk_spi, mcu/n4_24, video2hdmi/clk_audio);
+  PR1014 clk_d on generic routing; PR2059 jtagseln placed on T20 without constraint; CT2090 V_JTAGSELN.
+  HDMI audio infoframe modules swept (NL0002), as before.
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260928-rollback.log
+NOTES: Nothing flashed. Only BUILD_REPORT.md committed.
+```
