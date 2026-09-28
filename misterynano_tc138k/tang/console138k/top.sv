@@ -188,6 +188,7 @@ always @(posedge clk) begin
   end else
     alive_div <= alive_div + 24'd1;
 end
+assign leds_n[0] = alive_blink;
 assign leds_n[1] = ~leds_int_n[1];
 
 assign lcd_bl = 1'bz;
@@ -328,18 +329,18 @@ misterynano misterynano (
 );
 
 // Gowin EX3828: misterynano must already be declared. Do not move this up.
-wire timerc_pulse = misterynano.atarist.mfp.timerc_pulse;
-always @(posedge clk32) begin
-  if (timerc_pulse) begin
-    if (tc_div == 7'd99) begin
-      tc_div    <= 7'd0;
-      tos_seen  <= 1'b1;
-      tos_blink <= ~tos_blink;
-    end else
-      tc_div <= tc_div + 7'd1;
-  end
-end
-assign leds_n[0] = tos_seen ? tos_blink : alive_blink;
+//wire timerc_pulse = misterynano.atarist.mfp.timerc_pulse;
+//always @(posedge clk32) begin
+//  if (timerc_pulse) begin
+//    if (tc_div == 7'd99) begin
+//      tc_div    <= 7'd0;
+//      tos_seen  <= 1'b1;
+//      tos_blink <= ~tos_blink;
+//    end else
+//      tc_div <= tc_div + 7'd1;
+//  end
+//end
+//assign leds_n[0] = tos_seen ? tos_blink : alive_blink;
 
 // ==================================================================
 // ========================= clock generation =======================
