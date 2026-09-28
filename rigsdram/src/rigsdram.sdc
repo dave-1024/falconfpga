@@ -90,4 +90,5 @@ set_multicycle_path 1 -hold  -from [get_clocks {core_clk}] -to [get_clocks {clk5
 // [H48-3] first lock CDC flop. pll_lock is made on clk_ref / pll_init.
 // One command per line. Do not false-path the whole clk_ref domain.
 set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {u_lock_meta/D}]
-set_false_path -from [get_pins {u_pll/u_pll_init/state_1_s0/Q}] -to [get_pins {lock_meta_s0/RESET}]
+// The DFF primitive has no RESET pin. Do not constrain lock_meta_s0/RESET.
+// That object is gone on purpose. Gowin stops the build with TA2003 if it is named.
