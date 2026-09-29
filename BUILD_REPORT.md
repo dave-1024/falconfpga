@@ -234,3 +234,78 @@ FLASHING NOTES:
 NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
   CONTEXT.md not edited.
 ```
+
+```
+REQUEST_ID: manual-20260929-stage1b-dvi
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD (misterynano_tc138k, gw_sh build_tc138k.tcl), then commit HDL
+REPO COMMIT BUILT: c6b1246 (tree built from working copy on dd79d81, then committed unchanged as c6b1246)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines, no TA2003. Licence OK on attempt 1. ~4.2 min.
+
+WHY: stage 1 (88a4b08, HDMI mode) colour bars and tone WORK on David's HDMI TV, but his monitor shows
+  no sync. The monitor has a DVI input and is connected with a DVI-to-HDMI cable, so it most likely
+  rejects the HDMI data islands, preambles and guard bands. DVI mode is now the default.
+
+WHAT CHANGED (c6b1246):
+  tang/console138k/hdmi_640.sv: new parameter DVI_OUTPUT (MiSTeryNano's hdmi core has no such option;
+    Sameer's original had one, re-implemented the same way). DVI_OUTPUT=1: plain DVI 1.0 TMDS, only
+    video periods and control periods; no data islands, no data island preambles/guard bands, no video
+    preamble/guard bands; CTL0..3 = 0; {vsync, hsync} on channel 0 (syncs delayed with the pixel data,
+    so they keep the timing generator's position relative to DE).
+    Also, in both modes, rgb is registered once so the pixel data lines up with the video period.
+    Before, the first video symbol carried pixel x=1: column 0 (left border) was dropped and the last
+    column was black. Found in the new symbol-level sim; the HDMI-mode picture on the TV had this
+    1-pixel shift.
+  tang/console138k/hdmi_testpattern_640.sv: DVI_OUTPUT parameter passed to hdmi_640. No audio in DVI
+    mode (packet logic and the 48 kHz audio clock are optimised away).
+  tang/console138k/top.sv: hdmi_tp #(.DVI_OUTPUT(1)), with comments. One-line switch: 0 = HDMI + tone.
+  tang/console138k/atarist.sdc: clk_hdmi640_audio create_clock and its clock group removed, because the
+    net does not exist in DVI mode (TA2003 ERROR). In HDMI mode it becomes an auto-derived clock
+    (TA1132 warning), like video2hdmi/clk_audio used to. HDMI x5/pixel clocks still async to the core.
+  The Atari path (video2hdmi, hdmi/ core files) is not touched.
+
+FMAX / SLACK:
+  clk_hdmi640_pix 25.200 MHz -> 133.607 MHz (10 levels); setup slack about +32.2 ns (39.683 - 7.485,
+    derived from Fmax, no per-clock report re-run). TNS 0 setup and hold.
+  clk_hdmi640_x5 126 MHz: no fabric paths (CLKDIV + OSER10 FCLK only).
+  CLKOUT1 (clk32) 32.000 -> 35.277 MHz (30 levels), margin about +2.9 ns (was ~0.11 ns in stage 1).
+  CLKOUT3 100 -> 267.858 MHz; clk_osc 50 -> 275.880 MHz. TNS 0 for every clock.
+  Worst setup -17.780 ns ds2_p1/clk_spi -> ikbd (CLKOUT1), worst hold -2.203 ns mcu n4_24 -> CLKOUT1,
+  worst recovery -7.145 ns pll_init state -> core async clears: the same auto-derived-clock CDC
+  artefacts as in earlier builds, none involve the HDMI domain.
+PRIMARY CLOCKS: 8/8: clk_d, lcd_clk_d (clk32), O_sdram_clk_d, flash_clk, mspi_clk_d, ds2_p1/clk_spi
+  (back on PRIMARY), hdmi_tp/tmds_clock (25.2 MHz CLKDIV), hdmi_tp/clk_pixel_x5 (126 MHz, + BANK3 HCLK).
+  LW 4/8 (por, i2s_bclk_d, mcu/n4_24, peripheral_reset). PLL 2/12, CLKDIV 1/24.
+PINS: identical to stage 1 and to manual-20260929-pll32 (pin report compared port by port, 0 diffs):
+  tmds_clk G15/G16, tmds_d[0] J14/H14, tmds_d[1] J15/H15, tmds_d[2] K17/J17, LVCMOS33D drive 8;
+  jtagseln T20/4 (LVCMOS33, drive 4); H17 unused (default input, pull-up).
+RESOURCES: Logic 17995/138240 (14%) = LUT 16246 + ALU 1551; Reg 6963 (FF 6928, IOFF 35);
+  CLS 11205 (17%); OSER10 3; BSRAM 21/340; DSP 1.5/298.
+WARNINGS: TA1132 x3 (i2s_bclk_d, ds2_p1/clk_spi, mcu/n4_24), PR1014 clk_d on generic routing,
+  CT2090 V_JTAGSELN.
+SIM (Icarus 12, video_testpattern_640 + hdmi_640 + real tmds_channel; serializer and HDMI packet
+  modules stubbed; every 10-bit symbol checked, 3 frames):
+  DVI_OUTPUT=1: 0 video guard / 0 data island / 0 island guard symbols; every blanking symbol on all
+    3 channels is a control symbol; ch1/ch2 always CTL=00 (0 exceptions); 640 video px per line,
+    307200 per frame; hsync on ch0 falls 16 symbols after the last video pixel, 96 low, period 800;
+    vsync on ch0 2 lines (1600), period 525 lines, edges together with hsync.
+  Decoded pixels: line 100 x0=ffffff (border) x1=c0c0c0 x80=c0c000 x638=000000 x639=ffffff (border);
+    lines 1 and 480 all white. HDMI mode (DVI_OUTPUT=0) gives the same aligned pixels.
+  Testbench not committed (box: /workspace/outputs/tb_stage1b/).
+BITSTREAM: impl/pnr/atarist_tc138k.fs 36643751 bytes (not committed; smaller than stage 1 as the HDMI
+  packet logic is gone). Copy on the box: /workspace/outputs/atarist_tc138k_stage1b_dvi.fs
+  (sha256 77b1444b...f270d3).
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260929-stage1b-dvi.log
+
+HOW TO SWITCH:
+  HDMI mode (TV, with tone): top.sv .DVI_OUTPUT ( 0 ). No SDC change needed.
+  Back to the core video path: comment out `define HDMI_TESTPATTERN in top.sv, re-enable the clk_hdmi
+  line in atarist.sdc and comment out the stage 1 block at its end.
+
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+  TOS goes at flash byte address 0x500000 on this Console build (STE 0x540000).
+NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
+  CONTEXT.md not edited.
+```

@@ -11,6 +11,14 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-29 21:25: stage 1b DVI mode (commit `c6b1246`, build `manual-20260929-stage1b-dvi`
+  PASS). Stage 1 HDMI (88a4b08): colour bars and tone WORK on David's TV, but the monitor (DVI input,
+  DVI-to-HDMI cable) shows no sync, most likely because it rejects HDMI data islands/guard bands. So
+  `hdmi_640.sv` now has `DVI_OUTPUT` (plain DVI 1.0: video + control periods only, CTL bits 0, no
+  audio) and **DVI mode is now the default** (`top.sv` `.DVI_OUTPUT ( 1 )`; set 0 for HDMI + tone on
+  the TV). Also fixed a 1-pixel offset (column 0 was dropped) in both modes. Pixel clock Fmax
+  133.6 MHz, clk32 35.277 MHz (+2.9 ns), pins identical, jtagseln T20, 8/8 primary. Symbol-level sim:
+  no island/guard symbols, CTL=00, syncs on ch0. Not flashed. No "SRAM Erase" (CT2090).
 - 2026-09-29 20:36: stage 1 video-out sanity check (commit `88a4b08`, build
   `manual-20260929-stage1-colourbars` PASS). TV test of the pll32 build first (reported by David):
   flashed, the Console gives "invalid format" on the old TV while the 20K is OK there; the main monitor
