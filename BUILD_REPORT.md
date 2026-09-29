@@ -98,3 +98,50 @@ HDMI/CONSTRAINT WARNINGS: no HDMI pin or CST errors. TA1123 clk_32/clk_spi frequ
 LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260928-rollback.log
 NOTES: Nothing flashed. Only BUILD_REPORT.md committed.
 ```
+
+```
+REQUEST_ID: manual-20260929-pll32
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD (misterynano_tc138k, gw_sh build_tc138k.tcl), then commit HDL
+REPO COMMIT BUILT: 6fe62b8 (tree built from working copy, then committed as 6fe62b8)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines, no TA2003. Licence OK on attempt 1. ~4.7 min.
+
+WHAT CHANGED (6fe62b8):
+  gowin_pll/pll_160m_mod.v: MDIV 19 -> 16 (VCO 950 -> 800 MHz), ODIV 6/30/30/10/10 -> 5/25/25/8/8.
+    Now 160 MHz TMDS, 32.000 MHz pixel/clk32, 32 MHz SDRAM clock at 338.4 deg
+    (PE_COARSE 23, PE_FINE 4; 337.5 deg is not representable with ODIV 25, nearest step),
+    100 MHz flash_clk, 100 MHz mspi_clk at 22.5 deg (PE_FINE 4).
+  gowin_pll/pll_160m.v: pll_init MULTI_FAC 19 -> 16.
+  top.sv: video2hdmi PIXEL_CLOCK 31_666_666 -> 32_000_000 (comments updated).
+  atarist.sdc: clk_32 period 31 -> 31.25 ns.
+  atarist.cst: IO_LOC "jtagseln" T20; IO_PORT LVCMOS33 PULL_MODE=NONE DRIVE=4 BANK_VCCIO=3.3.
+    T20 is bank 4, all LVCMOS33 / 3.3 V, so no IO standard conflict. NET_LOC V_JTAGSELN is kept.
+
+WHY: the console pixel clock was 31.667 MHz, about 1.2% slow against the ST's 32 MHz. A picky old
+  HDMI TV may reject the off-spec timing (the Nano 20K, which runs at 32 MHz, works on David's TV).
+  jtagseln had no pin constraint; in the first PLL build PnR auto-placed it on H17 (USB-C J17 D+).
+  The baseline had it on T20 (unused SDRAM1 header CS), so it is now pinned there.
+
+FMAX: CLKOUT1 (pixel/clk32) target 32.000, actual 33.923 MHz (26 levels), so same-clock setup slack
+  about +1.77 ns (31.25 - 29.48). CLKOUT3 100 -> 235.031 MHz; clk_osc 50 -> 212.335 MHz.
+  TNS summary 0 for every clock (setup and hold).
+WORST SETUP: -20.904 ns ds2_p1/rx_buffer[4]_6_s0/Q -> ikbd .../EXEC/rP_15_s0/D (ds2_p1/clk_spi ->
+  CLKOUT1, relation 1.250 ns). All 25 top setup paths start at the auto-derived clock ds2_p1/clk_spi
+  (TA1132). Same cross-domain artefact as the rollback build (-19.679), not pixel-clock logic.
+WORST HOLD: -2.158 ns misterynano/mcu/spi_data_in_ready_s2/Q -> spi_data_in_readyD_0_s0/D
+  (misterynano/mcu/n4_24 -> CLKOUT1). Auto-derived clocks, CDC, as before.
+WARNINGS: TA1123 (clk_32 frequency mismatch with PLL) is gone. PR2059 (jtagseln unconstrained) is gone.
+  Still: CT2090 V_JTAGSELN, TA1132 x4, PR1014 clk_d on generic routing.
+PINS: jtagseln on T20/4 (IOB102[B], constraint Y, LVCMOS33, drive 4). H17 unused (default input, pull-up).
+RESOURCES: Logic 19152/138240 (14%) = LUT 17251 + ALU 1703, SSRAM 33; Reg 7527 (FF 7492, IOFF 35);
+  CLS 12240 (18%); I/O 118/297; OSER10 3; BSRAM 21/340; DSP 1.5/298.
+BITSTREAM: impl/pnr/atarist_tc138k.fs 37047546 bytes (not committed). Copy on the box:
+  /workspace/outputs/atarist_tc138k_pll32_t20.fs (sha256 72f2f3be...0ced78a).
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260929-pll32.log
+
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+  TOS goes at flash byte address 0x500000 on this Console build (STE 0x540000).
+NOTES: Nothing flashed. No bitstream, logs, or impl/ committed. BUILD_REQUEST.md and CONTEXT.md not edited.
+```

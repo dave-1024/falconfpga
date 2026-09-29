@@ -11,6 +11,13 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-29 13:35: exact 32 MHz PLL for the Console (commit `6fe62b8`, build `manual-20260929-pll32`
+  PASS). `pll_160m_mod.v` now MDIV 16, VCO 800 MHz, ODIV 5/25/25/8/8: 160 MHz TMDS, 32.000 MHz pixel
+  (was 31.667 MHz, ~1.2% slow), 32 MHz SDRAM clock at 338.4 deg (was 337.5), 100 MHz flash/mspi (was 95).
+  `pll_160m.v` MULTI_FAC 16, `top.sv` PIXEL_CLOCK 32_000_000, `atarist.sdc` clk_32 31.25 ns.
+  `atarist.cst` now pins `jtagseln` to T20 (it had been auto-placed on H17, USB-C D+). Pixel clock Fmax
+  33.923 MHz, `.fs` 37047546 bytes. Not flashed yet. Do not use Gowin Programmer "SRAM Erase" (CT2090).
+  TOS still at 0x500000. Details in `BUILD_REPORT.md`.
 - 2026-09-29 12:47: this note created. No HDL changed.
 
 ## Current goal
