@@ -11,6 +11,17 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-29 20:36: stage 1 video-out sanity check (commit `88a4b08`, build
+  `manual-20260929-stage1-colourbars` PASS). TV test of the pll32 build first (reported by David):
+  flashed, the Console gives "invalid format" on the old TV while the 20K is OK there; the main monitor
+  shows no sync on both. So `top.sv` now has `` `define HDMI_TESTPATTERN ``: the core stays running but
+  its video is off HDMI, and a standalone 640x480@60 (VIC 1, 4:3) picture is sent instead: 8 colour
+  bars with a 1 px white border plus a quiet 1 kHz beeping tone. It uses its own PLL
+  (`gowin_pll_hdmi`, from Hybrid030, 126 MHz) with CLKDIV/5 = 25.2 MHz and MiSTeryNano's `hdmi/` core
+  (`hdmi_640.sv`). Pixel clock Fmax 104.4 MHz (+30.1 ns); clk32 margin now only ~0.11 ns
+  (32.117 MHz). TMDS pins identical, jtagseln on T20, primary clocks 8/8 (ds2 SPI clock moved to LW).
+  To switch back: comment out the define AND edit `atarist.sdc` (re-enable clk_hdmi, comment out the
+  stage 1 block). Not flashed. No "SRAM Erase" (CT2090). Details in `BUILD_REPORT.md`.
 - 2026-09-29 13:35: exact 32 MHz PLL for the Console (commit `6fe62b8`, build `manual-20260929-pll32`
   PASS). `pll_160m_mod.v` now MDIV 16, VCO 800 MHz, ODIV 5/25/25/8/8: 160 MHz TMDS, 32.000 MHz pixel
   (was 31.667 MHz, ~1.2% slow), 32 MHz SDRAM clock at 338.4 deg (was 337.5), 100 MHz flash/mspi (was 95).

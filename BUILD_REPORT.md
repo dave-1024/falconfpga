@@ -145,3 +145,92 @@ FLASHING NOTES:
   TOS goes at flash byte address 0x500000 on this Console build (STE 0x540000).
 NOTES: Nothing flashed. No bitstream, logs, or impl/ committed. BUILD_REQUEST.md and CONTEXT.md not edited.
 ```
+
+```
+REQUEST_ID: manual-20260929-stage1-colourbars
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD (misterynano_tc138k, gw_sh build_tc138k.tcl), then commit HDL
+REPO COMMIT BUILT: 88a4b08 (tree built from working copy on b9d76df, then committed unchanged as 88a4b08)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines, no TA2003. Licence OK on attempt 1. ~4.2 min.
+  (A first attempt failed on the SDC with TA2003/TA2004: constraint on the missing net
+  video2hdmi/clk_pixel_x5 and on hdmi_tp/clk_pixel, which synthesis renames. Fixed in the SDC.)
+
+WHY: David's main monitor and his old HDMI TV both reject the core's native Atari timing on clk32
+  (~32 MHz, non-standard). Stage 1 is a video-output sanity check: disconnect the core from HDMI and
+  send a standard 640x480@60 colour-bar picture. Long-term goal: 640x480@60 from a frame buffer.
+
+WHAT CHANGED (88a4b08), all in misterynano_tc138k/:
+  tang/console138k/top.sv: `define HDMI_TESTPATTERN; `ifdef instantiates hdmi_testpattern_640
+    (hdmi_tp) instead of video2hdmi. The Atari core, pll_160m, clk32, SDRAM, OSD, scandoubler and
+    lcd_* outputs are unchanged; only the core's video no longer goes to HDMI.
+  tang/console138k/hdmi_testpattern_640.sv (new): gowin_pll_hdmi 50 -> 126 MHz, CLKDIV "5" ->
+    25.2 MHz pixel clock, pixel reset from PLL_INIT lock (2-FF sync + 255 clocks), timing/pattern,
+    48 kHz audio clock (25.2 MHz / 525 exactly), 1 kHz test tone (+/-2048, ~-24 dBFS, 0.5 s on /
+    0.5 s off; AUDIO_TONE=0 for silence), hdmi_640, ELVDS_OBUF x4 (same as video2hdmi.v).
+  tang/console138k/video_testpattern_640.v (new): 800x525, H 640/16/96/48, V 480/10/2/33, negative
+    syncs; vsync edges on the hsync leading edge (CEA-861 style, as hdmi.sv does). 8 vertical 80 px
+    bars at 75% (white, yellow, cyan, green, magenta, red, blue, black) + 1 px 100% white border.
+  tang/console138k/hdmi_640.sv (new): fixed VIC 1 copy of hdmi/hdmi.sv; cx/cy/syncs from the
+    timing generator; AVI 4:3; reuses packet_picker/packet_assembler/tmds_channel/serializer (OSER10).
+  tang/console138k/gowin_pll_hdmi/ (new): .v/_mod.v/.ipc/.mod copied from Hybrid030 (VCO 787.5 MHz,
+    126 MHz out, MULTI_FAC 15). Only change: lock exported as a port. No module name clash.
+  hdmi/packet_picker.sv: new PICTURE_ASPECT_RATIO parameter to the AVI InfoFrame, default 00, so the
+    original Atari path is unchanged.
+  tang/console138k/atarist.sdc: clk_hdmi (video2hdmi/clk_pixel_x5) commented out; new clk_hdmi640_x5
+    7.937 ns (net hdmi_tp/clk_pixel_x5), clk_hdmi640_pix 39.683 ns (pin
+    hdmi_tp/clkdiv_hdmi640/CLKOUT), clk_hdmi640_audio 20833.333 ns (net hdmi_tp/clk_audio);
+    set_clock_groups -asynchronous {x5 pix} / {audio} / {clk_osc clk_32 clk_spi}.
+  build_tc138k.tcl, atarist_tc138k.gprj: 5 new source files added.
+
+ENCODER: MiSTeryNano hdmi/ core (full HDMI: data islands, AVI VIC 1 4:3, SPD, audio InfoFrame,
+  48 kHz audio). Not the DVI-only fallback.
+
+FMAX / SLACK (new clocks; per-clock report_timing from a re-run with report commands in a temporary
+  SDC copy, bitstream identical apart from the timestamp line):
+  clk_hdmi640_pix   25.200 MHz -> 104.427 MHz (7 levels). Worst setup +30.107 ns, worst hold +0.247 ns.
+  clk_hdmi640_x5    126 MHz: no fabric paths (only CLKDIV HCLKIN + OSER10 FCLK), like the old clk_hdmi.
+  clk_hdmi640_audio 48 kHz -> 422.791 MHz, setup +20830.969 ns.
+  TNS 0 (setup and hold) for every clock.
+CORE CLOCKS: CLKOUT1 (clk32) 32.000 -> 32.117 MHz (12 levels), margin only ~0.11 ns
+  (was 33.923 MHz / +1.77 ns in manual-20260929-pll32; placement change, keep an eye on it).
+  CLKOUT3 100 -> 217.305 MHz; clk_osc 50 -> 278.343 MHz.
+  Worst setup -15.181 ns ds2_p1/rx_buffer[3]_5_s0/Q -> ikbd EXEC (ds2_p1/clk_spi -> CLKOUT1): same
+  auto-derived-clock CDC artefact as before (was -20.904). Worst hold -2.195 ns misterynano/mcu
+  (n4_24 -> CLKOUT1), as before. Worst recovery -7.748 ns pll_init state -> core async clears
+  (clk_osc -> CLKOUT1), auto-derived CDC; baseline had -8.176 (vreset -> old serializer).
+  No path between the HDMI test-pattern domain and the core is timed (async groups).
+
+PRIMARY CLOCKS: 8/8 still, placement OK, no manual fix needed. Freed: old 160 MHz clk_pixel_x5 and
+  video2hdmi/clk_audio. Added: hdmi_tp/clk_pixel_x5 (126 MHz, primary + BANK3 HCLK),
+  hdmi_tp/tmds_clock (= CLKDIV 25.2 MHz), hdmi_tp/clk_audio. PnR moved ds2_p1/clk_spi from PRIMARY to
+  LW (slow dualshock SPI clock, Fmax 190.656 MHz vs 100 MHz default). clk_d, lcd_clk_d (clk32),
+  O_sdram_clk_d, flash_clk, mspi_clk_d stay on PRIMARY. LW 5/8, PLL 2/12, CLKDIV 1/24.
+
+PINS: identical to manual-20260929-pll32 (pin report compared port by port, 0 differences):
+  tmds_clk G15/G16, tmds_d[0] J14/H14, tmds_d[1] J15/H15, tmds_d[2] K17/J17, LVCMOS33D drive 8.
+  jtagseln T20/4 (IOB102[B], LVCMOS33, drive 4). H17 unused (default input, pull-up).
+RESOURCES: Logic 19152/138240 (14%) = LUT 17349 + ALU 1605, SSRAM 33; Reg 7525 (FF 7490, IOFF 35);
+  CLS 12182 (18%); I/O 118/297; OSER10 3; BSRAM 21/340; DSP 1.5/298.
+WARNINGS: TA1132 x3 (i2s_bclk_d, ds2_p1/clk_spi, mcu/n4_24; video2hdmi/clk_audio gone),
+  PR1014 clk_d on generic routing, CT2090 V_JTAGSELN.
+SIM (Icarus 12, timing generator + pattern only): totals 800x525; hsync period 800, 96 clocks low
+  from x=656; vsync 1600 clocks (2 lines) in a 420000-clock frame (60.000 Hz at 25.2 MHz), falls at
+  x=656 y=489, rises at x=656 y=491; 307200 DE pixels per frame; 0 DE/RGB errors; bar colours and
+  border correct. Testbench not committed (box: /workspace/outputs/tb_video_testpattern_640.v).
+BITSTREAM: impl/pnr/atarist_tc138k.fs 37047546 bytes (not committed). Copy on the box:
+  /workspace/outputs/atarist_tc138k_stage1_colourbars.fs (sha256 9b1dd9c0...b45a3f).
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260929-stage1-colourbars.log
+
+HOW TO SWITCH BACK to the core video path (video2hdmi):
+  1. top.sv: comment out `define HDMI_TESTPATTERN.
+  2. atarist.sdc: re-enable the clk_hdmi create_clock line (video2hdmi/clk_pixel_x5) and comment
+     out the "stage 1" block at the end (3 create_clock + set_clock_groups). Gowin errors (TA2003)
+     on a constraint for a net that does not exist, so the SDC must match the define.
+
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+  TOS goes at flash byte address 0x500000 on this Console build (STE 0x540000).
+NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
+  CONTEXT.md not edited.
+```
