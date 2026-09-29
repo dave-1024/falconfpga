@@ -13,6 +13,10 @@ IO_LOC "user_n" AB13;        // S1
 IO_PORT "user_n" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF BANK_VCCIO=3.3;
 
 NET_LOC "jtagseln" V_JTAGSELN;
+// FalconFPGA: also pin the jtagseln output port to T20 (bank 4, unused SDRAM1 header CS).
+// Without this PnR auto-placed it on H17 (USB-C J17 D+).
+IO_LOC "jtagseln" T20;
+IO_PORT "jtagseln" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=4 BANK_VCCIO=3.3;
 
 // JTAGSEL request from BL616, active high
 IO_LOC "bl616_jtagsel" V14;

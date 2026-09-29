@@ -1,3 +1,11 @@
+// FalconFPGA TC138K: 50 MHz in, IDIV 1, FBDIV 1, MDIV 16 -> VCO 800 MHz (PFD 50 MHz)
+//   clkout0 ODIV 5  = 160 MHz (clk_pixel_x5, TMDS)
+//   clkout1 ODIV 25 =  32 MHz (clk_pixel = clk32)
+//   clkout2 ODIV 25 =  32 MHz, phase (23+4/8)/25*360 = 338.4 deg (SDRAM clock;
+//           337.5 deg is not representable with ODIV 25, nearest step)
+//   clkout3 ODIV 8  = 100 MHz (flash_clk)
+//   clkout4 ODIV 8  = 100 MHz, phase (0+4/8)/8*360 = 22.5 deg (mspi_clk)
+// Phase formula (UG306): PS = (PE_COARSE + PE_FINE/8) / ODIV * 360
 module pll_160m_MOD (lock, clkout0, clkout1, clkout2, clkout3, clkout4, clkin, reset, icpsel, lpfres, lpfcap);
 
 output lock;
@@ -75,14 +83,14 @@ PLL PLL_inst (
 defparam PLL_inst.FCLKIN = "50";
 defparam PLL_inst.IDIV_SEL = 1;
 defparam PLL_inst.FBDIV_SEL = 1;
-defparam PLL_inst.ODIV0_SEL = 6;
-defparam PLL_inst.ODIV1_SEL = 30;
-defparam PLL_inst.ODIV2_SEL = 30;
-defparam PLL_inst.ODIV3_SEL = 10;
-defparam PLL_inst.ODIV4_SEL = 10;
+defparam PLL_inst.ODIV0_SEL = 5;
+defparam PLL_inst.ODIV1_SEL = 25;
+defparam PLL_inst.ODIV2_SEL = 25;
+defparam PLL_inst.ODIV3_SEL = 8;
+defparam PLL_inst.ODIV4_SEL = 8;
 defparam PLL_inst.ODIV5_SEL = 8;
 defparam PLL_inst.ODIV6_SEL = 8;
-defparam PLL_inst.MDIV_SEL = 19;
+defparam PLL_inst.MDIV_SEL = 16;
 defparam PLL_inst.MDIV_FRAC_SEL = 0;
 defparam PLL_inst.ODIV0_FRAC_SEL = 0;
 defparam PLL_inst.CLKOUT0_EN = "TRUE";
@@ -120,12 +128,12 @@ defparam PLL_inst.CLKOUT0_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT0_PE_FINE = 0;
 defparam PLL_inst.CLKOUT1_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT1_PE_FINE = 0;
-defparam PLL_inst.CLKOUT2_PE_COARSE = 28;
-defparam PLL_inst.CLKOUT2_PE_FINE = 1;
+defparam PLL_inst.CLKOUT2_PE_COARSE = 23;
+defparam PLL_inst.CLKOUT2_PE_FINE = 4;
 defparam PLL_inst.CLKOUT3_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT3_PE_FINE = 0;
 defparam PLL_inst.CLKOUT4_PE_COARSE = 0;
-defparam PLL_inst.CLKOUT4_PE_FINE = 5;
+defparam PLL_inst.CLKOUT4_PE_FINE = 4;
 defparam PLL_inst.CLKOUT5_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT5_PE_FINE = 0;
 defparam PLL_inst.CLKOUT6_PE_COARSE = 0;

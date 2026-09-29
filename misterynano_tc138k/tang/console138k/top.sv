@@ -245,7 +245,7 @@ misterynano misterynano (
 
   // clock and power on reset from system
   .clk32 ( clk32 ),         // 32 Mhz system clock input
-  .flash_clk ( flash_clk ), // 95 Mhz flash clock
+  .flash_clk ( flash_clk ), // 100 Mhz flash clock
   .por   ( por ),           // True while not all PLLs locked
 
   .leds_n ( leds_int_n ),
@@ -311,32 +311,32 @@ misterynano misterynano (
 
 /*
 Input clock: 50 Mhz
-pf: 950.0 Mhz
+pf: 800.0 Mhz (IDIV 1, MDIV 16, ODIV 5/25/25/8/8)
 Output0:
-  Freq: 158.33333333333334 Mhz
+  Freq: 160.0 Mhz
   Phase: 0.0°
 Output1:
-  Freq: 31.666666666666668 Mhz
+  Freq: 32.0 Mhz
   Phase: 0.0°
 Output2:
-  Freq: 31.666666666666668 Mhz
-  Phase: 337.5°
+  Freq: 32.0 Mhz
+  Phase: 338.4° (nearest step to 337.5° with ODIV 25)
 Output3:
-  Freq: 95.0 Mhz
+  Freq: 100.0 Mhz
   Phase: 0.0°
 Output4:
-  Freq: 95.0 Mhz
+  Freq: 100.0 Mhz
   Phase: 22.5°
 */
  
 wire	   clk_pixel_x5;
 wire	   clk_pixel; 
 pll_160m pll_hdmi (
-               .clkout0(clk_pixel_x5),       // 158.333 MHz
-               .clkout1(clk_pixel),          // 31.66 MHz
-               .clkout2(O_sdram_clk),        // 31.66 MHz, shifted by 337,5°
-               .clkout3(flash_clk),          // 95 MHz
-               .clkout4(mspi_clk),           // 95 MHz, shifted by 22,5°
+               .clkout0(clk_pixel_x5),       // 160 MHz
+               .clkout1(clk_pixel),          // 32 MHz
+               .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
+               .clkout3(flash_clk),          // 100 MHz
+               .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
                .lock(pll_lock),
                .clkin(clk),
                .init_clk(clk)
@@ -344,7 +344,7 @@ pll_160m pll_hdmi (
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 
-video2hdmi #(.PIXEL_CLOCK(31_666_666)) video2hdmi (
+video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
     .clk_pixel_x5 ( clk_pixel_x5  ),      // hdmi clock
     .clk_pixel    ( clk_pixel     ),      // pixel clock
 
