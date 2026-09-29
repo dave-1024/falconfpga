@@ -17,9 +17,10 @@ create_clock -name clk_osc -period 20 -waveform {0 10} [get_ports {clk}] -add
 // gowin_pll_hdmi: 50 MHz -> 126 MHz TMDS serial clock, CLKDIV/5 -> 25.2 MHz pixel clock.
 create_clock -name clk_hdmi640_x5 -period 7.937 -waveform {0 3.968} [get_nets {hdmi_tp/clk_pixel_x5}] -add
 create_clock -name clk_hdmi640_pix -period 39.683 -waveform {0 19.841} [get_pins {hdmi_tp/clkdiv_hdmi640/CLKOUT}] -add
-// 48 kHz HDMI audio clock (25.2 MHz / 525, fabric generated)
-create_clock -name clk_hdmi640_audio -period 20833.333 -waveform {0 10396.825} [get_nets {hdmi_tp/clk_audio}] -add
+// The 48 kHz HDMI audio clock (hdmi_tp/clk_audio) is not constrained here: in
+// DVI mode (DVI_OUTPUT=1 in top.sv) it is optimised away, and a constraint on
+// a missing net is a TA2003 ERROR. In HDMI mode it shows up as an
+// auto-derived clock (TA1132 warning), like video2hdmi/clk_audio did.
 // nothing crosses between the test-pattern HDMI domain and the Atari core
-// (only the PLL lock, which is double-synchronised); audio -> pixel uses the
-// hdmi core's own toggle synchronisers
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_hdmi640_audio}] -group [get_clocks {clk_osc clk_32 clk_spi}]
+// (only the PLL lock, which is double-synchronised)
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi}]

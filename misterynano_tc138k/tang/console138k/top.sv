@@ -353,7 +353,12 @@ assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 
 `ifdef HDMI_TESTPATTERN
 // standalone 640x480@60 colour bars; 50 MHz -> 126 MHz PLL -> CLKDIV/5
-hdmi_testpattern_640 hdmi_tp (
+// DVI_OUTPUT: 1 = plain DVI (no data islands/guard bands, no audio), for the
+//                 monitor on its DVI input via a DVI-to-HDMI cable (default)
+//             0 = full HDMI (VIC 1 InfoFrames + 1 kHz test tone), for the TV
+hdmi_testpattern_640 #(
+    .DVI_OUTPUT ( 1 )             // <-- set to 0 for HDMI mode
+) hdmi_tp (
     .clk        ( clk        ),   // 50 MHz board clock
     .hdmi_lock  (            ),
 

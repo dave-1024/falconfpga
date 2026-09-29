@@ -14,9 +14,16 @@
 //  - reuses the unchanged packet_picker / packet_assembler / tmds_channel /
 //    serializer modules from hdmi/ (serializer uses the Gowin OSER10
 //    branch, exactly as the Atari video path does).
+//  - DVI_OUTPUT = 1 sends plain DVI 1.0 TMDS, like Sameer's original
+//    DVI_OUTPUT option (removed in MiSTeryNano's copy): only video periods
+//    and control periods, no data islands, no preambles, no guard bands,
+//    CTL0..CTL3 = 0, hsync/vsync on channel 0. For DVI-only sinks.
+//  - rgb is delayed by one clock so the pixel data lines up with the video
+//    period (mode) in tmds_channel: pixel x=0 is the first video symbol.
 
 module hdmi_640
 #(
+    parameter bit DVI_OUTPUT = 1'b0,   // 1 = plain DVI (no HDMI data islands/guard bands)
     parameter bit IT_CONTENT = 1'b1,
     parameter int AUDIO_RATE = 48000,
     parameter int AUDIO_BIT_WIDTH = 16,
@@ -65,7 +72,45 @@ logic [23:0] video_data = 24'd0;
 logic [5:0] control_data = 6'd0;
 logic [11:0] data_island_data = 12'd0;
 
+// Pixel data pipeline: mode is registered from video_data_period, which is
+// itself registered from cx, so it is two clocks behind cx. Register rgb
+// (and the active-area flag) once here so video_data is also two clocks
+// behind cx and the first video symbol carries pixel x=0.
+logic [23:0] rgb_d = 24'd0;
+logic        active_d = 1'b0;
+logic        hsync_d = 1'b1;
+logic        vsync_d = 1'b1;
+always_ff @(posedge clk_pixel)
+begin
+    rgb_d    <= rgb;
+    active_d <= cx < SCREEN_WIDTH && cy < SCREEN_HEIGHT;
+    hsync_d  <= hsync;
+    vsync_d  <= vsync;
+end
+
 generate
+    if (DVI_OUTPUT)
+    begin: dvi_output
+        // DVI 1.0: video period or control period only. CTL0..3 = 0,
+        // {vsync, hsync} on channel 0. Syncs are delayed like the pixel data
+        // so they keep exactly the timing generator's position relative to DE.
+        always_ff @(posedge clk_pixel)
+        begin
+            if (reset)
+            begin
+                mode <= 3'd0;
+                video_data <= 24'd0;
+                control_data <= 6'b000011;   // syncs inactive (high)
+            end
+            else
+            begin
+                mode <= video_data_period ? 3'd1 : 3'd0;
+                video_data <= active_d ? rgb_d : 24'h000000;
+                control_data <= {4'b0000, vsync_d, hsync_d};
+            end
+        end
+    end
+    else
     begin: true_hdmi_output
         logic video_guard = 1;
         logic video_preamble = 0;
@@ -145,7 +190,7 @@ generate
             else
             begin
                 mode <= data_island_guard ? 3'd4 : data_island_period ? 3'd3 : video_guard ? 3'd2 : video_data_period ? 3'd1 : 3'd0;
-                video_data <= (cx < SCREEN_WIDTH && cy < SCREEN_HEIGHT) ? rgb : 24'h000000;
+                video_data <= active_d ? rgb_d : 24'h000000;
                 control_data <= {{1'b0, data_island_preamble}, {1'b0, video_preamble || data_island_preamble}, {vsync, hsync}}; // ctrl3, ctrl2, ctrl1, ctrl0, vsync, hsync
                 data_island_data[11:4] <= packet_data[8:1];
                 data_island_data[3] <= cx != 0;

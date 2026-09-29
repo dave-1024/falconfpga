@@ -12,9 +12,15 @@
 // tang/nano20k/video2hdmi.v, so the pins/IO standard are unchanged.
 //
 // Audio: a quiet 1 kHz test tone, beeping 0.5 s on / 0.5 s off
-// (set AUDIO_TONE = 0 for silence).
+// (set AUDIO_TONE = 0 for silence). HDMI mode only.
+//
+// DVI_OUTPUT = 1: plain DVI 1.0 TMDS (video + control periods only, no data
+// islands / preambles / guard bands, CTL bits 0), for DVI-only sinks such as
+// a monitor on a DVI input via a DVI-to-HDMI cable. No audio in this mode
+// (the audio logic is optimised away). DVI_OUTPUT = 0: full HDMI with audio.
 
 module hdmi_testpattern_640 #(
+    parameter DVI_OUTPUT = 0,
     parameter AUDIO_TONE = 1
 ) (
     input        clk,          // 50 MHz board clock
@@ -119,6 +125,7 @@ wire [2:0] tmds;
 wire       tmds_clock;
 
 hdmi_640 #(
+    .DVI_OUTPUT(DVI_OUTPUT != 0),
     .AUDIO_RATE(48000), .AUDIO_BIT_WIDTH(16),
     .VENDOR_NAME( { "MiSTle", 16'd0} ),
     .PRODUCT_DESCRIPTION( {"TC138K 640x480", 16'd0} )
