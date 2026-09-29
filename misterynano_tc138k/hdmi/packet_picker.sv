@@ -9,7 +9,10 @@ module packet_picker
     parameter int AUDIO_RATE = 0,
     parameter bit [8*8-1:0] VENDOR_NAME = 0,
     parameter bit [8*16-1:0] PRODUCT_DESCRIPTION = 0,
-    parameter bit [7:0] SOURCE_DEVICE_INFORMATION = 0
+    parameter bit [7:0] SOURCE_DEVICE_INFORMATION = 0,
+    // FalconFPGA: AVI InfoFrame picture aspect ratio (00 = no data, 01 = 4:3,
+    // 10 = 16:9). Default 00 keeps the original behaviour for the Atari path.
+    parameter bit [1:0] PICTURE_ASPECT_RATIO = 2'b00
 )
 (
     input logic clk_pixel,
@@ -133,7 +136,8 @@ audio_sample_packet #(.SAMPLING_FREQUENCY(SAMPLING_FREQUENCY), .WORD_LENGTH({{WO
 
 
 auxiliary_video_information_info_frame #(
-    .IT_CONTENT(IT_CONTENT)
+    .IT_CONTENT(IT_CONTENT),
+    .PICTURE_ASPECT_RATIO(PICTURE_ASPECT_RATIO)
 ) auxiliary_video_information_info_frame(.stmode(stmode), .cea(cea), .header(headers[130]), .sub(subs[130]));
 
 

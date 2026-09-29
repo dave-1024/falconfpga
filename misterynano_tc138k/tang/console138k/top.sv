@@ -6,6 +6,13 @@
 
 `define GOWIN
 
+// FalconFPGA stage 1: HDMI_TESTPATTERN disconnects the Atari core video from
+// the HDMI output and instead drives a standalone 640x480@60 (VIC 1, 25.2 MHz)
+// colour-bar test pattern from its own PLL (hdmi_testpattern_640.sv). The core
+// (clocks, SDRAM, OSD, scandoubler, lcd_* outputs) keeps running unchanged.
+// Comment this line out to restore the original video2hdmi path.
+`define HDMI_TESTPATTERN
+
 module top(
   input			clk, // 50 MHz in
 
@@ -344,6 +351,18 @@ pll_160m pll_hdmi (
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 
+`ifdef HDMI_TESTPATTERN
+// standalone 640x480@60 colour bars; 50 MHz -> 126 MHz PLL -> CLKDIV/5
+hdmi_testpattern_640 hdmi_tp (
+    .clk        ( clk        ),   // 50 MHz board clock
+    .hdmi_lock  (            ),
+
+    .tmds_clk_n ( tmds_clk_n ),
+    .tmds_clk_p ( tmds_clk_p ),
+    .tmds_d_n   ( tmds_d_n   ),
+    .tmds_d_p   ( tmds_d_p   )
+);
+`else
 video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
     .clk_pixel_x5 ( clk_pixel_x5  ),      // hdmi clock
     .clk_pixel    ( clk_pixel     ),      // pixel clock
@@ -363,6 +382,7 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
     .tmds_d_n   ( tmds_d_n   ),
     .tmds_d_p   ( tmds_d_p   )
 );
+`endif
 
 endmodule
 

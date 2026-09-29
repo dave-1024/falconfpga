@@ -89,6 +89,11 @@ add_file tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file tang/console138k/gowin_pll/pll_160m.v
 add_file tang/console138k/gowin_pll/pll_160m_mod.v
 add_file tang/console138k/pll_init.v
+add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v
+add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v
+add_file tang/console138k/video_testpattern_640.v
+add_file tang/console138k/hdmi_640.sv
+add_file tang/console138k/hdmi_testpattern_640.sv
 add_file tang/console138k/atarist.cst
 add_file tang/console138k/atarist.sdc
 add_file fx68k/microrom.mem
