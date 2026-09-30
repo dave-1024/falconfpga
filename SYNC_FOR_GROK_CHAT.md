@@ -11,6 +11,9 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-30 10:45: **`Atarist_030_wip/` first 030 test** (commit `3b9afa6`): WF68K30L 68030 replaces fx68k via
+  `cpu030/cpu030_st_bridge.v` (`CPU_030` define in atarist.v), CPU 8 MHz from PLL CLKOUT5. Build PASS, pins identical,
+  CPU Fmax 16.175 MHz (16 MHz experiment 16.552 MHz), clk32 33.09 MHz. See BUILD_REPORT manual-20260930-a030-first.
 - 2026-09-30 09:10: new WIP folder **`Atarist_030_wip/`** (commit `b78df28`, next to
   `misterynano_tc138k/`): a copy of the tracked `misterynano_tc138k` files at `c2d695d` (stage 2, ST
   video via BSRAM frame buffer to 640x480@60 DVI), the starting point for new work. 108 files, no

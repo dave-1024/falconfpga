@@ -434,3 +434,34 @@ FLASHING NOTES:
 NOTES: Nothing flashed. No bitstream, logs or impl/ committed. BUILD_REQUEST.md and CONTEXT.md not
   edited. Stage 2 has not been bench-tested by David yet.
 ```
+
+```
+REQUEST_ID: manual-20260930-a030-first
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD Atarist_030_wip (gw_sh build_tc138k.tcl) with CPU_030: WF68K30L (68030) replaces fx68k
+  via cpu030_st_bridge (TF534-based, toggle handshake, clk_cpu = PLL CLKOUT5 8 MHz)
+REPO COMMIT BUILT: 3b9afa6 (built from the working tree before commit, identical sources)
+RESULT: PASS. GW_EXIT 0, licence OK on attempt 1. Built 10:16-10:24 BST.
+
+RESOURCES: Logic 30,931/138,240 (23%), registers 8,569 (7%), CLS 19,005 (28%), BSRAM 135/340, I/O 118/297.
+TIMING: TNS 0 on all clocks. clk32_core Fmax 33.09 MHz (32 MHz constraint; test build 34.07, margin thinner).
+  clk_cpu030 Fmax 16.175 MHz (8 MHz build, 38 logic levels). 16 MHz experiment (copy in /tmp, not committed):
+  constraint met, clk_cpu030 Fmax 16.552 MHz (36 levels), clk32 33.68 MHz. Worst in-domain path
+  I_OPCODE_DECODER/OP_21 -> I_ADDRESSREGISTERS/PC_I_31 (~39.8 ns, 64% routing). 16 MHz possible but ~3% margin.
+  Worst global setup paths ds2_p1/clk_spi -> clk32_core: pre-existing auto-derived clock artefact (as test build).
+PINS: 447 pin rows identical to stage 2.
+SIM: bridge unit tb 24/24 checks at 6 clock phases; whole-ST EmuTOS 1.3 sim runs 3000 bus cycles (reset vectors,
+  ROM execution, Line-F exception frame, RESET, memory sizing). fx68k trace comparison not done.
+BUS CYCLE: an 030 ST bus access takes ~1.33 us vs 0.5 us on the 68000 (CPU states + sync + phase alignment),
+  so this build is slower than a stock ST.
+TOS: use EmuTOS or TOS 1.04 (no PMOVE/MMU, so no TOS 3/4).
+LICENCE: cpu030_st_bridge.v is GPL-2-only (TF534-derived); fx68k/MiSTeryNano are GPL-3. Mix to be resolved
+  before any release.
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+  If the screen stays blank after power-up, try a warm reset.
+LOG: /workspace/repos/falconfpga_build_logs/a030_first_build.log (+ a030_first_impl/, a030_16mhz_impl/)
+NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030_first.fs), logs, impl/, sim
+  outputs or ROMs committed. BUILD_REQUEST.md and CONTEXT.md not edited.
+```
