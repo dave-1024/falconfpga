@@ -21,6 +21,16 @@
         <File path="atarist/ste_joypad.v" type="file.verilog" enable="1"/>
         <File path="fdc1772/fdc1772.v" type="file.verilog" enable="1"/>
         <File path="fdc1772/floppy.v" type="file.verilog" enable="1"/>
+        <File path="cpu030/wf68k30L_pkg.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_address_registers.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_alu.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_bus_interface.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_control.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_data_registers.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_exception_handler.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_opcode_decoder.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_top.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/cpu030_st_bridge.v" type="file.verilog" enable="1"/>
         <File path="fx68k/fx68k.sv" type="file.verilog" enable="1"/>
         <File path="fx68k/fx68kAlu.sv" type="file.verilog" enable="1"/>
         <File path="fx68k/uaddrPla.sv" type="file.verilog" enable="1"/>

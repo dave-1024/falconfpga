@@ -30,4 +30,10 @@ create_clock -name clk_hdmi640_pix -period 39.683 -waveform {0 19.841} [get_pins
 // referenced) so it can go into the core's asynchronous group. Only the BSRAM
 // and the double-synchronised mono flag cross between the two domains.
 create_generated_clock -name clk32_core -source [get_ports {clk}] -master_clock clk_osc -multiply_by 16 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core}]
+// Atarist_030_wip: the WF68K30L 68030 runs from pll_hdmi CLKOUT5 = 8 MHz
+// (VCO 800 MHz / 100), the same VCO as clk32_core (800/25), phase 0. It uses
+// both clock edges, so its internal falling-edge paths get half a period.
+// It is related to clk32_core (every clk_cpu030 edge is a clk32 rising edge):
+// the bridge's clk_cpu030 <-> clk32_core paths are timed, not cut.
+create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 4 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT5}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030}]

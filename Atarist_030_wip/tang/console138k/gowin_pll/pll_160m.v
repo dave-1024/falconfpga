@@ -6,6 +6,7 @@ module pll_160m(
     clkout2,
     clkout3,
     clkout4,
+    clkout5,
     lock
 );
 
@@ -17,6 +18,7 @@ output clkout1;
 output clkout2;
 output clkout3;
 output clkout4;
+output clkout5;  // 8 MHz, clk_cpu030 (Atarist_030_wip)
 output lock;
 wire [5:0] icpsel;
 wire [2:0] lpfres;
@@ -29,6 +31,7 @@ wire pll_rst;
         .clkout2(clkout2),
         .clkout3(clkout3),
         .clkout4(clkout4),
+        .clkout5(clkout5),
         .clkout0(clkout0),
         .lock(pll_lock),
         .clkin(clkin),
