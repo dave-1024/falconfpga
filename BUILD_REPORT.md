@@ -483,3 +483,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 11:45 – Atarist_030_wip README: credits to Stephen J. Leary (docs only)
 
 - Added a "Credits and thanks" section under the title crediting TF534 as the model for the bridge, with an acknowledgement, plus his public Discord and Exxos forum links. Purpose text now under "What this build is for".
+
+## 2026-09-30 11:47 – main README: credits callout (docs only)
+
+- Added a callout near the top urging readers to read the Credits; Credits section reworded, Stephen J. Leary entry updated (bridge in Atarist_030_wip), JT49 (José Tejada) and hdl-util/hdmi (Sameer Puri) added; Layout row for Atarist_030_wip.

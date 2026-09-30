@@ -6,6 +6,12 @@ This is a private workshop for bringing an **Atari Falcon** up on a small modern
 
 The owner of the board is David. If you are reading this as a future-me, or as someone helping compile, the useful sentence is: we already had a software 68030 that could boot TOS and render for a day without drifting a byte. Now we are teaching the same machine to exist in gates, carefully, on hardware we can hold.
 
+> **Please read the [Credits](#credits) before anything else.**
+> This project stands on the work of other people: the CPU cores, the Atari ST
+> core, the TerribleFire bus design and more. It matters to me that they get
+> the credit they are due. If you use, share or build on anything here, please
+> keep their names with it.
+
 ## This is not a product
 
 **Read this before you buy a Tang Console, an SDRAM module, or anything else because of this repository.**
@@ -137,19 +143,25 @@ The **Tang SDRAM module** is the plug-in board in **J9**. It is not the DDR3 sol
 
 ## Credits
 
-Courtesy only — these people built the shoulders. Licenses stay in `NOTICE.md` and in their files. Nothing here assigns their work to David.
+**Please take a moment to read this section.** None of this would exist
+without the people below. They wrote the cores, designs and tools that this
+bench is built from, and they deserve full credit for that work. Licences stay
+in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 
-- **Wolfgang Foerster** (Inventronik) — wf68k30L, the 030 core this project started from
-- **Karl Stenerud** — Musashi, the hybrid guest CPU
-- **Jorge Cwik** — fx68k, the 68000 in MiSTeryNano
-- **Till Harbaum** and **MiSTle-Dev** — MiSTeryNano and FPGA-Companion on the Tang boards
-- **György Szombathelyi** (gyurco) and the MiSTery authors — the STE FPGA core Nano ports
-- **Stephen J. Leary** — TF534 bus arbitration, the planned 030-on-ST splice
-- **The EmuTOS developers** — the optional GPL TOS image
-- **The Hatari developers** — the hybrid debug method (state saves and disassembly)
-- **Individual Computers** — the ACA1230-55N used as the real-030 instruction oracle
+- **Wolfgang Foerster** (Inventronik): wf68k30L, the 68030 core this project started from
+- **Stephen J. Leary** (TerribleFire): the TF534 accelerator, whose bus design the 68030-to-ST bridge in `Atarist_030_wip/` is modelled on. This phase of the work would have been much more difficult without him. See the credits at the top of `Atarist_030_wip/README.md`.
+- **Karl Stenerud**: Musashi, the hybrid guest CPU
+- **Jorge Cwik**: fx68k, the 68000 in MiSTeryNano
+- **Till Harbaum** and **MiSTle-Dev**: MiSTeryNano and FPGA-Companion on the Tang boards
+- **György Szombathelyi** (gyurco) and the MiSTery authors: the STE FPGA core the Nano ports come from
+- **José Tejada** (jotego): JT49, the YM2149 sound chip
+- **Sameer Puri**: hdl-util/hdmi, the HDMI/DVI encoder
+- **The EmuTOS developers**: the optional GPL TOS image
+- **The Hatari developers**: the hybrid debug method (state saves and disassembly)
+- **Individual Computers**: the ACA1230-55N used as the real-030 instruction oracle
 
-If a name is missing, say so and it goes here.
+If a name is missing or something is credited wrongly, please say so and it
+will be fixed.
 
 ## Layout
 
@@ -158,6 +170,7 @@ If a name is missing, say so and it goes here.
 | `CONTEXT.md` | engineering handoff for a new chat. Not a build request. |
 | `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
+| `Atarist_030_wip/` | ST test bench with the 68030 in place of the 68000, via a TF534-style bridge. **Needs the SDRAM module.** |
 | `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
 | `Hybrid030/hybrid_falcon030/GUI.md` | GUI ticks before a hybrid Place & Route. MSPI and CPU only. |
 | `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. Not in vendor docs. |

@@ -114,3 +114,4 @@ The history is kept, so any of it can be restored.
 - 2026-09-30 11:11: LICENSE-NOTES.md notes the TF-style bridge is ST test bench only, not carried to the Falcon build.
 - 2026-09-30 11:18: LICENSE-NOTES.md wording: repo is public (source only); no ST bitstream will be shared.
 - 2026-09-30 11:45: Atarist_030_wip README now opens with credits/thanks to Stephen J. Leary (TerribleFire TF534).
+- 2026-09-30 11:47: main README now urges readers to read Credits; credits expanded (Leary, Tejada, Puri).
