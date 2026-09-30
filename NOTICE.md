@@ -13,6 +13,7 @@ David’s original files are **GPL-3.0-or-later**. See `LICENSE-ORIGINAL.md`.
 | `Hybrid030/hybrid_musashi/emutos_rom.c` | [EmuTOS](https://github.com/emutos/emutos) `VERSION_1_4` | **GPL-2** — `Hybrid030/hybrid_musashi/LICENSE.TXT` |
 | `Hybrid030/` original glue | David Dunne | **GPL-3.0-or-later** |
 | `patches/` that only edit upstream | this project | same as the file they patch |
+| `Atarist_030_wip/` | MiSTeryNano + wf68k30L + TF534-style bridge | Mixed; see `Atarist_030_wip/LICENSE-NOTES.md` |
 | TF534 files, if copied later | Stephen J. Leary | **GPL-2** — keep that `LICENSE` |
 
 ## Not in this repository

@@ -465,3 +465,9 @@ LOG: /workspace/repos/falconfpga_build_logs/a030_first_build.log (+ a030_first_i
 NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030_first.fs), logs, impl/, sim
   outputs or ROMs committed. BUILD_REQUEST.md and CONTEXT.md not edited.
 ```
+
+## 2026-09-30 11:06 – Atarist_030_wip: README purpose section + LICENSE-NOTES.md (docs only, no build)
+
+- `Atarist_030_wip/README.md`: rewritten top: what the build is for (68030 ST as a TF-style test bed for the Falcon), agreed rules (correct not patched; stock chipset; I/D caches and CACR go inside the WF68K30L core for portability; fx68k still selectable), origin, status table, known core limits. Old board/build notes kept; TOS line corrected to 0x500000.
+- New `Atarist_030_wip/LICENSE-NOTES.md`: per-part licence table and the open GPL-2-only (bridge) vs GPL-3 question to settle before any public release.
+- `NOTICE.md`: one row pointing to it.

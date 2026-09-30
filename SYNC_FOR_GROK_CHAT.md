@@ -110,3 +110,4 @@ The history is kept, so any of it can be restored.
   ACTION was NO_BUILD. It may be out of date after the rollback.
 - Grok chat: when you are back, please update CONTEXT.md to reflect everything above.
 - `BUILD_REQUEST.md` and `CONTEXT.md` were not edited when this note was created.
+- 2026-09-30 11:06: Atarist_030_wip README purpose/rules + LICENSE-NOTES.md added (docs only). Caches are to go INSIDE the WF68K30L core (David's decision), real-030 behaviour, no compatibility patches.
