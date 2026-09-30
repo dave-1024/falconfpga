@@ -309,3 +309,96 @@ FLASHING NOTES:
 NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
   CONTEXT.md not edited.
 ```
+
+```
+REQUEST_ID: manual-20260930-stage2-stfb
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: BUILD (misterynano_tc138k, gw_sh build_tc138k.tcl), then commit HDL
+REPO COMMIT BUILT: 274f8b0 (tree built from working copy on 718f8cf, then committed unchanged as 274f8b0)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines. Licence OK on attempt 1. ~4.5 min.
+
+WHY: stage 1b (c6b1246) DVI colour bars confirmed working on BOTH David's DVI monitor and his old
+  HDMI TV (2026-09-30). Stage 2 connects the Atari ST video to that 640x480@60 output.
+
+WHAT CHANGED (274f8b0):
+  misterynano.sv: new outputs st_video_hs_n/vs_n/de/r/g/b = the raw ST video (st_hs_n, st_vs_n,
+    st_de, st_r/g/b[3:0] from the atarist instance, clk32 domain, BEFORE the scandoubler and OSD).
+  tang/console138k/st_framebuffer.v (new): st_fb_capture (clk32), st_fb_ram (153600 x 12 bit,
+    write clk32 / read 25.2 MHz, inferred -> 120 SDPB BSRAM), st_fb_scanout640 (25.2 MHz, 2-clock
+    latency; cx/cy/syncs delayed to match).
+  hdmi_testpattern_640.sv: ST_VIDEO parameter (1 = ST frame buffer, default; 0 = colour bars),
+    ST video input ports, tuning parameters passed through.
+  top.sv: st_video_* wires from misterynano to hdmi_tp, .ST_VIDEO ( 1 ). DVI_OUTPUT stays 1.
+  atarist.sdc: create_generated_clock clk32_core on pll_hdmi/u_pll/PLL_inst/CLKOUT1 (50 x 16/25; the
+    old clk_32 constraint is only the O_sdram_clk port), added to the core async clock group.
+  build_tc138k.tcl, atarist_tc138k.gprj: st_framebuffer.v added.
+
+DESIGN:
+  ST timing at the misterynano level (Icarus sim of gstmcu + gstshifter, clk32 from hsync fall):
+    PAL line 2048, 313 lines, DE rise 432, first DE line 66; NTSC 2032, 263, 416, 37;
+    mono 896, 501, 160, 37. First pixel after DE rise: low +96, medium +91, mono +64.
+  Capture: each frame measures the DE position in the line and the first DE line and uses them for
+    the next frame (so PAL/NTSC/mono are followed automatically; values kept if a frame has no DE).
+    Colour: 240 lines from 20 lines above the first DE line (20 border lines top and bottom);
+      640 samples per line, one every second clk32, starting at DE + ST_H_OFS_COLOR (exactly the
+      640-pixel active area, no side borders); low res = each pixel sampled twice.
+      Scan-out doubles every line: 240 -> 480, full screen.
+    Mono: 400 lines from the first DE line, 1 bpp packed 8 px/word, from DE + ST_H_OFS_MONO;
+      scan-out 1:1, centred (40 black lines top and bottom).
+  Mode detection: mono = hsync period < 1400 clk32, latched per frame, 2-FF synchronised into the
+    pixel domain. Only the BSRAM and this flag cross clock domains. Single buffer (tearing possible).
+  Colour: 4 bits per gun stored as {r,g,b}, expanded {x,x} to 8 bits.
+
+SIM (Icarus 12, synthetic ST video -> capture -> RAM -> scan-out + 640x480 timing, every pixel of one
+  output frame checked): PAL low res, NTSC medium res, mono: 307200/307200 pixels OK each, 0 errors.
+  Deliberate offsets (colour +2 clk, V border 21, mono +1 clk) all FAIL (128k-256k errors), so the
+  bench catches off-by-one and line-doubling mistakes. Testbench not committed
+  (box: /workspace/outputs/tb_stage2/).
+TIMING: clk_hdmi640_pix (25.2 MHz) Fmax 81.349 MHz (stage 1b 133.6; ~27 ns slack).
+  clk32_core (32 MHz) Fmax 34.070 MHz (stage 1b 35.277); worst same-clock slack +0.347 ns, critical
+  path in core logic (19 levels), not the frame buffer. clk_osc 284.6 MHz.
+  No timed paths between clk32_core and the 640x480 clocks (async groups). The legacy
+  ds2_p1/clk_spi -> clk32 cross-clock paths are still negative (-15.686, was -17.780), unchanged issue.
+PRIMARY CLOCKS: 8/8 (unchanged), LW 4/8, PLL 2/12, CLKDIV 1/24.
+PINS: identical to manual-20260929-stage1b-dvi (440 pin report entries compared, 0 differences):
+  tmds_clk G15/G16, tmds_d[0] J14/H14, tmds_d[1] J15/H15, tmds_d[2] K17/J17, LVCMOS33D drive 8.
+  jtagseln T20/4. H17 unused.
+RESOURCES: BSRAM 141/340 (was 21; +120 SDPB for the frame buffer; SDPB 125, DPB 2, SP 1, pROM 4,
+  pROMX9 9). Logic 18567/138240 (14%) = LUT 16718 + ALU 1651, SSRAM 33; Reg 7317; CLS 11857 (18%);
+  I/O 118/297; DSP 1.5/298.
+WARNINGS: TA1132 x3, PR1014 clk_d on generic routing, CT2090 V_JTAGSELN; EX2478 x9 (initial values
+  on output-port regs in st_framebuffer.v ignored; harmless, only the first clocks after power-up).
+BITSTREAM: impl/pnr/atarist_tc138k.fs 38508033 bytes (not committed). Copy on the box:
+  /workspace/outputs/atarist_tc138k_stage2_stfb.fs (sha256 2dc4d47d...d9bf1f).
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260930-stage2-stfb.log
+
+TUNING (parameters of hdmi_testpattern_640 / st_fb_scanout640, rebuild needed):
+  ST_H_OFS_COLOR (96): clk32 from DE rise to the first colour sample; 4 clk32 = 1 low-res pixel.
+    Picture too far right / border on the left: lower it. First columns missing: raise it.
+    96 is exact for low res; medium res then loses its leftmost 2 pixels (92 = exact medium res).
+  ST_H_OFS_MONO (64): same for mono (1 clk32 = 1 pixel).
+  ST_V_BORDER (20): colour border lines captured above the picture (window stays 240 lines).
+  MONO_TOP (40, in st_fb_scanout640): first output line of the 400-line mono image.
+KNOWN LIMITS:
+  No OSD on this output (the OSD is mixed in after the scandoubler; the tap is before it). No audio
+    in DVI mode.
+  Tearing and judder: single buffer, output fixed at 60 Hz while the ST runs at 50/60/71 Hz.
+  PAL low-res horizontal offset unverified: the gstmcu/gstshifter sim was clean for NTSC low res
+    (+96) and PAL/NTSC medium res (+91), but PAL low res looked irregular (probably a testbench
+    artifact). If PAL low res is shifted or cut off, tune ST_H_OFS_COLOR.
+  No side borders in colour modes (only the 640-pixel active area is captured).
+  Plain-ST colours are 3 bits per gun (level 7 shows as 0xEE, not 0xFF).
+
+HOW TO SWITCH:
+  Colour bars: top.sv .ST_VIDEO ( 0 ). HDMI mode (TV, with tone): .DVI_OUTPUT ( 0 ) (not built in
+  this configuration). No SDC change needed for either.
+  Back to the core video path: comment out `define HDMI_TESTPATTERN in top.sv, re-enable the clk_hdmi
+  line in atarist.sdc and comment out the stage 1/2 block at its end.
+
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+  TOS goes at flash byte address 0x500000 on this Console build (STE 0x540000).
+NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
+  CONTEXT.md not edited.
+```

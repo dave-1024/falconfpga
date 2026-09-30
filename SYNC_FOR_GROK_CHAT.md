@@ -11,6 +11,16 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-30 07:55: stage 2 ST video (commit `274f8b0`, build `manual-20260930-stage2-stfb` PASS).
+  First, reported by David: stage 1b DVI colour bars (c6b1246) confirmed WORKING on both the DVI
+  monitor and the old HDMI TV (2026-09-30). Now the raw ST video (clk32, before scandoubler/OSD, so
+  **no OSD**) goes into a 120-block BSRAM frame buffer (`st_framebuffer.v`) and out through the
+  640x480@60 DVI path: colour 640x240 (20 border lines top/bottom) line-doubled to 480, mono 640x400
+  centred; window follows DE (PAL/NTSC/mono auto), mono detected from the hsync period. Default
+  `.ST_VIDEO ( 1 )`, set 0 for colour bars; DVI_OUTPUT still 1. Tuning: ST_H_OFS_COLOR (96),
+  ST_V_BORDER (20), MONO_TOP (40). Sim: 3 modes, 0 pixel errors. BSRAM 141/340, pixel Fmax 81.3 MHz,
+  clk32 34.07 MHz (+0.35 ns worst), 8/8 primary, pins identical, jtagseln T20. Limits: tearing and
+  judder, PAL low-res horizontal offset unverified. Not flashed. No "SRAM Erase" (CT2090).
 - 2026-09-29 21:25: stage 1b DVI mode (commit `c6b1246`, build `manual-20260929-stage1b-dvi`
   PASS). Stage 1 HDMI (88a4b08): colour bars and tone WORK on David's TV, but the monitor (DVI input,
   DVI-to-HDMI cable) shows no sync, most likely because it rejects HDMI data islands/guard bands. So
