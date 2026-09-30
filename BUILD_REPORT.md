@@ -487,3 +487,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 11:47 – main README: credits callout (docs only)
 
 - Added a callout near the top urging readers to read the Credits; Credits section reworded, Stephen J. Leary entry updated (bridge in Atarist_030_wip), JT49 (José Tejada) and hdl-util/hdmi (Sameer Puri) added; Layout row for Atarist_030_wip.
+
+## 2026-09-30 12:50 – READMEs: HDMI/DVI video output section (docs only)
+
+- `misterynano_tc138k/README.md` and `Atarist_030_wip/README.md`: new "Video output: HDMI or DVI" section near the top: the DVI_OUTPUT / ST_VIDEO switches in top.sv, why DVI is default, why the 640x480@60 frame-buffer output replaced the stock output, OSD not shown, ST audio not on HDMI yet, how to restore the original path. misterynano intro no longer says "stock".
