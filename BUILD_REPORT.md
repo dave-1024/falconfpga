@@ -491,3 +491,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 12:50 – READMEs: HDMI/DVI video output section (docs only)
 
 - `misterynano_tc138k/README.md` and `Atarist_030_wip/README.md`: new "Video output: HDMI or DVI" section near the top: the DVI_OUTPUT / ST_VIDEO switches in top.sv, why DVI is default, why the 640x480@60 frame-buffer output replaced the stock output, OSD not shown, ST audio not on HDMI yet, how to restore the original path. misterynano intro no longer says "stock".
+
+## 2026-09-30 14:05 – cpu030_st_bridge.v: fuller credit to Stephen J. Leary (comments only)
+
+- Header now opens with a CREDIT block for Stephen J. Leary / TerribleFire TF534 (files used and what each contributed, thanks), then the adaptation copyright. Inline "TF534 (Stephen J. Leary)" notes added at the IACK decode, DTACK sampling, arbitration, UDS/LDS and E/VMA logic. Code verified identical with comments stripped; no rebuild needed.

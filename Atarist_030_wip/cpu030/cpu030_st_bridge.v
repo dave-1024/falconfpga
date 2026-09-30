@@ -4,16 +4,27 @@
 // IDE, SPI or autoconfig). Drops into atarist/atarist.v in place of fx68k,
 // with the same port names where they make sense, plus clk_cpu.
 //
-// Copyright (C) 2026 FalconFPGA project (dave-1024)
+// ===========================================================================
+// CREDIT: Stephen J. Leary (TerribleFire)
 //
-// Based on / modelled after TerribleFire's TF534 accelerator RTL with its
-// ATARI build switch (rtl/bus_top.v 030->68000 bus translation, rtl/arb.v
-// bus arbitration, rtl/m6800.v E/VMA/VPA cycles, rtl/bus_delay.v),
-//   Copyright (C) 2016-2019, Stephen J. Leary (TerribleFire).
+// This bridge is based on Stephen J. Leary's TerribleFire TF534 accelerator,
+// Copyright (C) 2016-2019, Stephen J. Leary, GPL-2.0-only. His published
+// TF534 RTL, built with its ATARI switch, is the design this file follows:
+//   rtl/bus_top.v    030 -> 68000 bus translation, UDS/LDS equations,
+//                    CPU-space interrupt acknowledge / autovector decode
+//   rtl/arb.v        bus arbitration ("only pass BG when the 68000 side is
+//                    idle")
+//   rtl/m6800.v      6800 peripheral cycles: E clock (10-state counter),
+//                    VMA and VPA
+//   rtl/bus_delay.v  DTACK delay before it reaches the 030
+// Every place in this file where his logic is used is marked "TF534".
+// This phase of the FalconFPGA work would have been much more difficult
+// without his design. Thank you, Stephen.
+// ===========================================================================
+//
+// Adaptation: Copyright (C) 2026 FalconFPGA project (dave-1024).
 // The TF534 logic (asynchronous CPLD style) is re-expressed here as a
-// synchronous clk_32 design; the UDS/LDS equations, the CPU-space IACK/AVEC
-// decode, the "only pass BG when the 68000 side is idle" rule and the
-// 10-state E counter come from it. The 68000 bus phase timing (which enable
+// synchronous clk_32 design. The 68000 bus phase timing (which enable
 // edge moves which strobe) is made to match the ST's fx68k core so that the
 // GSTMCU/shifter/MFP see the same cycles as before (written from the
 // behaviour, no fx68k code is used).
@@ -236,11 +247,15 @@ module cpu030_st_bridge #(
     reg  s_seen = 1'b0;
     wire pending = (req_now != s_seen);
     // request fields are stable: they were written together with the toggle
+    // TF534 (Stephen J. Leary), rtl/bus_top.v: CPU space (FC=7) with A19:16=F
+    // is an interrupt acknowledge; other CPU-space cycles are not passed on.
     wire req_cpu_space = (c_fc == 3'b111);
     wire req_iack      = req_cpu_space & (c_adr[19:16] == 4'hF);
     wire req_bad_space = req_cpu_space & ~req_iack;
 
     // ---- input sampling like a 68000 (DTACK/BERR on en2, VPA/BR/BGACK en1)
+    // TF534 (Stephen J. Leary), rtl/bus_delay.v: DTACK is delayed (one stage
+    // in its ATARI build) before the 030 is terminated; here it is registered.
     reg rDtack = 1'b1, rBerr = 1'b1, Vpai = 1'b1, BRi = 1'b1, BgackI = 1'b1;
     always @(posedge clk) begin
         if (enPhi2) begin
@@ -271,6 +286,8 @@ module cpu030_st_bridge #(
     reg        rVma   = 1'b1;
 
     // arbitration (68000 style, BG changes on en1, state on en2)
+    // TF534 (Stephen J. Leary), rtl/arb.v: BG is only passed to another bus
+    // master when the 68000 side is idle (bg_block below).
     localparam [1:0] A_IDLE = 2'd0, A_GRANT = 2'd1, A_BUSY = 2'd2;
     reg [1:0] arb = A_IDLE;
     reg [1:0] arb_nx;
@@ -294,7 +311,8 @@ module cpu030_st_bridge #(
     wire grant_nx = (arb_nx == A_GRANT) | ((arb_nx == A_BUSY) & ~BRi & ~bg_block);
     wire can_start = pending & ~req_bad_space & bus_avail;
 
-    // UDS/LDS from A0 and SIZE (TF534 bus_top.v): 16-bit port
+    // UDS/LDS from A0 and SIZE: 16-bit port
+    // TF534 (Stephen J. Leary), rtl/bus_top.v: these equations are his.
     wire req_uds = ~c_adr[0];
     wire req_lds =  c_adr[0] | (c_size != 2'b01);
 
@@ -316,6 +334,8 @@ module cpu030_st_bridge #(
             rVma  <= 1'b1;
         end else begin
             // E: 10 en2 periods, 6 low / 4 high (68000 E clock)
+            // TF534 (Stephen J. Leary), rtl/m6800.v: 10-state E counter, VMA
+            // asserted for VPA cycles and the cycle ended at the E edge.
             if (enPhi2) begin
                 if (eCntr == 4'd9)      E <= 1'b0;
                 else if (eCntr == 4'd5) E <= 1'b1;
