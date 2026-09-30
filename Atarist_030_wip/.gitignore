@@ -1,0 +1,12 @@
+*~
+*.vcd
+impl/gwsynthesis/
+impl/temp/
+impl/pnr/
+*.user
+*.fs
+*.bin
+*.bit
+impl/*.html
+impl/*.rpt
+!impl/atarist_tc138k_process_config.json
