@@ -11,6 +11,12 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-09-30 09:10: new WIP folder **`Atarist_030_wip/`** (commit `b78df28`, next to
+  `misterynano_tc138k/`): a copy of the tracked `misterynano_tc138k` files at `c2d695d` (stage 2, ST
+  video via BSRAM frame buffer to 640x480@60 DVI), the starting point for new work. 108 files, no
+  path changes needed (only a README note). Test build `manual-20260930-atarist-030-wip` from that
+  folder PASS, pins and timing identical to stage 2. `misterynano_tc138k/` stays as the reference.
+  David has NOT bench-tested stage 2 yet. Not flashed.
 - 2026-09-30 07:55: stage 2 ST video (commit `274f8b0`, build `manual-20260930-stage2-stfb` PASS).
   First, reported by David: stage 1b DVI colour bars (c6b1246) confirmed WORKING on both the DVI
   monitor and the old HDMI TV (2026-09-30). Now the raw ST video (clk32, before scandoubler/OSD, so

@@ -402,3 +402,35 @@ FLASHING NOTES:
 NOTES: Nothing flashed. No bitstream, logs, impl/ or testbench committed. BUILD_REQUEST.md and
   CONTEXT.md not edited.
 ```
+
+```
+REQUEST_ID: manual-20260930-atarist-030-wip
+REQUESTED: by David in chat (no BUILD_REQUEST; .falconfpga_last_handled not changed)
+ACTION: COPY misterynano_tc138k -> Atarist_030_wip (new work starting point), then test BUILD there
+  (Atarist_030_wip, gw_sh build_tc138k.tcl), then commit the copy
+REPO COMMIT BUILT: b78df28 (Atarist_030_wip = tracked files of misterynano_tc138k at c2d695d, stage 2)
+RESULT: PASS. GW_EXIT 0, 0 ERROR lines. Licence OK on attempt 1. ~4.5 min.
+
+COPY: git archive c2d695d misterynano_tc138k, moved to Atarist_030_wip/: 108 files, ~1.0 MB. No impl/,
+  .fs, logs or untracked strays. Only change vs the original: README.md note at the top (copied from
+  c2d695d) and "cd Atarist_030_wip" in the build instructions. No path fixes needed: build_tc138k.tcl
+  and atarist_tc138k.gprj use folder-relative paths only; all $readmemh / `include files are inside the
+  folder. The build log shows every source resolved under Atarist_030_wip (no misterynano_tc138k
+  reference). Module, file and output names (atarist_tc138k) unchanged. impl/ is ignored by the root
+  .gitignore; *.fs/*.bin by the copied .gitignore.
+TIMING: identical to stage 2 (manual-20260930-stage2-stfb): clk_hdmi640_pix Fmax 81.349 MHz (25.2),
+  clk32_core 34.070 MHz (32), clk_osc 284.581 MHz. PRIMARY 8/8.
+PINS: identical to stage 2 (440 pin report entries compared, 0 differences): tmds_clk G15/G16,
+  tmds_d[0] J14/H14, tmds_d[1] J15/H15, tmds_d[2] K17/J17; jtagseln T20/4; H17 unused.
+RESOURCES: BSRAM 141/340, Logic 18567/138240, Reg 7317 (same as stage 2).
+BITSTREAM: Atarist_030_wip/impl/pnr/atarist_tc138k.fs 38508033 bytes (not committed; same size as
+  stage 2, different hash, probably the build timestamp). Copy on the box:
+  /workspace/outputs/atarist_030_wip_testbuild.fs (sha256 fe5d7e09...bbcaa0).
+LOG: /workspace/repos/falconfpga_build_logs/build_manual-20260930-atarist-030-wip.log
+
+FLASHING NOTES:
+  CT2090 (upstream warning): because of NET_LOC V_JTAGSELN, do NOT use Gowin Programmer "SRAM Erase"
+  (or any SRAM erase), otherwise the FPGA may not be found afterwards.
+NOTES: Nothing flashed. No bitstream, logs or impl/ committed. BUILD_REQUEST.md and CONTEXT.md not
+  edited. Stage 2 has not been bench-tested by David yet.
+```
