@@ -475,3 +475,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 11:11 – LICENSE-NOTES.md: bridge scope (docs only)
 
 - Added "Scope of the bridge": the TF534-style bridge is ST-test-bench only and won't go into the Falcon build (different bus logic), so the GPL-2/GPL-3 question affects only a public release of the ST test bench.
+
+## 2026-09-30 11:18 – LICENSE-NOTES.md wording (docs only)
+
+- Replaced "while the work stays private" with: repo is public but source only, no bitstreams; David will not share a built ST bitstream.

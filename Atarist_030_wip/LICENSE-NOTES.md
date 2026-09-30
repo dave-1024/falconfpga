@@ -29,9 +29,10 @@ only if it is ever shared publicly.
 The bridge is GPL-2.0-only, while fx68k and most of the ST core are GPL-3.
 The GPL-2-only and GPL-3 licences are not compatible with each other, so a
 single bitstream that contains both may not be distributable as it stands.
-It is also unclear how well CERN OHL v1.2 combines with the GPL. This does
-not matter while the work stays private, but it must be settled before the
-repository or any bitstream is made public. Possible ways forward:
+It is also unclear how well CERN OHL v1.2 combines with the GPL. The repository is public, but it
+holds only source files, each under its own licence, and no bitstreams. The
+project owner does not plan to share a built ST bitstream, so this only
+matters if that changes. Possible ways forward:
 
 1. Ask Stephen J. Leary for permission to use the TF534-derived parts under
    GPL-3 (or "GPL-2 or later").
