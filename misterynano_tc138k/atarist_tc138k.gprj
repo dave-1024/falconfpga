@@ -90,6 +90,7 @@
         <File path="tang/console138k/video_testpattern_640.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/hdmi_640.sv" type="file.verilog" enable="1"/>
         <File path="tang/console138k/hdmi_testpattern_640.sv" type="file.verilog" enable="1"/>
+        <File path="tang/console138k/st_framebuffer.v" type="file.verilog" enable="1"/>
         <File path="tang/mega138kpro/gowin_dpb/fdc_dpram.v" type="file.verilog" enable="1"/>
         <File path="tang/mega138kpro/gowin_dpb/sector_dpram.v" type="file.verilog" enable="1"/>
         <File path="tang/mega138kpro/sdram.v" type="file.verilog" enable="1"/>

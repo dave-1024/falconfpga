@@ -83,6 +83,15 @@ module misterynano #(
   output [5:0]	lcd_g,
   output [5:0]	lcd_b,
 
+  // FalconFPGA: raw ST video (clk32 domain, before scandoubler/OSD),
+  // used by the tc138k 640x480 frame buffer (st_framebuffer.v)
+  output		st_video_hs_n,
+  output		st_video_vs_n,
+  output		st_video_de,
+  output [3:0]	st_video_r,
+  output [3:0]	st_video_g,
+  output [3:0]	st_video_b,
+
   output		vreset,
   output [1:0]	vmode,
   output [1:0]	screen,
@@ -232,6 +241,14 @@ wire st_hs_n, st_vs_n, st_bl_n, st_de;
 wire [3:0] st_r;
 wire [3:0] st_g;
 wire [3:0] st_b;
+
+// FalconFPGA: export the raw ST video (see port list)
+assign st_video_hs_n = st_hs_n;
+assign st_video_vs_n = st_vs_n;
+assign st_video_de   = st_de;
+assign st_video_r    = st_r;
+assign st_video_g    = st_g;
+assign st_video_b    = st_b;
 
 wire [14:0] audio_l;
 wire [14:0] audio_r;

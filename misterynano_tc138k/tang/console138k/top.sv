@@ -10,6 +10,8 @@
 // the HDMI output and instead drives a standalone 640x480@60 (VIC 1, 25.2 MHz)
 // colour-bar test pattern from its own PLL (hdmi_testpattern_640.sv). The core
 // (clocks, SDRAM, OSD, scandoubler, lcd_* outputs) keeps running unchanged.
+// Stage 2: by default hdmi_tp now shows the ST video through a BSRAM frame
+// buffer (ST_VIDEO parameter at the hdmi_tp instance; 0 = colour bars).
 // Comment this line out to restore the original video2hdmi path.
 `define HDMI_TESTPATTERN
 
@@ -246,6 +248,10 @@ assign i2s_bclk = clk_audio;
 assign i2s_lrck = por?1'b0:audio_bit_cnt[4];
 assign i2s_din = por?1'b0:audio[i2s_lrck][15-audio_bit_cnt[3:0]];
    
+// FalconFPGA stage 2: raw ST video (clk32 domain) for the 640x480 frame buffer
+wire       st_video_hs_n, st_video_vs_n, st_video_de;
+wire [3:0] st_video_r, st_video_g, st_video_b;
+
 misterynano misterynano (
   .reset ( 1'b0), // !reset_n ), disabled to fix tc138k booting, needs to be investigated !!!
   .user  ( 1'b0), // !user_n ),
@@ -308,6 +314,14 @@ misterynano misterynano (
   .lcd_g    ( lcd_g ),
   .lcd_b    ( lcd_b ),
 
+  // FalconFPGA stage 2: raw ST video (no OSD) for hdmi_tp's frame buffer
+  .st_video_hs_n ( st_video_hs_n ),
+  .st_video_vs_n ( st_video_vs_n ),
+  .st_video_de   ( st_video_de   ),
+  .st_video_r    ( st_video_r    ),
+  .st_video_g    ( st_video_g    ),
+  .st_video_b    ( st_video_b    ),
+
   // digital 16 bit audio output
   .audio ( audio )
 );
@@ -352,15 +366,28 @@ pll_160m pll_hdmi (
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 
 `ifdef HDMI_TESTPATTERN
-// standalone 640x480@60 colour bars; 50 MHz -> 126 MHz PLL -> CLKDIV/5
+// standalone 640x480@60 output; 50 MHz -> 126 MHz PLL -> CLKDIV/5
 // DVI_OUTPUT: 1 = plain DVI (no data islands/guard bands, no audio), for the
 //                 monitor on its DVI input via a DVI-to-HDMI cable (default)
 //             0 = full HDMI (VIC 1 InfoFrames + 1 kHz test tone), for the TV
+// ST_VIDEO:   1 = Atari ST video via the BSRAM frame buffer (stage 2, default,
+//                 no OSD, no ST audio)
+//             0 = colour bars (stage 1)
 hdmi_testpattern_640 #(
-    .DVI_OUTPUT ( 1 )             // <-- set to 0 for HDMI mode
+    .DVI_OUTPUT ( 1 ),            // <-- set to 0 for HDMI mode
+    .ST_VIDEO   ( 1 )             // <-- set to 0 for the colour bars
 ) hdmi_tp (
     .clk        ( clk        ),   // 50 MHz board clock
     .hdmi_lock  (            ),
+
+    // raw ST video from the core (stage 2)
+    .clk32      ( clk32         ),
+    .st_hs_n    ( st_video_hs_n ),
+    .st_vs_n    ( st_video_vs_n ),
+    .st_de      ( st_video_de   ),
+    .st_r       ( st_video_r    ),
+    .st_g       ( st_video_g    ),
+    .st_b       ( st_video_b    ),
 
     .tmds_clk_n ( tmds_clk_n ),
     .tmds_clk_p ( tmds_clk_p ),
