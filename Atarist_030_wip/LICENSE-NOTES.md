@@ -16,6 +16,14 @@ with, and the header inside a file always wins. See `NOTICE.md` and
 
 Not included: Atari TOS, EmuTOS images, bitstreams and build outputs.
 
+## Scope of the bridge
+
+The ST build is a test bench for the 030 core. The TF534-style bridge
+(`cpu030/cpu030_st_bridge.v`) is for this ST test bench only and will not be
+carried into the Falcon build, which needs its own bus logic for different
+hardware. So the licence question below affects only the ST test bench, and
+only if it is ever shared publicly.
+
 ## Open question before any public release
 
 The bridge is GPL-2.0-only, while fx68k and most of the ST core are GPL-3.

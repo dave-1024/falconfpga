@@ -471,3 +471,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - `Atarist_030_wip/README.md`: rewritten top: what the build is for (68030 ST as a TF-style test bed for the Falcon), agreed rules (correct not patched; stock chipset; I/D caches and CACR go inside the WF68K30L core for portability; fx68k still selectable), origin, status table, known core limits. Old board/build notes kept; TOS line corrected to 0x500000.
 - New `Atarist_030_wip/LICENSE-NOTES.md`: per-part licence table and the open GPL-2-only (bridge) vs GPL-3 question to settle before any public release.
 - `NOTICE.md`: one row pointing to it.
+
+## 2026-09-30 11:11 – LICENSE-NOTES.md: bridge scope (docs only)
+
+- Added "Scope of the bridge": the TF534-style bridge is ST-test-bench only and won't go into the Falcon build (different bus logic), so the GPL-2/GPL-3 question affects only a public release of the ST test bench.

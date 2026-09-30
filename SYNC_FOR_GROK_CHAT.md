@@ -111,3 +111,4 @@ The history is kept, so any of it can be restored.
 - Grok chat: when you are back, please update CONTEXT.md to reflect everything above.
 - `BUILD_REQUEST.md` and `CONTEXT.md` were not edited when this note was created.
 - 2026-09-30 11:06: Atarist_030_wip README purpose/rules + LICENSE-NOTES.md added (docs only). Caches are to go INSIDE the WF68K30L core (David's decision), real-030 behaviour, no compatibility patches.
+- 2026-09-30 11:11: LICENSE-NOTES.md notes the TF-style bridge is ST test bench only, not carried to the Falcon build.
