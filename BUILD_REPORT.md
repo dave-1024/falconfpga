@@ -479,3 +479,7 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 11:18 – LICENSE-NOTES.md wording (docs only)
 
 - Replaced "while the work stays private" with: repo is public but source only, no bitstreams; David will not share a built ST bitstream.
+
+## 2026-09-30 11:45 – Atarist_030_wip README: credits to Stephen J. Leary (docs only)
+
+- Added a "Credits and thanks" section under the title crediting TF534 as the model for the bridge, with an acknowledgement, plus his public Discord and Exxos forum links. Purpose text now under "What this build is for".

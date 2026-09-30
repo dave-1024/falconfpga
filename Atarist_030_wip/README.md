@@ -1,5 +1,24 @@
 # Atarist_030_wip: a 68030 Atari ST, as a test bed for the Falcon
 
+## Credits and thanks: Stephen J. Leary (TerribleFire)
+
+The 68030-to-ST bus bridge in this build (`cpu030/cpu030_st_bridge.v`) is
+modelled on **Stephen J. Leary's TerribleFire TF534** accelerator, in
+particular the bus timing, arbitration and 6800-cycle logic from its Atari
+build (`bus_top.v`, `arb.v`, `m6800.v`, `bus_delay.v`). The TF534 design is
+(C) Stephen J. Leary and released under the GPL; the bridge keeps his credit
+and the GPL-2 licence (see `LICENSE-NOTES.md`).
+
+This phase of the work would have been much more difficult without him.
+Having a proven, published design for fitting a 68030 to a real ST bus meant
+we could follow hardware that is known to work, instead of guessing. Thank
+you, Stephen, for the TerribleFire boards and for sharing their source.
+
+- Discord: https://discord.gg/Q5zfusgnmH
+- Forum: https://www.exxosforum.co.uk/forum/viewforum.php?f=65
+
+## What this build is for
+
 This folder is an Atari ST in which a 68030 replaces the 68000, built the way a
 TerribleFire (TF) accelerator board is fitted to a real ST. It exists to give
 the 030 CPU core a real desktop and real software to run **before** we move it

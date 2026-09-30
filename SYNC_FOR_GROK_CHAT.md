@@ -113,3 +113,4 @@ The history is kept, so any of it can be restored.
 - 2026-09-30 11:06: Atarist_030_wip README purpose/rules + LICENSE-NOTES.md added (docs only). Caches are to go INSIDE the WF68K30L core (David's decision), real-030 behaviour, no compatibility patches.
 - 2026-09-30 11:11: LICENSE-NOTES.md notes the TF-style bridge is ST test bench only, not carried to the Falcon build.
 - 2026-09-30 11:18: LICENSE-NOTES.md wording: repo is public (source only); no ST bitstream will be shared.
+- 2026-09-30 11:45: Atarist_030_wip README now opens with credits/thanks to Stephen J. Leary (TerribleFire TF534).
