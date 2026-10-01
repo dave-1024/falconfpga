@@ -528,3 +528,9 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Change, `Atarist_030_wip/atarist/atarist.v` only: after porb, wait for the first ST reset (`reset_cnt`) to end, count DR_GAP = 1536 clk_32 (~48 us: 16 us bridge RESET_HOLD + ~256 clk_cpu of free run at 8 MHz), then reload `reset_cnt <= 7'h7f` once (127 clk_32 ~4 us of `reset`, same as an ST reset button press; the bridge then holds the 030 another 128 clk_cpu = 16 us). Re-armed only by porb. Applies to both the CPU_030 and fx68k paths. SDRAM controller is outside atarist.v and is not reset.
 - Note: README "Methods" says AUTO_WARM is a board workaround, not a core fix; this is that workaround applied to the ST core at David's request.
 - Build/flash: results in the next entry.
+
+## 2026-10-01 22:00 – Atarist_030_wip double cold-start reset (c967a5e): build PASS, flashed, still black
+
+- Laptop build (`gw_sh build_tc138k.tcl`, impl/ deleted first, CPU_030 on): PASS, TNS 0 setup/hold all clocks. Fmax: clk32_core 32.069 MHz (32 target), clk_cpu030 17.622 MHz (8 target), clk_hdmi640_pix 95.9 MHz, clk_osc 200.8 MHz. Logic 30821/138240 (23%).
+- Flashed to location 417 (programmer_cli op 53, SPI 0x000000): "Program Flash finished", 97 s.
+- Capture ~15 s after flash: black frame (9.9 KB PNG), same as before the change. The double reset did not bring up the 030 desktop.
