@@ -119,6 +119,15 @@ reg   [6:0] reset_cnt = 7'h7f;
 reg         cpu_reset_n_d;
 wire        ext_reset = !resb;
 
+// FalconFPGA: double reset on cold start, same scheme as rigsdram's AUTO_WARM
+// broker (rigsdram_top.vhd AW_FREE_RUN/AW_PULSE). After power-up, once the
+// first ST reset has ended, let the CPU run DR_GAP clk_32 cycles, then reload
+// reset_cnt once (= one ST reset-button press). Re-armed only by porb.
+// 1536 = 512 (bridge RESET_HOLD, 128 clk_cpu) + 1024 (~256 clk_cpu free run).
+localparam [10:0] DR_GAP = 11'd1536;
+reg   [1:0] dr_st  = 2'd0;   // 0 = wait first release, 1 = free run, 2 = done
+reg  [10:0] dr_cnt = 11'd0;
+
 // rom cartridge related signals
 wire 	    cart_n;   
 wire [15:0] cart_data_out;
@@ -131,6 +140,19 @@ always @(posedge clk_32) begin
 
 	if (reset_cnt != 0) reset_cnt <= reset_cnt - 1'd1;
 	if (ext_reset) reset_cnt <= 7'h7f;
+
+	if (!porb) begin
+		dr_st  <= 2'd0;
+		dr_cnt <= 11'd0;
+	end else if (dr_st == 2'd0) begin
+		if (reset_cnt == 0) dr_st <= 2'd1;
+	end else if (dr_st == 2'd1) begin
+		if (reset_cnt != 0) dr_cnt <= 11'd0;          // reset again meanwhile: restart gap
+		else if (dr_cnt == DR_GAP) begin
+			reset_cnt <= 7'h7f;                        // second reset pulse
+			dr_st     <= 2'd2;
+		end else dr_cnt <= dr_cnt + 11'd1;
+	end
 
 	peripheral_reset <= reset | ~cpu_reset_n_o;
 

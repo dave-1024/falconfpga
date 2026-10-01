@@ -521,3 +521,10 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 
 - Build: `gw_sh build_tc138k.tcl` PASS (licence OK attempt 1, ~10 min), TNS 0 setup/hold on all clocks. Fmax: clk_cpu030 17.18 MHz (8 target); clk32_core 32.002 MHz (32 target: met, near-zero margin, placement variance; earlier 030 builds 33-34 MHz); clk_hdmi640_pix 81.9 MHz (25.2 target); clk_osc 204.6 MHz. Logic 30481/138240 (23%), BSRAM 135/340 (40%), DSP 10.5, PLL 2/12.
 - Bitstream kept at `/workspace/diag_bitstreams/030_resetfix.fs` (not committed). Not flashed.
+
+## 2026-10-01 21:50 – Atarist_030_wip: double reset on cold start (rigsdram AUTO_WARM scheme)
+
+- Requested by David: give the 030 ST core the same automatic second reset that rigsdram's AUTO_WARM broker does (`rigsdram/src/rigsdram_top.vhd` AW_FREE_RUN 256 core clocks, then AW_PULSE 128 core clocks, once per power-up).
+- Change, `Atarist_030_wip/atarist/atarist.v` only: after porb, wait for the first ST reset (`reset_cnt`) to end, count DR_GAP = 1536 clk_32 (~48 us: 16 us bridge RESET_HOLD + ~256 clk_cpu of free run at 8 MHz), then reload `reset_cnt <= 7'h7f` once (127 clk_32 ~4 us of `reset`, same as an ST reset button press; the bridge then holds the 030 another 128 clk_cpu = 16 us). Re-armed only by porb. Applies to both the CPU_030 and fx68k paths. SDRAM controller is outside atarist.v and is not reset.
+- Note: README "Methods" says AUTO_WARM is a board workaround, not a core fix; this is that workaround applied to the ST core at David's request.
+- Build/flash: results in the next entry.
