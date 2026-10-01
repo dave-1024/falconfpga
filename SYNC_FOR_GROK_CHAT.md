@@ -117,3 +117,4 @@ The history is kept, so any of it can be restored.
 - 2026-09-30 11:47: main README now urges readers to read Credits; credits expanded (Leary, Tejada, Puri).
 - 2026-09-30 12:50: both MiSTeryNano READMEs now explain the HDMI/DVI switch and why the HDMI work was done (docs only).
 - 2026-09-30 14:05: cpu030_st_bridge.v comments now credit Stephen J. Leary first and at each TF534-derived block (no logic change).
+- 2026-10-01 11:22: misterynano_tc138k top.sv reset fix: `wire por = !pll_lock;` (dropped `|| bl616_jtagsel`; stock BL616 firmware never drives it low, so the V14 pull-up held the ST in reset = DVI sync, black screen). Build PASS (clk32 35.0 MHz, pix 86.4 MHz), not flashed, awaiting David's hardware test.

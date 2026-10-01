@@ -495,3 +495,16 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 ## 2026-09-30 14:05 – cpu030_st_bridge.v: fuller credit to Stephen J. Leary (comments only)
 
 - Header now opens with a CREDIT block for Stephen J. Leary / TerribleFire TF534 (files used and what each contributed, thanks), then the adaptation copyright. Inline "TF534 (Stephen J. Leary)" notes added at the IACK decode, DTACK sampling, arbitration, UDS/LDS and E/VMA logic. Code verified identical with comments stripped; no rebuild needed.
+
+## 2026-10-01 11:22 – misterynano_tc138k: reset fix, drop bl616_jtagsel from por (build PASS, not flashed)
+
+- Symptom: DVI sync but black screen. Cause: the Console's BL616 runs stock Sipeed firmware, which never drives `bl616_jtagsel` low; the V14 pull-up (PULL_MODE=UP) kept `por` high, so the ST stayed in reset. Upstream Nano 20K uses `wire por = !pll_lock;`.
+- Change (`misterynano_tc138k/tang/console138k/top.sv`, one line; `jtagseln` output at the JTAGSELN line left unchanged, it gates no reset):
+
+```
+-wire por = !pll_lock || bl616_jtagsel; 
++wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
+```
+
+- Build: `gw_sh build_tc138k.tcl` PASS (licence OK attempt 1, ~4.5 min), TNS 0 setup/hold on all clocks. Fmax: clk32_core 35.0 MHz (32 target), clk_hdmi640_pix 86.4 MHz (25.2 target), clk_osc 163.6 MHz. Logic 18342/138240 (14%), BSRAM 141/340 (42%), PLL 2/12.
+- Built from clean HEAD + this line only (no diagnostic code). Bitstream kept at `/workspace/diag_bitstreams/mn_resetfix.fs` (not committed). Not flashed; awaiting David's hardware test.
