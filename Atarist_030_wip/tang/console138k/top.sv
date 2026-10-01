@@ -121,7 +121,7 @@ assign uart_ext_tx = bl616_tx;   // from BL616 to PMOD
 wire clk32;
 wire pll_lock;
 wire flash_clk;
-wire por = !pll_lock || bl616_jtagsel; 
+wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 
 reg     spi_ext = 1'b0;       // set when the external SPI interface on PMOD is active
 reg boot_button_detected = 1'b1;

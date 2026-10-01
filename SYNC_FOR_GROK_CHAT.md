@@ -118,3 +118,4 @@ The history is kept, so any of it can be restored.
 - 2026-09-30 12:50: both MiSTeryNano READMEs now explain the HDMI/DVI switch and why the HDMI work was done (docs only).
 - 2026-09-30 14:05: cpu030_st_bridge.v comments now credit Stephen J. Leary first and at each TF534-derived block (no logic change).
 - 2026-10-01 11:22: misterynano_tc138k top.sv reset fix: `wire por = !pll_lock;` (dropped `|| bl616_jtagsel`; stock BL616 firmware never drives it low, so the V14 pull-up held the ST in reset = DVI sync, black screen). Build PASS (clk32 35.0 MHz, pix 86.4 MHz), not flashed, awaiting David's hardware test.
+- 2026-10-01 19:36: Atarist_030_wip top.sv gets the same reset fix as 8adecde (`wire por = !pll_lock;`). Build PASS (cpu030 17.18 MHz, clk32 32.002 MHz met with near-zero margin), not flashed. David confirmed 19:25 BST that 8adecde boots misterynano_tc138k to the TOS desktop on the Console with stock BL616 firmware.

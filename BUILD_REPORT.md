@@ -508,3 +508,16 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 
 - Build: `gw_sh build_tc138k.tcl` PASS (licence OK attempt 1, ~4.5 min), TNS 0 setup/hold on all clocks. Fmax: clk32_core 35.0 MHz (32 target), clk_hdmi640_pix 86.4 MHz (25.2 target), clk_osc 163.6 MHz. Logic 18342/138240 (14%), BSRAM 141/340 (42%), PLL 2/12.
 - Built from clean HEAD + this line only (no diagnostic code). Bitstream kept at `/workspace/diag_bitstreams/mn_resetfix.fs` (not committed). Not flashed; awaiting David's hardware test.
+
+## 2026-10-01 19:36 – Atarist_030_wip: reset fix, drop bl616_jtagsel from por (same as 8adecde; build PASS, not flashed)
+
+- Hardware confirmation: on 2026-10-01 at 19:25 BST David confirmed that 8adecde boots the standard misterynano_tc138k core to a TOS desktop on the Console with stock BL616 firmware.
+- Same fix applied to `Atarist_030_wip/tang/console138k/top.sv` (one line; `jtagseln` output left unchanged, it gates no reset; no other bl616_jtagsel reset paths):
+
+```
+-wire por = !pll_lock || bl616_jtagsel; 
++wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
+```
+
+- Build: `gw_sh build_tc138k.tcl` PASS (licence OK attempt 1, ~10 min), TNS 0 setup/hold on all clocks. Fmax: clk_cpu030 17.18 MHz (8 target); clk32_core 32.002 MHz (32 target: met, near-zero margin, placement variance; earlier 030 builds 33-34 MHz); clk_hdmi640_pix 81.9 MHz (25.2 target); clk_osc 204.6 MHz. Logic 30481/138240 (23%), BSRAM 135/340 (40%), DSP 10.5, PLL 2/12.
+- Bitstream kept at `/workspace/diag_bitstreams/030_resetfix.fs` (not committed). Not flashed.
