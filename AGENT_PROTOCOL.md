@@ -83,3 +83,60 @@ Bot and chat **never** push:
 - Bot may edit `CONTEXT.md` only to set `CHANGED: 0` and `READ: 0` after a decode.
 - Chat never edits `BUILD_REPORT.md` except after consuming a report.
 - `NO_BUILD` means idle. Do not decode.
+
+## Patch handoff (from 2026-10-02)
+
+The fast way for Grok chat to hand code changes to Grok Bot, instead of editing files on GitHub one
+line at a time. It runs alongside `BUILD_REQUEST.md`; a handoff does not need `BUILD_REQUEST.md` or
+`CONTEXT.md` to be touched. Template and example: `handoff/README.md`.
+
+### What Grok chat commits
+
+**One commit per change**, adding two files with the same base name:
+
+1. `handoff/<YYYYMMDD-HHMM>-<short-name>.patch`: a standard unified diff from the repo root
+   (`git diff` style, `a/` and `b/` prefixes) that applies cleanly with `git apply` against current
+   `main`. A change that touches several files goes in **one** patch.
+2. `handoff/<YYYYMMDD-HHMM>-<short-name>.md` with:
+   - `REQUEST_ID`: `YYYYMMDD-N`, unique
+   - `ACTION`: `APPLY_ONLY` | `BUILD` | `BUILD_AND_FLASH`
+   - `WORKDIR`: repo-relative folder, e.g. `Atarist_030_wip`
+   - `BUILD_CMD`: default `gw_sh build_tc138k.tcl`
+   - `TOS`: `keep` | `tos104` | `emutos`
+   - a plain-English description of what the change does and why, and **what to look for on screen**
+
+Alternative: commit the change directly to a branch named `handoff/<short-name>` (with the `.md`
+in `handoff/` on that branch), and Grok Bot merges or applies it.
+
+### What Grok Bot does
+
+1. `git apply --check` first. If it does not apply, reject it: write the reason in
+   `BUILD_REPORT.md` under the `REQUEST_ID` (`RESULT: NOT_RUN`) and apply nothing.
+2. Apply and commit, with the `REQUEST_ID` in the commit message.
+3. `APPLY_ONLY`: stop here (steps 7–8 still apply). `BUILD` / `BUILD_AND_FLASH`: build on David's
+   Windows laptop in `WORKDIR` with `BUILD_CMD`, clean `impl/` first.
+4. Check timing: `clk32_core` at least 32 MHz, `clk_cpu030` above 8 MHz, TNS 0. If timing fails,
+   do not flash; report it.
+5. Flash only when `ACTION` is `BUILD_AND_FLASH`: `programmer_cli` op 53, cable location **417
+   only**. Never 418. Never bulk erase.
+6. TOS swap when `TOS` is not `keep`: `programmer_cli` op 56 with `--mcuFile` at `--spiaddr 0x500000`
+   on location 417, images from `C:\tosimg` (`tos104.bin`, `emutos-192uk-1.4.img`), then reflash the
+   core `.fs` with op 53.
+7. Append the result to `BUILD_REPORT.md` under the `REQUEST_ID`: timing, flash result, and David's
+   observed screen result once he reports it.
+8. Move the handled `.patch` and `.md` to `handoff/done/` (rejected ones too) and push.
+
+### Screen results
+
+Screen captures are **suspended**: the HDMI capture device was faulty and has been returned. Screen
+results come from David looking at his monitor. Capture-based results from 2026-10-01 are unreliable.
+
+### No polling
+
+Grok Bot does not poll for handoffs. David tells Grok Bot when a handoff is waiting.
+
+### Rules still apply
+
+- No `.fs`, `impl/` or ROMs in git (see "Git is source only").
+- Credit contributors (keep and extend the existing credits).
+- No compatibility patches in the 030 builds: real-030 behaviour only.
