@@ -1,28 +1,3 @@
-diff --git a/Atarist_030_wip/atarist/atarist.v b/Atarist_030_wip/atarist/atarist.v
---- a/Atarist_030_wip/atarist/atarist.v
-+++ b/Atarist_030_wip/atarist/atarist.v
-@@ -303,7 +303,10 @@ end
- /* ------------------------------ GSTMCU + Shifter ------------------------------ */
- /* ------------------------------------------------------------------------------ */
- 
--// auto detect TOS ROM location at end of rom cycle (rising edge of rom_n)
-+// auto detect TOS ROM size at end of the reset-vector word read (address 4,
-+// word address 2). 0x00FC is TOS 1.0x (192K). 0x00E0 is EmuTOS, whose reset
-+// PC is 0x00E00030; the old compare left rom192k clear and the MCU mapped a
-+// 256K window around a 192K image. A real 256K TOS 2.06 also has 0x00E0.
- // analyze the reset vector stored at address 4
- reg	    rom_nD;
- reg	    rom192k;
-@@ -313,7 +316,8 @@ always @(posedge clk_32) begin
-       rom_nD <= rom_n;
-       if(rom_n == 1'b1 && rom_nD == 1'b0)
- 	if(rom_addr == 23'd2)
--	  rom192k <= rom_data_out == 16'h00fc;
-+	  rom192k <= (rom_data_out == 16'h00fc) ||
-+	             (rom_data_out == 16'h00e0);
-    end
- end
- 
 diff --git a/Atarist_030_wip/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
 --- a/Atarist_030_wip/cpu030/cpu030_st_bridge.v
 +++ b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
