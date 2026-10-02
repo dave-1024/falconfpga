@@ -192,7 +192,9 @@ wire [1:0]  vmode;
 wire [1:0]  screen;
 
 wire [5:0] leds_int_n;
-assign leds_n = ~leds_int_n[1:0];
+// leds_n[0] latches on from the first 030 ROM fetch. Active low.
+wire rom_fetch;
+assign leds_n = {~leds_int_n[1], ~rom_fetch};
 
 assign lcd_bl = 1'bz;
    
@@ -280,6 +282,7 @@ misterynano misterynano (
   .por   ( por ),           // True while not all PLLs locked
 
   .leds_n ( leds_int_n ),
+  .rom_fetch ( rom_fetch ),
   .ws2812 ( ),
 
   // spi flash interface

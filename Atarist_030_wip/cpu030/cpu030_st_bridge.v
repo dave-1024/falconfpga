@@ -115,7 +115,8 @@ module cpu030_st_bridge #(
     input  wire        IPL2n,
     input  wire [15:0] iEdb,
     output wire [15:0] oEdb,
-    output wire [23:1] eab
+    output wire [23:1] eab,
+    output reg         rom_fetch   // latched first ROM-window cycle, cleared by reset
 );
 
     // =====================================================================
@@ -339,6 +340,11 @@ module cpu030_st_bridge #(
     // requests again (68000 behaviour for chained masters)
     wire grant_nx = (arb_nx == A_GRANT) | ((arb_nx == A_BUSY) & ~BRi & ~bg_block);
     wire can_start = pending & ~req_bad_space & bus_avail;
+    // A23:20 == E is the 256K map. FC/FD/FE is the 192K map.
+    wire req_rom = (c_adr[23:20] == 4'hE) |
+                   (c_adr[23:16] == 8'hFC) | (c_adr[23:16] == 8'hFD) |
+                   (c_adr[23:16] == 8'hFE);
+
 
     // UDS/LDS from A0 and SIZE: 16-bit port
     // TF534 (Stephen J. Leary), rtl/bus_top.v: these equations are his.
@@ -392,7 +398,8 @@ module cpu030_st_bridge #(
             s_berr  <= 1'b0;
             arb     <= A_IDLE;
             granting <= 1'b0;
-            BGn     <= 1'b1;
+            BGn       <= 1'b1;
+            rom_fetch <= 1'b0;
         end else begin
             // ---- arbitration: state on en2, BG output on en1 ----
             if (enPhi2) begin
@@ -466,6 +473,7 @@ module cpu030_st_bridge #(
                 end
 
                 if ((phase == P_IDLE | phase == P_S6) & can_start) begin
+                    if (req_rom) rom_fetch <= 1'b1;
                     // accept the 030 request: 68000 S0
                     phase   <= P_S0;
                     s_seen  <= req_now;

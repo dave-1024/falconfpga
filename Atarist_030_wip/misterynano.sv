@@ -21,6 +21,7 @@ module misterynano #(
   input			por, // power on-reset (! all PLL's locked)
 
   output [5:0]	leds_n,
+  output rom_fetch,
   output		ws2812,
   output		jtagsel,
 
@@ -640,7 +641,8 @@ atarist atarist (
     .ram_data_in(mdout),
     .ram_data_out(mdin),
 
-    .leds(leds[3:0])     // HDD 1:0 / FDC 1:0
+    .leds(leds[3:0]),    // HDD 1:0 / FDC 1:0
+    .rom_fetch(rom_fetch)
   );
   
 /* ------------ expand audio to 16 bits and apply volume adjustment ------------ */

@@ -108,7 +108,8 @@ module atarist (
 	input wire [15:0]  rom_data_out,
 				
 	// export all LEDs
-	output wire [3:0]  leds
+	output wire [3:0]  leds,
+	output wire        rom_fetch    // 030 diagnostic: latched first ROM fetch
 );
 
 // registered reset signals
@@ -527,9 +528,11 @@ cpu030_st_bridge cpu030 (
 	.IPL2n      ( ipl2_n     ),
 	.iEdb       ( cpu_din    ),
 	.oEdb       ( cpu_dout   ),
-	.eab        ( cpu_a      )
+	.eab        ( cpu_a      ),
+	.rom_fetch  ( rom_fetch  )
 );
 `else
+assign rom_fetch = 1'b0;
 fx68k fx68k (
 	.clk        ( clk_32     ),
 	.extReset   ( reset      ),
