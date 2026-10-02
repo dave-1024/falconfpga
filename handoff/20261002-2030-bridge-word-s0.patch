@@ -1,0 +1,131 @@
+diff --git a/Atarist_030_wip/atarist/atarist.v b/Atarist_030_wip/atarist/atarist.v
+--- a/Atarist_030_wip/atarist/atarist.v
++++ b/Atarist_030_wip/atarist/atarist.v
+@@ -303,7 +303,10 @@ end
+ /* ------------------------------ GSTMCU + Shifter ------------------------------ */
+ /* ------------------------------------------------------------------------------ */
+ 
+-// auto detect TOS ROM location at end of rom cycle (rising edge of rom_n)
++// auto detect TOS ROM size at end of the reset-vector word read (address 4,
++// word address 2). 0x00FC is TOS 1.0x (192K). 0x00E0 is EmuTOS, whose reset
++// PC is 0x00E00030; the old compare left rom192k clear and the MCU mapped a
++// 256K window around a 192K image. A real 256K TOS 2.06 also has 0x00E0.
+ // analyze the reset vector stored at address 4
+ reg	    rom_nD;
+ reg	    rom192k;
+@@ -313,7 +316,8 @@ always @(posedge clk_32) begin
+       rom_nD <= rom_n;
+       if(rom_n == 1'b1 && rom_nD == 1'b0)
+ 	if(rom_addr == 23'd2)
+-	  rom192k <= rom_data_out == 16'h00fc;
++	  rom192k <= (rom_data_out == 16'h00fc) ||
++	             (rom_data_out == 16'h00e0);
+    end
+ end
+ 
+diff --git a/Atarist_030_wip/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+--- a/Atarist_030_wip/cpu030/cpu030_st_bridge.v
++++ b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+@@ -63,9 +63,9 @@
+ //   This is a request/acknowledge handshake, so clk_cpu may later be made
+ //   faster than the 8 MHz ST bus ("accelerated ST") without changing the ST
+ //   side. For the first integration clk_cpu is 8 MHz from the same PLL as
+-//   clk_32 (related clocks, STA-timed). For a truly asynchronous clk_cpu,
+-//   add a synchroniser on the term/tag path in the cpu domain (see
+-//   README.md); the request path is already synchronised.
++//   clk_32 (related clocks). The returning tag, DSACK and read word are still
++//   synchronised into clk_cpu: a combinational sample of the clk_32 register
++//   was early, so the first fetch was not the ROM word.
+ //
+ // Bus sizing: the 030 does its own dynamic bus sizing. Every ST cycle is
+ // answered as a 16-bit port (DSACKn = "01"): even byte on D31:24, odd byte on
+@@ -211,18 +211,45 @@ module cpu030_st_bridge #(
+         end
+     end
+ 
+-    // ---- terminations back to the 030 (from clk_32 registers) -------------
++    // ---- terminations back to the 030 ------------------------------------
++    // s_* are written at S6 en2, after the ST cycle has finished. They are
++    // clk_32 registers. Two flops in clk_cpu hold the word until that write
++    // has crossed, and the data flop is the same depth as the tag so the
++    // 030 cannot see DSACK against the previous word.
+     reg        s_tag    = 1'b0;
+     reg        s_dsack  = 1'b0;
+     reg        s_avec   = 1'b0;
+     reg        s_berr   = 1'b0;
+     reg [15:0] s_rdata  = 16'hffff;
+ 
+-    wire term_ok = c_open & (s_tag == c_req_t);
+-    assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
+-    assign cpu_avecn  = ~(term_ok & s_avec);
+-    assign cpu_berrn  = ~(term_ok & s_berr);
+-    assign cpu_din    = {s_rdata, s_rdata};
++    (* syn_preserve = 1 *) reg [1:0] tag_sync = 2'b0;
++    (* syn_preserve = 1 *) reg [1:0] dsack_sync = 2'b0;
++    (* syn_preserve = 1 *) reg [1:0] avec_sync = 2'b0;
++    (* syn_preserve = 1 *) reg [1:0] berr_sync = 2'b0;
++    reg [15:0] rdata_hold = 16'hffff;
++    reg [15:0] rdata_sync = 16'hffff;
++
++    always @(posedge clk_cpu) begin
++        if (!cpu_rst_n) begin
++            tag_sync   <= 2'b0;
++            dsack_sync <= 2'b0;
++            avec_sync  <= 2'b0;
++            berr_sync  <= 2'b0;
++            rdata_hold <= 16'hffff;
++            rdata_sync <= 16'hffff;
++        end else begin
++            tag_sync   <= {tag_sync[0], s_tag};
++            dsack_sync <= {dsack_sync[0], s_dsack};
++            avec_sync  <= {avec_sync[0], s_avec};
++            berr_sync  <= {berr_sync[0], s_berr};
++            rdata_hold <= s_rdata;
++            rdata_sync <= rdata_hold;
++        end
++    end
++
++    wire term_ok = c_open & (tag_sync[1] == c_req_t);
++    assign cpu_dsackn = (term_ok & dsack_sync[1]) ? 2'b01 : 2'b11;
++    assign cpu_avecn  = ~(term_ok & avec_sync[1]);
++    assign cpu_berrn  = ~(term_ok & berr_sync[1]);
++    assign cpu_din    = {rdata_sync, rdata_sync};
+ 
+     // =====================================================================
+     // clk_32 domain: the 68000 side
+diff --git a/Atarist_030_wip/tang/console138k/top.sv b/Atarist_030_wip/tang/console138k/top.sv
+--- a/Atarist_030_wip/tang/console138k/top.sv
++++ b/Atarist_030_wip/tang/console138k/top.sv
+@@ -121,6 +121,22 @@ assign uart_ext_tx = bl616_tx;   // from BL616 to PMOD
+ wire clk32;
+ wire pll_lock;
+ wire flash_clk;
++
++// S0 is AA13, port reset_n, pull-up. A press after lock reloads the ST reset
++// counter (the same path as the cold-start second pulse). Ignored until the
++// arm counter fills, so a sample at config cannot hold the CPU in reset.
++// S1 (user_n) stays unused.
++reg [1:0]  s0_sync = 2'b11;
++reg [15:0] s0_arm  = 16'd0;
++always @(posedge clk) begin
++    if (!pll_lock) begin
++        s0_sync <= 2'b11;
++        s0_arm  <= 16'd0;
++    end else begin
++        s0_sync <= {s0_sync[0], reset_n};
++        if (s0_arm != 16'hffff) s0_arm <= s0_arm + 16'd1;
++    end
++end
++wire s0_reset = (s0_arm == 16'hffff) && !s0_sync[1];
+ wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
+ 
+ reg     spi_ext = 1'b0;       // set when the external SPI interface on PMOD is active
+@@ -253,7 +269,7 @@ wire [3:0] st_video_r, st_video_g, st_video_b;
+ misterynano misterynano (
+-  .reset ( 1'b0), // !reset_n ), disabled to fix tc138k booting, needs to be investigated !!!
++  .reset ( s0_reset ), // S0 / AA13, qualified above. Not a level at config.
+   .user  ( 1'b0), // !user_n ),
+ 
+   // clock and power on reset from system
+   .clk32 ( clk32 ),         // 32 Mhz system clock input
+   .clk_cpu ( clk_cpu030 ),  // 8 Mhz 68030 clock (only used with CPU_030 in atarist.v)
