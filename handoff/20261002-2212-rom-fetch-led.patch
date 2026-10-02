@@ -1,0 +1,112 @@
+diff --git a/Atarist_030_wip/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+--- a/Atarist_030_wip/cpu030/cpu030_st_bridge.v
++++ b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+@@ -115,7 +115,8 @@
+     input  wire        IPL2n,
+     input  wire [15:0] iEdb,
+     output wire [15:0] oEdb,
+-    output wire [23:1] eab
++    output wire [23:1] eab,
++    output reg         rom_fetch   // latched first ROM-window cycle, cleared by reset
+ );
+ 
+     // =====================================================================
+@@ -339,6 +340,11 @@
+     // requests again (68000 behaviour for chained masters)
+     wire grant_nx = (arb_nx == A_GRANT) | ((arb_nx == A_BUSY) & ~BRi & ~bg_block);
+     wire can_start = pending & ~req_bad_space & bus_avail;
++    // A23:20 == E is the 256K map. FC/FD/FE is the 192K map.
++    wire req_rom = (c_adr[23:20] == 4'hE) |
++                   (c_adr[23:16] == 8'hFC) | (c_adr[23:16] == 8'hFD) |
++                   (c_adr[23:16] == 8'hFE);
++
+ 
+     // UDS/LDS from A0 and SIZE: 16-bit port
+     // TF534 (Stephen J. Leary), rtl/bus_top.v: these equations are his.
+@@ -392,7 +398,8 @@
+             s_berr  <= 1'b0;
+             arb     <= A_IDLE;
+             granting <= 1'b0;
+-            BGn     <= 1'b1;
++            BGn       <= 1'b1;
++            rom_fetch <= 1'b0;
+         end else begin
+             // ---- arbitration: state on en2, BG output on en1 ----
+             if (enPhi2) begin
+@@ -466,6 +473,7 @@
+                 end
+ 
+                 if ((phase == P_IDLE | phase == P_S6) & can_start) begin
++                    if (req_rom) rom_fetch <= 1'b1;
+                     // accept the 030 request: 68000 S0
+                     phase   <= P_S0;
+                     s_seen  <= req_now;
+diff --git a/Atarist_030_wip/atarist/atarist.v b/Atarist_030_wip/atarist/atarist.v
+--- a/Atarist_030_wip/atarist/atarist.v
++++ b/Atarist_030_wip/atarist/atarist.v
+@@ -108,7 +108,8 @@
+ 	input wire [15:0]  rom_data_out,
+ 				
+ 	// export all LEDs
+-	output wire [3:0]  leds
++	output wire [3:0]  leds,
++	output wire        rom_fetch    // 030 diagnostic: latched first ROM fetch
+ );
+ 
+ // registered reset signals
+@@ -527,9 +528,11 @@
+ 	.IPL2n      ( ipl2_n     ),
+ 	.iEdb       ( cpu_din    ),
+ 	.oEdb       ( cpu_dout   ),
+-	.eab        ( cpu_a      )
++	.eab        ( cpu_a      ),
++	.rom_fetch  ( rom_fetch  )
+ );
+ `else
++assign rom_fetch = 1'b0;
+ fx68k fx68k (
+ 	.clk        ( clk_32     ),
+ 	.extReset   ( reset      ),
+diff --git a/Atarist_030_wip/misterynano.sv b/Atarist_030_wip/misterynano.sv
+--- a/Atarist_030_wip/misterynano.sv
++++ b/Atarist_030_wip/misterynano.sv
+@@ -21,6 +21,7 @@
+   input			por, // power on-reset (! all PLL's locked)
+ 
+   output [5:0]	leds_n,
++  output rom_fetch,
+   output		ws2812,
+   output		jtagsel,
+ 
+@@ -640,7 +641,8 @@
+     .ram_data_in(mdout),
+     .ram_data_out(mdin),
+ 
+-    .leds(leds[3:0])     // HDD 1:0 / FDC 1:0
++    .leds(leds[3:0]),    // HDD 1:0 / FDC 1:0
++    .rom_fetch(rom_fetch)
+   );
+   
+ /* ------------ expand audio to 16 bits and apply volume adjustment ------------ */
+diff --git a/Atarist_030_wip/tang/console138k/top.sv b/Atarist_030_wip/tang/console138k/top.sv
+--- a/Atarist_030_wip/tang/console138k/top.sv
++++ b/Atarist_030_wip/tang/console138k/top.sv
+@@ -192,7 +192,9 @@
+ wire [1:0]  screen;
+ 
+ wire [5:0] leds_int_n;
+-assign leds_n = ~leds_int_n[1:0];
++// leds_n[0] latches on from the first 030 ROM fetch. Active low.
++wire rom_fetch;
++assign leds_n = {~leds_int_n[1], ~rom_fetch};
+ 
+ assign lcd_bl = 1'bz;
+    
+@@ -280,6 +282,7 @@
+   .por   ( por ),           // True while not all PLLs locked
+ 
+   .leds_n ( leds_int_n ),
++  .rom_fetch ( rom_fetch ),
+   .ws2812 ( ),
+ 
+   // spi flash interface
