@@ -121,6 +121,23 @@ assign uart_ext_tx = bl616_tx;   // from BL616 to PMOD
 wire clk32;
 wire pll_lock;
 wire flash_clk;
+
+// S0 is AA13, port reset_n, pull-up. A press after lock reloads the ST reset
+// counter (the same path as the cold-start second pulse). Ignored until the
+// arm counter fills, so a sample at config cannot hold the CPU in reset.
+// S1 (user_n) stays unused.
+reg [1:0]  s0_sync = 2'b11;
+reg [15:0] s0_arm  = 16'd0;
+always @(posedge clk) begin
+    if (!pll_lock) begin
+        s0_sync <= 2'b11;
+        s0_arm  <= 16'd0;
+    end else begin
+        s0_sync <= {s0_sync[0], reset_n};
+        if (s0_arm != 16'hffff) s0_arm <= s0_arm + 16'd1;
+    end
+end
+wire s0_reset = (s0_arm == 16'hffff) && !s0_sync[1];
 wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 
 reg     spi_ext = 1'b0;       // set when the external SPI interface on PMOD is active
@@ -253,7 +270,7 @@ wire       st_video_hs_n, st_video_vs_n, st_video_de;
 wire [3:0] st_video_r, st_video_g, st_video_b;
 
 misterynano misterynano (
-  .reset ( 1'b0), // !reset_n ), disabled to fix tc138k booting, needs to be investigated !!!
+  .reset ( s0_reset ), // S0 / AA13, qualified above. Not a level at config.
   .user  ( 1'b0), // !user_n ),
 
   // clock and power on reset from system

@@ -63,9 +63,9 @@
 //   This is a request/acknowledge handshake, so clk_cpu may later be made
 //   faster than the 8 MHz ST bus ("accelerated ST") without changing the ST
 //   side. For the first integration clk_cpu is 8 MHz from the same PLL as
-//   clk_32 (related clocks, STA-timed). For a truly asynchronous clk_cpu,
-//   add a synchroniser on the term/tag path in the cpu domain (see
-//   README.md); the request path is already synchronised.
+//   clk_32 (related clocks). The returning tag, DSACK and read word are still
+//   synchronised into clk_cpu: a combinational sample of the clk_32 register
+//   was early, so the first fetch was not the ROM word.
 //
 // Bus sizing: the 030 does its own dynamic bus sizing. Every ST cycle is
 // answered as a 16-bit port (DSACKn = "01"): even byte on D31:24, odd byte on
@@ -211,18 +211,47 @@ module cpu030_st_bridge #(
         end
     end
 
-    // ---- terminations back to the 030 (from clk_32 registers) -------------
+    // ---- terminations back to the 030 ------------------------------------
+    // s_* are written at S6 en2, after the ST cycle has finished. They are
+    // clk_32 registers. Two flops in clk_cpu hold the word until that write
+    // has crossed, and the data flop is the same depth as the tag so the
+    // 030 cannot see DSACK against the previous word.
     reg        s_tag    = 1'b0;
     reg        s_dsack  = 1'b0;
     reg        s_avec   = 1'b0;
     reg        s_berr   = 1'b0;
     reg [15:0] s_rdata  = 16'hffff;
 
-    wire term_ok = c_open & (s_tag == c_req_t);
-    assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
-    assign cpu_avecn  = ~(term_ok & s_avec);
-    assign cpu_berrn  = ~(term_ok & s_berr);
-    assign cpu_din    = {s_rdata, s_rdata};
+    (* syn_preserve = 1 *) reg [1:0] tag_sync = 2'b0;
+    (* syn_preserve = 1 *) reg [1:0] dsack_sync = 2'b0;
+    (* syn_preserve = 1 *) reg [1:0] avec_sync = 2'b0;
+    (* syn_preserve = 1 *) reg [1:0] berr_sync = 2'b0;
+    reg [15:0] rdata_hold = 16'hffff;
+    reg [15:0] rdata_sync = 16'hffff;
+
+    always @(posedge clk_cpu) begin
+        if (!cpu_rst_n) begin
+            tag_sync   <= 2'b0;
+            dsack_sync <= 2'b0;
+            avec_sync  <= 2'b0;
+            berr_sync  <= 2'b0;
+            rdata_hold <= 16'hffff;
+            rdata_sync <= 16'hffff;
+        end else begin
+            tag_sync   <= {tag_sync[0], s_tag};
+            dsack_sync <= {dsack_sync[0], s_dsack};
+            avec_sync  <= {avec_sync[0], s_avec};
+            berr_sync  <= {berr_sync[0], s_berr};
+            rdata_hold <= s_rdata;
+            rdata_sync <= rdata_hold;
+        end
+    end
+
+    wire term_ok = c_open & (tag_sync[1] == c_req_t);
+    assign cpu_dsackn = (term_ok & dsack_sync[1]) ? 2'b01 : 2'b11;
+    assign cpu_avecn  = ~(term_ok & avec_sync[1]);
+    assign cpu_berrn  = ~(term_ok & berr_sync[1]);
+    assign cpu_din    = {rdata_sync, rdata_sync};
 
     // =====================================================================
     // clk_32 domain: the 68000 side
