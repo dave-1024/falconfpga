@@ -106,9 +106,9 @@ The history is kept, so any of it can be restored.
 
 ## Open notes
 
-- The CONTEXT.md base64 handoff (2026-09-28-2, CHANGED 1) has not been decoded by Grok Bot, because
-  ACTION was NO_BUILD. It may be out of date after the rollback.
-- Grok chat: when you are back, please update CONTEXT.md to reflect everything above.
+- The old CONTEXT.md base64 handoff (2026-09-28-2, CHANGED 1) was not decoded because ACTION was
+  NO_BUILD. It is retained as historical context only; the retired BUILD_REQUEST/CONTEXT watcher is
+  superseded by the Patch handoff.
 - `BUILD_REQUEST.md` and `CONTEXT.md` were not edited when this note was created.
 - 2026-09-30 11:06: Atarist_030_wip README purpose/rules + LICENSE-NOTES.md added (docs only). Caches are to go INSIDE the WF68K30L core (David's decision), real-030 behaviour, no compatibility patches.
 - 2026-09-30 11:11: LICENSE-NOTES.md notes the TF-style bridge is ST test bench only, not carried to the Falcon build.
@@ -126,10 +126,10 @@ The history is kept, so any of it can be restored.
 - **Console black screen / “invalid signal” root cause:** Tang Console `top.sv` had `por = !pll_lock || bl616_jtagsel`. The BL616 is running stock Sipeed firmware (FPGA-Companion has never been installed), so it never drives that pin low and the ST stayed in reset. The Nano 20K uses `!pll_lock` only. Fixed in `8adecde` (`misterynano_tc138k`) and `a89f293` (`Atarist_030_wip`). The standard core now boots TOS 1.04 to the desktop on the Console.
 - Upstream `top.sv` ties off the S0 (AA13) and S1 (AB13) buttons. Re-enabling S0 as a CPU reset is parked as a future debug aid.
 - `c967a5e` added a double cold-start reset to `Atarist_030_wip/atarist/atarist.v`, porting rigsdram’s `AUTO_WARM` scheme. It is outside the `CPU_030` ifdef, so it also applies to the 68000 build. The rigsdram README says `AUTO_WARM` is a board workaround, not a product feature; this may be reverted.
-- **Important correction:** David’s “C1-2 USB3 Video” HDMI capture device was faulty and has been returned. Earlier capture results (030 “black screen”; 68000 build of the 030 tree “two bombs / bus error”) are therefore **unreliable**. On 2026-10-02, checking a real monitor showed the 68000 build of `Atarist_030_wip` ( `CPU_030` commented out, with the `misterynano_tc138k` SDC, hence no `clk_cpu030` `create_generated_clock` or clock-group entry) boots EmuTOS 1.4 to the desktop. Those were local laptop edits and are not committed.
+- **Important correction:** David’s “C1-2 USB3 Video” HDMI capture device was faulty and has been returned. Screen captures are suspended until a new capture device arrives. Earlier capture results (030 “black screen”; 68000 build of the 030 tree “two bombs / bus error”) are therefore **unreliable**. On 2026-10-02, checking a real monitor showed the 68000 build of `Atarist_030_wip` ( `CPU_030` commented out, with the `misterynano_tc138k` SDC, hence no `clk_cpu030` `create_generated_clock` or clock-group entry) boots EmuTOS 1.4 to the desktop. Those were local laptop edits and are not committed.
 - A read-only diff found `Atarist_030_wip` effectively identical to `misterynano_tc138k` outside the 030 files, apart from clock plumbing: PLL `CLKOUT5` at 8 MHz, `clk_cpu030` in the SDC, and the `clk_cpu` port.
 - **Current board state:** the 030 build from main `9b0718d` (including the double reset) is flashed. Timing passed: `clk32_core` 32.069 MHz against 32 (almost no margin), `clk_cpu030` 17.6 MHz, TNS 0. EmuTOS 1.4 UK is in the TOS slot at `0x500000`. David will check the monitor when he is back; the result is pending.
-- **TOS swapping:** images are in `C:\tosimg` on David’s laptop: `tos104.bin` and `emutos-192uk-1.4.img`, both 192K padded with `FF` to 256K. Flash with `programmer_cli` op 56 using `--mcuFile` at `--spiaddr 0x500000` on cable location **417** (never 418), then reflash the core `.fs` with op 53.
+- **TOS swapping (only when requested):** images are in `C:\tosimg` on David’s laptop: `tos104.bin` and `emutos-192uk-1.4.img`, both 192K padded with `FF` to 256K. Flash with `programmer_cli` op 56 using `--mcuFile` at `--spiaddr 0x500000` on cable location **417** (never 418), then reflash the core `.fs` with op 53.
 - **Timing note:** detailed reports show negative-slack paths from `ds2_p1/clk_spi` (a Gowin-derived clock) into `clk32_core` (ikbd), while TNS remains 0. This looks like an unconstrained clock-domain crossing and is worth checking against the standard core.
 - **Next steps:** get the monitor result for the 030 build. If it is black, try EmuTOS for a crash dump and consider adding margin to `clk32_core`.
 - **Patch handoff (from 2026-10-02):** to hand code changes to Grok Bot, commit one `handoff/<YYYYMMDD-HHMM>-<short-name>.patch` (unified diff that `git apply`s on main) plus a matching `.md` (REQUEST_ID, ACTION, WORKDIR, BUILD_CMD, TOS, description). David tells Grok Bot when one is waiting. Full rules in `AGENT_PROTOCOL.md`, template in `handoff/README.md`.

@@ -2,72 +2,16 @@
 
 Two files so Grok chat and Grok bot never overwrite each other.
 
-Session state that must survive a new chat lives in **`CONTEXT.md`**. The body is obfuscated, not encrypted. Chat updates it when a bug, a test, a pinned idea, or the work state changes.
+## Legacy CONTEXT.md / BUILD_REQUEST.md flow (retired)
 
-## CONTEXT.md — three plain lines, then a block
+The former 15-minute watcher routine polled `CONTEXT.md` and `BUILD_REQUEST.md`, using the old
+`CHANGED`/`READ` flags and base64 block to decide whether to build. The watcher routine is paused;
+this flow is retained only as short history and is superseded by the **Patch handoff (from
+2026-10-02)** section below. Grok Bot acts only when David says work is waiting.
 
-Every poll, read **only** these lines. Do not decode the block on an idle wake.
-
-```
-HANDOFF: 2026-09-26-4
-CHANGED: 0
-READ: 0
-```
-
-- `HANDOFF` — chat bumps this when the notes change. Not a build.
-- `CHANGED: 1` — notes are newer than the last time the bot decoded them. Chat sets this. Bot clears it after a real read.
-- `READ: 1` — someone asked the bot to read, with no build. Chat sets this. Bot clears it after a real read. Ignored if `CHANGED` is 0.
-
-Decode the block only when **`CHANGED` is 1** and any of:
-
-- `ACTION` is `BUILD`, `BUILD_AND_FLASH`, `PREPARE`, or `SIMULATE`
-- `READ` is 1
-
-If `CHANGED` is 0, do not decode. Not on a build. Not because `READ` is 1. Not because `HANDOFF` looks new.
-
-After a decode, and only then:
-
-- set `CHANGED` to 0 and `READ` to 0
-- commit **only those two lines**. Do not touch `HANDOFF` or the block
-- echo `HANDOFF_SEEN` in the report
-- then run the build or simulate if one was requested
-
-An idle poll writes nothing.
-
-The block is standard base64. No key. Not a secret.
-
-## Bot poll (every 15 min, 08:00–22:00 UK)
-
-1. `git pull origin main`
-2. Read the three plain lines in `CONTEXT.md`. Stop there unless the rule above says decode.
-3. Read `BUILD_REQUEST.md` and `BUILD_REPORT.md`.
-4. Decode only if the rule above says so. Then clear the two flags.
-5. Otherwise run only if **all** of:
-   - `ACTION` is `BUILD`, `BUILD_AND_FLASH`, `PREPARE`, or `SIMULATE`
-   - `REQUEST_ID` is **not** already the `REQUEST_ID` in `BUILD_REPORT.md`
-6. If nothing matches, stop. Do not rebuild a consumed ID. Do not write a report.
-
-`PROJECT`, `WORKDIR`, and `BUILD_CMD` say **what** to run. Do not assume `rigsdram`. Do not infer a job from `CONTEXT.md`.
-
-## BUILD_REQUEST.md — Grok chat only
-
-- `REQUEST_ID` — bump each cycle (`YYYYMMDD-N`)
-- `ACTION` — `BUILD` | `BUILD_AND_FLASH` | `PREPARE` | `SIMULATE` | `NO_BUILD`
-- `PROJECT` — name only (`rigsdram` or `misterynano_tc138k`)
-- `WORKDIR` — repo-relative folder to `cd` into
-- `BUILD_CMD` — exact command. Empty on `NO_BUILD`
-- `WHAT_CHANGED` `CHECK`
-
-## BUILD_REPORT.md — Grok bot only
-
-Write a report only when a job ran, or when a decode actually happened.
-
-- `REQUEST_ID`
-- `RESULT` — `PASS` | `FAIL` | `NOT_RUN`
-- `HANDOFF_SEEN` — only if the block was decoded this poll
-- `GOWIN_VERSION` — or `NOT_RUN`
-- Errors with **file:line**, LUT/FF/BSRAM/DSP, Fmax/hold if PnR ran
-- Bitstream **size in bytes** only. Never attach the file.
+Former file roles: `CONTEXT.md` held session state; `BUILD_REQUEST.md` carried `REQUEST_ID`,
+`ACTION`, `PROJECT`, `WORKDIR`, `BUILD_CMD`, `WHAT_CHANGED`, and `CHECK`; `BUILD_REPORT.md` recorded
+job or decode results. The old idle-poll/decode rules are retired and must not be used for new work.
 
 ## Git is source only (hard rule)
 
@@ -77,18 +21,16 @@ Bot and chat **never** push:
 - `impl/`
 - TOS ROMs, disk images, object files
 
-## Rules
+## Legacy file-ownership rules (retired)
 
-- Bot never edits `BUILD_REQUEST.md` or HDL unless the request names a patch.
-- Bot may edit `CONTEXT.md` only to set `CHANGED: 0` and `READ: 0` after a decode.
-- Chat never edits `BUILD_REPORT.md` except after consuming a report.
-- `NO_BUILD` means idle. Do not decode.
+The former ownership and `NO_BUILD` rules above are retained for history only; the Patch handoff
+below is the current workflow.
 
 ## Patch handoff (from 2026-10-02)
 
 The fast way for Grok chat to hand code changes to Grok Bot, instead of editing files on GitHub one
-line at a time. It runs alongside `BUILD_REQUEST.md`; a handoff does not need `BUILD_REQUEST.md` or
-`CONTEXT.md` to be touched. Template and example: `handoff/README.md`.
+line at a time. It supersedes the retired `BUILD_REQUEST.md`/`CONTEXT.md` flow; a handoff does not
+need either file to be touched. Template and example: `handoff/README.md`.
 
 ### What Grok chat commits
 
@@ -117,23 +59,25 @@ in `handoff/` on that branch), and Grok Bot merges or applies it.
    Windows laptop in `WORKDIR` with `BUILD_CMD`, clean `impl/` first.
 4. Check timing: `clk32_core` at least 32 MHz, `clk_cpu030` above 8 MHz, TNS 0. If timing fails,
    do not flash; report it.
-5. Flash only when `ACTION` is `BUILD_AND_FLASH`: `programmer_cli` op 53, cable location **417
-   only**. Never 418. Never bulk erase.
-6. TOS swap when `TOS` is not `keep`: `programmer_cli` op 56 with `--mcuFile` at `--spiaddr 0x500000`
-   on location 417, images from `C:\tosimg` (`tos104.bin`, `emutos-192uk-1.4.img`), then reflash the
-   core `.fs` with op 53.
+5. Grok Bot may flash on David's laptop when `ACTION` is `BUILD_AND_FLASH` or David asks. Use
+   `programmer_cli` op 53, cable location **417 only**. Never 418. Never bulk erase.
+6. Touch TOS at `0x500000` only when a TOS swap is requested: use `programmer_cli` op 56 with
+   `--mcuFile` at `--spiaddr 0x500000` on location 417, images from `C:\tosimg`
+   (`tos104.bin`, `emutos-192uk-1.4.img`), then reflash the core `.fs` with op 53.
 7. Append the result to `BUILD_REPORT.md` under the `REQUEST_ID`: timing, flash result, and David's
    observed screen result once he reports it.
 8. Move the handled `.patch` and `.md` to `handoff/done/` (rejected ones too) and push.
 
 ### Screen results
 
-Screen captures are **suspended**: the HDMI capture device was faulty and has been returned. Screen
-results come from David looking at his monitor. Capture-based results from 2026-10-01 are unreliable.
+Screen captures are **suspended until a new capture device arrives**: the HDMI capture device was
+faulty and has been returned. Screen results come from David looking at his monitor. Capture-based
+results from 2026-10-01 are unreliable.
 
 ### No polling
 
-Grok Bot does not poll for handoffs. David tells Grok Bot when a handoff is waiting.
+Grok Bot does not poll for handoffs. The watcher routine is paused. David tells Grok Bot when a
+handoff is waiting, and Grok Bot acts only then.
 
 ### Rules still apply
 

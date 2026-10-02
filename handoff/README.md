@@ -11,10 +11,11 @@ Grok chat drops code changes here for Grok Bot. Full rules: `AGENT_PROTOCOL.md`,
 
 Or commit straight to a branch `handoff/<short-name>` and Grok Bot merges or applies it.
 
-Grok Bot does not poll. David tells Grok Bot a handoff is waiting. Handled files move to `handoff/done/`.
+Grok Bot does not poll; the watcher routine is paused. David tells Grok Bot a handoff is waiting,
+and Grok Bot acts only then. Handled files move to `handoff/done/`.
 
-Screen captures are suspended (faulty capture device, returned). Screen results come from David
-looking at his monitor.
+Screen captures are suspended until a new capture device arrives (faulty capture device, returned).
+Screen results come from David looking at his monitor.
 
 Never in git: `.fs`, `impl/`, ROMs. Credit contributors. No compatibility patches in the 030 builds.
 
