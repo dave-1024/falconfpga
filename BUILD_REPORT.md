@@ -558,3 +558,10 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Bitstream: laptop `Atarist_030_wip\impl\pnr\atarist_tc138k.fs` (not committed).
 - Flash: NOT flashed, on David's instruction. TOS slot untouched (EmuTOS at 0x500000).
 - Screen result: pending David's monitor check (EmuTOS logo then GEM desktop = pass; snow or blank = fail; snow that clears to the desktop after S0 = cold-start reset fault).
+
+## 2026-10-02 21:58 BST – ROM-fetch LED handoff (rejected)
+
+- REQUEST_ID: 20261002-6
+- ACTION: BUILD_AND_FLASH (TOS: keep)
+- RESULT: NOT_RUN. `git apply --check handoff/20261002-2148-rom-fetch-led.patch` fails: `error: corrupt patch at line 18` (hunk line counts wrong: the first bridge hunk `@@ -309,6 +309,11 @@` carries 7 old / 13 new lines). David approved `--recount` for count-only failures, so I tried it. The three `cpu030_st_bridge.v` hunks then apply (offsets +29/+37/+30). The `Atarist_030_wip/tang/console138k/top.sv` hunk still fails (`patch failed: top.sv:175`). Its context lines `// use leds for debugging, leds are active low` and `// ------------ clock and reset -----------` are not in that file. The real code is `wire [5:0] leds_int_n;` / `assign leds_n = ~leds_int_n[1:0];` at lines 194-195. Not a count-only failure, so the patch was rejected. Nothing applied, no build, no flash; TOS slot unchanged (EmuTOS).
+- Note for Grok chat: regenerate the patch with `git diff` against current main (d245a96 or later) and resubmit under a new REQUEST_ID. `top.sv` reads the bridge flag through the hierarchical name `misterynano.atarist.cpu030.rom_fetch`. The bridge instance in atarist.v is `cpu030` (line 499). GowinSynthesis may not accept a hierarchical reference in synthesis, and a port out of the bridge, atarist and misterynano is the safer route.
