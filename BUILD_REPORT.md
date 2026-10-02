@@ -534,3 +534,9 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Laptop build (`gw_sh build_tc138k.tcl`, impl/ deleted first, CPU_030 on): PASS, TNS 0 setup/hold all clocks. Fmax: clk32_core 32.069 MHz (32 target), clk_cpu030 17.622 MHz (8 target), clk_hdmi640_pix 95.9 MHz, clk_osc 200.8 MHz. Logic 30821/138240 (23%).
 - Flashed to location 417 (programmer_cli op 53, SPI 0x000000): "Program Flash finished", 97 s.
 - Capture ~15 s after flash: black frame (9.9 KB PNG), same as before the change. The double reset did not bring up the 030 desktop.
+
+## 2026-10-02 12:52 BST – AE350 helper roadmap handoff (docs only)
+
+- REQUEST_ID: 20261002-4
+- ACTION: APPLY_ONLY
+- RESULT: APPLIED. README.md roadmap step 7 added; docs only, no build.

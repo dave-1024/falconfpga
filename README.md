@@ -114,6 +114,7 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 4. First splice: **8 MHz CPU**, stock ST chipset. Caches off. PMMU off.
 5. Then: **16 MHz CPU**, chipset still stock ST speed — a real accelerator, wait-stated onto the 8 MHz bus.
 6. Only after that desktop validates the 030: move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map).
+7. Once the 030 build reaches a desktop, and not before: the SOM **Andes AE350** is the helper. OSD, and floppy and hardfile insertion from the microSD. Keyboard and mouse on the two front USB-A sockets, already used by the hybrid. The BL616 stays the USB JTAG debugger and is not reflashed. PMMU walks on the AE350 come later, only when MiNT is next. A hit stays in the fabric.
 
 Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolated 030+SDRAM check.
 
