@@ -1,0 +1,49 @@
+diff --git a/Atarist_030_wip/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+--- a/Atarist_030_wip/cpu030/cpu030_st_bridge.v
++++ b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+@@ -309,6 +309,11 @@ module cpu030_st_bridge #(
+     // BG is asserted in GRANT, and also in BUSY when another master already
+     // requests again (68000 behaviour for chained masters)
+     wire grant_nx = (arb_nx == A_GRANT) | ((arb_nx == A_BUSY) & ~BRi & ~bg_block);
+     wire can_start = pending & ~req_bad_space & bus_avail;
++    // Diagnostic. Latches on the first accepted cycle in the ROM window and
++    // holds until extReset. top.sv drives leds_n[0] from this (active low).
++    wire req_rom = (c_adr[23:20] == 4'hE) |
++                   (c_adr[23:16] == 8'hFC) | (c_adr[23:16] == 8'hFD) |
++                   (c_adr[23:16] == 8'hFE);
++    reg rom_fetch = 1'b0;
+ 
+     // UDS/LDS from A0 and SIZE: 16-bit port
+     // TF534 (Stephen J. Leary), rtl/bus_top.v: these equations are his.
+@@ -356,6 +361,7 @@ module cpu030_st_bridge #(
+             s_berr  <= 1'b0;
+             arb     <= A_IDLE;
+             granting <= 1'b0;
+             BGn     <= 1'b1;
++            rom_fetch <= 1'b0;
+         end else begin
+             // ---- arbitration: state on en2, BG output on en1 ----
+             if (enPhi2) begin
+@@ -437,6 +443,7 @@ module cpu030_st_bridge #(
+                 end
+ 
+                 if ((phase == P_IDLE | phase == P_S6) & can_start) begin
++                    if (req_rom) rom_fetch <= 1'b1;
+                     // accept the 030 request: 68000 S0
+                     phase   <= P_S0;
+                     s_seen  <= req_now;
+                     s_dsack <= 1'b0;
+diff --git a/Atarist_030_wip/tang/console138k/top.sv b/Atarist_030_wip/tang/console138k/top.sv
+--- a/Atarist_030_wip/tang/console138k/top.sv
++++ b/Atarist_030_wip/tang/console138k/top.sv
+@@ -175,7 +175,10 @@ always @(posedge clk) begin
+ 
+ // use leds for debugging, leds are active low
+-assign leds_n = ~leds_int_n[1:0];
++// leds_n[0] latches on from the first 030 ROM fetch (bridge rom_fetch).
++// Active low: pin low = LED on. S0 clears it via the bridge reset.
++wire rom_fetch = misterynano.atarist.cpu030.rom_fetch;
++assign leds_n = {~leds_int_n[1], ~rom_fetch};
+ 
+ // ------------ clock and reset -----------
+ 
