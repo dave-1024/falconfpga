@@ -547,3 +547,14 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - ACTION: BUILD (build only, do not flash)
 - RESULT: NOT_RUN. `git apply --check handoff/20261002-2030-bridge-word-s0.patch` fails: `error: corrupt patch at line 71`. The hunk headers have wrong line counts: `@@ -211,18 +211,45 @@` in `Atarist_030_wip/cpu030/cpu030_st_bridge.v` carries 47 new lines (declared 45), and `@@ -121,6 +121,22 @@` in `Atarist_030_wip/tang/console138k/top.sv` carries 23 new lines (declared 22). Nothing applied, no build, no flash; TOS slot unchanged (EmuTOS).
 - Note for Grok chat: the body is otherwise good; `git apply --check --recount` passes against current main (top.sv hunk 2 at offset +3). Regenerate with `git diff` (or fix the two counts to +211,47 and +121,23) and resubmit under a new REQUEST_ID.
+
+## 2026-10-02 20:47 BST – 20261002-5 applied with --recount (David's exception): build PASS, not flashed
+
+- REQUEST_ID: 20261002-5
+- RESULT: APPLIED + BUILT (supersedes the NOT_RUN entry above). David approved applying `handoff/done/20261002-2030-bridge-word-s0.patch` with `git apply --recount` (the hunk counts were wrong, the content was fine). Commit 982beec.
+- Change: `cpu030_st_bridge.v` passes the returning tag, DSACK, AVEC, BERR and read word through two clk_cpu flops before the 030 sees them. `top.sv` drives `misterynano.reset` from S0 (`reset_n`), synchronised and armed only after 65535 clk cycles past pll_lock.
+- Laptop build (`gw_sh build_tc138k.tcl` in Atarist_030_wip, impl/ deleted first, ~6 min, log `build_local_20261002-5.log`): PASS, TNS 0 setup/hold on all clocks. Fmax: clk32_core 34.608 MHz (32 target), clk_cpu030 14.308 MHz (8 target), clk_hdmi640_pix 80.202 MHz (25.2 target), clk_osc 171.591 MHz.
+- Note: the setup path table shows negative slack (worst -13.742 ns) from `misterynano/flash/dout_0_s0` to `atarist/dma/acsi/cmd_parameter` registers, launched from `pll_hdmi CLKOUT3.default_gen_clk` (no create_clock, default 100 MHz) into clk32_core. These are not counted in the TNS summary. The flash/ACSI path was not changed by this patch.
+- Bitstream: laptop `Atarist_030_wip\impl\pnr\atarist_tc138k.fs` (not committed).
+- Flash: NOT flashed, on David's instruction. TOS slot untouched (EmuTOS at 0x500000).
+- Screen result: pending David's monitor check (EmuTOS logo then GEM desktop = pass; snow or blank = fail; snow that clears to the desktop after S0 = cold-start reset fault).
