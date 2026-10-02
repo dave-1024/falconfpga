@@ -540,3 +540,10 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - REQUEST_ID: 20261002-4
 - ACTION: APPLY_ONLY
 - RESULT: APPLIED. README.md roadmap step 7 added; docs only, no build.
+
+## 2026-10-02 20:45 BST – bridge read-word sync + S0 reset handoff (rejected)
+
+- REQUEST_ID: 20261002-5
+- ACTION: BUILD (build only, do not flash)
+- RESULT: NOT_RUN. `git apply --check handoff/20261002-2030-bridge-word-s0.patch` fails: `error: corrupt patch at line 71`. The hunk headers have wrong line counts: `@@ -211,18 +211,45 @@` in `Atarist_030_wip/cpu030/cpu030_st_bridge.v` carries 47 new lines (declared 45), and `@@ -121,6 +121,22 @@` in `Atarist_030_wip/tang/console138k/top.sv` carries 23 new lines (declared 22). Nothing applied, no build, no flash; TOS slot unchanged (EmuTOS).
+- Note for Grok chat: the body is otherwise good; `git apply --check --recount` passes against current main (top.sv hunk 2 at offset +3). Regenerate with `git diff` (or fix the two counts to +211,47 and +121,23) and resubmit under a new REQUEST_ID.
