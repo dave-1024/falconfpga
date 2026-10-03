@@ -34,6 +34,49 @@ Build: diag030 local debug build (key under the 2026-10-03 07:15 entry below; BU
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-10-03 09:17: **diag030b local DEBUG build, BUILD ONLY (not flashed, HDL not committed)**: diag030 plus four bit-bar
+  rows (first BERR address/FC, screen base bytes, last program fetch). PASS: clk32_core 36.304, clk_cpu030 15.705 MHz,
+  TNS 0. The patch is at `/workspace/diag030b.patch` on Grok Bot's box (against e502d8f, includes diag030). .fs:
+  `C:\Users\dave_\fpga_caps\diag030b.fs` on the laptop. See BUILD_REPORT 2026-10-03 09:17.
+  - **diag030b KEY (new rows; S1-S20 and the TOS word bars are unchanged, see the diag030 key below).**
+    - Where: four rows above the squares, y 160-287, on a black band from x 8 to 567. Each row has a coloured label
+      square (20x20, x 16-35) and then up to 32 bars (12 px wide, 20 px tall, x 48-559). White = 1, dark grey = 0,
+      MSB on the left. Bars are in groups of 4 = one hex digit (8 px gap between groups). The 8 group columns are the
+      same in every row, so a column is the same bit number in every row (columns 1-8 = bits 31-28 ... 3-0).
+    - **Row a, RED label (bars y 166-185): first BERR address A31:0**, 8 hex digits, e.g. `0000 0000 1111 1111 1000
+      1010 0000 0000` = $00FF8A00. This is the 030's own address; the bridge ignores A31:24 on the ST bus.
+    - **Row b, MAGENTA label (y 198-217):**
+      - Group 1: `got FC2 FC1 FC0`. got = 1 means a BERR has been latched since the last reset; if got = 0, rows a/c and
+        groups 1-2 of row b are all 0.
+      - Group 2: `RW SIZ1 SIZ0 BAD`. RW 1 = read, 0 = write. SIZ (030 SIZE) 01 = byte, 10 = word, 11 = 3 bytes, 00 = long.
+        BAD 1 = the bridge itself answered with BERR (a CPU-space cycle that is not an interrupt acknowledge, no ST
+        cycle). BAD 0 = the BERR came back from the ST bus.
+      - Groups 3-4: the byte written to **$FF8201** (video base high = screen A23:16).
+      - Groups 5-6: the byte written to **$FF8203** (video base mid = screen A15:8). These sit under row a's A23:16 and
+        A15:8, so the screen base reads directly as $HHMM00, e.g. 4 MB: $3F8000 (3F, 80); 1 MB: $0F8000.
+      - Group 7: `WH WM` (2 bars) = $FF8201 / $FF8203 written since the last reset. Group 8 is empty.
+      - The bytes are the CPU's D7:0 on an ST-bus byte write (LDS) to that address. A wrong value here with WH/WM = 1
+        points at byte-lane placement in the bridge.
+    - **Row c, CYAN label (y 230-249): last 030 program fetch A23:0, frozen at the first BERR** ("PC at BERR").
+      Columns 1-2 are empty; 6 hex digits sit under row a's A23:0. Program fetch = FC 010 (user) or 110 (supervisor).
+      Because of the prefetch it can be a few words ahead of the faulting instruction. If the faulting access is
+      itself a program fetch, it shows that fetch.
+    - **Row d, BLUE label (y 262-281): live last 030 program fetch A23:0**, same layout as row c. It changes all the
+      time while code runs. If it is stuck, the CPU is looping in one place or not fetching.
+    - All of these latches clear on the ST reset (power-up, the double cold-start reset, S0). After S0, row a/b/c show
+      the first BERR of the new boot.
+    - **Probe or real fault?** FC 001 = user data, 010 = user program, 101 = supervisor data, 110 = supervisor program,
+      111 = CPU space.
+      - FC = 111 (BAD = 1) is a CPU-space cycle. A19:16 is the type: 0000 = breakpoint acknowledge (BKPT), 0010 =
+        coprocessor communication (A15:13 = coprocessor ID, 001 = the usual FPU ID, A4:0 = the register; 68020/030 only),
+        1111 = interrupt acknowledge (the bridge passes this one to the ST, so BAD = 0). A typical row a is
+        $0002_2xxx (CpID 1).
+      - A coprocessor cycle (FC 111, A19:16 = 0010) is the **EmuTOS FPU probe** (an F-line instruction with no FPU
+        fitted): expected and harmless. A real 030 with no FPU gets the same BERR and takes the F-line exception.
+      - An FC 101 data BERR at a known I/O address ($FF8Axx blitter, $FF89xx STE DMA sound, $FF92xx STE joypad,
+        $FFFA4x Mega ST FPU, $FFFC2x Mega ST RTC, etc.) is also normally a TOS **hardware probe**.
+      - A **real fault** is a BERR at a RAM address (A23:22 = 00, inside the installed RAM), at a garbage/odd-looking
+        address, on a program fetch (FC 010/110), or a write (RW = 0) where TOS should not be writing.
 - 2026-10-03 07:15: **diag030 local DEBUG build (HDL not committed)**: the misterynano_tc138k status-square overlay was ported to
   Atarist_030_wip, built on the laptop (PASS: clk32_core 34.258, clk_cpu030 15.993 MHz, TNS 0) and flashed to 417. The patch
   is at `/workspace/diag030.patch` on Grok Bot's box (not in the repo). See BUILD_REPORT 2026-10-03 07:15.
