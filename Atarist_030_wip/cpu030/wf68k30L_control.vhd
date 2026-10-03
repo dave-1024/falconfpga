@@ -238,6 +238,8 @@ entity WF68K30L_CONTROL is
         DR_SEL_WR_2         : out std_logic_vector(2 downto 0);
         DR_SEL_RD_1         : out std_logic_vector(2 downto 0);
         DR_SEL_RD_2         : out std_logic_vector(2 downto 0);
+        DR_SEL_ADH_2        : out std_logic_vector(2 downto 0); -- F56: data hazard check selects
+        DR_SEL_ADH_3        : out std_logic_vector(2 downto 0);
         DR_WR_1             : out bit;
         DR_WR_2             : out bit;
 
@@ -340,6 +342,7 @@ signal DATA_RD_I            : bit := '0';  -- [F54] measured warm-boot value
 signal DATA_WR_I            : bit := '0';  -- [F54] measured warm-boot value
 signal EW_RDY               : bit := '0';  -- [F54] measured warm-boot value
 signal INIT_ENTRY           : bit := '0';  -- [F54] measured warm-boot value
+signal DR_SEL_ADH_2_I       : std_logic_vector(2 downto 0); -- F56
 signal IPIPE_FLUSH_I        : bit := '0';  -- [F54] measured warm-boot value
 signal LOOP_EXIT_I          : bit := '0';  -- [F54] measured warm-boot value
 signal MEM_INDIRECT         : bit := '0';  -- [F54] measured warm-boot value
@@ -772,7 +775,16 @@ begin
                '0' when OP_WB_I = STOP else -- SR is written but not DR.
                '1' when EXEC_WB_STATE = WRITEBACK else '0';
 
-    DR_SEL_RD_2 <= BIW_0(11 downto 9) when OP = ABCD or OP = SBCD or OP = ADDX or OP = SUBX else
+    -- F56: the BFINS insertion pattern takes read port 2 at INIT_ENTRY (see F22/F24 below).
+    -- INIT_ENTRY is decoded from NEXT_FETCH_STATE, and NEXT_FETCH_STATE waits on DR_IN_USE,
+    -- so the data hazard check must not see that INIT_ENTRY arm (combinational loop
+    -- NEXT_FETCH_STATE -> INIT_ENTRY -> DR_SEL_RD_2 -> DR_IN_USE -> NEXT_FETCH_STATE).
+    -- The hazard check uses DR_SEL_ADH_2/3 instead: for BFINS both the width register
+    -- and the pattern register are checked at all times, which can only add a wait.
+    DR_SEL_RD_2 <= BIW_1(14 downto 12) when OP = BFINS and INIT_ENTRY = '1' else DR_SEL_ADH_2_I;
+    DR_SEL_ADH_2 <= DR_SEL_ADH_2_I;
+    DR_SEL_ADH_3 <= BIW_1(14 downto 12) when OP = BFINS else DR_SEL_ADH_2_I;
+    DR_SEL_ADH_2_I <= BIW_0(11 downto 9) when OP = ABCD or OP = SBCD or OP = ADDX or OP = SUBX else
                    BIW_0(2 downto 0) when (OP = ADD or OP = AND_B or OP = OR_B or OP = SUB) and BIW_0(8) = '1' else 
                    BIW_0(11 downto 9) when OP = ADD or OP = CMP or OP = SUB or OP = AND_B or OP = OR_B else
                    BIW_0(11 downto 9) when OP = CHK or OP = EXG else
@@ -798,7 +810,6 @@ begin
                    -- takes it at every other time, including the two instants
                    -- BITFIELD_CONTROL indexes BF_BYTES_I with offset AND width
                    -- together (START_OP, and the FETCH_OPERAND restore).
-                   BIW_1(14 downto 12) when OP = BFINS and INIT_ENTRY = '1' else
                    BIW_1(2 downto 0) when (OP = BFCHG or OP = BFCLR or OP = BFEXTS or OP = BFEXTU) and BIW_1(5) = '1' else
                    BIW_1(2 downto 0) when (OP = BFFFO or OP = BFINS or OP = BFSET or OP = BFTST) and BIW_1(5) = '1' else
                    BIW_1(14 downto 12) when OP = BFINS else -- F22: the insertion pattern.

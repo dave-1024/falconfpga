@@ -54,6 +54,8 @@ entity WF68K30L_DATA_REGISTERS is
         DR_SEL_WR_2         : in std_logic_vector(2 downto 0);
         DR_SEL_RD_1         : in std_logic_vector(2 downto 0);
         DR_SEL_RD_2         : in std_logic_vector(2 downto 0);
+        DR_SEL_ADH_2        : in std_logic_vector(2 downto 0); -- F56: data hazard check selects
+        DR_SEL_ADH_3        : in std_logic_vector(2 downto 0);
         DR_WR_1             : in bit;
         DR_WR_2             : in bit;
         DR_MARK_USED        : in bit;
@@ -105,10 +107,14 @@ begin
         end if;
     end process P_IN_USE;
 
+    -- F56: compared with the hazard selects, not with read port 2 itself (read port 2
+    -- follows INIT_ENTRY for BFINS, which is decoded from NEXT_FETCH_STATE).
     DR_IN_USE <= '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_SEL_RD_1 else
-                 '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_SEL_RD_2 else
+                 '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_SEL_ADH_2 else
+                 '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_SEL_ADH_3 else
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_RD_1 else
-                 '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_RD_2 else '0';
+                 '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_2 else
+                 '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_3 else '0';
 
     DR_OUT_1 <= DR(DR_PNTR_RD_1);
     DR_OUT_2 <= DR(DR_PNTR_RD_2);

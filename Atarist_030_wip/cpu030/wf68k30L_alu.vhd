@@ -424,6 +424,8 @@ begin
     variable BF_NZ      : boolean;
     variable BFFFO_CNT  : std_logic_vector(5 downto 0);
     begin
+        BF_NZ := false; -- F56: defined on every path (no latch); BFFFO sets it again below.
+        BFFFO_CNT := "000000";
         RESULT_BITFIELD <= BF_DATA_IN; -- Default.
         case OP is
             when BFCHG =>

@@ -305,6 +305,8 @@ signal DR_SEL_WR_1              : std_logic_vector(2 downto 0);
 signal DR_SEL_WR_2              : std_logic_vector(2 downto 0);
 signal DR_SEL_RD_1              : std_logic_vector(2 downto 0);
 signal DR_SEL_RD_2              : std_logic_vector(2 downto 0);
+signal DR_SEL_ADH_2             : std_logic_vector(2 downto 0);
+signal DR_SEL_ADH_3             : std_logic_vector(2 downto 0);
 signal DR_IN_USE                : bit;
 signal EW_ACK                   : bit;
 signal EW_REQ_MAIN              : bit;
@@ -689,14 +691,20 @@ begin
     DBcc_COND <= true when OP_WB = DBcc and ALU_RESULT(15 downto 0) = x"FFFF" else false;
 
     -- Take a branch if the CPU space will change:
-    BRANCH_ATN <= '1' when OP = ANDI_TO_SR and DATA_IMMEDIATE(13) = '0' and STATUS_REG(13) = '1' else
-                  '1' when OP = ANDI_TO_SR and DATA_IMMEDIATE(12) = '0' and STATUS_REG(12) = '1' else
-                  '1' when OP = EORI_TO_SR and DATA_IMMEDIATE(13) = '1' else
-                  '1' when OP = EORI_TO_SR and DATA_IMMEDIATE(12) = '1' else
-                  '1' when OP = ORI_TO_SR and DATA_IMMEDIATE(13) = '1' and STATUS_REG(13) = '0' else
-                  '1' when OP = ORI_TO_SR and DATA_IMMEDIATE(12) = '1' and STATUS_REG(12) = '0' else
+    -- F56: the immediate S/M bits are taken straight from their sources
+    -- (BIW_1 for ANDI/EORI/ORI to SR, IBUFFER for MOVE #imm,SR) instead of
+    -- via DATA_IMMEDIATE. Bits 13..12 are identical either way, but the
+    -- DATA_IMMEDIATE path depends on OP_SIZE, which depends on
+    -- NEXT_FETCH_STATE, and BRANCH_ATN feeds NEXT_FETCH_STATE: a
+    -- combinational loop (Gowin AG0100).
+    BRANCH_ATN <= '1' when OP = ANDI_TO_SR and BIW_1(13) = '0' and STATUS_REG(13) = '1' else
+                  '1' when OP = ANDI_TO_SR and BIW_1(12) = '0' and STATUS_REG(12) = '1' else
+                  '1' when OP = EORI_TO_SR and BIW_1(13) = '1' else
+                  '1' when OP = EORI_TO_SR and BIW_1(12) = '1' else
+                  '1' when OP = ORI_TO_SR and BIW_1(13) = '1' and STATUS_REG(13) = '0' else
+                  '1' when OP = ORI_TO_SR and BIW_1(12) = '1' and STATUS_REG(12) = '0' else
                   '1' when OP = MOVE_TO_SR and BIW_0(5 downto 3) = "000" and DR_OUT_1(13 downto 12) /= STATUS_REG(13 downto 12) else
-                  '1' when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" and DATA_IMMEDIATE(13 downto 12) /= STATUS_REG(13 downto 12) else
+                  '1' when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" and IBUFFER(13 downto 12) /= STATUS_REG(13 downto 12) else
                   '1' when OP = MOVE_TO_SR and DATA_TO_CORE(13 downto 12) /= STATUS_REG(13 downto 12) else '0';
 
     DATA_RD <= DATA_RD_EXH or DATA_RD_MAIN;
@@ -1068,6 +1076,8 @@ begin
             DR_SEL_WR_2             => DR_SEL_WR_2,
             DR_SEL_RD_1             => DR_SEL_RD_1,
             DR_SEL_RD_2             => DR_SEL_RD_2,
+            DR_SEL_ADH_2            => DR_SEL_ADH_2,
+            DR_SEL_ADH_3            => DR_SEL_ADH_3,
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
             UNMARK                  => UNMARK,
@@ -1134,6 +1144,8 @@ begin
             DR_SEL_WR_2             => DR_SEL_WR_2,
             DR_SEL_RD_1             => DR_SEL_RD_1,
             DR_SEL_RD_2             => DR_SEL_RD_2,
+            DR_SEL_ADH_2            => DR_SEL_ADH_2,
+            DR_SEL_ADH_3            => DR_SEL_ADH_3,
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
             DR_MARK_USED            => DR_MARK_USED,
