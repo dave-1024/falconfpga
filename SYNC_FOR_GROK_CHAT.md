@@ -241,3 +241,11 @@ The history is kept, so any of it can be restored.
 - Live last program fetch: shows $E13CA6, matches $FD3CA6, the extension word of `move #$2700,sr` at $FD3CA4. Frozen for ~20 s of frames: CPU is stopped there, not looping (a loop would show changing fetches).
 - Note: both PC rows show A20..A18 as 0 ($E0/$E1 vs $FC/$FD) while the BERR row shows them set; probably a diag latch wiring quirk, worth checking.
 - Next suspect: the bus cycle right after this fetch never completes (no DSACK/BERR) or the core halts on the move-to-SR / following read of $20CA.
+
+## 2026-10-03 ~19:10 BST: diag030c readout (local-only diag, patch kept on Grok Bot's box; timing 36.0/16.45 MHz, flashed 417)
+- No hung bus cycle: last 030 cycle started = $00E13CA6, FC=110, read, word, ended by DSACK; in-progress=0, hung=0; bridge IDLE, all strobes released.
+- Bus-cycle start counter changes every frame, so the core is not fully dead; snapshots almost always show the fetch at $FD3CA6 (`move #$2700,sr` at $FD3CA4).
+- IACK cycles happen (autovectored). IPL shows level 2 (HBL) pending, never 4, so VBLs are being taken and the mask is still 3: the `move #$2700,sr` never takes effect.
+- Likely loop: stall in MOVE_TO_SR -> VBL -> handler -> RTE -> stall again. Suspect wf68k30L_control.vhd SLEEP state: MOVE_TO_SR waits for NEXT_EXEC_WB_STATE=IDLE (~line 2422) before START_OP / IPIPE_FLUSH (~line 1063).
+- A20..A18 is NOT a diag bug: the core's raw ADR_OUT drives $E1xxxx for program fetches that should be $FDxxxx (even after jsr $FC772E). Hidden because $E00000 is the ROM alias. Suspect PC_I / PC_L = PC + PC_ADR_OFFSET in wf68k30L_top.vhd, or synthesis. Separate bug.
+- Next: small GHDL bench of WF68K30L alone (move #$2300,sr / move #$2700,sr with IPL=2 held; jsr $00FC772E with ADR_OUT trace).
