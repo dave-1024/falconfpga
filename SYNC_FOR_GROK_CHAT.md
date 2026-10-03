@@ -233,3 +233,11 @@ The history is kept, so any of it can be restored.
 - **Timing note:** detailed reports show negative-slack paths from `ds2_p1/clk_spi` (a Gowin-derived clock) into `clk32_core` (ikbd), while TNS remains 0. This looks like an unconstrained clock-domain crossing and is worth checking against the standard core.
 - **Next steps:** get the monitor result for the 030 build. If it is black, try EmuTOS for a crash dump and consider adding margin to `clk32_core`.
 - **Patch handoff (from 2026-10-02):** to hand code changes to Grok Bot, commit one `handoff/<YYYYMMDD-HHMM>-<short-name>.patch` (unified diff that `git apply`s on main) plus a matching `.md` (REQUEST_ID, ACTION, WORKDIR, BUILD_CMD, TOS, description). David tells Grok Bot when one is waiting. Full rules in `AGENT_PROTOCOL.md`, template in `handoff/README.md`.
+
+## 2026-10-03 ~18:00 BST: diag030b capture readout (local-only diag, EmuTOS 1.4 UK 192K)
+- First BERR: addr $FFFF8C80, FC=101 (supervisor data), read, byte, from ST bus. EmuTOS SCC probe ($FF8C8x), expected/harmless.
+- PC at first BERR: shows $E00C4C, matches $FC0C4C (jsr $FC772E) in the 192K image.
+- Screen base: $FF8201=$3F, $FF8203=$80 (both written) -> $3F8000, correct for 4 MB.
+- Live last program fetch: shows $E13CA6, matches $FD3CA6, the extension word of `move #$2700,sr` at $FD3CA4. Frozen for ~20 s of frames: CPU is stopped there, not looping (a loop would show changing fetches).
+- Note: both PC rows show A20..A18 as 0 ($E0/$E1 vs $FC/$FD) while the BERR row shows them set; probably a diag latch wiring quirk, worth checking.
+- Next suspect: the bus cycle right after this fetch never completes (no DSACK/BERR) or the core halts on the move-to-SR / following read of $20CA.
