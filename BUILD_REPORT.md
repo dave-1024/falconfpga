@@ -586,3 +586,10 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Flash: programmer_cli op 53, location 417, SPI 0x000000, `C:\Users\dave_\OneDrive\Documents\GitHub\falconfpga\Atarist_030_wip\impl\pnr\atarist_tc138k.fs`: "Program Flash finished", 0x000000-0x04B5400, 97.66 s, exit 0 (log `flash_diag030.log`). TOS was not touched (EmuTOS at 0x500000).
 - Laptop: afterwards `git checkout -- .` restored the tracked files. impl/ and the .fs were kept, as were the untracked `diag030.patch` and `tang/console138k/diag_overlay.v`. Main has no diag HDL; to rebuild, apply the patch again.
 - Square/LED key: in the square table in `diag_overlay.v` (in the patch). Result pending David.
+
+### 2026-10-03 08:03 BST – diag030 monitor result (David)
+
+- Power-up: snow over the whole picture. LED U12 blinks, so the 030 is running bus cycles.
+- Squares: S17-S19 green. S20 yellow, so a bus error was seen earlier but not now. Row 1 all green, with S1/S2 blinking and S8 (frame-buffer writes) green. S11/S12 green, S13 yellow, S14-S16 green (030 not halted). TOS word bars read 0x602E, the correct EmuTOS first word.
+- After S0 (AA13): S17-S19 go yellow→green, S20 red→yellow (a bus error early on every boot), S5/S6/S7/S10 yellow→green, and S11 goes through a reset cycle. The word bars don't change. The picture is still snow afterwards, so this is not a cold-start problem.
+- Conclusion: the CPU, ROM fetch, bus handover and DSACK work. Memory contents or writes are wrong. Requests for Grok chat are in SYNC_FOR_GROK_CHAT.md ("diag030 results 2026-10-03"): (1) bridge write splitting and byte lanes, (2) the source of the early BERR, (3) misaligned and long accesses under 16-bit dynamic bus sizing.

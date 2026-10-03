@@ -9,6 +9,29 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## diag030 results 2026-10-03 (David's monitor)
+
+Build: diag030 local debug build (key under the 2026-10-03 07:15 entry below; BUILD_REPORT 2026-10-03 08:03).
+
+- **After power-up:** snow over the whole picture. LED U12 blinks, so the 030 is running bus cycles.
+- **Squares:**
+  - Row 0: S17, S18 and S19 green. S20 yellow (a bus error was seen earlier, not now).
+  - Row 1: all green. S1/S2 (vsync/hsync) blink, and S8 (frame-buffer writes) is green.
+  - Row 2: S11 and S12 green, S13 yellow, S14-S16 green (030 not halted).
+  - The TOS word bars read 0110 0000 0010 1110 = 0x602E, the correct EmuTOS first word.
+- **After pressing S0 (AA13):** S17-S19 go yellow→green and S20 goes red→yellow, so a bus error happens on EVERY boot,
+  early. S5/S6/S7/S10 go yellow→green, and S11 goes through a reset cycle. The word bars don't change. The picture is
+  still snow afterwards, so this is NOT a cold-start problem.
+- **Conclusion:** the CPU, ROM fetch, bus handover and DSACK all work. Memory contents or writes are wrong.
+- **Requests for Grok chat:**
+  1. Check how the bridge splits 32-bit and byte/word writes into 16-bit ST cycles: the order of the halves, the
+     second-cycle address (A1), the UDS/LDS byte strobes, and the data lane placement for byte writes at odd and even
+     addresses.
+  2. Find out which access raises the early BERR. Consider adding a latch of the first BERR address to the diag bars
+     in a future patch.
+  3. Check that the 030's misaligned and long accesses are handled the way a real 030 with 16-bit dynamic bus sizing
+     (DSACK1 only) would handle them.
+
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
 - 2026-10-03 07:15: **diag030 local DEBUG build (HDL not committed)**: the misterynano_tc138k status-square overlay was ported to
