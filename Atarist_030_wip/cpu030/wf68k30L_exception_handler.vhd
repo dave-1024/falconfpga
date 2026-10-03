@@ -205,6 +205,7 @@ signal EX_P_DIVZERO         : bit := '0';  -- [F52] init
 signal EX_P_FORMAT          : bit := '0';  -- [F52] init
 signal EX_P_ILLEGAL         : bit := '0';  -- [F52] init
 signal EX_P_INT             : bit := '0';  -- [F52] init
+signal INT_REQ              : bit;  -- EX_P_INT still above the current SR mask (F55)
 signal EX_P_RESET           : bit := '1';  -- [F52] init
 signal EX_P_RTE             : bit := '0';  -- [F52] init
 signal EX_P_PRIV            : bit := '0';  -- [F52] init
@@ -336,6 +337,8 @@ begin
         elsif INT_TRIG = '1' and STATUS_REG_IN(10 downto 8) < IRQ then
             EX_P_INT <= '1';
             IRQ_PEND_I <= IRQ;
+        elsif EX_STATE = IDLE and EX_P_INT = '1' and INT_REQ = '0' then
+            EX_P_INT <= '0'; -- F55: the mask was raised (MOVE/ANDI/ORI/EORI to SR) before the interrupt was taken.
         end if;
         --
         -- The following nine traps never appear at the same time:
@@ -440,14 +443,20 @@ begin
                   '1' when DATA_RDY = '1' and DATA_VALID = '0' else '0'; -- Bus error.
 
     IRQ_PEND <= IRQ_PEND_I when EXCEPTION = EX_RESET or EXCEPTION = EX_INT else STATUS_REG_IN(10 downto 8);
-    IPENDn <= '0' when EX_P_INT = '1' or EX_P_RESET = '1' or EX_P_TRACE = '1' else '1';
+    -- F55: an interrupt latched while the main controller sleeps in a MOVE/ANDI/ORI/EORI to SR
+    -- (INT_TRIG is active in SLEEP, the SR is not written yet) must not be taken when that
+    -- instruction raises the mask to its level or above. Like the 68030, the pending level is
+    -- compared with the current mask at the instruction boundary. Level 7 stays nonmaskable.
+    INT_REQ <= '1' when EX_P_INT = '1' and (IRQ_PEND_I = "111" or STATUS_REG_IN(10 downto 8) < IRQ_PEND_I) else '0';
+
+    IPENDn <= '0' when INT_REQ = '1' or EX_P_RESET = '1' or EX_P_TRACE = '1' else '1';
 
     -- This signal is asserted eraly to indicate the respective controller to stay in its idle state.
     -- The exception is then inserted before a new operation has been loaded and processed.
     EXH_REQ <= '0' when EX_STATE /= IDLE else
                '1' when TRAP_CODE_OPC /= NONE else
                '1' when (EX_P_RESET or EX_P_BERR or EX_P_AERR or EX_P_DIVZERO or EX_P_CHK) = '1' else
-               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or EX_P_INT) = '1' else '0';
+               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ) = '1' else '0';
 
     INT_VECTOR: process
     -- This process provides the vector base register handling and 
@@ -545,7 +554,7 @@ begin
             EXCEPTION <= EX_PRIV;
         elsif EX_STATE = IDLE and EX_P_TRACE = '1' then
             EXCEPTION <= EX_TRACE;
-        elsif EX_STATE = IDLE and EX_P_INT = '1' then
+        elsif EX_STATE = IDLE and INT_REQ = '1' then
             EXCEPTION <= EX_INT;
         elsif NEXT_EX_STATE = IDLE then
             EXCEPTION <= EX_NONE;
@@ -776,7 +785,7 @@ begin
     end process EXCEPTION_HANDLER_REG;
 
     EXCEPTION_HANDLER_DEC: process(ACCESS_ERR, BUSY_MAIN, BUSY_OPD, DATA_IN, DATA_VALID, DOUBLE_BUSFLT, EX_STATE, EX_P_RESET, EX_P_AERR, EX_P_BERR, EX_P_TRACE, 
-                                   EX_P_INT, EX_P_ILLEGAL, EX_P_1010, EX_P_TRAPcc, EX_P_RTE, EX_P_1111, EX_P_FORMAT, EX_P_PRIV, EX_P_TRAP, EX_P_TRAPV, 
+                                   INT_REQ, EX_P_ILLEGAL, EX_P_1010, EX_P_TRAPcc, EX_P_RTE, EX_P_1111, EX_P_FORMAT, EX_P_PRIV, EX_P_TRAP, EX_P_TRAPV, 
                                    EX_P_CHK, EX_P_DIVZERO, EXCEPTION, DATA_RDY, PIPE_FULL, MBIT, STACK_CNT, STACK_FORMAT_I)
     begin
         case EX_STATE is
@@ -804,7 +813,7 @@ begin
                     NEXT_EX_STATE <= INIT;
                 elsif EX_P_RTE = '1' then
                     NEXT_EX_STATE <= INIT;
-                elsif EX_P_INT = '1' then
+                elsif INT_REQ = '1' then
                     NEXT_EX_STATE <= INIT;
                 else -- No exception.
                     NEXT_EX_STATE <= IDLE;
