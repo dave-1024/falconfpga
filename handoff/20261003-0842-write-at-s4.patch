@@ -1,0 +1,17 @@
+diff --git a/Atarist_030_wip/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+--- a/Atarist_030_wip/cpu030/cpu030_st_bridge.v
++++ b/Atarist_030_wip/cpu030/cpu030_st_bridge.v
+@@ -199,9 +199,10 @@
+     always @(posedge clk_cpu) begin
+         if (!cpu_rst_n || cpu_asn) begin
+             c_open <= 1'b0;
+-        end else if (!c_open) begin
+-            // first rising edge with AS low: 030 S1 -> S2. Address, SIZE,
+-            // RW, FC and (for writes) the data mux output are valid.
++        end else if (!c_open && (cpu_rwn || !cpu_dsn)) begin
++            // Reads: first rising edge with AS low (S2). Address and SIZE are valid.
++            // Writes: wait until DSn is low. STERMn is tied off, so DATA_PORT_OUT
++            // is not valid until S4. Sampling at S2 stored the previous word.
+             c_open  <= 1'b1;
+             c_req_t <= ~c_req_t;
+             c_adr   <= cpu_adr[23:0];     // A31:24 ignored: 24-bit ST bus
