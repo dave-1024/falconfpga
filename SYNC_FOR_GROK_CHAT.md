@@ -11,6 +11,9 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-10-03 07:15: **diag030 local DEBUG build (HDL not committed)**: the misterynano_tc138k status-square overlay was ported to
+  Atarist_030_wip, built on the laptop (PASS: clk32_core 34.258, clk_cpu030 15.993 MHz, TNS 0) and flashed to 417. The patch
+  is at `/workspace/diag030.patch` on Grok Bot's box (not in the repo). See BUILD_REPORT 2026-10-03 07:15.
 - 2026-09-30 10:45: **`Atarist_030_wip/` first 030 test** (commit `3b9afa6`): WF68K30L 68030 replaces fx68k via
   `cpu030/cpu030_st_bridge.v` (`CPU_030` define in atarist.v), CPU 8 MHz from PLL CLKOUT5. Build PASS, pins identical,
   CPU Fmax 16.175 MHz (16 MHz experiment 16.552 MHz), clk32 33.09 MHz. See BUILD_REPORT manual-20260930-a030-first.
