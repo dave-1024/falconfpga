@@ -14,6 +14,37 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 - 2026-10-03 07:15: **diag030 local DEBUG build (HDL not committed)**: the misterynano_tc138k status-square overlay was ported to
   Atarist_030_wip, built on the laptop (PASS: clk32_core 34.258, clk_cpu030 15.993 MHz, TNS 0) and flashed to 417. The patch
   is at `/workspace/diag030.patch` on Grok Bot's box (not in the repo). See BUILD_REPORT 2026-10-03 07:15.
+  - **diag030 square KEY** (squares 48 px with a black frame, columns at x = 8 + 64*i, read left to right; drawn
+    straight on the 640x480 output after the frame buffer, lower-left of the picture).
+    - Colour rules. Events: green = happening now (last ~0.13-0.26 s), yellow = happened earlier but not now, red = never
+      since power-up. Levels: green = true now, yellow = was true earlier but not now, red = never true. **S20 is inverted:**
+      green = never seen, yellow = seen earlier, red = happening now.
+    - Row 0 (y 296-343), 030 bridge: **S17** x 8: 030 bus cycle started (bridge saw 030 AS); red = 030 never issues a cycle.
+      **S18** x 72: rom_fetch latch (same flag as LED0), set by the first bridge cycle to E0xxxx or FC-FExxxx, cleared by
+      reset; yellow = set, then cleared by a reset (e.g. S0) and not set again. **S19** x 136: DSACK returned to the 030
+      (ST cycles completing). **S20** x 200: BERR returned to the 030 (inverted colours; includes non-IACK CPU-space cycles,
+      which the bridge answers with BERR).
+    - Row 1 (y 360-407): **S1** x 8: ST vsync (blinks green/dark green while alive). **S2** x 72: ST hsync (blinks ~1 s).
+      **S3** x 136: ST DE seen. **S4** x 200: non-black ST pixels. **S5** x 264: ST-side bus cycles (AS falling edges on the
+      68000-style bus the bridge drives); S17 green + S5 red = bridge never gets the ST bus. **S6** x 328: TOS ROM selected
+      (ROM2_N). **S7** x 392: ROM read returned data other than 0000/FFFF. **S8** x 456: ST frame-buffer writes.
+      **S9** x 520: main PLL locked (level). **S10** x 584: 68030 out of reset, bridge released its reset input (level;
+      replaces the original JTAGSEL square, JTAGSEL no longer affects reset).
+    - Row 2 (y 424-471): **S11** x 8: atarist reset input released (level). **S12** x 72: SDRAM init done (level).
+      **S13** x 136: BL616 has talked to the core over SPI (event). **S14** x 200: BL616 not holding the ST in reset
+      (level). **S15** x 264: SD wait done, image found or 2 s timeout (level). **S16** x 328: 68030 not halted (level;
+      red/yellow = double bus fault halt).
+    - TOS word bars (row 2, x 392-635): 16 bars = first TOS word read from ROM offset 0, MSB left, four groups of four;
+      white = 1, dark grey = 0. A TOS image normally starts with BRA, so expect 0110 0000 in the left two groups. All grey =
+      never read or read as 0000.
+    - LEDs. **LED0** (leds_n[0], G11): unchanged, driven by `~rom_fetch`. **Polarity uncertain:** stock MiSTeryNano drives
+      these pins high for "on", which would make G11 lit until the first ROM fetch and dark after; the 20261002-7 report
+      assumed pin low = lit. Settle it by comparing LED0 with square S18 once there is a picture. **LED1** (leds_n[1],
+      U12): blinks ~2 Hz while the 030 runs bus cycles, steady (on or off) when not; readable with either polarity.
+    - **Grok chat: while diag030 is in use, please do not send patches that touch the video overlay area of
+      `Atarist_030_wip/tang/console138k/top.sv`** (the leds_n assignment, the misterynano diag ports, the area after
+      `assign clk32 = clk_pixel;`, and the hdmi_tp instance). diag030.patch is applied locally on the laptop on top of main
+      and would conflict.
 - 2026-09-30 10:45: **`Atarist_030_wip/` first 030 test** (commit `3b9afa6`): WF68K30L 68030 replaces fx68k via
   `cpu030/cpu030_st_bridge.v` (`CPU_030` define in atarist.v), CPU 8 MHz from PLL CLKOUT5. Build PASS, pins identical,
   CPU Fmax 16.175 MHz (16 MHz experiment 16.552 MHz), clk32 33.09 MHz. See BUILD_REPORT manual-20260930-a030-first.
