@@ -361,7 +361,9 @@ reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
 wire ae350_run = (phase == PH_LOAN);
 wire flash_reinit = (phase == PH_REINIT) && (reinit_cnt != 4'hf);
-wire helper_hold = (phase != PH_RUN);
+// The 20 second count always releases. Waiting forever for flash_ready
+// after the loan is what stuck the 030.
+wire helper_hold = (phase != PH_RUN) && !helper_timeout;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
@@ -397,7 +399,7 @@ always @(posedge clk32) begin
                     phase <= PH_REINIT;
             PH_REINIT: if (reinit_cnt != 4'hf)
                     reinit_cnt <= reinit_cnt + 4'd1;
-                else if (flash_ready_s1)
+                else if (flash_ready_s1 || helper_timer == 30'd640_000_000)
                     phase <= PH_RUN;
             default: phase <= PH_RUN;
         endcase
