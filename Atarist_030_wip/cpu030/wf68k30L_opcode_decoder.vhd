@@ -415,12 +415,12 @@ begin
         wait until CLK = '1' and CLK' event;
         if OP_STOP = true and IPIPE_FLUSH = '1' then
             TRAP_CODE <= NONE;
-            OP <= OP_68K'left;             -- [F47] flush leaves OP non-trapping
+            OP <= NOP;                     -- [F59] was OP_68K'left (ABCD, loop-capable): flush leaves OP non-trapping, not loop-capable
             BIW_0 <= x"0100";              -- [F47] bits11:8=0001 => ALU_COND false
             OP_STOP := false;
         elsif IPIPE_FLUSH = '1' then
             TRAP_CODE <= NONE;
-            OP <= OP_68K'left;             -- [F47] reset flush reaches here (EX_RESET)
+            OP <= NOP;                     -- [F59] (was ABCD) reset/exception flush reaches here
             BIW_0 <= x"0100";              -- [F47] => no spurious conditional trap
         elsif OP_STOP = true then
             null; -- Do not update after PC is incremented.

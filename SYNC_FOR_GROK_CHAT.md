@@ -34,6 +34,12 @@ Build: diag030 local debug build (key under the 2026-10-03 07:15 entry below; BU
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
 
+- 2026-10-04 11:35: **F59 WF68K30L loop-mode deadlock fixed (core, committed)**: an interrupt taken during a
+  DBcc loop (`move`/`dbcc -4`) wedged the core after RTE, because the [F47] pipe flush left OP = ABCD
+  (loop-capable) so LOOP_ATN blocked the 3rd refill fetch. Flush now sets OP = NOP. Board (F59 + local
+  diag030c): **TOS 2.06 UK and EmuTOS 192K UK both reach the GEM desktop**. TOS 2.06 is in the ROM slot.
+  See BUILD_REPORT 2026-10-04 11:35.
+
 - 2026-10-03 09:17: **diag030b local DEBUG build, BUILD ONLY (not flashed, HDL not committed)**: diag030 plus four bit-bar
   rows (first BERR address/FC, screen base bytes, last program fetch). PASS: clk32_core 36.304, clk_cpu030 15.705 MHz,
   TNS 0. The patch is at `/workspace/diag030b.patch` on Grok Bot's box (against e502d8f, includes diag030). .fs:
