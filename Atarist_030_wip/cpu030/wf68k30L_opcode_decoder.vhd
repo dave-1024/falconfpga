@@ -172,20 +172,20 @@ signal IPIPE_PNTR           : natural range 0 to 3;
 
 signal INSTR_LVL            : INSTR_LVL_TYPE;
 signal LOOP_ATN             : boolean;
-signal LOOP_BSY_I           : boolean;
+signal LOOP_BSY_I           : boolean := false; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal LOOP_OP              : boolean;
 
-signal BKPT_REQ             : bit;
+signal BKPT_REQ             : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 
 signal OP_I                 : OP_68K;
 
-signal OPCODE_FLUSH         : bit;
+signal OPCODE_FLUSH         : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal OPCODE_RD_I          : bit;
 signal OPCODE_RDY_I         : bit;
 signal OW_REQ               : bit;
 
 signal TRAP_CODE_I          : TRAPTYPE_OPC;
-signal FLUSHED              : boolean;
+signal FLUSHED              : boolean := false; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 begin
@@ -495,13 +495,13 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         if LOOP_ATN = true and OW_REQ = '1' and OPCODE_RD_I = '0' then
-            LOOP_BSY <= '1';
             LOOP_BSY_I <= true;
         elsif LOOP_EXIT = '1' or BUSY_EXH = '1' then
-            LOOP_BSY <= '0';
             LOOP_BSY_I <= false;
         end if;
     end process P_LOOP;
+    -- F57: the port follows the internal flip flop (one register, explicit power-up value).
+    LOOP_BSY <= '1' when LOOP_BSY_I else '0';
 
     OW_REQ <= '0' when BUSY_EXH = '1' else OW_REQ_MAIN;
     EW_REQ <= EW_REQ_MAIN;

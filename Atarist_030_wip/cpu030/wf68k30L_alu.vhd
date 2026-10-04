@@ -116,7 +116,7 @@ architecture BEHAVIOUR of WF68K30L_ALU is
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
-signal ADR_MODE             : Std_Logic_Vector(2 downto 0);
+signal ADR_MODE             : Std_Logic_Vector(2 downto 0) := "000"; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal BITPOS               : integer range 0 to 31;
 signal BF_DATA_IN           : Std_Logic_Vector(39 downto 0);
 signal BF_REG               : std_logic; -- F23/H29-C: register operand.
@@ -125,14 +125,15 @@ signal BF_ROT_DATA          : Std_Logic_Vector(31 downto 0);
 signal BF_RESULT            : Std_Logic_Vector(31 downto 0);
 signal BF_LOWER_BND         : integer range 0 to 39;
 signal BF_OFFSET            : Std_Logic_Vector(31 downto 0);
-signal BF_UPPER_BND         : integer range 0 to 39;
+signal BF_UPPER_BND         : integer range 0 to 39 := 0; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal BF_WIDTH             : integer range 1 to 32;
 signal BIW_0                : Std_Logic_Vector(11 downto 0);
 signal BIW_1                : Std_Logic_Vector(15 downto 0);
-signal CAS2_COND            : boolean;
+signal CAS2_COND            : boolean := false; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
+signal ALU_BSY_I            : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal CB_BCD               : std_logic;
 signal CHK_CMP_COND         : boolean;
-signal CHK2CMP2_DR          : bit;
+signal CHK2CMP2_DR          : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal CHK2_RN              : std_logic_vector(31 downto 0); -- F29/H35+H37.
 signal DIV_RDY              : bit;
 signal DIV_STATE            : DIV_STATES := IDLE;
@@ -156,7 +157,7 @@ signal RESULT_MUL           : Std_Logic_Vector(63 downto 0);
 signal RESULT_SHIFTOP       : Std_Logic_Vector(31 downto 0);
 signal RESULT_OTHERS        : Std_Logic_Vector(31 downto 0);
 signal SHIFT_STATE          : SHIFT_STATES;
-signal SHIFT_WIDTH          : Std_Logic_Vector(5 downto 0);
+signal SHIFT_WIDTH          : Std_Logic_Vector(5 downto 0) := "000000"; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal SHIFT_WIDTH_IN       : Std_Logic_Vector(5 downto 0);
 signal SHFT_LOAD            : bit;
 signal SHFT_RDY             : bit;
@@ -289,9 +290,9 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         if ALU_INIT = '1' then
-            ALU_BSY <= '1';
+            ALU_BSY_I <= '1';
         elsif ALU_ACK = '1' or RESET = '1' then
-            ALU_BSY <= '0';
+            ALU_BSY_I <= '0';
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         if ALU_ACK = '1' then
@@ -310,6 +311,7 @@ begin
             ALU_REQ <= '1';
         end if;
     end process P_BUSY;
+    ALU_BSY <= ALU_BSY_I; -- F57
     
     with OP_SIZE select
         MSB <= 31 when LONG,
