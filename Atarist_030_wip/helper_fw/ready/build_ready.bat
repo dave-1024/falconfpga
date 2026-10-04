@@ -16,7 +16,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 set INC=-I"%BSP%\ae350" -I"%BSP%\config" -I"%BSP%\driver\ae350" -I"%BSP%\driver\include" -I"%BSP%\lib"
 set CFLAGS=%INC% -O2 -mcmodel=medium -g3 -Wall -mcpu=a25 -ffunction-sections -fdata-sections -fno-builtin -fomit-frame-pointer
 set LDFLAGS=-mcpu=a25 -O2 -nostartfiles -static -T"%BSP%\sag\ae350-ddr.ld" -Wl,--gc-sections
-"%GCC%" %CFLAGS% %LDFLAGS% "%BSP%\ae350\start.S" "%BSP%\ae350\ae350.c" "%BSP%\ae350\initfini.c" "%HERE%ready.c" -o "%OUT%\ready.adx" -lc -lgcc
+"%GCC%" %CFLAGS% %LDFLAGS% "%BSP%\ae350\start.S" "%BSP%\ae350\ae350.c" "%BSP%\ae350\initfini.c" "%BSP%\ae350\interrupt.c" "%BSP%\ae350\reset.c" "%BSP%\ae350\trap.c" "%HERE%ready.c" -o "%OUT%\ready.adx" -lc -lgcc
 if errorlevel 1 exit /b 1
 "%OBJCOPY%" -S -O binary "%OUT%\ready.adx" "%OUT%\ready.bin"
 echo Flash output\ready.bin at 0x0600000. Leading 0. Not 0x6000000.
