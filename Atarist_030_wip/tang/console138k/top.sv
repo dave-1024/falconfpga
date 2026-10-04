@@ -350,12 +350,12 @@ key_debounce u_key_debounce_ddr3 (
     .out(ddr3_rstn), .in(reset_n), .clk(clk), .rstn(1'b1)
 );
 
-wire ae350_run = ddr3_init_sync[1] && !helper_ready && !helper_timeout;
 reg [1:0] ddr3_init_sync;
 reg [29:0] helper_timer;
 reg [7:0]  gpio_s0, gpio_s1;
 reg [1:0]  ready_match;
 reg        helper_ready;
+wire ae350_run = ddr3_init_sync[1] && !helper_ready && !helper_timeout;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
