@@ -359,11 +359,11 @@ reg [1:0]  phase;
 reg [3:0]  reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-wire ae350_run = (phase == PH_LOAN);
-wire flash_reinit = (phase == PH_REINIT) && (reinit_cnt != 4'hf);
-// The 20 second count always releases. Waiting forever for flash_ready
-// after the loan is what stuck the 030.
-wire helper_hold = (phase != PH_RUN) && !helper_timeout;
+// Loan is off. Taking the pins drops flash_ready, and that flag is part of
+// the 030 reset, so the count dropping was not enough to release it.
+wire ae350_run = 1'b0;
+wire flash_reinit = 1'b0;
+wire helper_hold = !helper_timeout;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
