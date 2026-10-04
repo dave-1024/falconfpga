@@ -359,11 +359,12 @@ reg [1:0]  phase;
 reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// Loan off. flash_ready is part of the 030 reset, and lending the pins
-// leaves that flag down, so the count cannot release it.
-wire ae350_run = 1'b0;
-wire flash_reinit = 1'b0;
-wire helper_hold = !helper_timeout;
+// Pins come back before flash reset is released. ready is only init==0,
+// and it stays 0 while flash_reinit holds resetn low, so the 030 is not
+// released until 1 ms after that reset rises.
+wire ae350_run = (phase == PH_LOAN);
+wire flash_reinit = (phase == PH_LOAN) || ((phase == PH_REINIT) && (reinit_cnt < 16'd1024));
+wire helper_hold = (phase != PH_RUN);
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
@@ -397,10 +398,11 @@ always @(posedge clk32) begin
                     phase <= PH_LOAN;
             PH_LOAN: if (helper_ready || helper_timer == 30'd640_000_000)
                     phase <= PH_REINIT;
-            PH_REINIT: if (reinit_cnt != 16'd33792)
-                    reinit_cnt <= reinit_cnt + 16'd1;
-                else
+            PH_REINIT: begin
+                reinit_cnt <= reinit_cnt + 16'd1;
+                if (reinit_cnt == 16'd33792)
                     phase <= PH_RUN;
+            end
             default: phase <= PH_RUN;
         endcase
         if (phase != PH_REINIT)
