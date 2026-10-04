@@ -327,7 +327,8 @@ wire [17:0] diag_vbase;
 wire        DDR3_MEMORY_CLK, DDR3_CLK_IN, DDR3_RW_CLK, DDR3_LOCK, DDR3_STOP;
 wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
-wire        flash_csn, flash_miso, flash_mosi, flash_clk, flash_holdn, flash_wpn;
+wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
+wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
 wire [31:0] ae350_gpio;
 wire        ddr3_rstn;
 wire [31:0] extm_hrdata;
@@ -365,8 +366,8 @@ wire helper_timeout = helper_timer[27];
 wire helper_hold = !ddr3_init_sync[1] && !helper_timeout;
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
-    .FLASH_SPI_CSN(flash_csn), .FLASH_SPI_MISO(flash_miso), .FLASH_SPI_MOSI(flash_mosi),
-    .FLASH_SPI_CLK(flash_clk), .FLASH_SPI_HOLDN(flash_holdn), .FLASH_SPI_WPN(flash_wpn),
+    .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
+    .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(ae350_flash_holdn), .FLASH_SPI_WPN(ae350_flash_wpn),
     .DDR3_MEMORY_CLK(DDR3_MEMORY_CLK), .DDR3_CLK_IN(DDR3_CLK_IN),
     .DDR3_RSTN(ddr3_rstn), .DDR3_LOCK(DDR3_LOCK), .DDR3_STOP(DDR3_STOP),
     .DDR3_INIT(ddr3_init_completed),
