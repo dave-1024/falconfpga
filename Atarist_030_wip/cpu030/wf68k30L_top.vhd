@@ -360,6 +360,10 @@ signal OP_SIZE_MAIN             : OP_SIZETYPE;
 signal OP_SIZE_WB               : OP_SIZETYPE; -- Writeback.
 signal OPCODE_REQ               : bit;
 signal OPCODE_REQ_I             : bit;
+signal BUS_OPCODE_RDY           : bit;
+signal BUS_OPCODE_WORD          : std_logic_vector(15 downto 0);
+signal IC_BUS_REQ               : bit;
+signal IC_CI                    : std_logic;
 signal OW_VALID                 : std_logic;
 signal OPD_ACK_MAIN             : bit;
 signal OP                       : OP_68K;
@@ -840,6 +844,28 @@ begin
             "001" when DATA_RD = '1' or DATA_WR = '1' else
             "110" when OPCODE_RD = '1' and SBIT = '1' else "010"; -- Default is OPCODE_RD and SBIT = '0'.
 
+    IC_CI <= '1' when CACR_WR = '1' and DATA_IN_EXH(3) = '1' else '0';
+
+    I_ICACHE: WF68K30L_ICACHE
+        port map(
+            CLK       => CLK,
+            RESET     => RESET_CPU,
+            EI        => CACR(0),
+            FI        => CACR(1),
+            CI        => IC_CI,
+            REQ       => OPCODE_REQ,
+            ADR       => ADR_P,
+            FC        => FC_I,
+            WR        => WR_REQ,
+            WR_ADR    => ADR_P,
+            BUS_RDY   => BUS_OPCODE_RDY,
+            BUS_WORD  => BUS_OPCODE_WORD,
+            BUS_REQ   => IC_BUS_REQ,
+            RDY       => OPCODE_RDY,
+            WORD      => OPCODE_TO_CORE
+        );
+
+
     I_ADDRESSREGISTERS: WF68K30L_ADDRESS_REGISTERS
         port map(
             CLK                     => CLK,
@@ -961,7 +987,7 @@ begin
             DATA_PORT_OUT       => DATA_OUT,
             DATA_FROM_CORE      => DATA_FROM_CORE,
             DATA_TO_CORE        => DATA_TO_CORE,
-            OPCODE_TO_CORE      => OPCODE_TO_CORE,
+            OPCODE_TO_CORE      => BUS_OPCODE_WORD,
 
             DATA_PORT_EN        => DATA_EN,
             BUS_EN              => BUS_EN,
@@ -973,8 +999,8 @@ begin
             WR_REQ              => WR_REQ,
             DATA_RDY            => DATA_RDY,
             DATA_VALID          => DATA_VALID,
-            OPCODE_REQ          => OPCODE_REQ,
-            OPCODE_RDY          => OPCODE_RDY,
+            OPCODE_REQ          => IC_BUS_REQ,
+            OPCODE_RDY          => BUS_OPCODE_RDY,
             OPCODE_VALID        => OPCODE_VALID,
             RMC                 => RMC,
             BUSY_EXH            => BUSY_EXH,
