@@ -417,18 +417,9 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .POR_RSTN(ae350_run), .HW_RSTN(ae350_run)
 );
 
-// AE350 owns the config flash only while it is fetching its own image.
-wire        nano_mspi_cs;
-wire        nano_mspi_hold;
-wire        nano_mspi_wp;
-wire        nano_mspi_do;
-wire        mspi_clk_pll;
-assign mspi_cs   = ae350_run ? ae350_flash_csn   : nano_mspi_cs;
-assign mspi_clk  = ae350_run ? ae350_flash_clk   : mspi_clk_pll;
-assign mspi_do   = ae350_run ? ae350_flash_mosi  : nano_mspi_do;
-assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
-assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
-assign ae350_flash_miso = mspi_di;
+// The 030 keeps MSPI. flash_ready is part of its reset, and taking the
+// clock away stops that flag, so the hold never clears. The AE350 flash
+// wires stay internal until there is an arbiter that can give them back.
 
 misterynano misterynano (
   .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout
@@ -446,11 +437,11 @@ misterynano misterynano (
   .ws2812 ( ),
 
   // spi flash interface
-  .mspi_cs   ( nano_mspi_cs   ),
-  .mspi_di   ( mspi_di ),
-  .mspi_hold ( nano_mspi_hold ),
-  .mspi_wp   ( nano_mspi_wp   ),
-  .mspi_do   ( nano_mspi_do   ),
+  .mspi_cs   ( mspi_cs   ),
+  .mspi_di   ( mspi_di   ),
+  .mspi_hold ( mspi_hold ),
+  .mspi_wp   ( mspi_wp   ),
+  .mspi_do   ( mspi_do   ),
 
   // SDRAM
   .sdram_clk   ( ),
@@ -548,7 +539,7 @@ pll_160m pll_hdmi (
                .clkout1(clk_pixel),          // 32 MHz
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
                .clkout3(flash_clk),          // 100 MHz
-               .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
+               .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
                .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
