@@ -323,7 +323,8 @@ wire [17:0] diag_vbase;
 
 // Helper bring-up. DDR3 may train. The AE350 CPU stays in reset: the 030
 // still owns MSPI for TOS, and this cut has no flash arbiter. The 030 is
-// held until DDR3_INIT, or 20 seconds, so a dead helper still boots.
+// held for 20 seconds. DDR3_INIT is training, not firmware ready, and this
+// cut has no ready bit, so it must not release the 030 early.
 wire        DDR3_MEMORY_CLK, DDR3_CLK_IN, DDR3_RW_CLK, DDR3_LOCK, DDR3_STOP;
 wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
@@ -358,12 +359,12 @@ always @(posedge clk32) begin
         helper_timer <= 30'd0;
     end else begin
         ddr3_init_sync <= {ddr3_init_sync[0], ddr3_init_completed};
-        if (!ddr3_init_sync[1] && helper_timer != 30'd640_000_000)
+        if (helper_timer != 30'd640_000_000)
             helper_timer <= helper_timer + 30'd1;
     end
 end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
-wire helper_hold = !ddr3_init_sync[1] && !helper_timeout;
+wire helper_hold = !helper_timeout;
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
