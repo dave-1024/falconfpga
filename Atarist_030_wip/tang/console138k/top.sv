@@ -321,10 +321,9 @@ wire [3:0]  diag_030;
 wire [167:0] diag_trace;
 wire [17:0] diag_vbase;
 
-// Helper bring-up. DDR3 may train. The AE350 CPU stays in reset: the 030
-// still owns MSPI for TOS, and this cut has no flash arbiter. The 030 is
-// held for 20 seconds. DDR3_INIT is training, not firmware ready, and this
-// cut has no ready bit, so it must not release the 030 early.
+// Helper bring-up. DDR3 trains, then the AE350 is released and owns MSPI
+// until it drives GPIO 0xA5, or 20 seconds pass. The ready bit is latched,
+// the AE350 is put back in reset, and the 030 gets the flash for TOS.
 wire        DDR3_MEMORY_CLK, DDR3_CLK_IN, DDR3_RW_CLK, DDR3_LOCK, DDR3_STOP;
 wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
@@ -351,20 +350,38 @@ key_debounce u_key_debounce_ddr3 (
     .out(ddr3_rstn), .in(reset_n), .clk(clk), .rstn(1'b1)
 );
 
+wire ae350_run = ddr3_init_sync[1] && !helper_ready && !helper_timeout;
 reg [1:0] ddr3_init_sync;
 reg [29:0] helper_timer;
+reg [7:0]  gpio_s0, gpio_s1;
+reg [1:0]  ready_match;
+reg        helper_ready;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
         helper_timer <= 30'd0;
+        gpio_s0 <= 8'h00;
+        gpio_s1 <= 8'h00;
+        ready_match <= 2'b00;
+        helper_ready <= 1'b0;
     end else begin
         ddr3_init_sync <= {ddr3_init_sync[0], ddr3_init_completed};
         if (helper_timer != 30'd640_000_000)
             helper_timer <= helper_timer + 30'd1;
+        gpio_s0 <= ae350_gpio[7:0];
+        gpio_s1 <= gpio_s0;
+        if (ae350_run && gpio_s1 == 8'hA5)
+            ready_match <= ready_match + 2'b01;
+        else
+            ready_match <= 2'b00;
+        if (ready_match == 2'b11)
+            helper_ready <= 1'b1;
     end
 end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
-wire helper_hold = !helper_timeout;
+wire helper_hold = !helper_ready && !helper_timeout;
+// ae350_run is declared above. Resetting the core after the mark releases
+// the flash pins before the 030 fetches TOS.
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
@@ -397,8 +414,23 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .GPIO(ae350_gpio),
     .CORE_CLK(CORE_CLK), .DDR_CLK(DDR_CLK), .AHB_CLK(AHB_CLK),
     .APB_CLK(APB_CLK), .RTC_CLK(RTC_CLK),
-    .POR_RSTN(1'b0), .HW_RSTN(1'b0)
+    .POR_RSTN(ae350_run), .HW_RSTN(ae350_run)
 );
+
+// AE350 owns the config flash only while it is fetching its own image.
+wire        nano_mspi_cs;
+wire        nano_mspi_di;
+wire        nano_mspi_hold;
+wire        nano_mspi_wp;
+wire        nano_mspi_do;
+wire        mspi_clk_pll;
+assign mspi_cs   = ae350_run ? ae350_flash_csn   : nano_mspi_cs;
+assign mspi_clk  = ae350_run ? ae350_flash_clk   : mspi_clk_pll;
+assign mspi_do   = ae350_run ? ae350_flash_mosi  : nano_mspi_do;
+assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
+assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
+assign mspi_di   = ae350_run ? 1'bz : nano_mspi_di;
+assign ae350_flash_miso = mspi_di;
 
 misterynano misterynano (
   .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout
@@ -416,11 +448,11 @@ misterynano misterynano (
   .ws2812 ( ),
 
   // spi flash interface
-  .mspi_cs   ( mspi_cs   ),
-  .mspi_di   ( mspi_di   ),
-  .mspi_hold ( mspi_hold ),
-  .mspi_wp   ( mspi_wp   ),
-  .mspi_do   ( mspi_do   ),
+  .mspi_cs   ( nano_mspi_cs   ),
+  .mspi_di   ( nano_mspi_di   ),
+  .mspi_hold ( nano_mspi_hold ),
+  .mspi_wp   ( nano_mspi_wp   ),
+  .mspi_do   ( nano_mspi_do   ),
 
   // SDRAM
   .sdram_clk   ( ),
@@ -518,7 +550,7 @@ pll_160m pll_hdmi (
                .clkout1(clk_pixel),          // 32 MHz
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
                .clkout3(flash_clk),          // 100 MHz
-               .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
+               .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
                .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),

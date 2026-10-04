@@ -7,3 +7,5 @@ No partner binaries, no built images, and no FatFs document pack. The menu, conf
 Flash slot, once an image exists: external flash `0x0600000`, C Bin write, after the bitstream erase. Do not type `0x6000000`. TOS for the helper image moves to `0x0700000`. Neither address is used by the image that boots today.
 
 The HDL bring-up lives in `../helper/` and does not load this firmware.
+
+The ready stub in `ready/` is the first AE350 image. It drives GPIO 0xA5 so the fabric releases the 030. Flash `output/ready.bin` at 0x0600000 after the bitstream, Program Without Erasure. TOS stays at 0x500000.
