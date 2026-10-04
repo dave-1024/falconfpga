@@ -419,7 +419,6 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 
 // AE350 owns the config flash only while it is fetching its own image.
 wire        nano_mspi_cs;
-wire        nano_mspi_di;
 wire        nano_mspi_hold;
 wire        nano_mspi_wp;
 wire        nano_mspi_do;
@@ -430,7 +429,6 @@ assign mspi_do   = ae350_run ? ae350_flash_mosi  : nano_mspi_do;
 assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
 assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
 assign ae350_flash_miso = mspi_di;
-assign nano_mspi_di = mspi_di;
 
 misterynano misterynano (
   .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout
@@ -449,7 +447,7 @@ misterynano misterynano (
 
   // spi flash interface
   .mspi_cs   ( nano_mspi_cs   ),
-  .mspi_di   ( nano_mspi_di   ),
+  .mspi_di   ( mspi_di ),
   .mspi_hold ( nano_mspi_hold ),
   .mspi_wp   ( nano_mspi_wp   ),
   .mspi_do   ( nano_mspi_do   ),
