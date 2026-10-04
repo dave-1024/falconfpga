@@ -17,7 +17,8 @@ module misterynano #(
   input			user, // S1
 
   input			clk32,
-  input			clk_cpu, // 8 MHz 68030 clock (Atarist_030_wip, CPU_030 in atarist.v)
+  input			clk_cpu, // 16 MHz 68030 clock (Atarist_030_wip, CPU_030 in atarist.v)
+  input			clk_cpu_n, // clk_cpu at 180 degrees (PLL), the 68030's falling-edge registers
   input			por, // power on-reset (! all PLL's locked)
 
   output [5:0]	leds_n,
@@ -535,6 +536,7 @@ wire [7:0] parallel_data_in_int = EXTERNAL_PARPORT?parallel_data_in:
 atarist atarist (
     .clk_32(clk32),
     .clk_cpu(clk_cpu),
+    .clk_cpu_n(clk_cpu_n),
     .resb(!system_reset[0] && !reset && !por && ram_ready && flash_ready && sd_ready),       // user reset button
     .porb(!por),
 

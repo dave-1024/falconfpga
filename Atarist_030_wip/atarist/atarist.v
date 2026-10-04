@@ -4,7 +4,7 @@
 
 // FalconFPGA Atarist_030_wip: CPU selection.
 // CPU_030 defined: WF68K30L (68030) through cpu030/cpu030_st_bridge.v,
-//                  clocked by clk_cpu (8 MHz, locked to clk_32).
+//                  clocked by clk_cpu (16 MHz, locked to clk_32).
 // CPU_030 not defined (comment the line out): the original fx68k 68000.
 `define CPU_030
 
@@ -12,6 +12,7 @@ module atarist (
 	// System clocks / reset / settings
 	input wire		   clk_32,
 	input wire		   clk_cpu,    // 68030 clock (only used with CPU_030)
+	input wire		   clk_cpu_n,  // 180 degree copy of clk_cpu (only used with CPU_030)
 	input wire		   porb,
 	input wire		   resb,
 
@@ -497,9 +498,10 @@ wire mcu_dtack_n_adj =
 // WF68K30L 68030 with a 68000 bus cycle generator on the ST side. Same
 // connections as fx68k below; phi1/phi2 = mhz8_en1/en2 (the turbo path is
 // not supported by the bridge: cpu_16mhz_enable is 0).
-cpu030_st_bridge cpu030 (
+cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.clk        ( clk_32     ),
 	.clk_cpu    ( clk_cpu    ),
+	.clk_cpu_n  ( clk_cpu_n  ),
 	.extReset   ( reset      ),
 	.pwrUp      ( !porb      ),
 	.enPhi1     ( phi1       ),

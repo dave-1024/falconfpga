@@ -5,10 +5,12 @@
 //           337.5 deg is not representable with ODIV 25, nearest step)
 //   clkout3 ODIV 8  = 100 MHz (flash_clk)
 //   clkout4 ODIV 8  = 100 MHz, phase (0+4/8)/8*360 = 22.5 deg (mspi_clk)
-//   clkout5 ODIV 100 =  8 MHz (clk_cpu030: WF68K30L 68030 clock, Atarist_030_wip;
+//   clkout5 ODIV 50 = 16 MHz (clk_cpu030: WF68K30L 68030 clock, Atarist_030_wip;
 //           same VCO as clkout1, phase 0 -> every clk_cpu030 edge is a clk32 rising edge)
+//   clkout6 ODIV 50 = 16 MHz, phase (25+0/8)/50*360 = 180 deg (clk_cpu030_n: the
+//           WF68K30L's falling-edge registers on a global clock, rising edge used)
 // Phase formula (UG306): PS = (PE_COARSE + PE_FINE/8) / ODIV * 360
-module pll_160m_MOD (lock, clkout0, clkout1, clkout2, clkout3, clkout4, clkout5, clkin, reset, icpsel, lpfres, lpfcap);
+module pll_160m_MOD (lock, clkout0, clkout1, clkout2, clkout3, clkout4, clkout5, clkout6, clkin, reset, icpsel, lpfres, lpfcap);
 
 output lock;
 output clkout0;
@@ -17,13 +19,13 @@ output clkout2;
 output clkout3;
 output clkout4;
 output clkout5;
+output clkout6;
 input clkin;
 input reset;
 input [5:0] icpsel;
 input [2:0] lpfres;
 input [1:0] lpfcap;
 
-wire clkout6;
 wire clkfbout;
 wire gw_vcc;
 wire gw_gnd;
@@ -90,8 +92,8 @@ defparam PLL_inst.ODIV1_SEL = 25;
 defparam PLL_inst.ODIV2_SEL = 25;
 defparam PLL_inst.ODIV3_SEL = 8;
 defparam PLL_inst.ODIV4_SEL = 8;
-defparam PLL_inst.ODIV5_SEL = 100;
-defparam PLL_inst.ODIV6_SEL = 8;
+defparam PLL_inst.ODIV5_SEL = 50;
+defparam PLL_inst.ODIV6_SEL = 50;
 defparam PLL_inst.MDIV_SEL = 16;
 defparam PLL_inst.MDIV_FRAC_SEL = 0;
 defparam PLL_inst.ODIV0_FRAC_SEL = 0;
@@ -101,7 +103,7 @@ defparam PLL_inst.CLKOUT2_EN = "TRUE";
 defparam PLL_inst.CLKOUT3_EN = "TRUE";
 defparam PLL_inst.CLKOUT4_EN = "TRUE";
 defparam PLL_inst.CLKOUT5_EN = "TRUE";
-defparam PLL_inst.CLKOUT6_EN = "FALSE";
+defparam PLL_inst.CLKOUT6_EN = "TRUE";
 defparam PLL_inst.CLKFB_SEL = "INTERNAL";
 defparam PLL_inst.CLKOUT0_DT_DIR = 1'b1;
 defparam PLL_inst.CLKOUT1_DT_DIR = 1'b1;
@@ -138,7 +140,7 @@ defparam PLL_inst.CLKOUT4_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT4_PE_FINE = 4;
 defparam PLL_inst.CLKOUT5_PE_COARSE = 0;
 defparam PLL_inst.CLKOUT5_PE_FINE = 0;
-defparam PLL_inst.CLKOUT6_PE_COARSE = 0;
+defparam PLL_inst.CLKOUT6_PE_COARSE = 25;
 defparam PLL_inst.CLKOUT6_PE_FINE = 0;
 defparam PLL_inst.DYN_PE0_SEL = "FALSE";
 defparam PLL_inst.DYN_PE1_SEL = "FALSE";

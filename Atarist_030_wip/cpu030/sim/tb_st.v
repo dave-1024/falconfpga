@@ -1,11 +1,15 @@
 `timescale 1ps/1ps
-// Whole ST core (atarist.v) from reset with EmuTOS 192k in ROM.
+// Whole ST core (atarist.v) from reset with EmuTOS 192k in ROM
+// (+rom=<hex> for another 192k image, +maxus=<n> for the time limit).
 // Logs the CPU's ST bus cycles (as the GSTMCU sees them).
 module tb_st;
     parameter integer MAX_CYC = 3000;
+    parameter integer CPU_PHASE_PS = 15625;  // clk_cpu edges on clk32 rising edges, like the PLL
     reg clk32 = 0, clk_cpu = 0;
     always #15625 clk32 = ~clk32;
-    always #62500 clk_cpu = ~clk_cpu;
+    parameter integer CPU_HALF_PS = 31250;   // 16 MHz clk_cpu (atarist.v: bridge CPU_DIV 2)
+    initial begin #(CPU_PHASE_PS); forever #(CPU_HALF_PS) clk_cpu = ~clk_cpu; end
+    wire clk_cpu_n = ~clk_cpu;               // the PLL's 180 degree copy (CLKOUT6)
 
     reg porb = 0, resb = 0;
     initial begin
@@ -20,9 +24,9 @@ module tb_st;
 
     reg [15:0] rom [0:98303];
     reg [15:0] ram [0:(1<<21)-1];   // 4 MB
-    integer k;
+    integer k; reg [8*128-1:0] romfn;
     initial begin
-        $readmemh("etos192uk.hex", rom);
+        if ($value$plusargs("rom=%s", romfn)) $readmemh(romfn, rom); else $readmemh("etos192uk.hex", rom);
         for (k = 0; k < (1<<21); k = k + 1) ram[k] = 16'h0000;
     end
     always @(posedge clk32) begin
@@ -37,7 +41,7 @@ module tb_st;
     end
 
     atarist dut (
-        .clk_32(clk32), .clk_cpu(clk_cpu), .porb(porb), .resb(resb),
+        .clk_32(clk32), .clk_cpu(clk_cpu), .clk_cpu_n(clk_cpu_n), .porb(porb), .resb(resb),
         .mono_detect(1'b1), .r(), .g(), .b(), .hsync_n(), .vsync_n(), .de(), .blank_n(),
         .keyboard_matrix_out(), .keyboard_matrix_in(8'hff), .joy0(6'd0), .joy1(5'd0),
         .audio_mix_l(), .audio_mix_r(),
@@ -88,5 +92,6 @@ module tb_st;
         end
     end
     always #(200_000_000) $display("t=%0d us, %0d cycles, porb=%b resb=%b reset=%b rstn=%b asn=%b open=%b ph=%0d clkcpu=%b pend=%b BRi=%b BGACKi=%b arb=%0d br=%b bgack=%b en1=%b", $time/1000000, n, porb, resb, dut.reset, dut.cpu030.cpu_rst_n, dut.cpu030.cpu_asn, dut.cpu030.c_open, dut.cpu030.phase, dut.clk_cpu, dut.cpu030.pending, dut.cpu030.BRi, dut.cpu030.BgackI, dut.cpu030.arb, dut.cpu030.BRn, dut.cpu030.BGACKn, en1_seen); reg en1_seen = 0; always @(posedge clk32) if (dut.mhz8_en1) en1_seen <= 1;
-    initial begin #(40_000_000_000); $display("TIMEOUT after %0d cycles", n); $fclose(tf); $finish; end
+    integer maxus = 40000;
+    initial begin if ($value$plusargs("maxus=%d", maxus)) ; #(maxus * 1000000.0); $display("TIMEOUT after %0d cycles", n); $fclose(tf); $finish; end
 endmodule

@@ -30,10 +30,30 @@ create_clock -name clk_hdmi640_pix -period 39.683 -waveform {0 19.841} [get_pins
 // referenced) so it can go into the core's asynchronous group. Only the BSRAM
 // and the double-synchronised mono flag cross between the two domains.
 create_generated_clock -name clk32_core -source [get_ports {clk}] -master_clock clk_osc -multiply_by 16 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}]
-// Atarist_030_wip: the WF68K30L 68030 runs from pll_hdmi CLKOUT5 = 8 MHz
-// (VCO 800 MHz / 100), the same VCO as clk32_core (800/25), phase 0. It uses
+// Atarist_030_wip: the WF68K30L 68030 runs from pll_hdmi CLKOUT5 = 16 MHz
+// (VCO 800 MHz / 50), the same VCO as clk32_core (800/25), phase 0. It uses
 // both clock edges, so its internal falling-edge paths get half a period.
 // It is related to clk32_core (every clk_cpu030 edge is a clk32 rising edge):
 // the bridge's clk_cpu030 <-> clk32_core paths are timed, not cut.
-create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 4 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT5}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030}]
+create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT5}]
+// F58: the WF68K30L's falling-edge registers (bus interface input/data
+// registers DATA_INMUX, DSACK/AVEC/HALT/BERR samples, SLICE_CNT_N, RETRY,
+// IRQ filter, STATUSn) are clocked by clk_cpu030_n = CLKOUT6, ODIV 50,
+// PE_COARSE 25 = clk_cpu030 at 180 degrees, on a global clock (before, the
+// core's inverted CLK was a fabric LUT and those paths were not analysed).
+// Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
+create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+// F58: explicit reports for the 68030 clock pairs (half-cycle paths between
+// clk_cpu030 and clk_cpu030_n, and the bridge's direct clk32 <-> CPU paths)
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_cpu030_n}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030_n}] -to_clock [get_clocks {clk_cpu030}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030_n}] -to_clock [get_clocks {clk_cpu030_n}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030_n}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk32_core}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_cpu030}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030_n}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk32_core}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030_n}] -to_clock [get_clocks {clk_cpu030}]

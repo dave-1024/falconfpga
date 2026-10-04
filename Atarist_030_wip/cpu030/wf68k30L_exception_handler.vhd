@@ -86,6 +86,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
     generic(VERSION         : std_logic_vector(15 downto 0) := x"1904"); -- F4/H11: default matched to the frame writer.
     port(
         CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58] falling-edge registers (180 degree clock)
         RESET               : in bit;
 
         BUSY_MAIN           : in bit;
@@ -236,7 +237,7 @@ begin
     variable IRQ_TMP_1 : std_logic_vector(2 downto 0) := "000";
     variable IRQ_TMP_2 : std_logic_vector(2 downto 0) := "000";
     begin
-        wait until CLK = '0' and CLK' event;
+        wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
         if IRQ_TMP_1 = IRQ_TMP_2 then
             IRQ <= IRQ_TMP_2;
         end if;

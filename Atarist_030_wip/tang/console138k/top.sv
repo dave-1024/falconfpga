@@ -278,6 +278,7 @@ misterynano misterynano (
   // clock and power on reset from system
   .clk32 ( clk32 ),         // 32 Mhz system clock input
   .clk_cpu ( clk_cpu030 ),  // 8 Mhz 68030 clock (only used with CPU_030 in atarist.v)
+  .clk_cpu_n ( clk_cpu030_n ), // the same at 180 degrees (68030 falling-edge registers)
   .flash_clk ( flash_clk ), // 100 Mhz flash clock
   .por   ( por ),           // True while not all PLLs locked
 
@@ -373,14 +374,16 @@ Output4:
  
 wire	   clk_pixel_x5;
 wire	   clk_pixel; 
-wire	   clk_cpu030;   // Atarist_030_wip: 8 MHz 68030 clock, phase-locked to clk32
+wire	   clk_cpu030;   // Atarist_030_wip: 16 MHz 68030 clock, phase-locked to clk32
+wire	   clk_cpu030_n; // clk_cpu030 at 180 degrees (global clock for the 68030's falling-edge registers)
 pll_160m pll_hdmi (
                .clkout0(clk_pixel_x5),       // 160 MHz
                .clkout1(clk_pixel),          // 32 MHz
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
                .clkout3(flash_clk),          // 100 MHz
                .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
-               .clkout5(clk_cpu030),         // 8 MHz, WF68K30L CPU clock (both edges used)
+               .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
+               .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
                .clkin(clk),
                .init_clk(clk)

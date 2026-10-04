@@ -38,34 +38,34 @@
 // for more details.
 //
 // The CPU itself (wf68k30L_*.vhd, WF68K30L IP core, (C) Wolfgang Foerster,
-// CERN OHL 1.2, with the rigsdram audit fixes) is used unmodified.
+// CERN OHL 1.2, with the rigsdram audit fixes and the FalconFPGA fixes listed
+// in BUILD_REPORT.md, F55..F58).
 //
 // ---------------------------------------------------------------------------
 // Structure
 //
-//   clk_cpu domain (the 030 uses BOTH edges of clk_cpu)
-//     WF68K30L_TOP
-//     front end: on the first rising clk_cpu edge that sees ASn low after a
-//       rising edge that saw ASn high (i.e. at the start of 030 S2) latch
-//       address, SIZE, RW, FC, RMC and write data and toggle req_t.
-//       c_open drops again on the rising edge that sees ASn high (S5/idle),
-//       which gates every termination signal off before the next cycle's
-//       first falling-edge sample, whatever the clock ratio.
-//   clk_32 domain (the ST chipset)
-//     req_t is synchronised (SYNC_STAGES flops), then one 68000 bus cycle
-//     is run on the ST bus with the fx68k phase timing on mhz8_en1/en2
-//     (DTACK/VPA+E/BERR termination, arbitration BR/BG/BGACK, E and VMA).
-//     At the end (S6, en2: the same edge where the 68000 negates AS and
-//     latches data) the read data and the termination for the 030
-//     (DSACKn="01" = 16-bit port, AVECn for an autovectored IACK, BERRn)
-//     are registered together with the request tag.
-//
-//   This is a request/acknowledge handshake, so clk_cpu may later be made
-//   faster than the 8 MHz ST bus ("accelerated ST") without changing the ST
-//   side. For the first integration clk_cpu is 8 MHz from the same PLL as
-//   clk_32 (related clocks). The returning tag, DSACK and read word are still
-//   synchronised into clk_cpu: a combinational sample of the clk_32 register
-//   was early, so the first fetch was not the ROM word.
+//   clk_cpu / clk_cpu_n (the 030; clk_cpu_n = clk_cpu at 180 degrees from
+//     the same PLL, clocks the core's falling-edge registers, CLK_N_EXT = 1)
+//     WF68K30L_TOP, CPU reset counter.
+//   clk_32 domain (the ST chipset). clk_cpu is phase-locked to clk_32 (same
+//   VCO, every clk_cpu/clk_cpu_n edge is a clk_32 rising edge), so the 030's
+//   outputs and the bridge registers are exchanged directly as timed
+//   related-clock paths, like a TerribleFire board running its 68000 bus
+//   synchronously (F58; before, both directions went through 2-flop
+//   synchronisers and an ST access took ~1.6 us, now ~0.9 us at 16 MHz):
+//     front end: on the first clk_32 edge that sees ASn low, latch address,
+//       SIZE, RW, FC and write data and toggle req_t. c_open drops on the
+//       clk_32 edge that sees ASn high, which gates every termination off
+//       before the 030's next falling-edge sample.
+//     one 68000 bus cycle is run on the ST bus with the fx68k phase timing on
+//     mhz8_en1/en2 (DTACK/VPA+E/BERR termination, arbitration BR/BG/BGACK, E
+//     and VMA). DSACKn="01" (16-bit port) is given on the en2 edge where a
+//     68000 samples DTACK (S4) with an 8 MHz clk_cpu (CPU_DIV 4), one phase
+//     later (S4 -> S6 en1) with the 16 MHz clk_cpu used on the board
+//     (CPU_DIV 2); the read word is latched at S6 en2 (the 68000's latch
+//     edge), before the 030 latches it one clk_cpu after its DSACK sample.
+//     VPA/E-cycle, autovector (AVECn) and BERR terminations are given at S6
+//     en2 together with the request tag.
 //
 // Bus sizing: the 030 does its own dynamic bus sizing. Every ST cycle is
 // answered as a 16-bit port (DSACKn = "01"): even byte on D31:24, odd byte on
@@ -82,11 +82,13 @@
 `default_nettype none
 
 module cpu030_st_bridge #(
-    parameter integer SYNC_STAGES = 2,    // clk_cpu -> clk_32 request synchroniser
-    parameter integer RESET_HOLD  = 128   // RESET_INn+HALT_INn low, clk_cpu cycles (>=16)
+    parameter integer SYNC_STAGES = 2,    // unused since F58 (no request synchroniser), kept for compatibility
+    parameter integer RESET_HOLD  = 128,  // RESET_INn+HALT_INn low, clk_cpu cycles (>=16)
+    parameter integer CPU_DIV     = 4     // clk_32 / clk_cpu: 4 = 8 MHz, 2 = 16 MHz (both phase-locked)
 ) (
     input  wire        clk,         // clk_32 (ST chipset clock)
-    input  wire        clk_cpu,     // 030 clock (8 MHz, related to clk_32)
+    input  wire        clk_cpu,     // 030 clock (16 MHz on the board, related to clk_32)
+    input  wire        clk_cpu_n,   // 180 degree copy of clk_cpu (PLL): the 030's falling-edge registers
     input  wire        extReset,    // ST reset (clk_32 domain)
     input  wire        pwrUp,       // power-up reset (clk_32 domain)
     input  wire        enPhi1,      // mhz8_en1
@@ -154,8 +156,17 @@ module cpu030_st_bridge #(
     wire        cpu_berrn, cpu_avecn;
     reg  [2:0]  ipl_r = 3'b111;
 
+`ifdef WF030_NETLIST
+    // gate-level simulation (sim/run_unit.sh): the netlist from
+    // sim/wf030_syn.tcl is synthesised with CLK_N_EXT = 1 and has no generics
     WF68K30L_TOP i_wf68k30l (
+`else
+    WF68K30L_TOP #(
+        .CLK_N_EXT ( 1             )    // falling-edge registers on clk_cpu_n (global clock)
+    ) i_wf68k30l (
+`endif
         .CLK       ( clk_cpu       ),
+        .CLK_N     ( clk_cpu_n     ),
         .ADR_OUT   ( cpu_adr       ),
         .DATA_IN   ( cpu_din       ),
         .DATA_OUT  ( cpu_dout      ),
@@ -187,7 +198,11 @@ module cpu030_st_bridge #(
         .BGACKn    ( 1'b1          )
     );
 
-    // ---- front end: request capture (rising clk_cpu) ----------------------
+    // ---- front end: request capture (clk_32) -------------------------------
+    // clk_cpu is phase-locked to clk_32 (same PLL VCO, every clk_cpu edge is a
+    // clk_32 rising edge), so the 030 outputs are sampled directly by clk_32
+    // (timed related-clock paths, no synchroniser): the request is seen on
+    // the first clk_32 edge after the 030 asserts AS (31.25 ns).
     reg        c_open  = 1'b0;
     reg        c_req_t = 1'b0;
     reg [23:0] c_adr   = 24'd0;
@@ -196,12 +211,12 @@ module cpu030_st_bridge #(
     reg [2:0]  c_fc    = 3'd0;
     reg [15:0] c_wdata = 16'd0;
 
-    always @(posedge clk_cpu) begin
+    always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             c_open <= 1'b0;
         end else if (!c_open) begin
-            // first rising edge with AS low: 030 S1 -> S2. Address, SIZE,
-            // RW, FC and (for writes) the data mux output are valid.
+            // first clk_32 edge with AS low. Address, SIZE, RW, FC and the
+            // write data mux are registered by the 030 with AS (S0).
             c_open  <= 1'b1;
             c_req_t <= ~c_req_t;
             c_adr   <= cpu_adr[23:0];     // A31:24 ignored: 24-bit ST bus
@@ -213,63 +228,42 @@ module cpu030_st_bridge #(
     end
 
     // ---- terminations back to the 030 ------------------------------------
-    // s_* are written at S6 en2, after the ST cycle has finished. They are
-    // clk_32 registers. Two flops in clk_cpu hold the word until that write
-    // has crossed, and the data flop is the same depth as the tag so the
-    // 030 cannot see DSACK against the previous word.
+    // s_* are clk_32 registers, read by the 030 directly (its DSACK/AVEC/BERR
+    // input registers sample on the falling clk_cpu edge = a clk_32 rising
+    // edge; timed related-clock paths). The tag stops the 030 from seeing the
+    // previous cycle's termination, c_open drops one clk_32 after AS goes high.
+    // DSACK for a DTACK-terminated cycle is given early, on the edge where a
+    // 68000 samples DTACK (en2 in S4): the 030 samples DSACK on its next
+    // falling edge (>= 31.25 ns later) and latches the data one clk_cpu later
+    // (>= 156.25 ns after that en2), while s_rdata is written 125 ns after it
+    // (S6 en2, the 68000 data latch edge). The s_rdata -> 030 data register
+    // path is a timed clk_32 -> clk_cpu_n path (>= 31.25 ns).
     reg        s_tag    = 1'b0;
     reg        s_dsack  = 1'b0;
     reg        s_avec   = 1'b0;
     reg        s_berr   = 1'b0;
     reg [15:0] s_rdata  = 16'hffff;
 
-    (* syn_preserve = 1 *) reg [1:0] tag_sync = 2'b0;
-    (* syn_preserve = 1 *) reg [1:0] dsack_sync = 2'b0;
-    (* syn_preserve = 1 *) reg [1:0] avec_sync = 2'b0;
-    (* syn_preserve = 1 *) reg [1:0] berr_sync = 2'b0;
-    reg [15:0] rdata_hold = 16'hffff;
-    reg [15:0] rdata_sync = 16'hffff;
-
-    always @(posedge clk_cpu) begin
-        if (!cpu_rst_n) begin
-            tag_sync   <= 2'b0;
-            dsack_sync <= 2'b0;
-            avec_sync  <= 2'b0;
-            berr_sync  <= 2'b0;
-            rdata_hold <= 16'hffff;
-            rdata_sync <= 16'hffff;
-        end else begin
-            tag_sync   <= {tag_sync[0], s_tag};
-            dsack_sync <= {dsack_sync[0], s_dsack};
-            avec_sync  <= {avec_sync[0], s_avec};
-            berr_sync  <= {berr_sync[0], s_berr};
-            rdata_hold <= s_rdata;
-            rdata_sync <= rdata_hold;
-        end
-    end
-
-    wire term_ok = c_open & (tag_sync[1] == c_req_t);
-    assign cpu_dsackn = (term_ok & dsack_sync[1]) ? 2'b01 : 2'b11;
-    assign cpu_avecn  = ~(term_ok & avec_sync[1]);
-    assign cpu_berrn  = ~(term_ok & berr_sync[1]);
-    assign cpu_din    = {rdata_sync, rdata_sync};
+    wire term_ok = c_open & (s_tag == c_req_t);
+    assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
+    assign cpu_avecn  = ~(term_ok & s_avec);
+    assign cpu_berrn  = ~(term_ok & s_berr);
+    assign cpu_din    = {s_rdata, s_rdata};
 
     // =====================================================================
     // clk_32 domain: the 68000 side
     // =====================================================================
     always @(posedge clk) ipl_r <= {IPL2n, IPL1n, IPL0n};
 
-    (* syn_preserve = 1 *) reg [SYNC_STAGES-1:0] req_sync = {SYNC_STAGES{1'b0}};
     (* syn_preserve = 1 *) reg [1:0] rmc_sync = 2'b11;
     (* syn_preserve = 1 *) reg [1:0] rsto_sync = 2'b00;
     (* syn_preserve = 1 *) reg [1:0] hlt_sync = 2'b11;
     always @(posedge clk) begin
-        req_sync  <= {req_sync[SYNC_STAGES-2:0], c_req_t};
         rmc_sync  <= {rmc_sync[0], cpu_rmcn};
         rsto_sync <= {rsto_sync[0], cpu_reset_out};
         hlt_sync  <= {hlt_sync[0], cpu_halt_outn};
     end
-    wire req_now  = req_sync[SYNC_STAGES-1];
+    wire req_now  = c_req_t;   // clk_32 register (no synchroniser needed)
     assign oRESETn  = ~rsto_sync[1];
     assign oHALTEDn = hlt_sync[1];
     wire rmc_lock = ~rmc_sync[1];
@@ -422,6 +416,16 @@ module cpu030_st_bridge #(
             if (enPhi2)
                 iStop <= xVma | (Vpai & ~rBerr);
 
+            // early DSACK (see terminations): DTACK seen on the 68000's S4
+            // sample edge (en2 in S4, the edge that also loads rDtack)
+            // At 16 MHz the 030 would latch the data 94 ns after en2, before
+            // S6 en2, so DSACK is given one phase later (S4 -> S6 en1).
+            if ((CPU_DIV >= 4) ? (enPhi2 & (phase == P_S4) & ~DTACKn)
+                               : (enPhi1 & (phase == P_S4) & ~rDtack)) begin
+                s_tag   <= r_tag;
+                s_dsack <= 1'b1;
+            end
+
             if (enPhi2 & (phase == P_S0))
                 addr_oe <= 1'b1;
 
@@ -459,7 +463,7 @@ module cpu030_st_bridge #(
                     if (~rDtack | iStop) begin
                         phase <= P_S6;
                         if (~rDtack)    r_res <= R_DSACK;
-                        else if (~rVma) r_res <= r_iack ? R_AVEC : R_DSACK; // VPA/E cycle
+                        else if (~rVma) r_res <= r_iack ? R_AVEC : R_DSACK; // VPA/E cycle (terminated at S6)
                         else            r_res <= R_BERR;
                     end
                 end

@@ -176,6 +176,7 @@ end component;
 component WF68K30L_BUS_INTERFACE
     port (
         CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58]
         ADR_IN_P            : in std_logic_vector(31 downto 0);
         ADR_OUT_P           : out std_logic_vector(31 downto 0);
         FC_IN               : in std_logic_vector(2 downto 0);
@@ -384,6 +385,7 @@ component WF68K30L_EXCEPTION_HANDLER
     generic(VERSION         : std_logic_vector(15 downto 0));
     port (
         CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58]
         RESET               : in bit;
         BUSY_MAIN           : in bit;
         BUSY_OPD            : in bit;

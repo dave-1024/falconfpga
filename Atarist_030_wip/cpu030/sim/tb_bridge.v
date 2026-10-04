@@ -4,12 +4,15 @@
 // MFP vectored IACK, VBL autovector, a DMA master doing BR/BG/BGACK).
 module tb;
     parameter integer CPU_PHASE_PS = 0;      // clk_cpu phase offset against clk32
+    parameter integer CPU_DIV = 2;           // clk32 / clk_cpu: 2 = 16 MHz (board), 4 = 8 MHz
     parameter integer MAX_US = 400;
 
     reg clk32 = 0, clk_cpu = 0;
     always #15625 clk32 = ~clk32;            // 32 MHz
     integer phase_ps = CPU_PHASE_PS;
-    initial begin if ($value$plusargs("phase=%d", phase_ps)) ; #(phase_ps); forever #62500 clk_cpu = ~clk_cpu; end  // 8 MHz
+    initial begin if ($value$plusargs("phase=%d", phase_ps)) ; #(phase_ps); forever #(CPU_DIV * 15625) clk_cpu = ~clk_cpu; end
+
+    wire clk_cpu_n = ~clk_cpu;               // 180 degree copy (a second PLL output on the board)
 
     // en1/en2 like clockgen: one each per 4 clk32
     reg [1:0] cc = 0;
@@ -28,8 +31,8 @@ module tb;
     reg  [2:0] ipl = 3'b111;
     reg  [15:0] din;
 
-    cpu030_st_bridge dut (
-        .clk(clk32), .clk_cpu(clk_cpu), .extReset(reset), .pwrUp(pwrup),
+    cpu030_st_bridge #(.CPU_DIV(CPU_DIV)) dut (
+        .clk(clk32), .clk_cpu(clk_cpu), .clk_cpu_n(clk_cpu_n), .extReset(reset), .pwrUp(pwrup),
         .enPhi1(en1), .enPhi2(en2),
         .eRWn(rw), .ASn(as_n), .LDSn(lds_n), .UDSn(uds_n), .E(E), .VMAn(vma_n),
         .FC0(fc0), .FC1(fc1), .FC2(fc2), .BGn(bg_n), .oRESETn(rst_o_n), .oHALTEDn(halted_n),

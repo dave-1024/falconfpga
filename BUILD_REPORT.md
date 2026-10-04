@@ -651,3 +651,39 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Visible effect: BKPT_REQ = 1 at configuration. The first instruction-word request takes the "restore from breakpoint" path (IPIPE.D <= IPIPE_D_VAR, pipe not advanced) and corrupts the first instruction. Gate-level `run_unit` program (first instruction `move #$2700,sr`): the CPU drops to user mode (FC 2/1 from then on). TOS 1.04 also starts with `move #$2700,sr` at $FC0030, so a cold start could drop to user mode and take a privilege violation at the following `reset`. EmuTOS starts with BRA $FC004E, which absorbs it (benign, not the EmuTOS board stall).
 - Fix (F57): explicit initial values in `wf68k30L_opcode_decoder.vhd` (BKPT_REQ, LOOP_BSY_I, OPCODE_FLUSH, FLUSHED; LOOP_BSY driven by one concurrent assignment) and `wf68k30L_alu.vhd` (ADR_MODE, BF_UPPER_BND, CAS2_COND, CHK2CMP2_DR, SHIFT_WIDTH; new ALU_BSY_I := '0' drives ALU_BSY). Values equal what RTL already assumed.
 - Verification: RTL progA/B/C/D cycle-identical to c3493db (3 IRQ/WS settings); `cpu030/sim/rtl/run_rtl.sh` PASS. Re-synthesis: only MSBIT_0, DATA_VALID, IRQ_PEND_I remain without INIT (all set by the CPU reset). New netlist cycle-identical to RTL (progA-D, run_unit program, TOS 1.04 start); `run_unit.sh` ERRORS=0 (3 phases).
+
+## 2026-10-04 09:30 BST – F58 68030 bridge: synchronous ST bus (no CDC synchronisers), 16 MHz phase-locked CPU clock, falling-edge flops on a PLL 180° clock (sim + board verified)
+
+- REQUEST_ID: manual-20261004-f58 (David approved: TF-faithful bridge speed-up and clock fix, max 3 builds, push if sims, timing and board pass)
+- Latency cause: clk_cpu030 already came from the same PLL VCO as clk32 (every edge a clk32 rising edge), but the bridge still treated it as asynchronous.
+  - Request path: captured on clk_cpu, then a 2-FF sync into clk32.
+  - Termination and data path: DSACK/AVEC/BERR, tag and read data were returned only at S6, then went through 2-FF syncs in clk_cpu (rdata_hold/rdata_sync), costing 250 ns more.
+  - Result: ~1.6 us per ST access on the board. TOS 1.04 hung in the Timer B vblank loop at $FC0DEA-$FC0DF8, which needs 616 identical TBDR reads inside the 60 Hz vblank.
+- Bridge (`cpu030_st_bridge.v`): the clock pair is now treated as synchronous, as on a TerribleFire board.
+  - The 030 outputs are latched on the first clk32 edge with AS low.
+  - The s_* termination/data registers are read by the 030 directly. All of these are timed related-clock paths.
+  - All request/termination/data synchronisers are removed; the request tag keeps the old termination away from the next cycle.
+  - DSACK is given early, before S6: at S4 en2 for an 8 MHz clk_cpu (CPU_DIV 4), and on the S4 -> S6 en1 edge for 16 MHz (CPU_DIV 2, used on the board). Data is still latched at S6 en2 (68000 latch edge) before the 030 latches it.
+  - ST-side 68000 phase timing, arbitration, E/VMA and IACK are unchanged. The fx68k path (CPU_030 off) is unchanged.
+- CPU clock: clk_cpu030 = PLL CLKOUT5, ODIV 50 = 16 MHz (was 8 MHz), phase 0.
+- Falling-edge flops: the core's falling-edge registers (DATA_INMUX, DSACK/AVEC/HALT/BERR samples, BUS_FLT, SLICE_CNT_N, RETRY, IRQ filter, REFILL/STATUS) used to be clocked by a fabric-LUT inverter (n6100 = INV(clk_cpu030)), so STA did not analyse them.
+  - F58 core change: new generic CLK_N_EXT (default 0 = RTL-identical) and port CLK_N. Those registers now run on the rising edge of CLK_F (CLK_N when CLK_N_EXT = 1).
+  - The bridge feeds clk_cpu030_n = CLKOUT6, ODIV 50, PE_COARSE 25 (180°), a global clock. The SDC declares it as a generated clock in the core group. Explicit report_timing was added for every clk32/clk_cpu030/clk_cpu030_n pair.
+- Sim:
+  - `run_rtl.sh` PASS. RTL progA-D (3 IRQ/WS settings), TOS 1.04 and EmuTOS starts are cycle-identical to before (CLK_N_EXT 0).
+  - Netlist with CLK_N_EXT 1: 55 flops on CLK_N, no inverter.
+  - `run_unit.sh`-style bench (MAX_US 700, 6 phases, long/word/byte/misaligned writes, UDS/LDS): ERRORS=0 at both 16 MHz and 8 MHz.
+  - Whole-system tb_st with TOS 1.04, bus access to bus access in the Timer B loop: 875 ns at 16 MHz, 1125 ns at 8 MHz with the new bridge. Unit bench AS-low median 719 ns at 16 MHz, 688 ns at 8 MHz, 1188 ns with the old bridge.
+- Laptop builds (F58 + local diag030c overlay, not committed). Both PASS, TNS 0 on all clocks; the only PR1014 is the known clk_d. Recovery/removal on the pll_init reset (clk_osc -> clk32) is pre-existing.
+  - Build 1 (8 MHz): clk32_core 33.96 MHz, clk_cpu030 17.08 MHz.
+  - Build 2 (16 MHz, committed configuration): clk32_core 34.60 MHz, clk_cpu030 18.98 MHz (45 levels, slack 9.8 ns of 62.5). Worst setup slack per pair:
+    - clk_cpu030 -> clk_cpu030_n: 24.6 ns of 31.25.
+    - clk_cpu030_n -> clk_cpu030: 25.7 ns of 31.25.
+    - clk32 -> clk_cpu030_n (s_dsack -> DATA_INMUX): 25.6 ns of 31.25.
+    - clk32 -> clk_cpu030: 24.9 ns of 31.25.
+    - clk_cpu030 -> clk32: 12.3 ns of 31.25.
+  - Build 2 hold: all >= 0.39 ns.
+- Board, location 417, TOS 1.04: it now passes the Timer B loop ($FC0DEA), at both 8 and 16 MHz.
+  - TOS writes the screen base ($FF8201 = $3F, $FF8203 = $80) and the shifter shows a white screen (palette loaded, screen cleared). The first BERR is the expected blitter probe at $FFFF8A00.
+  - It then enters the bomb-drawing code ($FC0B60-$FC0B98, the exception/crash display). The 030 stops starting bus cycles at the program fetch $FC0B8A with no cycle open, the bridge idle and IPL 6 pending. This is the next problem to look at.
+- Board, EmuTOS 192K UK: runs with both builds, repeatedly passing a GEMDOS trap #1 wrapper ($FCD03E-$FCD04E). The screen is white with scattered coloured pixels; there is no desktop yet. First BERR at $FFFF8A3C (blitter probe).

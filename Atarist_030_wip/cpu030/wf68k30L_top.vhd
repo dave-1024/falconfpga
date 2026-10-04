@@ -155,10 +155,14 @@ entity WF68K30L_TOP is
     generic(VERSION     : std_logic_vector(15 downto 0) := x"1904"; -- CPU version number.
         -- The following two switches are for debugging purposes. Default for both is false.
         NO_PIPELINE     : boolean := false;  -- If true the main controller work in scalar mode.
-        NO_LOOP         : boolean := false); -- If true the DBcc loop mechanism is disabled.
+        NO_LOOP         : boolean := false; -- If true the DBcc loop mechanism is disabled.
+        -- [F58] 1: the falling-edge registers are clocked by CLK_N (a 180 degree copy of CLK,
+        -- e.g. a second PLL output on a global clock) instead of an inverted CLK.
+        CLK_N_EXT       : integer := 0);
 
     port (
         CLK             : in std_logic;
+        CLK_N           : in std_logic := '0'; -- [F58] only used with CLK_N_EXT = 1
         
         -- Address and data:
         ADR_OUT         : out std_logic_vector(31 downto 0);
@@ -208,6 +212,7 @@ entity WF68K30L_TOP is
 end entity WF68K30L_TOP;
     
 architecture STRUCTURE of WF68K30L_TOP is
+signal CLK_F                : std_logic; -- [F58] clock of the falling-edge registers (rising edge used)
 signal ADn                      : bit;
 signal ADR_CPY_EXH              : std_logic_vector(31 downto 0);
 signal ADR_EFF                  : std_logic_vector(31 downto 0);
@@ -784,12 +789,14 @@ begin
 
     RESET_IN <= not RESET_INn;
     IPL <= not IPLn;
+
+    CLK_F <= CLK_N when CLK_N_EXT /= 0 else not CLK; -- [F58]
     
     REFILL_STATUS: process
     -- This tiny logic provides signal transition on the negative
     -- clock edge.
     begin
-        wait until CLK = '0' and CLK' event;
+        wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
         if (STATUSn_EXH and STATUSn_MAIN) = '1' then
             STATUSn <= '1';
         else
@@ -942,6 +949,7 @@ begin
     I_BUS_IF: WF68K30L_BUS_INTERFACE
         port map(
             CLK                 => CLK,
+            CLK_F               => CLK_F, -- [F58]
 
             ADR_IN_P            => ADR_P,
             ADR_OUT_P           => ADR_OUT,
@@ -1159,6 +1167,7 @@ begin
         generic map(VERSION         => VERSION)
         port map(   
             CLK                     => CLK,
+            CLK_F                   => CLK_F, -- [F58]
 
             RESET                   => RESET_CPU,
             BUSY_MAIN               => BUSY_MAIN,

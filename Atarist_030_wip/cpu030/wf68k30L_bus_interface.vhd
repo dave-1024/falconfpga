@@ -71,6 +71,7 @@ entity WF68K30L_BUS_INTERFACE is
     port (
         -- System control:
         CLK                 : in std_logic; -- System clock.
+        CLK_F               : in std_logic; -- [F58] falling-edge registers: rising edge of a 180 degree clock
 
         -- Adress bus:
         ADR_IN_P            : in std_logic_vector(31 downto 0); -- Logical address line inputs.
@@ -164,6 +165,7 @@ signal BGACK_In             : std_logic := '1';  -- [F54] measured warm-boot val
 signal BR_In                : std_logic := '1';  -- [F54] measured warm-boot value
 signal BUS_CTRL_STATE       : BUS_CTRL_STATES := IDLE;  -- [F54] measured warm-boot value
 signal BUS_CYC_RDY          : bit := '0';  -- [F54] measured warm-boot value
+signal BUS_FLT_N            : std_logic; -- [F58] was the variable BUS_FLT_VAR of P_SYNC
 signal BUS_FLT              : std_logic := '0';  -- [F54] measured warm-boot value
 signal BUS_WIDTH            : BUS_WIDTH_TYPE := LONG_32;  -- [F54] measured warm-boot value
 signal DATA_INMUX           : std_logic_vector(31 downto 0);
@@ -195,7 +197,9 @@ signal WP_BUFFER            : std_logic_vector(31 downto 0);
 signal WRITE_ACCESS         : bit := '0';  -- [F54] measured warm-boot value
 begin
 
-    P_SYNC: process(CLK)
+    P_SYNC_N: process(CLK_F)
+    -- [F58] The negative-edge half of P_SYNC, clocked by CLK_F (rising edge = falling edge
+    -- of CLK). BUS_FLT_VAR is now the signal BUS_FLT_N (written here, read in P_SYNC).
     -- These flip flops synchronize the bus termination signal on the negative clock edge. 
     -- This meets the requirement of sampling these signals in the end of S2 for asynchronous 
     -- bus access. Be aware, that we have to buffer the RETRY signal to prevent the bus 
@@ -204,12 +208,11 @@ begin
     -- STERMn. But the logic needs delayed signals.
     -- Remark: launching BUS_FLT on the positive clock edge significantly enhances the 
     -- system performance concerning the maximum clock frequency.
-    variable BUS_FLT_VAR    : std_logic;
     begin
-        if CLK = '0' and CLK' event then
+        if CLK_F = '1' and CLK_F' event then
             DSACK_In <= DSACKn;
             HALT_In <= To_Bit(HALTn);
-            BUS_FLT_VAR := not BERRn;
+            BUS_FLT_N <= not BERRn;
             STERM_In <= STERMn; -- Delayed.
             BR_In <= BRn;
             BGACK_In <= BGACKn;
@@ -221,12 +224,15 @@ begin
                 RETRY <= '0';
             end if;
         end if;
-        --
+    end process P_SYNC_N;
+
+    P_SYNC: process(CLK)
+    begin
         if CLK = '1' and CLK' event then
             if BUS_CTRL_STATE = START_CYCLE then        
                 AERR <= AERR_I;
             elsif BUS_CTRL_STATE = DATA_C1C4 then        
-                BUS_FLT <= BUS_FLT_VAR;
+                BUS_FLT <= BUS_FLT_N;
             else
                 BUS_FLT <= '0';
                 AERR <= '0';
@@ -611,7 +617,7 @@ begin
     IN_MUX: process
     -- This is the input multiplexer which can handle up to four bytes.
     begin
-    wait until CLK = '0' and CLK' event;
+    wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
         --
         if ((T_SLICE = S2 or T_SLICE = S3) and STERMn = '0') or T_SLICE = S4 then
             case BUS_WIDTH is
@@ -803,11 +809,14 @@ begin
                 SLICE_CNT_P <= SLICE_CNT_P + '1'; -- Cycle active.
             end if;
         end if;
-        --
-        if CLK = '0' and CLK' event then
+    end process SLICES;
+
+    SLICES_N: process(CLK_F)
+    begin
+        if CLK_F = '1' and CLK_F' event then -- [F58] was the falling edge of CLK (in SLICES)
             SLICE_CNT_N <= SLICE_CNT_P; -- Follow the P counter.
         end if;
-    end process SLICES;
+    end process SLICES_N;
 
     T_SLICE <=  S0 when SLICE_CNT_P = "000" and SLICE_CNT_N = "111" else
                 S1 when SLICE_CNT_P = "000" and SLICE_CNT_N = "000" else
