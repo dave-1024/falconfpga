@@ -1,0 +1,1101 @@
+//
+// sdc.c - sd card access 
+//
+//
+
+
+#include <ff.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <diskio.h>
+#include <string.h>
+#include <inttypes.h>
+#ifdef ESP_PLATFORM
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#else
+#include <FreeRTOS.h>
+#include <task.h>
+#endif
+#include "sdc.h"
+#include "menu.h"
+#include "sysctrl.h"
+
+#ifdef ESP_PLATFORM
+#ifndef CONFIG_FATFS_USE_FASTSEEK
+#error "Please enable FATFS_USE_FASTSEEK!"
+#error "Use 'idf.py menuconfig' and then navigate to"
+#error "Component Config -> FAT Filesystem Support"
+#error "and set 'Enable fast seek algorithm ...'"
+#endif
+#endif
+
+// enable to use old way to determine cluster position
+// #define USE_FSEEK
+
+#include "debug.h"
+#include "config.h"
+#include "mcu_hw.h"
+
+static SemaphoreHandle_t sdc_sem;
+
+static FATFS fs;
+
+// disk and rom images
+static FIL fil[MAX_DRIVES+MAX_IMAGES+MAX_CORES];
+static DWORD *lktbl[MAX_DRIVES];
+
+// information about image data to be sent
+static uint32_t image_bytes2send[MAX_IMAGES];
+
+static void sdc_spi_begin(void) {
+  mcu_hw_spi_begin();  
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+}
+
+// max time to wait for the fpga/sd card to leave the busy state, and for a
+// single sector read/write to complete once issued. Without these bounds a
+// stalled fpga/card hangs the MCU forever and, worse, the caller currently
+// has no way to notice a sector that never really finished
+#define SDC_BUSY_TIMEOUT_MS   1000
+#define SDC_READY_TIMEOUT_MS  500
+#define SDC_CORE_RW_TIMEOUT_MS 1000
+
+static LBA_t clst2sect(DWORD clst) {
+  clst -= 2;
+  if (clst >= fs.n_fatent - 2)   return 0;
+  return fs.database + (LBA_t)fs.csize * clst;
+}
+
+int sdc_read_sector(unsigned long sector, unsigned char *buffer) {
+  // check if sd card is still busy as it may
+  // be reading a sector for the core. Forcing a MCU read
+  // may change the data direction from core to mcu while
+  // the core is still reading
+  unsigned char status;
+  TickType_t t0 = xTaskGetTickCount();
+  do {
+    sdc_spi_begin();  
+    mcu_hw_spi_tx_u08(SPI_SDC_STATUS);
+    status = mcu_hw_spi_tx_u08(0);
+    mcu_hw_spi_end();  
+    if(status & 0x02) vTaskDelay(1);
+  } while((status & 0x02) &&
+          (xTaskGetTickCount() - t0) < pdMS_TO_TICKS(SDC_BUSY_TIMEOUT_MS));
+
+  if(status & 0x02) {
+    sdc_debugf("SDC: card busy timeout reading sector %lu", sector);
+    return -1;
+  }
+
+  sdc_spi_begin();  
+  mcu_hw_spi_tx_u08(SPI_SDC_MCU_READ);
+  mcu_hw_spi_tx_u08((sector >> 24) & 0xff);
+  mcu_hw_spi_tx_u08((sector >> 16) & 0xff);
+  mcu_hw_spi_tx_u08((sector >> 8) & 0xff);
+  mcu_hw_spi_tx_u08(sector & 0xff);
+
+  // wait for ready, bounded so a stalled fpga can't hang the mcu forever
+  t0 = xTaskGetTickCount();
+  while(mcu_hw_spi_tx_u08(0)) {
+    if((xTaskGetTickCount() - t0) > pdMS_TO_TICKS(SDC_READY_TIMEOUT_MS)) {
+      mcu_hw_spi_end();
+      sdc_debugf("SDC: read timeout on sector %lu", sector);
+      return -1;
+    }
+  }
+
+  // read 512 bytes sector data
+  for(int i=0;i<512;i++) buffer[i] = mcu_hw_spi_tx_u08(0);
+
+  mcu_hw_spi_end();
+
+  //  sdc_debugf("sector %ld", sector);
+  //  hexdump(buffer, 512);
+
+  return 0;
+}
+
+int sdc_write_sector(unsigned long sector, const unsigned char *buffer) {
+  // check if sd card is still busy as it may
+  // be reading a sector for the core.
+  unsigned char status;
+  TickType_t t0 = xTaskGetTickCount();
+  do {
+    sdc_spi_begin();  
+    mcu_hw_spi_tx_u08(SPI_SDC_STATUS);
+    status = mcu_hw_spi_tx_u08(0);
+    mcu_hw_spi_end();  
+    if(status & 0x02) vTaskDelay(1);
+  } while((status & 0x02) &&
+          (xTaskGetTickCount() - t0) < pdMS_TO_TICKS(SDC_BUSY_TIMEOUT_MS));
+
+  if(status & 0x02) {
+    sdc_debugf("SDC: card busy timeout writing sector %lu", sector);
+    return -1;
+  }
+
+  sdc_spi_begin();  
+  mcu_hw_spi_tx_u08(SPI_SDC_MCU_WRITE);
+  mcu_hw_spi_tx_u08((sector >> 24) & 0xff);
+  mcu_hw_spi_tx_u08((sector >> 16) & 0xff);
+  mcu_hw_spi_tx_u08((sector >> 8) & 0xff);
+  mcu_hw_spi_tx_u08(sector & 0xff);
+
+  // write sector data
+  for(int i=0;i<512;i++) mcu_hw_spi_tx_u08(buffer[i]);  
+
+  // wait for ready, bounded so a stalled fpga can't hang the mcu forever
+  // and so a sector that never completes is reported instead of assumed ok
+  t0 = xTaskGetTickCount();
+  while(mcu_hw_spi_tx_u08(0)) {
+    if((xTaskGetTickCount() - t0) > pdMS_TO_TICKS(SDC_READY_TIMEOUT_MS)) {
+      mcu_hw_spi_end();
+      sdc_debugf("SDC: write timeout on sector %lu", sector);
+      return -1;
+    }
+  }
+
+  mcu_hw_spi_end();
+
+  return 0;
+}
+
+// -------------------- fatfs read/write interface to sd card connected to fpga -------------------
+
+#ifdef DEV_SD
+#define SDC_RESULT int
+#else
+#define SDC_RESULT DRESULT
+#endif
+
+static SDC_RESULT sdc_read(BYTE *buff, LBA_t sector, UINT count) {
+  // sdc_debugf("sdc_read(%p,%lu,%u)", buff, (unsigned long)sector, count);  
+
+  // mcu_hw may define a SDIO_DIRECT_READ when the MCU can get direct access
+  // (not though the FPGA) to the SD card.
+#ifdef SDIO_DIRECT_READ
+  if(SDIO_DIRECT_READ(sector, buff, count))
+    return 0;
+#endif
+
+  while(count--) {
+    if(sdc_read_sector(sector, buff))
+      return -1;
+    buff += 512;
+    sector++;
+  }
+  
+  return 0;
+}
+
+static SDC_RESULT sdc_write(const BYTE *buff, LBA_t sector, UINT count) {
+  // sdc_debugf("sdc_write(%p,%lu,%u)", buff, (unsigned long)sector, count);  
+
+#ifdef SDIO_DIRECT_WRITE
+  if(SDIO_DIRECT_WRITE(sector, buff, count))
+    return 0;
+#endif
+
+  while(count--) {
+    if(sdc_write_sector(sector, buff))
+      return -1;
+    buff += 512;
+    sector++;
+  }
+    
+  return 0;
+}
+
+static SDC_RESULT sdc_ioctl(BYTE cmd, void *buff) {
+  sdc_debugf("sdc_ioctl(%d,%p)", cmd, buff);
+
+  switch(cmd) {
+  case GET_SECTOR_SIZE:
+    *((WORD*) buff) = 512;
+    return RES_OK;
+    break;
+  }
+  
+  return RES_ERROR;
+}
+
+#ifdef ESP_PLATFORM
+
+#if !FF_USE_STRFUNC
+#error "FatFS string functions are not enabled!"
+#error "Please set FF_USE_STRFUNC to 1 in esp-idf/components/fatfs/src/ffconf.h"
+#endif
+
+#if !FF_FS_EXFAT
+#error "FatFS exFAT support is not enabled!"
+#error "Please set FF_FS_EXFAT to 1 in esp-idf/components/fatfs/src/ffconf.h"
+#endif
+
+#if CONFIG_WL_SECTOR_SIZE != 512
+#error "Please set wear levelling sector size to 512!"
+#endif
+
+#include <diskio_impl.h>
+DRESULT sdc_disk_ioctl(__attribute__((unused)) BYTE pdrv, BYTE cmd, void *buff) { return sdc_ioctl(cmd, buff); }
+DRESULT sdc_disk_read(__attribute__((unused)) BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) { return sdc_read(buff, sector, count); }
+DRESULT sdc_disk_write(__attribute__((unused)) BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count) { return sdc_write(buff, sector, count); }
+DSTATUS sdc_disk_status(__attribute__((unused)) BYTE pdrv) { return 0; }
+DSTATUS sdc_disk_initialize(BYTE pdrv) { sdc_debugf("sdc_initialize(%d)", pdrv); return 0; }
+
+#else
+#ifndef DEV_SD  // bouffalo sdk sets DEV_SD
+// FatFS variant in bouffalo SDK defines DEV_SD
+DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff) {
+  sdc_debugf("disk_ioctl(%d, %d)", pdrv, cmd);  
+  return sdc_ioctl(cmd, buff);
+}
+
+DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) {
+  // sdc_debugf("disk_read(%d, %lu)", pdrv, sector);  
+
+  if(pdrv == 1) {
+    mcu_hw_usb_sector_read(buff, sector, count);
+    return RES_OK;
+  }
+    
+  return sdc_read(buff, sector, count);
+}
+
+DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count) {
+  if(pdrv == 1) return RES_WRPRT;  
+  return sdc_write(buff, sector, count);
+}
+
+DSTATUS disk_status(BYTE pdrv) {
+  if(pdrv == 1 && !mcu_hw_usb_msc_present()) 
+    return RES_NOTRDY;
+
+  return RES_OK;
+}
+
+DSTATUS disk_initialize(__attribute__((unused)) BYTE pdrv) { return 0; }
+#else
+static int sdc_status() { return 0; }
+static int sdc_initialize() { return 0; }
+static DSTATUS Translate_Result_Code(int result) { return result; }
+#endif
+#endif
+
+static int fs_init() {
+  FRESULT res_msc;
+
+  // clear all the file structures (especially the flag should be zero)
+  memset(fil, 0, sizeof(FIL)*(MAX_DRIVES+MAX_IMAGES+MAX_CORES));
+  memset(lktbl, 0, sizeof(DWORD*)*MAX_DRIVES);
+  
+#ifdef DEV_SD
+  FATFS_DiskioDriverTypeDef MSC_DiskioDriver = { NULL };
+  MSC_DiskioDriver.disk_status = sdc_status;
+  MSC_DiskioDriver.disk_initialize = sdc_initialize;
+  MSC_DiskioDriver.disk_write = sdc_write;
+  MSC_DiskioDriver.disk_read = sdc_read;
+  MSC_DiskioDriver.disk_ioctl = sdc_ioctl;
+  MSC_DiskioDriver.error_code_parsing = Translate_Result_Code;
+  
+  disk_driver_callback_init(DEV_SD, &MSC_DiskioDriver);
+#endif
+
+#ifdef ESP_PLATFORM
+  const ff_diskio_impl_t sdc_impl = {
+    .init = sdc_disk_initialize,
+    .status = sdc_disk_status,
+    .read = sdc_disk_read,
+    .write = sdc_disk_write,
+    .ioctl = sdc_disk_ioctl,
+  };
+  
+  ff_diskio_register(0, &sdc_impl);
+#endif
+    
+  // wait for SD card to become available
+  // TODO: display error in OSD
+  unsigned char status;
+  int timeout = 200;
+  do {
+    sdc_spi_begin();  
+    mcu_hw_spi_tx_u08(SPI_SDC_STATUS);
+    status = mcu_hw_spi_tx_u08(0);
+    mcu_hw_spi_end();
+
+    if((status & 0xf0) != 0x80) {
+      timeout--;
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
+  } while(timeout && ((status & 0xf0) != 0x80));
+  // getting here with a timeout either means that there
+  // is no matching core on the FPGA or that there is no
+  // SD card inserted
+  
+  // switch rgb led to green
+  if(!timeout) {
+    sdc_debugf("SD not ready, status = %d", status);
+    sys_set_rgb(0x400000);  // red, failed
+    return -1;
+  }
+  
+  char *type[] = { "UNKNOWN", "SDv1", "SDv2", "SDHCv2" };
+  sdc_debugf("SDC status: %02x", status);
+  sdc_debugf("  card status: %d", (status >> 4)&15);
+  sdc_debugf("  card type: %s", type[(status >> 2)&3]);
+
+  res_msc = f_mount(&fs, CARD_MOUNTPOINT, 1);
+  if (res_msc != FR_OK) {
+    sdc_debugf("mount fail,res:%d", res_msc);
+    sys_set_rgb(0x400000);  // red, failed
+    return -1;
+  }
+  
+  sys_set_rgb(0x004000);  // green, ok
+  return 0;
+}
+
+// -------------- higher layer routines provided to the firmware ----------------
+ 
+// keep track of working directory for each drive and a core that may
+// be selected from the system menu on setups that supports USB/SD card
+// loadimg of cores
+static char *cwd[MAX_DRIVES+MAX_IMAGES+MAX_CORES];
+static char *image_name[MAX_DRIVES+MAX_IMAGES];
+
+// a FreeRTOS'd version of strdup
+static inline char *StrDup(const char *s) {
+  char *res = pvPortMalloc(strlen(s)+1);
+  strcpy(res, s);
+  return res;
+}
+
+void sdc_set_default(int drive, const char *name) {
+  sdc_debugf("set default %d: %s", drive, name);
+  if(drive >= MAX_DRIVES+MAX_IMAGES) return;
+  
+  // A valid filename will always begin with the mount point
+  if(strncasecmp(name, CARD_MOUNTPOINT, strlen(CARD_MOUNTPOINT)) == 0) {
+    // name should consist of path and image name
+    char *p = strrchr(name+strlen(CARD_MOUNTPOINT), '/');
+    if(p && *p) {
+      if(cwd[drive]) vPortFree(cwd[drive]);
+      cwd[drive] = strndup(name, p-name);
+      if(image_name[drive]) vPortFree(image_name[drive]);
+      image_name[drive] = StrDup(p+1);
+    }
+  }
+}
+
+char *sdc_get_image_name(int drive) {
+  // core names aren't stored (yet)
+  if(drive >= MAX_DRIVES + MAX_IMAGES)
+    return NULL;
+  
+  return image_name[drive];
+}
+
+char *sdc_get_cwd(int drive) {
+  return cwd[drive];
+}
+
+#ifndef USE_FSEEK
+// this function has been taken from fatfs ff.c as it's static there
+static DWORD clmt_clust(FIL *fp, FSIZE_t ofs) {
+  DWORD cl, ncl;
+  DWORD *tbl;
+  FATFS *fs = fp->obj.fs;
+  
+  tbl = fp->cltbl + 1;                    /* Top of CLMT */
+  cl = (DWORD)(ofs / FF_MAX_SS / fs->csize); /* Cluster order from top of the file */
+  for (;;) {
+    ncl = *tbl++; /* Number of cluters in the fragment */
+    if (ncl == 0)
+      return 0; /* End of table? (error) */
+    if (cl < ncl)
+      break; /* In this fragment? */
+    cl -= ncl;
+    tbl++; /* Next fragment */
+  }
+  return cl + *tbl; /* Return the cluster number */
+}
+#endif
+
+bool sdc_image_upload_in_progress(void) {
+  // check if a image upload is currently in progress. This is used during
+  // boot to delay the ready action (which usually releases reset) until
+  // all rom images have been uploaded
+  for(int image=0;image<MAX_IMAGES;image++)
+    if(fil[MAX_DRIVES+image].flag && image_bytes2send[image])
+      return true;
+
+  return false;
+}
+
+static void image_send_chunk(int image, uint32_t len) {  
+  
+  // send as many bytes as buffer space is available
+  if(!image_bytes2send[image]) {
+    sdc_debugf("IMG %d: no image to send!", image);
+    return;
+  }
+    
+  if(!fil[MAX_DRIVES+image].flag) {
+    sdc_debugf("IMG %d: no image to send!", image);
+    return;
+  }
+    
+  // send as many bytes as buffer space is available
+  if(!len) {
+    sdc_debugf("IMG %d: no data requested", image);
+    return;
+  }
+    
+  // don't send more bytes then left in file
+  if(len > image_bytes2send[image]) len = image_bytes2send[image];
+
+  sdc_debugf("IMG %d: sending %lu of %lu", image, len, image_bytes2send[image]);
+
+  sdc_lock();
+
+  // read data from image file
+  unsigned char buffer[len];
+  UINT bytesread;
+  f_read(&fil[MAX_DRIVES+image], buffer, len, &bytesread);
+  image_bytes2send[image] -= len;
+  
+  // send image payload
+  sdc_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE);
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE_WRITE);  
+  mcu_hw_spi_tx_u08(image);
+  unsigned char *p = buffer;
+  while(len--) mcu_hw_spi_tx_u08(*p++);
+  mcu_hw_spi_end();
+  
+  sdc_unlock();
+
+  // check if last block has been sent
+  if(!image_bytes2send[image]) {
+    sdc_debugf("IMG %d: download done, closing file", image);
+
+    f_close(&fil[MAX_DRIVES+image]);
+    memset(&fil[MAX_DRIVES+image], 0, sizeof(FIL));
+
+    // inform core that the image has "been removed"
+    sdc_spi_begin();
+    mcu_hw_spi_tx_u08(SPI_SDC_IMAGE);
+    mcu_hw_spi_tx_u08(SPI_SDC_IMAGE_SELECT);  
+    mcu_hw_spi_tx_u08(image);    
+    for(int i=0;i<4;i++) mcu_hw_spi_tx_u08(0);    // send size of 0
+    mcu_hw_spi_end();
+
+    // the image download have either been triggered by the ini file at
+    // boot time or by the user. run image action will take care of both
+    // cases.    
+    menu_run_current_image_action();
+  }
+}
+    
+static int sdc_rom_image_get_buffer(char image) {
+  sdc_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE);
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE_STATUS);  
+  mcu_hw_spi_tx_u08(image);
+
+  uint8_t status = mcu_hw_spi_tx_u08(0);
+  
+  // read 16 bit buffer value
+  uint16_t buffer = mcu_hw_spi_tx_u08(0);
+  buffer = (buffer << 8) + mcu_hw_spi_tx_u08(0);
+
+  mcu_hw_spi_end();
+  
+  // return -1 if core has not accepted the image, e.g. since
+  // the size is not what it supports
+  if(!(status & 0x80))
+    return -1;
+
+  return buffer;
+}
+
+int sdc_handle_event(void) {
+  bool handled = false;
+  
+  // read sd status
+  sdc_spi_begin();  
+  mcu_hw_spi_tx_u08(SPI_SDC_STATUS);
+  mcu_hw_spi_tx_u08(0);
+  unsigned char request = mcu_hw_spi_tx_u08(0);
+  unsigned long rsector = 0;
+  for(int i=0;i<4;i++) rsector = (rsector << 8) | mcu_hw_spi_tx_u08(0); 
+  mcu_hw_spi_end();
+
+  if(request) {
+    int drive = 0;
+    while(!(request & (1<<drive))) drive++;
+
+    if(!fil[drive].flag) {
+      // no file selected
+      // this should actually never happen as the core won't request
+      // data if it hasn't been told that an image is inserted
+      return -1;
+    }
+    
+    // ---- figure out which physical sector to use ----
+  
+    // translate sector into a cluster number inside image
+    sdc_lock();
+#ifdef USE_FSEEK
+    f_lseek(&fil[drive], (rsector+1)*512);
+    // and add sector offset within cluster    
+    unsigned long dsector = clst2sect(fil[drive].clust) + rsector%fs.csize;    
+#else
+    // derive cluster directly from table
+    unsigned long dsector = clst2sect(clmt_clust(&fil[drive], (FSIZE_t)rsector*512ll)) + rsector%fs.csize;
+#endif
+    
+    sdc_debugf("DRV %d: lba %lu = %lu", drive, rsector, dsector);
+
+    // send sector number to core, so it can read or write the right
+    // sector from/to its local sd card
+    sdc_spi_begin();  
+    mcu_hw_spi_tx_u08(SPI_SDC_CORE_RW);
+    mcu_hw_spi_tx_u08((dsector >> 24) & 0xff);
+    mcu_hw_spi_tx_u08((dsector >> 16) & 0xff);
+    mcu_hw_spi_tx_u08((dsector >> 8) & 0xff);
+    mcu_hw_spi_tx_u08(dsector & 0xff);
+
+    // wait while core is busy to make sure we don't start
+    // requesting data for ourselves while the core is still
+    // doing its own io. A stalled core must not starve FTP and
+    // every other filesystem user while holding the SD lock.
+    TickType_t t0 = xTaskGetTickCount();
+    while(mcu_hw_spi_tx_u08(0) & 1) {
+      if((xTaskGetTickCount() - t0) > pdMS_TO_TICKS(SDC_CORE_RW_TIMEOUT_MS)) {
+        mcu_hw_spi_end();
+        sdc_unlock();
+        sdc_debugf("SDC: core request timeout");
+        return -1;
+      }
+    }
+    
+    mcu_hw_spi_end();
+
+    sdc_unlock();
+
+    handled = true;
+  } else {
+    // No SD RD/WR request bit set, check for image transfer in progress.
+    // Only serve the first one active as we only have one fifo on
+    // the fpga side. ROM transfers are done sequentialy
+    for(int i=0;i<8 && !handled;i++) {
+      if(fil[MAX_DRIVES+i].flag) {
+	// Check if there's a running IMAGE transfer
+	int buffer = sdc_rom_image_get_buffer(i);
+	if(buffer > 0) {
+	  image_send_chunk(i, buffer);
+	  handled = true;
+	}
+      }
+    }
+  }
+
+#ifndef SDL
+  // in SDL emulation this is called from a timer and not from
+  // an actual interrupt
+  if(!handled) sdc_debugf("Warning, spourious interrupt");
+#endif
+  
+  return handled?0:-1;
+}
+
+static void sdc_image_enable_direct(char drive, unsigned long start) {
+  sdc_debugf("DRV %d: enable direct mapping @%lu", drive, start);
+  
+  sdc_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_SDC_DIRECT);
+  mcu_hw_spi_tx_u08(drive);
+  
+  // send start sector
+  mcu_hw_spi_tx_u08((start >> 24) & 0xff);
+  mcu_hw_spi_tx_u08((start >> 16) & 0xff);
+  mcu_hw_spi_tx_u08((start >> 8) & 0xff);
+  mcu_hw_spi_tx_u08(start & 0xff);
+  
+  mcu_hw_spi_end();
+}
+
+static int sdc_image_inserted(char drive, FSIZE_t size) {
+  // report the size of the inserted image to the core. This is needed
+  // to guess sector/track/side information for floppy disk images, so the
+  // core can translate from floppy disk to LBA
+
+  if(size) sdc_debugf("DRV %d: inserted. Size = %llu", drive, (unsigned long long)size);
+  else     sdc_debugf("DRV %d: ejected", drive);
+  
+  sdc_spi_begin();
+
+  // files over 4GB size are reported using an extra command. This also prevents
+  // cores not coping with big files from messing them up
+  if( (sizeof(FSIZE_t) == 8) && (size >= 0x100000000llu)) {
+    sdc_debugf("Inserting large file");
+    mcu_hw_spi_tx_u08(SPI_SDC_INS_LARGE);
+  } else
+    mcu_hw_spi_tx_u08(SPI_SDC_INSERTED);
+  
+  mcu_hw_spi_tx_u08(drive);
+
+  // send upper 32 bits of large file
+  if((sizeof(FSIZE_t) == 8) && (size >= 0x100000000llu)) {
+    mcu_hw_spi_tx_u08((size >> 56) & 0xff);
+    mcu_hw_spi_tx_u08((size >> 48) & 0xff);
+    mcu_hw_spi_tx_u08((size >> 40) & 0xff);
+    mcu_hw_spi_tx_u08((size >> 32) & 0xff);
+  }
+    
+  // send file length
+  mcu_hw_spi_tx_u08((size >> 24) & 0xff);
+  mcu_hw_spi_tx_u08((size >> 16) & 0xff);
+  mcu_hw_spi_tx_u08((size >> 8) & 0xff);
+  mcu_hw_spi_tx_u08(size & 0xff);
+
+  mcu_hw_spi_end();
+
+  return 0;
+}
+
+static void sdc_rom_image_selected(char image, FSIZE_t size) {
+  // ignore de-selection of a deselected image
+  if(!fil[MAX_DRIVES+image].flag && !size) return;  
+  
+  if(size) sdc_debugf("IMG %d: selected. Size = %llu", image, (unsigned long long)size);
+  else     sdc_debugf("IMG %d: deselected", image);
+
+  sdc_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE);
+  mcu_hw_spi_tx_u08(SPI_SDC_IMAGE_SELECT);  
+  mcu_hw_spi_tx_u08(image);
+
+  // send 32 bit image size, allowing for images up to 4GB
+  mcu_hw_spi_tx_u08((size >> 24) & 0xff);
+  mcu_hw_spi_tx_u08((size >> 16) & 0xff);
+  mcu_hw_spi_tx_u08((size >> 8) & 0xff);
+  mcu_hw_spi_tx_u08(size & 0xff);
+
+  mcu_hw_spi_end();
+}
+
+static bool sdc_image_start_transfer(int image) {
+  sdc_rom_image_selected(image, fil[MAX_DRIVES+image].obj.objsize);
+    
+  // get number of bytes to send
+  image_bytes2send[(int)image] = fil[image+MAX_DRIVES].obj.objsize;
+  if(sdc_rom_image_get_buffer(image) < 0) {
+    sdc_debugf("IMG %d: Core has rejected image", image);
+    
+    // close the transfer immediately
+    f_close(&fil[image+MAX_DRIVES]);
+    memset(&fil[image+MAX_DRIVES], 0, sizeof(FIL));
+    image_bytes2send[(int)image] = 0;
+
+    return false;
+  }
+
+  return true;
+}
+
+bool sdc_check_for_pending_image_uploads(void) {
+  // check if more image uploads are needed to complete the
+  // boot process. The previous one has already been closed
+  // and won't show up, anymore.
+  for(int image=0;image<MAX_IMAGES;image++) {
+    if(fil[MAX_DRIVES+image].flag) {
+      sdc_debugf("IMG %d: starting download", image);
+      if(sdc_image_start_transfer(image))
+	return true;
+    }
+  }
+  return false;
+}
+
+// open a drive or rom image
+int sdc_image_open(int drive, char *name) {
+  unsigned long start_sector = 0;
+
+  // close any file that may be open for this drive
+  if(fil[drive].flag) {
+    sdc_debugf("%s %d: closing file '%s'", (drive < MAX_DRIVES)?"DRV":"IMG",
+	       (drive < MAX_DRIVES)?drive:(drive-MAX_DRIVES),
+	       image_name[drive]?image_name[drive]:"<unknown>");
+    f_close(&fil[drive]);
+    memset(&fil[drive], 0, sizeof(FIL));
+  }
+  
+  if(drive < MAX_DRIVES) {
+    // tell core that the "disk" has been removed
+    sdc_image_inserted(drive, 0);
+  } else if(drive < MAX_DRIVES+MAX_IMAGES) {
+    // report image de-selection
+    sdc_rom_image_selected(drive-MAX_DRIVES, 0);
+  }
+
+  if(drive < MAX_DRIVES+MAX_IMAGES) {
+    // forget about any previous name
+    if(image_name[drive]) {
+      vPortFree(image_name[drive]);
+      image_name[drive] = NULL;
+    }
+  }
+  
+  // nothing to be inserted? Do nothing!
+  if(!name) return 0;
+
+  // assemble full name incl. path
+  char fname[strlen(cwd[drive]) + strlen(name) + 2];
+  strcpy(fname, cwd[drive]);
+  strcat(fname, "/");
+  strcat(fname, name);
+
+  // check whether a drive is being mounted or if a rom image is being loaded
+  if(drive < MAX_DRIVES) {
+    sdc_lock();
+  
+    // close any previous image, especially free the link table
+    if(fil[drive].cltbl) {
+      sdc_debugf("DRV %d: freeing link table", drive);
+      vPortFree(lktbl[drive]);
+      lktbl[drive] = NULL;
+      fil[drive].cltbl = NULL;
+    }
+    
+    sdc_debugf("DRV %d: Mounting %s", drive, fname);
+    
+    if(f_open(&fil[drive], fname, FA_OPEN_EXISTING | FA_READ) != 0) {
+      sdc_debugf("DRV %d: file open failed", drive);
+      sdc_unlock();
+      return -1;
+    } else {
+      sdc_debugf("DRV %d: file opened, cl=%lu(%lu)", drive,
+		 (unsigned long)fil[drive].obj.sclust, (unsigned long)clst2sect(fil[drive].obj.sclust));
+      sdc_debugf("DRV %d: File len = %ld, spc = %d, clusters = %lu", drive,
+		 (unsigned long)fil[drive].obj.objsize, fs.csize,
+		 (unsigned long)fil[drive].obj.objsize / 512 / fs.csize);      
+      
+      // try with a 16 entry link table
+      lktbl[drive] = pvPortMalloc(16 * sizeof(DWORD));    
+      fil[drive].cltbl = lktbl[drive];
+      lktbl[drive][0] = 16;
+      
+      if(f_lseek(&fil[drive], CREATE_LINKMAP)) {
+	// this isn't really a problem. But sector access will
+	// be slower
+	sdc_debugf("DRV %d: Short link table creation failed, "
+		   "required size: %lu", drive, (unsigned long)lktbl[drive][0]);
+	
+	// re-alloc sufficient memory
+	vPortFree(lktbl[drive]);
+	lktbl[drive] = pvPortMalloc(sizeof(DWORD) * lktbl[drive][0]);
+	
+	// and retry link table creation
+	if(f_lseek(&fil[drive], CREATE_LINKMAP)) {
+	  sdc_debugf("DRV %d: Link table creation finally failed, "
+		     "required size: %lu", drive, (unsigned long)lktbl[drive][0]);
+	  vPortFree(lktbl[drive]);
+	  lktbl[drive] = NULL;
+	  fil[drive].cltbl = NULL;
+	  
+	  sdc_unlock();
+	  return -1;
+	} else 
+	  sdc_debugf("DRV %d: Link table ok with %lu entries", drive, (unsigned long)lktbl[drive][0]);
+      } else {
+	sdc_debugf("DRV %d: Short link table ok with %lu entries", drive, (unsigned long)lktbl[drive][0]);
+	
+	// A link table length of 4 means, that  there's only one entry in it. This
+	// in turn means that the file is continious. The start sector can thus be
+	// sent to the core which can then access any sector without further help
+	// by the MCU.
+	if(lktbl[drive][0] == 4 && lktbl[drive][3] == 0)
+	  start_sector = clst2sect(lktbl[drive][2]);
+      }
+    }
+
+    sdc_unlock();
+    
+    // remember current image name
+    image_name[drive] = StrDup(name);
+
+    // image has successfully been opened, so report image size to core
+    sdc_image_inserted(drive, fil[drive].obj.objsize);
+
+    // allow direct mapping if possible
+    if(start_sector) sdc_image_enable_direct(drive, start_sector);
+  } else if(drive < MAX_DRIVES+MAX_IMAGES) {
+    char image = drive-MAX_DRIVES;
+    
+    sdc_debugf("IMG %d: Uploading %s", image, fname);
+    
+    sdc_lock();
+    if(f_open(&fil[drive], fname, FA_OPEN_EXISTING | FA_READ) != 0) {
+      sdc_debugf("IMG %d: file open failed", image);
+      sdc_unlock();
+      return -1;
+    }
+
+    // remember current image name
+    image_name[drive] = StrDup(name);
+
+    // Upload rom. This happens in the background to be able to use the
+    // system while e.g. a slow tape upload is running
+
+    bool active = false;
+    for(int i=0;i<MAX_IMAGES;i++)
+      if(fil[i+MAX_DRIVES].flag && image_bytes2send[i])
+	active = true;
+
+    // We transfer one image at a time. So if one is already
+    // and being active, the we won't activate a second one, yet 
+    if(!active) sdc_image_start_transfer(image);
+    else        sdc_debugf("IMG %d: Delaying additional rom download", image);
+    
+    sdc_unlock();
+  } else
+    mcu_hw_upload_core(fname);
+    
+  return 0;
+}
+
+static bool sdc_cwd_is_root(int drive) {
+  // no cwd set is also treated as root
+  if(!cwd[drive]) return true;
+
+  // as well as an empty cwd
+  if(!cwd[drive][0]) return true;
+
+  if(strcmp(cwd[drive], "/") == 0) return true;
+  if(strcmp(cwd[drive], "/sd") == 0) return true;
+  if(strcmp(cwd[drive], "/usb") == 0) return true;
+
+  return false;
+}
+
+sdc_dir_entry_t *sdc_readdir(int drive, char *name, const char *ext) {
+  static sdc_dir_entry_t *sdc_dir = NULL;
+
+  sdc_debugf("sdc_readdir(%d,%s,%s)", drive, name, cwd[drive]);
+  
+  int dir_compare(sdc_dir_entry_t *d1, sdc_dir_entry_t *d2) {
+    // comparing directory with regular file? 
+    if(d1->is_dir != d2->is_dir)
+      return d2->is_dir - d1->is_dir;
+
+    // check if one of the entries is the empty entry
+    if(d1->name[0] == '/') return -1;
+    if(d2->name[0] == '/') return  1;
+    
+    return strcasecmp(d1->name, d2->name);    
+  }
+
+  sdc_dir_entry_t *create(FILINFO *fno) {
+    // create new entry
+    sdc_dir_entry_t *entry = pvPortMalloc(sizeof(sdc_dir_entry_t));    
+    entry->name = StrDup(fno->fname);
+    entry->len = fno->fsize;
+    entry->is_dir = (fno->fattrib & AM_DIR)?1:0;
+    entry->next = NULL;
+
+    return entry;
+  }
+  
+  void append(sdc_dir_entry_t *list, FILINFO *fno) {
+    // create new entry
+    sdc_dir_entry_t *entry = create(fno);
+
+    // scan to end of list as long as the new entry does not
+    // belong before the one after the current one (implementing some
+    // simple insertion sort)
+    while(list->next && (dir_compare(list->next, entry)<0))
+      list = list->next;
+
+    // and append
+    entry->next = list->next;  // append the previous "next" to new entry
+    list->next = entry;        // make new entry the new "next"
+  }
+  
+  // check if a file name matches any of the extensions given
+  char ext_match(char *name, const char *exts) {
+    // check if name has an extension at all
+    char *dot = strrchr(name, '.');
+    if(!dot) return 0;
+
+    if(cfg) {
+      char **ext = (char**)exts;
+      
+      for(int i=0;ext[i];i++)
+	if(!strcasecmp(dot+1, ext[i]))
+	  return 1;
+
+    } else {    
+      // iterate over all extensions
+      const char *ext = exts;
+      while(1) {
+	const char *p = ext;
+	while(*p && *p != '+' && *p != ';') p++;  // search of end of ext
+	unsigned int len = p-ext;
+	
+	// check if length would match
+	if(strlen(dot+1) == len)
+	  if(!strncasecmp(dot+1, ext, len))
+	    return 1;  // it's a match
+	
+	// end of extension string reached: nothing found
+	if(!*p) return 0;
+	
+	ext = p+1;
+      }
+    }
+    return 0;
+  }
+
+#ifdef ESP_PLATFORM
+  FF_DIR dir;
+#else
+  DIR dir;
+#endif
+  
+  FILINFO fno;
+  // assemble name before we free it
+  if(name) {
+    if(strcmp(name, "..")) {
+      // alloc a longer string to fit new cwd
+      char *n = pvPortMalloc(strlen(cwd[drive])+strlen(name)+2);  // both strings + '/' and '\0'
+      strcpy(n, cwd[drive]); strcat(n, "/"); strcat(n, name);
+      vPortFree(cwd[drive]);
+      cwd[drive] = n;
+    } else {
+      // no real need to free here, the unused parts will be free'd
+      // once the cwd length increases. The menu relies on this!!!!!
+      strrchr(cwd[drive], '/')[0] = 0;
+    }
+  }
+
+  // free existing file chain
+  sdc_dir_entry_t *entry = sdc_dir;
+  while(entry) {
+    sdc_dir_entry_t *next = entry->next;
+    vPortFree(entry->name);
+    vPortFree(entry);
+    entry = next;
+  }
+  sdc_dir = NULL;
+  
+  // add "<UP>" entry for anything but root
+  if(!sdc_cwd_is_root(drive)) {
+    strcpy(fno.fname, "..");
+    fno.fattrib = AM_DIR;
+    fno.fsize = 0;
+    sdc_dir = create(&fno);
+  } else {
+    // the root also gets a special entry for "eject" or "No Disk"
+    // It's identified by the leading /, so the name can be changed
+    strcpy(fno.fname, "/");
+    fno.fattrib = AM_DIR;
+    fno.fsize = 0;
+    sdc_dir = create(&fno);    
+  }
+  
+  sdc_debugf("max name len = %d", FF_LFN_BUF);
+
+  sdc_lock();
+  
+  int ret = f_opendir(&dir, cwd[drive]);
+  sdc_debugf("opendir(%s)=%d", cwd[drive], ret);
+   
+  if(ret == 0) {  
+    do {
+      f_readdir(&dir, &fno);
+      if(fno.fname[0] != 0 && !(fno.fattrib & (AM_HID|AM_SYS)) ) {
+	sdc_debugf("%s %s, len=%llu", (fno.fattrib & AM_DIR) ? "dir: ":"file:",
+		   fno.fname, (unsigned long long)fno.fsize);
+
+	// only accept directories or .ST/.HD files
+	if((fno.fattrib & AM_DIR) || ext_match(fno.fname, ext))
+	  append(sdc_dir, &fno);
+      }
+    } while(fno.fname[0] != 0);
+
+    f_closedir(&dir);
+  }
+    
+  sdc_unlock();
+
+  return sdc_dir;
+}
+
+int sdc_init(void) {
+  sdc_sem = xSemaphoreCreateMutex();
+
+  sdc_debugf("---- SDC init ----");
+
+  if(fs_init() == 0) {
+    // setup paths to default to the sd card
+    for(int d=0;d<MAX_DRIVES+MAX_IMAGES;d++) {
+      cwd[d] = StrDup(CARD_MOUNTPOINT);
+      image_name[d] = NULL;
+    }
+    sdc_debugf("SD card is ready");
+  }
+
+  // clear the cwd for the core slots as 
+  for(int d=MAX_DRIVES+MAX_IMAGES;d<MAX_DRIVES+MAX_IMAGES+MAX_CORES;d++)
+    cwd[d] = NULL;
+
+  // no pending image transfers, yet
+  for(int d=0;d<MAX_IMAGES;d++)
+    image_bytes2send[d] = 0;
+
+ return 0;
+}
+
+void sdc_set_cwd(int drive, char *path) {
+  sdc_debugf("Setting cwd[%d] to %s", drive, path);
+  
+  if(cwd[drive]) vPortFree(cwd[drive]);
+  cwd[drive] = StrDup(path);  
+}
+
+void sdc_mount_defaults(void) {
+  sdc_debugf("Mounting all default images ...");
+
+  // try to mount (default) images
+  for(int drive=0;drive<MAX_DRIVES+MAX_IMAGES;drive++) {
+    char *name = sdc_get_image_name(drive);
+    sdc_debugf("Processing %s %d: %s",
+	       (drive<MAX_DRIVES)?"drive":"image",
+	       (drive<MAX_DRIVES)?drive:(drive-MAX_DRIVES),
+	       name?name:"<no file>");
+    
+    if(name) {
+      // create a local copy as sdc_image_open frees its own copy
+      char local_name[strlen(name)+1];
+      strcpy(local_name, name);
+      
+      if(sdc_image_open(drive, local_name) != 0) {
+	// open failed, also reset the path
+	if(cwd[drive]) vPortFree(cwd[drive]);
+	cwd[drive] = StrDup(CARD_MOUNTPOINT);
+      }
+    }
+  }
+}
+
+// use a locking mechanism to make sure the file system isn't modified
+// by two threads at the same time
+void sdc_lock(void) {
+  xSemaphoreTake(sdc_sem, 0xffffffffUL); // wait forever
+}
+
+void sdc_unlock(void) {
+  xSemaphoreGive(sdc_sem);
+}

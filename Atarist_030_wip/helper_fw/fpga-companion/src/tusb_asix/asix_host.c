@@ -1,0 +1,603 @@
+/*
+  asix_host.c
+
+  TinyUSB host driver for ASIX8877x based USB ethernet adapters
+ */
+
+#include "tusb_option.h"
+
+#if (TUSB_OPT_HOST_ENABLED && CFG_TUH_ASIX)
+
+#include "host/usbh.h"
+#include "host/usbh_pvt.h"
+
+#include "asix_host.h"
+#include "asix_pvt.h"
+#include "mii.h"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+
+// list of supported/tested devices
+static const struct {
+  uint16_t vid;
+  uint16_t pid;
+} asix_devs[] = {
+  { 0x2001, 0x3c05 },  // Silver DLink DUB-E100 H/W Ver B1 Alternate
+  { 0x0b95, 0x772b },  // Black DLink DUB-E100, ASIX Electronics Corp. AX88772B
+  { 0x2001, 0x1a02 },  // DLink DUB-E100 H/W Ver C1
+  { 0x0b95, 0x7720 },  // NoName Wii Adapter
+  { 0x05ac, 0x1402 },  // Apple USB Adapter A1277
+  { 0, 0 }
+};
+
+static asixh_interface_t _interfaces[CFG_TUH_ASIX];
+
+TU_ATTR_ALWAYS_INLINE static inline asixh_interface_t *get_interface(uint8_t dev_addr) {
+  TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, NULL);
+
+  for(int i=0;i<CFG_TUH_ASIX;i++)
+    if(_interfaces[i].dev_addr == dev_addr)
+      return &_interfaces[i];
+    
+  return NULL;
+}
+
+static bool asix_write_cmd(uint8_t daddr, uint8_t cmd, uint16_t value, uint16_t index,
+			   uint8_t *buffer, uint16_t length,
+			   tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
+
+  // TU_LOG2("%s() cmd=0x%02x value=0x%04x index=0x%04x length=%d\r\n", __FUNCTION__,
+  //    cmd, value, index, length);
+
+  tusb_control_request_t const request = {
+    .bmRequestType_bit = {
+      .recipient = TUSB_REQ_RCPT_DEVICE,
+      .type      = TUSB_REQ_TYPE_VENDOR,
+      .direction = TUSB_DIR_OUT
+    },
+    .bRequest = cmd,
+    .wValue   = tu_htole16(value),
+    .wIndex   = tu_htole16(index),
+    .wLength  = tu_htole16(length)
+  };
+ 
+  tuh_xfer_t xfer = {
+    .daddr       = daddr,
+    .ep_addr     = 0,
+    .setup       = &request,
+    .buffer      = buffer,
+    .complete_cb = complete_cb,
+    .user_data   = user_data
+  };
+
+  return tuh_control_xfer(&xfer);
+}
+
+static bool asix_read_cmd(uint8_t daddr, uint8_t cmd, uint16_t value, uint16_t index,
+			   uint8_t * buffer, uint16_t length,
+			  tuh_xfer_cb_t complete_cb, uintptr_t user_data) {
+  //TU_LOG2("%s() cmd=0x%02x value=0x%04x index=0x%04x length=%d\r\n", __FUNCTION__,
+  //	 cmd, value, index, length);
+
+  tusb_control_request_t const request = {
+    .bmRequestType_bit = {
+      .recipient = TUSB_REQ_RCPT_DEVICE,
+      .type      = TUSB_REQ_TYPE_VENDOR,
+      .direction = TUSB_DIR_IN
+    },
+    .bRequest = cmd,
+    .wValue   = tu_htole16(value),
+    .wIndex   = tu_htole16(index),
+    .wLength  = tu_htole16(length)
+  };
+ 
+  tuh_xfer_t xfer = {
+    .daddr       = daddr,
+    .ep_addr     = 0,
+    .setup       = &request,
+    .buffer      = buffer,
+    .complete_cb = complete_cb,
+    .user_data   = user_data
+  };
+
+  return tuh_control_xfer(&xfer);
+}
+
+//--------------------------------------------------------------------+
+// USBH API
+//--------------------------------------------------------------------+
+bool asixh_init(void) {
+    tu_memclr(_interfaces, sizeof(_interfaces));
+    return true;
+}
+
+uint16_t asixh_open(__attribute__((unused)) uint8_t rhport, uint8_t dev_addr,
+		    tusb_desc_interface_t const *desc_itf, __attribute__((unused)) uint16_t max_len) {
+    TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, 0);
+
+    TU_VERIFY(0xff == desc_itf->bInterfaceClass, 0);
+    TU_VERIFY(0xff == desc_itf->bInterfaceSubClass, 0);
+    TU_VERIFY(0x00 == desc_itf->bInterfaceProtocol, 0);
+ 
+    // get device vid/pid
+    uint16_t pid, vid;
+    tuh_vid_pid_get(dev_addr, &vid, &pid);
+
+    // search in list of asix devices
+    int i;
+    for(i=0;asix_devs[i].vid;i++)
+      if(vid == asix_devs[i].vid && pid == asix_devs[i].pid)
+	break;
+
+    // bail out if end of list was reached
+    TU_VERIFY(asix_devs[i].vid, 0);
+
+    TU_LOG2("[%u] ASIX opening Interface %u\r\r\n", dev_addr, desc_itf->bInterfaceNumber);
+
+    // get an unused entry, bail out of there's none
+    asixh_interface_t *itf = get_interface(0);
+    TU_VERIFY(itf, 0);
+
+    itf->dev_addr = dev_addr;
+
+    const uint16_t drv_len = (uint16_t)(sizeof(tusb_desc_interface_t) +
+					desc_itf->bNumEndpoints * sizeof(tusb_desc_endpoint_t));
+
+    //Parse descriptor for all endpoints and open them
+    uint8_t const *p_desc = (uint8_t const *)desc_itf;
+
+    // skip interface descriptor 
+    p_desc = tu_desc_next(p_desc);
+
+    // Endpoint Descriptors
+    for (uint8_t i = 0; i < desc_itf->bNumEndpoints; i++) {
+      const tusb_desc_endpoint_t *desc_ep = (const tusb_desc_endpoint_t *)p_desc;
+      TU_ASSERT(TUSB_DESC_ENDPOINT == desc_ep->bDescriptorType, 0);
+      TU_ASSERT(tuh_edpt_open(itf->dev_addr, desc_ep), 0);      
+
+      itf->ep[i] = desc_ep->bEndpointAddress;
+      itf->ep_size[i] = tu_edpt_packet_size(desc_ep);
+      p_desc = tu_desc_next(p_desc);
+    }
+    
+    return drv_len;
+}
+
+#define SETUP_DONE  0
+#define SETUP_WRITE 1
+#define SETUP_READ  2
+
+static void postproc_pyh_id(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: phy is 0x%04x\r\n", tu_htole16(itf->phy_id));
+  itf->embd_phy = (itf->phy_id & 0x1f00) == 0x1000 ? 1 : 0;
+  TU_LOG2("      phy is %sembedded\r\n", itf->embd_phy?"":"not ");
+}
+
+static uint16_t preproc_phy_select(asixh_interface_t *itf) {
+  return itf->embd_phy;
+}
+
+static uint16_t preproc_phy_id(asixh_interface_t *itf) {
+  return itf->phy_id >> 8;
+}
+
+static uint16_t preproc_swreset(asixh_interface_t *itf) {
+  return itf->embd_phy?AX_SWRESET_IPRL:AX_SWRESET_PRTE;
+}
+
+static void postproc_rx_ctl(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: rx ctl is 0x%04x\r\n", tu_htole16(itf->rx_ctl));
+}
+
+static void postproc_medium_status(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: medium status is 0x%04x\r\n", tu_htole16(itf->medium_status));
+}
+
+static void postproc_read_mac(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: MAC is %02x:%02x:%02x:%02x:%02x:%02x\r\n",
+	 itf->mac[0],itf->mac[1],itf->mac[2],itf->mac[3],itf->mac[4],itf->mac[5]);
+}
+
+static void postproc_phy_id32(asixh_interface_t *itf) {
+  uint32_t oui = (itf->mii_phy_id[0] << 6) + (itf->mii_phy_id[1] >> 10);
+  
+  TU_LOG2("ASIX: PHY ID is 0x%04x%04x\r\n", itf->mii_phy_id[1], itf->mii_phy_id[0] );
+  TU_LOG2("      OUI %02lx:%02lx:%02lx\r\n", (oui>>16)&0xff,(oui>>8)&0xff,oui&0xff);
+  TU_LOG2("      Manufacturer %0d\r\n", (itf->mii_phy_id[1]>>4)&0x3f);
+  TU_LOG2("      Revision %d\r\n", itf->mii_phy_id[1]&0xf);
+}
+
+static uint16_t preproc_bmcr_reset(asixh_interface_t *itf) {
+  itf->bmcr = BMCR_RESET;
+  TU_LOG2("ASIX: Setting bmcr to 0x%04x\r\n", itf->bmcr);
+  return preproc_phy_id(itf);
+}
+
+static uint16_t preproc_bmcr_autonegotiate(asixh_interface_t *itf) {
+  if(itf->bmcr & BMCR_ANENABLE)
+    itf->bmcr |= BMCR_ANRESTART;
+  
+  TU_LOG2("ASIX: Setting bmcr to 0x%04x\r\n", itf->bmcr);
+  return preproc_phy_id(itf);
+}
+
+static void postproc_bmcr(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: Basic mode control register is 0x%04x\r\n", itf->bmcr);
+  if(itf->bmcr & BMCR_SPEED1000) {TU_LOG2("      MSB of Speed (1000)\r\n");}
+  if(itf->bmcr & BMCR_CTST)      {TU_LOG2("      Collision test\r\n");}
+  if(itf->bmcr & BMCR_FULLDPLX)  {TU_LOG2("      Full duplex\r\n");}
+  if(itf->bmcr & BMCR_ANRESTART) {TU_LOG2("      Auto negotiation restart\r\n");}
+  if(itf->bmcr & BMCR_ISOLATE)   {TU_LOG2("      Disconnect from MII\r\n");}
+  if(itf->bmcr & BMCR_PDOWN)     {TU_LOG2("      Powerdown\r\n");}
+  if(itf->bmcr & BMCR_ANENABLE)  {TU_LOG2("      Enable auto negotiation\r\n");}
+  if(itf->bmcr & BMCR_SPEED100)  {TU_LOG2("      Select 100Mbps\r\n");}
+  if(itf->bmcr & BMCR_LOOPBACK)  {TU_LOG2("      TXD loopback bits\r\n");}
+  if(itf->bmcr & BMCR_RESET)     {TU_LOG2("      Reset\r\n");}
+}
+
+static uint16_t preproc_advertise(asixh_interface_t *itf) {
+  itf->advertise = ADVERTISE_ALL | ADVERTISE_CSMA;
+  TU_LOG2("ASIX: Setting advertise to 0x%04x\r\n", itf->advertise);
+  return preproc_phy_id(itf);
+}
+
+static void postproc_advertise(asixh_interface_t *itf) {
+  TU_LOG2("ASIX: Advertise register is 0x%04x\r\n", itf->advertise);
+}
+
+static void postproc_bmsr(asixh_interface_t *itf) {
+  // Basic mode status register.
+  TU_LOG2("ASIX: Basic mode status register is 0x%04x\r\n", itf->bmsr);
+  if(itf->bmsr & BMSR_ERCAP)        {TU_LOG2("      Ext-reg capability\r\n");}
+  if(itf->bmsr & BMSR_JCD)          {TU_LOG2("      Jabber detected\r\n");}
+  if(itf->bmsr & BMSR_LSTATUS)      {TU_LOG2("      Link status\r\n");}
+  if(itf->bmsr & BMSR_ANEGCAPABLE)  {TU_LOG2("      Able to do auto-negotiation\r\n");}
+  if(itf->bmsr & BMSR_RFAULT)       {TU_LOG2("      Remote fault detected\r\n");}
+  if(itf->bmsr & BMSR_ANEGCOMPLETE) {TU_LOG2("      Auto-negotiation complete\r\n");}
+  if(itf->bmsr & BMSR_ESTATEN)      {TU_LOG2("      Extended Status in R15\r\n");}
+  if(itf->bmsr & BMSR_100HALF2)     {TU_LOG2("      Can do 100BASE-T2 HDX\r\n");}
+  if(itf->bmsr & BMSR_100FULL2)     {TU_LOG2("      Can do 100BASE-T2 FDX\r\n");}
+  if(itf->bmsr & BMSR_10HALF)       {TU_LOG2("      Can do 10mbps, half-duplex\r\n");}
+  if(itf->bmsr & BMSR_10FULL)       {TU_LOG2("      Can do 10mbps, full-duplex\r\n");}
+  if(itf->bmsr & BMSR_100HALF)      {TU_LOG2("      Can do 100mbps, half-duplex\r\n");}
+  if(itf->bmsr & BMSR_100FULL)      {TU_LOG2("      Can do 100mbps, full-duplex\r\n");}
+  if(itf->bmsr & BMSR_100BASE4)     {TU_LOG2("      Can do 100mbps, 4k packets\r\n");}
+}
+
+#define READ_MII_REG(reg,var,cb) \
+  { SETUP_WRITE,  AX_CMD_SET_SW_MII, 0,0, 0, 0, NULL,NULL },  \
+  { SETUP_READ,   AX_CMD_READ_MII_REG, 0,reg, offsetof(asixh_interface_t,var), 2, preproc_phy_id,cb }, \
+  { SETUP_WRITE,  AX_CMD_SET_HW_MII, 0,0, 0, 0, NULL,NULL }
+
+#define WRITE_MII_REG(reg,var,cb) \
+  { SETUP_WRITE,  AX_CMD_SET_SW_MII, 0,0, 0, 0, NULL,NULL },  \
+  { SETUP_WRITE,  AX_CMD_WRITE_MII_REG, 0,reg, offsetof(asixh_interface_t,var), 2, cb,NULL }, \
+  { SETUP_WRITE,  AX_CMD_SET_HW_MII, 0,0, 0, 0, NULL,NULL }
+
+// structure describing the setup process
+static const struct {
+  uint8_t type;
+  uint8_t cmd;       // USB control command
+  uint16_t value;    // USB control command value
+  uint16_t index;    // USB control command index
+  uint16_t offset;   // command payload offset within interface structure, only used during reads
+  uint16_t size;     // command payload length, only used during reads
+  uint16_t (*preproc)(asixh_interface_t *);
+  void (*postproc)(asixh_interface_t *);
+} setup_commands[] = {
+  { SETUP_WRITE, AX_CMD_WRITE_GPIOS, AX_GPIO_RSE | AX_GPIO_GPO_2 | AX_GPIO_GPO2EN,0, 0,0, NULL,NULL  /* TODO: sleep 150ms */ },
+  { SETUP_READ,  AX_CMD_READ_PHY_ID, 0,0, offsetof(asixh_interface_t, phy_id), 2, NULL, postproc_pyh_id  },
+  { SETUP_WRITE, AX_CMD_SW_PHY_SELECT, 0,0, 0,0, preproc_phy_select, NULL },
+  { SETUP_WRITE, AX_CMD_SW_RESET, AX_SWRESET_IPPD|AX_SWRESET_PRL,0, 0,0, NULL,NULL },
+  { SETUP_WRITE, AX_CMD_SW_RESET, AX_SWRESET_CLEAR,0, 0,0, NULL,NULL },
+  { SETUP_WRITE, AX_CMD_SW_RESET, 0,0, 0,0, preproc_swreset,NULL },
+  { SETUP_READ,  AX_CMD_READ_RX_CTL, 0,0, offsetof(asixh_interface_t, rx_ctl), 2, NULL,postproc_rx_ctl },
+  { SETUP_WRITE, AX_CMD_WRITE_RX_CTL, 0,0, 0, 0, NULL,NULL },
+  { SETUP_READ,  AX_CMD_READ_RX_CTL, 0,0, offsetof(asixh_interface_t, rx_ctl), 2, NULL,postproc_rx_ctl },
+  { SETUP_READ,  AX_CMD_READ_NODE_ID, 0,0, offsetof(asixh_interface_t, mac), 6, NULL,postproc_read_mac },
+
+  // read both physical id registers
+  READ_MII_REG(MII_PHYSID1, mii_phy_id[0], NULL),
+  READ_MII_REG(MII_PHYSID2, mii_phy_id[1], postproc_phy_id32),
+
+  { SETUP_WRITE,  AX_CMD_SW_RESET, AX_SWRESET_PRL,0, 0,0, NULL,NULL },
+  { SETUP_WRITE,  AX_CMD_SW_RESET, AX_SWRESET_IPRL | AX_SWRESET_PRL,0, 0,0, NULL,NULL },
+
+  READ_MII_REG(MII_BMCR, bmcr, postproc_bmcr),
+  READ_MII_REG(MII_BMSR, bmsr, postproc_bmsr),
+  READ_MII_REG(MII_ADVERTISE, advertise, postproc_advertise),
+
+  // reset the phy
+  WRITE_MII_REG(MII_BMCR, bmcr, preproc_bmcr_reset),
+
+  // set advertise register
+  WRITE_MII_REG(MII_ADVERTISE, advertise, preproc_advertise),
+
+  // (re-)enable auto negotiation
+  WRITE_MII_REG(MII_BMCR, bmcr, preproc_bmcr_autonegotiate),
+  
+  { SETUP_WRITE,  AX_CMD_WRITE_MEDIUM_MODE, AX88772_MEDIUM_DEFAULT,0, 0, 0, NULL,NULL },
+
+  { SETUP_WRITE,   AX_CMD_WRITE_IPG0,  AX88772_IPG0_DEFAULT|AX88772_IPG1_DEFAULT, AX88772_IPG2_DEFAULT, 0, 0, NULL,NULL },
+  
+  /* Set RX_CTL to default values with 2k buffer, and enable cactus */
+  { SETUP_WRITE, AX_CMD_WRITE_RX_CTL, AX_DEFAULT_RX_CTL,0, 0, 0, NULL,NULL },
+  { SETUP_READ,  AX_CMD_READ_RX_CTL, 0,0, offsetof(asixh_interface_t, rx_ctl), 2, NULL,postproc_rx_ctl },
+  
+  { SETUP_READ,  AX_CMD_READ_MEDIUM_STATUS, 0,0, offsetof(asixh_interface_t, medium_status), 2, NULL,postproc_medium_status },
+  
+  { SETUP_DONE,  0, 0,0, 0,0, NULL,NULL }
+};
+
+bool tuh_asix_receive(uint8_t dev_addr, uint8_t ep);
+
+static void process_set_config(tuh_xfer_t* xfer) {
+  asixh_interface_t *itf = get_interface(xfer->daddr);
+  TU_VERIFY(itf, );
+
+  // call post processing function from previous command if present
+  if(xfer->user_data && setup_commands[xfer->user_data-1].postproc)
+    setup_commands[xfer->user_data-1].postproc(itf);
+
+  // call preprocessing function id present
+  uint16_t value = setup_commands[xfer->user_data].value;  
+  if(setup_commands[xfer->user_data].preproc)
+    value = setup_commands[xfer->user_data].preproc(itf);
+  
+  if(setup_commands[xfer->user_data].type == SETUP_WRITE) {
+    asix_write_cmd(itf->dev_addr, setup_commands[xfer->user_data].cmd,
+		   value, setup_commands[xfer->user_data].index,
+		   ((uint8_t*)itf)+setup_commands[xfer->user_data].offset,
+		   setup_commands[xfer->user_data].size,
+		   process_set_config, xfer->user_data+1);
+  } else if(setup_commands[xfer->user_data].type == SETUP_READ)  {
+    asix_read_cmd(itf->dev_addr, setup_commands[xfer->user_data].cmd,
+		  value, setup_commands[xfer->user_data].index,
+		  ((uint8_t*)itf)+setup_commands[xfer->user_data].offset,
+		  setup_commands[xfer->user_data].size,
+		  process_set_config, xfer->user_data+1);    
+  } else {
+    tuh_asix_mount_cb(itf);
+    usbh_driver_set_config_complete(itf->dev_addr, 0);
+
+    // start receiving data
+    tuh_asix_receive(itf->dev_addr, 0);
+    tuh_asix_receive(itf->dev_addr, 1);
+  }
+}
+  
+bool asixh_set_config(uint8_t dev_addr, __attribute__((unused)) uint8_t itf_num) {
+  // set interface and trigger setup process
+  tuh_interface_set(dev_addr, 0, 0, process_set_config, 0);
+  return true;
+}
+
+bool tuh_asix_receive(uint8_t dev_addr, uint8_t ep) {
+  asixh_interface_t *itf = get_interface(dev_addr);
+  TU_VERIFY(itf, 0);
+  
+  TU_VERIFY(usbh_edpt_claim(dev_addr, itf->ep[ep]), false);
+  uint8_t *buf = (ep==0)?itf->ep0in_buf:itf->ep1in_buf[itf->rx_buf_idx];
+  uint16_t len = (ep==0)?sizeof(itf->ep0in_buf):sizeof(itf->ep1in_buf[0]);
+  
+  if(!usbh_edpt_xfer(dev_addr, itf->ep[ep], buf, len)) {
+    usbh_edpt_release(dev_addr, itf->ep[ep]);
+    return false;
+  }
+  return true;
+}
+
+static uint16_t asix_prepare_tx(uint8_t *out, const uint8_t *data, uint16_t len, uint16_t ep_size) {
+  *(uint16_t*)&out[0] = len;
+  *(uint16_t*)&out[2] = ~len;
+  memcpy(out+4, data, len);
+
+  uint16_t xfer_len = len + 4;
+  if(ep_size && (xfer_len % ep_size) == 0 &&
+     (uint16_t)(xfer_len + 4) <= CFG_TUH_ASIX_EP_BUFSIZE) {
+    out[xfer_len + 0] = 0x00;
+    out[xfer_len + 1] = 0x00;
+    out[xfer_len + 2] = 0xff;
+    out[xfer_len + 3] = 0xff;
+    xfer_len += 4;
+  }
+
+  return xfer_len;
+}
+
+static bool asix_start_tx(asixh_interface_t *itf, uint8_t *buf, uint16_t len) {
+  TU_VERIFY(usbh_edpt_claim(itf->dev_addr, itf->ep[2]), false);
+  if(!usbh_edpt_xfer(itf->dev_addr, itf->ep[2], buf, len)) {
+    usbh_edpt_release(itf->dev_addr, itf->ep[2]);
+    return false;
+  }
+  return true;
+}
+
+static void asix_start_next_tx(asixh_interface_t *itf) {
+  if(!itf->tx_count)
+    return;
+
+  uint8_t idx = itf->tx_head;
+  uint16_t len = itf->tx_len[idx];
+  memcpy(itf->epout_buf, itf->tx_queue[idx], len);
+  itf->tx_head = (uint8_t)((itf->tx_head + 1) % CFG_TUH_ASIX_TX_QUEUE_DEPTH);
+  itf->tx_count--;
+
+  if(!asix_start_tx(itf, itf->epout_buf, len)) {
+    itf->tx_head = idx;
+    itf->tx_count++;
+  }
+}
+
+static void asix_queue_tx(asixh_interface_t *itf, const uint8_t *data, uint16_t len) {
+  if(itf->tx_count >= CFG_TUH_ASIX_TX_QUEUE_DEPTH) {
+    return;
+  }
+
+  uint8_t idx = (uint8_t)((itf->tx_head + itf->tx_count) % CFG_TUH_ASIX_TX_QUEUE_DEPTH);
+  itf->tx_len[idx] = asix_prepare_tx(itf->tx_queue[idx], data, len, itf->ep_size[2]);
+  itf->tx_count++;
+}
+
+bool asixh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
+  // TU_LOG2("%s(%d,%02x,%lu)\r\n", __FUNCTION__, dev_addr, ep_addr, xferred_bytes);
+  
+  uint8_t const dir = tu_edpt_dir(ep_addr);
+  uint8_t const number = tu_edpt_number(ep_addr);
+
+  asixh_interface_t *itf = get_interface(dev_addr);
+  TU_VERIFY(itf, false);
+
+  uint8_t *buf = (number==1)?itf->ep0in_buf:itf->ep1in_buf[itf->rx_buf_idx];
+  
+  if(dir == TUSB_DIR_OUT && ep_addr == itf->ep[2]) {
+    asix_start_next_tx(itf);
+    return true;
+  }
+
+  if (result != XFER_RESULT_SUCCESS)
+    return false;
+
+  // handle incoming data
+  if(dir == TUSB_DIR_IN && xferred_bytes) {  
+
+    if(number == 1) {
+      // primary or secondary link detected?
+      bool link_detected = ((buf[2] & 3) != 0); 
+      
+      if(link_detected != itf->link_detected) {
+	itf->link_detected = link_detected;
+	if(link_detected) netif_set_link_up(&itf->netif);
+	else              netif_set_link_down(&itf->netif);
+      }
+
+      // receive next interrupt message
+      tuh_asix_receive(dev_addr, 0);
+    }
+    
+    // ep 2 is bulk data in
+    if(number == 2) {
+      // switch to the other buffer and re-arm the bulk endpoint right away so
+      // the USB link keeps receiving while we still parse/hand off this buffer
+      itf->rx_buf_idx ^= 1;
+      tuh_asix_receive(dev_addr, 1);
+
+      uint32_t offset = 0;
+
+      // finish reassembling a frame whose payload was split across the
+      // previous bulk-in transfer and this one (AX88772 does this whenever
+      // a frame doesn't fit in the remaining space of a 2048-byte transfer)
+      if(itf->rx_carry_need) {
+        uint16_t need = itf->rx_carry_need - itf->rx_carry_have;
+        uint16_t take = (xferred_bytes < need) ? (uint16_t)xferred_bytes : need;
+        memcpy(itf->rx_carry_buf + itf->rx_carry_have, buf, take);
+        itf->rx_carry_have += take;
+        offset = take;
+
+        if(itf->rx_carry_have == itf->rx_carry_need) {
+          if(itf->netif.input) {
+            struct pbuf* p = pbuf_alloc(PBUF_RAW, itf->rx_carry_need, PBUF_POOL);
+            if(p && pbuf_take(p, itf->rx_carry_buf, itf->rx_carry_need) == ERR_OK) {
+              if (itf->netif.input(p, &(itf->netif)) != ERR_OK)
+                pbuf_free(p);
+            } else if(p) {
+              pbuf_free(p);
+            }
+          }
+          itf->rx_carry_need = 0;
+          itf->rx_carry_have = 0;
+        }
+        // else: frame still incomplete, nothing else usable in this transfer
+      }
+
+      while(xferred_bytes - offset >= 4) {
+        uint16_t len = (buf[offset + 0] + 256*buf[offset + 1]) & 0x7ff;
+        uint16_t len_crc = buf[offset + 2] + 256*buf[offset + 3];
+        if(!len || len != ((0xffff ^ len_crc) & 0x7ff)) {
+          break;
+        }
+        offset += 4;
+
+        if(xferred_bytes - offset < len) {
+          // payload continues in the next bulk-in transfer; stash what we
+          // have and finish it above once the rest arrives
+          itf->rx_carry_have = (uint16_t)(xferred_bytes - offset);
+          itf->rx_carry_need = len;
+          memcpy(itf->rx_carry_buf, buf + offset, itf->rx_carry_have);
+          break;
+        }
+
+        // netif up? This may not be the case if USB network card was detected
+        // before the lwip stack was up
+        if(itf->netif.input) {
+          struct pbuf* p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
+          if(p && pbuf_take(p, buf+offset, len) == ERR_OK) {
+            if (itf->netif.input(p, &(itf->netif)) != ERR_OK)
+              pbuf_free(p);
+          } else if(p) {
+            pbuf_free(p);
+          }
+        }
+
+        offset += len;
+      }
+    }
+  }
+  
+  return true;
+}
+
+void tuh_asix_transmit(struct netif *netif, uint8_t *data, uint16_t len) {
+  // TU_LOG2("%s(%p,%p,%u)\r\n", __FUNCTION__, netif, data, len);
+
+  // find asix interface matching this netif
+  asixh_interface_t *itf = NULL;
+  for(int i=0;i<CFG_TUH_ASIX;i++)
+    if(&_interfaces[i].netif == netif)
+      itf = &_interfaces[i];
+
+  TU_VERIFY(itf, );
+  TU_VERIFY((uint16_t)(len + 8) <= CFG_TUH_ASIX_EP_BUFSIZE, );
+
+  if(usbh_edpt_claim(itf->dev_addr, itf->ep[2])) {
+    uint16_t xfer_len = asix_prepare_tx(itf->epout_buf, data, len, itf->ep_size[2]);
+    if(!usbh_edpt_xfer(itf->dev_addr, itf->ep[2], itf->epout_buf, xfer_len)) {
+      usbh_edpt_release(itf->dev_addr, itf->ep[2]);
+      asix_queue_tx(itf, data, len);
+    }
+  } else {
+    asix_queue_tx(itf, data, len);
+  }
+
+  return;
+}
+
+void asixh_close(uint8_t dev_addr) {
+  asixh_interface_t *itf = get_interface(dev_addr);
+  TU_VERIFY(itf, );
+  
+  tuh_asix_umount_cb(itf);
+  
+  tu_memclr(itf, sizeof(asixh_interface_t));
+}
+
+#ifndef DRIVER_NAME
+#if CFG_TUSB_DEBUG >= CFG_TUH_LOG_LEVEL
+  #define DRIVER_NAME(_name)    .name = _name,
+#else
+  #define DRIVER_NAME(_name)
+#endif
+#endif
+
+usbh_class_driver_t const usbh_asix_driver = {
+  DRIVER_NAME("ASIX")
+  .init       = asixh_init,
+  .open       = asixh_open,
+  .set_config = asixh_set_config,
+  .xfer_cb    = asixh_xfer_cb,
+  .close      = asixh_close
+};
+
+#endif
