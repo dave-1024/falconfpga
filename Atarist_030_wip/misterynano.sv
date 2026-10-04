@@ -560,7 +560,7 @@ atarist atarist (
     .r(st_r),
     .g(st_g),
     .b(st_b),
-    .mono_detect(!system_video),    // mono=0, color=1
+    .mono_detect(1'b0),              // FalconFPGA: force ST High (mono). color was !system_video
 
     .keyboard_matrix_out(keyboard_matrix_out),
     .keyboard_matrix_in(keyboard_matrix_in),
