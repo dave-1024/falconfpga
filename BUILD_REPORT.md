@@ -703,3 +703,14 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Sim: `cpu030/sim/rtl/run_rtl.sh` PASS. `cpu030/sim/run_unit.sh` (netlist + bridge, WF030_NETLIST): compiles, ERRORS=0 for all 6 phases.
 - Laptop build of the committed tree (define off): PASS, TNS 0 on all clocks. clk32_core 32.41 MHz (32), clk_cpu030 16.00 MHz (16; worst clk_cpu030 -> clk_cpu030 setup slack 0.001 ns, a core path into EX_P_ILLEGAL; cross-clock pairs keep >= 12.4 ns). Logic 30765/138240 (23%), registers 8603 (7%). Flashed location 417 (op 53, no ROM change); TOS 2.06 UK reaches the desktop with no overlay.
 - Note: clk_cpu030 has almost no margin in this placement (the F59 build with overlay placed at 19.98 MHz). It is a pass, but watch it in the next builds.
+
+## 2026-10-04 15:25 BST – REQUEST_ID 20261004-1 (handoff 20261004-1509-icache, ACTION BUILD): RESULT: FAIL (compile error, no bitstream, nothing flashed)
+- Handoff at 229c729 (real diff, 181 lines, not the stub). `git apply --check` PASS against 229c729 (no --recount needed).
+- Build on the laptop (impl/ deleted first, `gw_sh build_tc138k.tcl`): GowinSynthesis stops after 9 s:
+  `ERROR (EX4759) : 'wf68k30l_icache' is not declared (wf68k30L_top.vhd:849)`, then `Unit 'structure' is ignored due to previous errors`. No .fs, so no timing or resource figures. GHDL gives the same error (`no declaration for "wf68k30l_icache"`).
+- Cause: `I_ICACHE: WF68K30L_ICACHE` is a component instantiation, but the patch adds no `component WF68K30L_ICACHE` declaration (the other core units are declared in `wf68k30L_pkg.vhd`). Fix for the next handoff: add the component declaration to `wf68k30L_pkg.vhd` (or instantiate it as `entity work.WF68K30L_ICACHE`).
+- Not applied to main (it doesn't compile); the handoff files are moved to `handoff/done/`. Nothing was flashed and TOS was not touched.
+- Review notes for the next version (not tested, from reading the diff):
+  - Stale hits: a miss fill writes `tags(idx)` but leaves the other words' valid bits of that line set, so after a tag change those words hit with the new tag and return code from the old address. A tag change should clear `valid(idx)` except for the word being filled.
+  - Extra latency / duplicate fetch risk: on a miss, `RDY <= BUS_RDY` is registered, so the core sees OPCODE_RDY one clock after the bus interface, while OPCODE_REQ stays high (passed straight through as `BUS_REQ`) for that clock. Check that the bus interface can't start a second opcode cycle in that clock (the bench has not been run, as the handoff says).
+  - `run_rtl.sh` analyses a fixed file list and needs `icache` added (before `top`) once the file is in the core.
