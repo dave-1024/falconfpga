@@ -356,14 +356,15 @@ reg [7:0]  gpio_s0, gpio_s1;
 reg [1:0]  ready_match;
 reg        helper_ready;
 reg [1:0]  phase;
-reg [3:0]  reinit_cnt;
+reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// Loan is off. Taking the pins drops flash_ready, and that flag is part of
-// the 030 reset, so the count dropping was not enough to release it.
-wire ae350_run = 1'b0;
-wire flash_reinit = 1'b0;
-wire helper_hold = !helper_timeout;
+// The flash controller is held in reset for the whole loan, then for 1024
+// clk32 cycles after the pins return. flash_ready is part of the 030 reset,
+// so the hold stays until that reinit has had time to finish.
+wire ae350_run = (phase == PH_LOAN);
+wire flash_reinit = (phase == PH_LOAN) || ((phase == PH_REINIT) && (reinit_cnt < 16'd1024));
+wire helper_hold = (phase != PH_RUN);
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
@@ -373,7 +374,7 @@ always @(posedge clk32) begin
         ready_match <= 2'b00;
         helper_ready <= 1'b0;
         phase <= PH_HOLD;
-        reinit_cnt <= 4'd0;
+        reinit_cnt <= 16'd0;
         flash_ready_s0 <= 1'b0;
         flash_ready_s1 <= 1'b0;
     end else begin
@@ -397,14 +398,14 @@ always @(posedge clk32) begin
                     phase <= PH_LOAN;
             PH_LOAN: if (helper_ready || helper_timer == 30'd640_000_000)
                     phase <= PH_REINIT;
-            PH_REINIT: if (reinit_cnt != 4'hf)
-                    reinit_cnt <= reinit_cnt + 4'd1;
-                else if (flash_ready_s1 || helper_timer == 30'd640_000_000)
+            PH_REINIT: if (reinit_cnt != 16'd33792)
+                    reinit_cnt <= reinit_cnt + 16'd1;
+                else
                     phase <= PH_RUN;
             default: phase <= PH_RUN;
         endcase
         if (phase != PH_REINIT)
-            reinit_cnt <= 4'd0;
+            reinit_cnt <= 16'd0;
     end
 end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
