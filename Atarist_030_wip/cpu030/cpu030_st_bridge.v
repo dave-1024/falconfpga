@@ -118,7 +118,20 @@ module cpu030_st_bridge #(
     input  wire [15:0] iEdb,
     output wire [15:0] oEdb,
     output wire [23:1] eab,
-    output reg         rom_fetch   // latched first ROM-window cycle, cleared by reset
+    output reg         rom_fetch,  // latched first ROM-window cycle, cleared by reset
+    // FalconFPGA DIAG build (diag_overlay.v), observation only
+    output wire        dbg_run,    // cpu_rst_n: 030 out of reset (clk_cpu domain)
+    output wire        dbg_req,    // req_now: toggles once per 030 AS cycle (clk_32)
+    output wire        dbg_dsack,  // s_dsack (clk_32)
+    output wire        dbg_berr,   // s_berr (clk_32)
+    // FalconFPGA DIAG diag030b/c, observation only (mixed clk_32/clk_cpu,
+    // read through 2-FF syncs in the overlay; values are slow or frozen):
+    // [167:128] {got, FC2:0, RW, SIZE1:0, bad_space, A31:0 at first BERR} (clk_32)
+    // [127:96]  row c: A31:0 of the last bus cycle STARTED by the 030 (clk_cpu)
+    // [95:64]   row d: last-start info + termination + CPU pins (clk_cpu)
+    // [63:32]   row e: bridge 68000-side state machine (clk_32)
+    // [31:0]    row f: {start count 7:0, live last program fetch A23:0} (clk_cpu)
+    output wire [167:0] dbg_trace
 );
 
     // =====================================================================
@@ -154,6 +167,7 @@ module cpu030_st_bridge #(
     wire        cpu_asn, cpu_rwn, cpu_rmcn, cpu_dsn;
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
+    wire        cpu_ipendn, cpu_statusn;   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
 `ifdef WF030_NETLIST
@@ -179,7 +193,7 @@ module cpu030_st_bridge #(
         .FC_OUT    ( cpu_fc        ),
         .AVECn     ( cpu_avecn     ),
         .IPLn      ( ipl_r         ),
-        .IPENDn    (               ),
+        .IPENDn    ( cpu_ipendn    ),   // FalconFPGA DIAG (was open)
         .DSACKn    ( cpu_dsackn    ),
         .SIZE      ( cpu_size      ),
         .ASn       ( cpu_asn       ),
@@ -191,7 +205,7 @@ module cpu030_st_bridge #(
         .DBENn     (               ),
         .BUS_EN    (               ),
         .STERMn    ( 1'b1          ),
-        .STATUSn   (               ),
+        .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
         .BRn       ( 1'b1          ),   // arbitration is done on the ST side
         .BGn       (               ),
@@ -206,6 +220,7 @@ module cpu030_st_bridge #(
     reg        c_open  = 1'b0;
     reg        c_req_t = 1'b0;
     reg [23:0] c_adr   = 24'd0;
+    reg [7:0]  c_adr_hi = 8'd0;   // FalconFPGA DIAG: A31:24 (not used on the ST bus)
     reg [1:0]  c_size  = 2'b00;
     reg        c_rwn   = 1'b1;
     reg [2:0]  c_fc    = 3'd0;
@@ -220,6 +235,7 @@ module cpu030_st_bridge #(
             c_open  <= 1'b1;
             c_req_t <= ~c_req_t;
             c_adr   <= cpu_adr[23:0];     // A31:24 ignored: 24-bit ST bus
+            c_adr_hi <= cpu_adr[31:24];   // FalconFPGA DIAG only
             c_size  <= cpu_size;
             c_rwn   <= cpu_rwn;
             c_fc    <= cpu_fc;
@@ -264,6 +280,10 @@ module cpu030_st_bridge #(
         hlt_sync  <= {hlt_sync[0], cpu_halt_outn};
     end
     wire req_now  = c_req_t;   // clk_32 register (no synchroniser needed)
+    assign dbg_run   = cpu_rst_n;   // FalconFPGA DIAG
+    assign dbg_req   = req_now;
+    assign dbg_dsack = s_dsack;
+    assign dbg_berr  = s_berr;
     assign oRESETn  = ~rsto_sync[1];
     assign oHALTEDn = hlt_sync[1];
     wire rmc_lock = ~rmc_sync[1];
@@ -496,6 +516,100 @@ module cpu030_st_bridge #(
             end
         end
     end
+
+    // ---- FalconFPGA DIAG diag030b: first-BERR latch (clk_32) ----
+    // Observation only. The 030 waits for its termination, so c_* still hold
+    // the faulting request when s_berr is set (both BERR paths).
+    wire d_berr_now = (pending & req_bad_space) |
+                      (enPhi2 & (phase == P_S6) & (r_res == R_BERR));
+    reg        d_got   = 1'b0;
+    reg [6:0]  d_info  = 7'd0;    // FC2:0, RW, SIZE1:0, bad_space
+    reg [31:0] d_badr  = 32'd0;
+    always @(posedge clk) begin
+        if (extReset | pwrUp) begin
+            d_got  <= 1'b0;
+            d_info <= 7'd0;
+            d_badr <= 32'd0;
+        end else if (d_berr_now & ~d_got) begin
+            d_got  <= 1'b1;
+            d_info <= {c_fc, c_rwn, c_size, req_bad_space};
+            d_badr <= {c_adr_hi, c_adr};
+        end
+    end
+
+    // ---- FalconFPGA DIAG diag030c: 030 bus-cycle watch (clk_32 since F58) ----
+    // Taken straight from the WF68K30L outputs (cpu_adr/cpu_fc/...), on the
+    // same clk_cpu edge where the front end opens a request (c_open 0->1),
+    // independent of c_adr (diag030b's PC rows read A20:18 as 0).
+    wire x_start = cpu_rst_n & ~cpu_asn & ~c_open;
+    wire x_term  = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn | ~cpu_avecn);
+    reg [31:0] x_adr   = 32'd0;   // last started cycle A31:0
+    reg [2:0]  x_fc    = 3'd0;
+    reg        x_rwn   = 1'b1;
+    reg [1:0]  x_size  = 2'b00;
+    reg        x_done  = 1'b1;    // last started cycle has been terminated
+    reg        x_hung  = 1'b0;    // sticky: one cycle open > 2^13 clk_cpu (~1 ms)
+    reg [15:0] x_tmr   = 16'd0;   // F58: clk_32 (2^15 = ~1 ms)
+    reg [2:0]  x_tres  = 3'd0;    // last termination {DSACK, BERR, AVEC}
+    reg        x_iack_s = 1'b0, x_iack_d = 1'b0, x_cpusp = 1'b0, x_iack_av = 1'b0;
+    reg [23:0] x_pc    = 24'd0;   // live last program fetch A23:0
+    reg [7:0]  x_cnt   = 8'd0;    // bus cycles started (mod 256)
+    wire       x_iack_now = (cpu_fc == 3'b111) & (cpu_adr[19:16] == 4'hF);
+    always @(posedge clk) begin
+        if (!cpu_rst_n) begin
+            x_adr <= 32'd0;  x_fc <= 3'd0;  x_rwn <= 1'b1;  x_size <= 2'b00;
+            x_done <= 1'b1;  x_hung <= 1'b0;  x_tmr <= 16'd0;  x_tres <= 3'd0;
+            x_iack_s <= 1'b0;  x_iack_d <= 1'b0;  x_cpusp <= 1'b0;  x_iack_av <= 1'b0;
+            x_pc <= 24'd0;  x_cnt <= 8'd0;
+        end else begin
+            if (x_start) begin
+                x_adr  <= cpu_adr;
+                x_fc   <= cpu_fc;
+                x_rwn  <= cpu_rwn;
+                x_size <= cpu_size;
+                x_done <= 1'b0;
+                x_tmr  <= 14'd0;
+                x_cnt  <= x_cnt + 8'd1;
+                if (cpu_fc[1:0] == 2'b10) x_pc <= cpu_adr[23:0];
+                if (cpu_fc == 3'b111) x_cpusp <= 1'b1;
+                if (x_iack_now) x_iack_s <= 1'b1;
+            end else if (!x_done) begin
+                if (x_term) begin
+                    x_done <= 1'b1;
+                    x_tres <= {(cpu_dsackn != 2'b11), ~cpu_berrn, ~cpu_avecn};
+                    if ((x_fc == 3'b111) & (x_adr[19:16] == 4'hF)) begin
+                        x_iack_d <= 1'b1;
+                        if (~cpu_avecn) x_iack_av <= 1'b1;
+                    end
+                end else if (~x_tmr[15])
+                    x_tmr <= x_tmr + 16'd1;
+                else
+                    x_hung <= 1'b1;
+            end
+        end
+    end
+    wire x_inprog = ~x_done & ~cpu_asn;
+    wire [31:0] row_d = {
+        x_fc, x_rwn,                                  // G1
+        x_size, x_inprog, x_hung,                     // G2
+        x_tres, 1'b0,                                 // G3 DSACK BERR AVEC -
+        x_iack_s, x_iack_d, x_cpusp, x_iack_av,       // G4
+        cpu_halt_outn, cpu_reset_out, cpu_rst_n, cpu_ipendn,   // G5
+        cpu_statusn, ipl_r,                           // G6 STATUSn IPL2n:0n
+        cpu_asn, cpu_dsn, cpu_dsackn,                 // G7 ASn DSn DSACK1n DSACK0n
+        cpu_berrn, cpu_avecn, cpu_rmcn, cpu_rwn       // G8
+    };
+    wire [31:0] row_e = {
+        phase, pending,                               // G1
+        req_now, s_seen, c_open, term_ok,             // G2
+        rAS, rUDS, rLDS, rRWn,                        // G3
+        rDtack, rBerr, Vpai, iStop,                   // G4
+        s_dsack, s_avec, s_berr, s_tag,               // G5
+        r_tag, addr_oe, rVma, r_iack,                 // G6
+        arb, BGn, can_start,                          // G7
+        r_res, BRi, BgackI                            // G8
+    };
+    assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
 
 endmodule
 

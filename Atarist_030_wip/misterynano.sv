@@ -23,6 +23,14 @@ module misterynano #(
 
   output [5:0]	leds_n,
   output rom_fetch,
+  // FalconFPGA DIAG build (top.sv DIAG_OVERLAY): raw clk32 status signals,
+  // observation only (unused in the normal build)
+  output [7:0]  diag_flags,   // see assign below
+  output [16:0] diag_rom_idx, // ROM word index (rom_addr[17:1])
+  output [15:0] diag_rom_data,// ROM data from flash
+  output [3:0]  diag_030,     // 030 bridge {berr, dsack, req, run}
+  output [167:0] diag_trace,  // diag030c: bridge first-BERR / bus-cycle watch
+  output [17:0] diag_vbase,   // diag030b: {wr_hi, wr_mid, $FF8201, $FF8203}
   output		ws2812,
   output		jtagsel,
 
@@ -533,6 +541,8 @@ wire [7:0] parallel_data_in_int = EXTERNAL_PARPORT?parallel_data_in:
 		   ~{ db9_port2[0],db9_port2[1],db9_port2[2],db9_port2[3],
 			  db9_port3[0],db9_port3[1],db9_port3[2],db9_port3[3] };   
   
+wire dbg_cpu_as_n, dbg_cpu_halted_n;   // FalconFPGA DIAG
+
 atarist atarist (
     .clk_32(clk32),
     .clk_cpu(clk_cpu),
@@ -644,8 +654,30 @@ atarist atarist (
     .ram_data_out(mdin),
 
     .leds(leds[3:0]),    // HDD 1:0 / FDC 1:0
-    .rom_fetch(rom_fetch)
+    .rom_fetch(rom_fetch),
+
+    // FalconFPGA DIAG
+    .dbg_cpu_as_n(dbg_cpu_as_n),
+    .dbg_cpu_halted_n(dbg_cpu_halted_n),
+    .dbg_030(diag_030),
+    .dbg_trace(diag_trace),
+    .dbg_vbase(diag_vbase)
   );
+
+// FalconFPGA DIAG: export raw status (duplicates the resb term, does not
+// change it)
+assign diag_flags = {
+    dbg_cpu_halted_n,                 // 7 CPU not halted
+    dbg_cpu_as_n,                     // 6 CPU address strobe (ST side)
+    rom_n,                            // 5 TOS ROM select (ROM2_N)
+    !system_reset[0] && !reset && !por && ram_ready && flash_ready && sd_ready, // 4 resb
+    ram_ready,                        // 3 SDRAM init done
+    flash_ready,                      // 2 flash init done
+    sd_ready,                         // 1 SD wait done
+    system_reset[0]                   // 0 BL616 holds ST in reset
+};
+assign diag_rom_idx  = rom_addr[17:1];
+assign diag_rom_data = rom_dout;
   
 /* ------------ expand audio to 16 bits and apply volume adjustment ------------ */
 wire [15:0] audio16_l = { audio_l[14], audio_l };

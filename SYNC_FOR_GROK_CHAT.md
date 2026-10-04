@@ -9,6 +9,82 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## HANDOFF 2026-10-03/04: 68030 build now boots TOS 2.06 and EmuTOS to the desktop (read this first)
+
+State of main (Atarist_030_wip, Tang Console 138K): WF68K30L 68030 core with fixes F55-F59, synchronous
+ST bridge, 16 MHz CPU clock. **TOS 2.06 UK (256K) and EmuTOS 192K UK both boot to the GEM desktop** on
+the board (location 417), and the CPU keeps running there. The ROM slot (flash 0x500000) currently holds
+**TOS 2.06 UK**. The board runs the clean committed build (overlay option off) and shows the TOS 2.06
+desktop.
+
+### How we got here (in order)
+- **Diag overlay (diag030, 030b, 030c).** A debug overlay on the HDMI picture: status squares plus six
+  32-bit bit-bar rows (first bus error, last bus cycle the 030 started, CPU pins, bridge state, last
+  program fetch). It let us see from a screen capture whether the CPU was stuck in a bus cycle or had
+  stopped by itself. It is now committed as a compile option, off by default (see below).
+- **F55 (interrupt mask).** The core could take an interrupt that the new SR mask had just covered (the
+  pending request was never re-checked). Fixed in the exception handler. A real 68030-conformance fix,
+  but not the cause of the hang at the time.
+- **F56 (combinational loops and a latch).** Gowin reported 17 combinational loops and one latch in the
+  core. Two loops (BFINS/PACK paths into NEXT_FETCH_STATE) were broken with logically identical
+  signals and the BF_NZ latch was removed. Effect: timing analysis now sees the real paths (before,
+  the reported fmax didn't match any analysed path because STA cut the loop arcs).
+- **F57 (power-up values).** Gowin drops implicit VHDL initial values, so 18 set-type flops powered up
+  at 1 while the RTL assumed 0. Explicit initial values added (decoder and ALU).
+- **F58 (bridge and clock).** The CPU clock was already phase-locked to clk32 (same PLL), but the
+  bridge still used 2-flop synchronisers in both directions. The bridge is now synchronous, the CPU
+  runs at 16 MHz (was 8), and the core's falling-edge registers run on a separate PLL output at 180
+  degrees (before, they used a fabric inverter that timing analysis did not check). An ST bus access
+  went from about 1.6 us to 875 ns (TOS 1.04 Timer B loop in simulation). The rest of the 875 ns
+  breaks down roughly like this (an estimate, not measured term by term): the 68000-style ST bus cycle
+  itself is about 500 ns (4 clocks at 8 MHz). Waiting for the next 8 MHz bus phase adds up to about
+  125 ns. The 030 side (the request seen on clk32, the DSACK sample, the data latch, AS going high)
+  and the core's own idle clocks before it starts the next cycle make up the rest.
+- **F59 (the desktop fix).** Root cause of the TOS 2.06, TOS 1.04 and EmuTOS freezes: an interrupt
+  taken while the core runs a short `move`/`DBcc -4` loop in 68010-style loop mode deadlocked it
+  after RTE. Every exception ends with a pipe flush, and an earlier change (F47) made that flush set
+  the decoded opcode to ABCD. ABCD counts as a loop-capable instruction. So after RTE into the DBcc,
+  the decoder saw "loop about to start" and stopped fetching, while the exception handler was still
+  waiting for the third word of its pipe refill. Neither side could move. The fix is two lines in
+  `wf68k30L_opcode_decoder.vhd` (the flush sets NOP instead of ABCD). Reproduced and verified in the
+  GHDL bench, and confirmed on the board with a temporary debug build (diag030d, not committed) that
+  showed exactly the predicted internal state.
+
+### Things to know
+- **TOS 1.04 is not 68030-compatible** and isn't a useful target: its supervisor trap dispatchers
+  assume the 6-byte 68000 exception frame (the 68010+ pushes 8 bytes or more), so it crashes. Use
+  TOS 2.06 or EmuTOS.
+- **Upper address bits are not decoded (kept on purpose).** The bridge ignores A31:24, so every
+  16 MB block of the 030's 4 GB space mirrors the ST's 24-bit map, and there's no bus error above
+  $00FFFFFF. A program that probes 32-bit addresses (for example for TT/Falcon hardware or Fast RAM)
+  gets an answer instead of a bus error. **David's decision: keep the mirror for now (no BERR above
+  $00FFFFFF).** Reason: on real ST accelerators, fast/TT RAM reduced compatibility because some games
+  relied on 24-bit address aliasing (using the top address byte for other data). TOS 2.06 and EmuTOS
+  also address the I/O area as $FFxxxxxx here. **If fast RAM is ever added, it must be a build option
+  that is off by default.**
+- **Speed.** Still slow compared with a real 030 board: every access goes through the 8 MHz ST bus,
+  the core has idle clocks after each fetch before the next cycle starts, and the core has no
+  instruction or data cache (the 68030 caches and MMU are not implemented in WF68K30L). Ideas: shrink
+  the core's gap after fetches; the 68030 instruction/data caches inside the WF68K30L core (David's
+  earlier decision: caches go inside the core, real-030 behaviour); Fast RAM outside the ST bus only as
+  an off-by-default option (see above).
+- **Diag overlay build option.** Uncomment `` `define DIAG_OVERLAY `` in
+  `Atarist_030_wip/tang/console138k/top.sv` and rebuild. Off by default (costs fabric and timing,
+  covers the screen). The key is in `Atarist_030_wip/docs/DIAG_OVERLAY.md`, and the README explains it.
+- **Benches.** `cpu030/sim/rtl/run_rtl.sh` (GHDL, core alone, interrupt mask). `cpu030/sim/run_unit.sh`
+  (gate-level netlist + bridge against a behavioural ST bus). The F59 loop/interrupt test program is
+  not in the repo yet. It would be worth adding to run_rtl.sh.
+
+### Suggested next steps
+1. Test more software under TOS 2.06 and EmuTOS (desktop use, a few programs and games), and keep the
+   overlay off unless something freezes.
+2. Add the loop-during-interrupt test to `run_rtl.sh` as a regression.
+3. Keep the A31:24 mirror (decided). Only if fast RAM is added later: make it a build option, off by
+   default.
+4. Performance: measure the core's idle clocks between bus cycles, then the 68030 caches inside the
+   core.
+5. Route ST audio to HDMI and the OSD to the 640x480 output (both still missing on this output).
+
 ## diag030 results 2026-10-03 (David's monitor)
 
 Build: diag030 local debug build (key under the 2026-10-03 07:15 entry below; BUILD_REPORT 2026-10-03 08:03).
@@ -33,6 +109,11 @@ Build: diag030 local debug build (key under the 2026-10-03 07:15 entry below; BU
      (DSACK1 only) would handle them.
 
 ## Changes since 2026-09-29 (running log, Grok Bot adds entries here, newest first)
+
+- 2026-10-04 12:40: **Diag overlay committed as build option `DIAG_OVERLAY`, OFF by default** (uncomment the
+  define in `Atarist_030_wip/tang/console138k/top.sv`; key in `Atarist_030_wip/docs/DIAG_OVERLAY.md`, README
+  section added). Clean build (define off): PASS, TNS 0; flashed 417, TOS 2.06 desktop without overlay.
+  Handoff section for Grok chat added at the top of this file. See BUILD_REPORT 2026-10-04 12:40.
 
 - 2026-10-04 11:35: **F59 WF68K30L loop-mode deadlock fixed (core, committed)**: an interrupt taken during a
   DBcc loop (`move`/`dbcc -4`) wedged the core after RTE, because the [F47] pipe flush left OP = ABCD

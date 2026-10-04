@@ -105,6 +105,7 @@ add_file tang/console138k/video_testpattern_640.v
 add_file tang/console138k/hdmi_640.sv
 add_file tang/console138k/hdmi_testpattern_640.sv
 add_file tang/console138k/st_framebuffer.v
+add_file tang/console138k/diag_overlay.v
 add_file tang/console138k/atarist.cst
 add_file tang/console138k/atarist.sdc
 add_file fx68k/microrom.mem

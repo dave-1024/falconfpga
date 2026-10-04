@@ -70,6 +70,24 @@ and the TV.
 - To go back to the original MiSTeryNano video output (with OSD and ST audio),
   comment out `` `define HDMI_TESTPATTERN `` near the top of `top.sv`.
 
+## Build option: on-screen diagnostic overlay (`DIAG_OVERLAY`, off by default)
+
+The build has an optional **diagnostic overlay** that draws the 68030's state
+straight onto the HDMI/DVI picture: three rows of coloured status squares
+(video, reset, SDRAM, ROM, 030 bus activity, bus errors) and six rows of 32
+"bit bars" (first bus error address, last bus cycle started by the 030 and its
+type, the CPU pins, the bus bridge state, and the last program fetch address).
+With it, a frozen CPU can be diagnosed from a photo or capture of the screen.
+
+- **How to enable:** in `tang/console138k/top.sv`, uncomment
+  `` `define DIAG_OVERLAY `` (near the top) and rebuild. Comment it out again
+  for the normal build.
+- **Why it is off by default:** it costs fabric and some timing margin and it
+  covers part of the screen. It is a debugging tool, not a feature. With the
+  define off, the debug wiring is unused and synthesis removes it, so the
+  normal build is the same as without it.
+- **What the bars and squares mean:** see [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md).
+
 ## What this build is for
 
 This folder is an Atari ST in which a 68030 replaces the 68000, built the way a

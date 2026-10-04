@@ -110,7 +110,14 @@ module atarist (
 				
 	// export all LEDs
 	output wire [3:0]  leds,
-	output wire        rom_fetch    // 030 diagnostic: latched first ROM fetch
+	output wire        rom_fetch,   // 030 diagnostic: latched first ROM fetch
+
+	// FalconFPGA DIAG build (diag_overlay.v): CPU status, observation only
+	output wire        dbg_cpu_as_n,      // ST-side address strobe
+	output wire        dbg_cpu_halted_n,  // CPU not halted (double bus fault)
+	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
+	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
+	output wire [17:0] dbg_vbase          // {wr_hi, wr_mid, $FF8201, $FF8203} written bytes
 );
 
 // registered reset signals
@@ -218,6 +225,7 @@ wire        ipl0_n, ipl1_n, ipl2_n;
 wire        cpu_fc0, cpu_fc1, cpu_fc2;
 wire        cpu_as_n, cpu_rw, cpu_uds_n, cpu_lds_n, vma_n, vpa_n, cpu_E;
 wire        cpu_reset_n_o;
+assign      dbg_cpu_as_n = cpu_as_n;   // FalconFPGA DIAG
 wire [15:0] cpu_din, cpu_dout;
 wire [23:1] cpu_a /* verilator public */;
 
@@ -297,6 +305,22 @@ assign blitter_data_out = 16'h0000;
 wire blitter_irq_n = 1'b1;
 
 `endif
+
+// FalconFPGA DIAG diag030b: video base bytes as written on the ST bus
+// ($FF8201 high, $FF8203 mid: byte writes to odd addresses, LDS, CPU D7:0).
+// Observation only, cleared by the ST reset.
+reg [7:0] dbg_vb_hi = 8'd0, dbg_vb_mid = 8'd0;
+reg       dbg_vb_whi = 1'b0, dbg_vb_wmid = 1'b0;
+always @(posedge clk_32) begin
+	if (reset) begin
+		dbg_vb_whi <= 1'b0;  dbg_vb_wmid <= 1'b0;
+		dbg_vb_hi  <= 8'd0;  dbg_vb_mid  <= 8'd0;
+	end else if (!as_n && !rw && !lds_n) begin
+		if (mbus_a == 23'h7fc100) begin dbg_vb_hi  <= cpu_dout[7:0]; dbg_vb_whi  <= 1'b1; end
+		if (mbus_a == 23'h7fc101) begin dbg_vb_mid <= cpu_dout[7:0]; dbg_vb_wmid <= 1'b1; end
+	end
+end
+assign dbg_vbase = {dbg_vb_whi, dbg_vb_wmid, dbg_vb_hi, dbg_vb_mid};
 
 /* ------------------------------------------------------------------------------ */
 /* ------------------------------ GSTMCU + Shifter ------------------------------ */
@@ -518,7 +542,7 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.FC2        ( cpu_fc2   ),
 	.BGn        ( blitter_bg_n  ),
 	.oRESETn    ( cpu_reset_n_o ),
-	.oHALTEDn   (),
+	.oHALTEDn   ( dbg_cpu_halted_n ),   // FalconFPGA DIAG (was open)
 	.DTACKn     ( dtack_n    ),
 	.VPAn       ( vpa_n      ),
 	.BERRn      ( berr_n     ),
@@ -531,10 +555,17 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.iEdb       ( cpu_din    ),
 	.oEdb       ( cpu_dout   ),
 	.eab        ( cpu_a      ),
-	.rom_fetch  ( rom_fetch  )
+	.rom_fetch  ( rom_fetch  ),
+	.dbg_run    ( dbg_030[0] ),   // FalconFPGA DIAG
+	.dbg_req    ( dbg_030[1] ),
+	.dbg_dsack  ( dbg_030[2] ),
+	.dbg_berr   ( dbg_030[3] ),
+	.dbg_trace  ( dbg_trace  )
 );
 `else
 assign rom_fetch = 1'b0;
+assign dbg_030   = 4'b0000;   // FalconFPGA DIAG
+assign dbg_trace = 168'd0;
 fx68k fx68k (
 	.clk        ( clk_32     ),
 	.extReset   ( reset      ),
@@ -553,7 +584,7 @@ fx68k fx68k (
 	.FC2        ( cpu_fc2   ),
 	.BGn        ( blitter_bg_n  ),
 	.oRESETn    ( cpu_reset_n_o ),
-	.oHALTEDn   (),
+	.oHALTEDn   ( dbg_cpu_halted_n ),   // FalconFPGA DIAG (was open)
 	.DTACKn     ( dtack_n    ),
 	.VPAn       ( vpa_n      ),
 	.BERRn      ( berr_n     ),

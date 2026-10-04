@@ -696,3 +696,10 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Board diag (local diag030d, not committed) showed the predicted state at the freeze: OP=ABCD, LOOP_ATN=1, LOOP_OP=1, OPCODE_RD=0, IPIPE_PNTR=2, EX_STATE=REFILL_PIPE, EXCEPTION=RTE, PIPE_CNT=2, BUSY_EXH=1.
 - Laptop build (F59 + local diag030c overlay, not committed): PASS, clk32_core 35.56 MHz, clk_cpu030 19.98 MHz, TNS 0 on all clocks. Flashed op 53 on location 417.
 - Board: TOS 2.06 UK 256K boots to the GEM desktop (Desk/File/View/Options, floppy icons, trash), CPU keeps running. EmuTOS 192K UK also reaches its desktop. TOS 2.06 left in the ROM slot.
+
+## 2026-10-04 12:40 BST – Diag overlay committed as build option DIAG_OVERLAY (OFF by default), clean build flashed
+- The diag030c overlay (status squares + six bit-bar rows a-f, F58 version) is now in main behind `` `define DIAG_OVERLAY `` in `tang/console138k/top.sv`, commented out by default. Key: `Atarist_030_wip/docs/DIAG_OVERLAY.md`; README section "Build option: on-screen diagnostic overlay".
+- With the define off: `hdmi_testpattern_640` gets DIAG_OVERLAY = 0 (no overlay instance, picture path unchanged), `diag_collect` is not instantiated, the diag rows are tied to 0, and the new debug outputs of `atarist`, `misterynano` and `cpu030_st_bridge` have no load, so synthesis removes them. No PLL, SDC or clock changes. `diag_overlay.v` is listed in `build_tc138k.tcl`; its modules are unused when the define is off.
+- Sim: `cpu030/sim/rtl/run_rtl.sh` PASS. `cpu030/sim/run_unit.sh` (netlist + bridge, WF030_NETLIST): compiles, ERRORS=0 for all 6 phases.
+- Laptop build of the committed tree (define off): PASS, TNS 0 on all clocks. clk32_core 32.41 MHz (32), clk_cpu030 16.00 MHz (16; worst clk_cpu030 -> clk_cpu030 setup slack 0.001 ns, a core path into EX_P_ILLEGAL; cross-clock pairs keep >= 12.4 ns). Logic 30765/138240 (23%), registers 8603 (7%). Flashed location 417 (op 53, no ROM change); TOS 2.06 UK reaches the desktop with no overlay.
+- Note: clk_cpu030 has almost no margin in this placement (the F59 build with overlay placed at 19.98 MHz). It is a pass, but watch it in the next builds.

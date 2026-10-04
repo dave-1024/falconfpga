@@ -15,6 +15,25 @@
 // Comment this line out to restore the original video2hdmi path.
 `define HDMI_TESTPATTERN
 
+// ---------------------------------------------------------------------------
+// BUILD OPTION: DIAG_OVERLAY (debug only, OFF by default)
+// Uncomment the `define below and rebuild to draw the diagnostic overlay on the
+// HDMI picture: three rows of status squares plus six 32-bit "bit-bar" rows
+// (68030 bus state, first bus error, last bus cycle, bridge state, last program
+// fetch). leds_n[1] then blinks while the 68030 runs bus cycles. The bar key is
+// in docs/DIAG_OVERLAY.md. It costs fabric and some timing margin and covers
+// part of the screen, so it is for debugging only; with the define commented
+// out the debug wiring is unused and removed by synthesis (normal build).
+// Needs HDMI_TESTPATTERN and ST_VIDEO=1 (both are the default).
+// ---------------------------------------------------------------------------
+//`define DIAG_OVERLAY
+
+// Frame buffer self-test (separate mode, only with DIAG_OVERLAY): 1 = the
+// frame buffer is filled from a locally generated fake ST picture (colour
+// bars, grey ramp, checkerboard, white frame) INSTEAD of the real ST video.
+// 0 = real ST video (default for this build).
+`define DIAG_FB_SELFTEST 0
+
 module top(
   input			clk, // 50 MHz in
 
@@ -194,7 +213,15 @@ wire [1:0]  screen;
 wire [5:0] leds_int_n;
 // leds_n[0] latches on from the first 030 ROM fetch. Active low.
 wire rom_fetch;
+`ifdef DIAG_OVERLAY
+// DIAG: leds_n[1] blinks (~2 Hz) while the 030 starts bus cycles (030 AS
+// seen by the bridge in the last ~0.13-0.26 s); steady = no 030 bus cycles.
+// Same expression style as leds_n[0].
+wire diag_led_030;
+assign leds_n = {~diag_led_030, ~rom_fetch};
+`else
 assign leds_n = {~leds_int_n[1], ~rom_fetch};
+`endif
 
 assign lcd_bl = 1'bz;
    
@@ -270,6 +297,12 @@ assign i2s_din = por?1'b0:audio[i2s_lrck][15-audio_bit_cnt[3:0]];
 // FalconFPGA stage 2: raw ST video (clk32 domain) for the 640x480 frame buffer
 wire       st_video_hs_n, st_video_vs_n, st_video_de;
 wire [3:0] st_video_r, st_video_g, st_video_b;
+wire [7:0]  diag_flags;
+wire [16:0] diag_rom_idx;
+wire [15:0] diag_rom_data;
+wire [3:0]  diag_030;
+wire [167:0] diag_trace;
+wire [17:0] diag_vbase;
 
 misterynano misterynano (
   .reset ( s0_reset ), // S0 / AA13, qualified above. Not a level at config.
@@ -344,6 +377,14 @@ misterynano misterynano (
   .st_video_g    ( st_video_g    ),
   .st_video_b    ( st_video_b    ),
 
+  // FalconFPGA DIAG: raw status for the overlay (unused in the normal build)
+  .diag_flags    ( diag_flags    ),
+  .diag_rom_idx  ( diag_rom_idx  ),
+  .diag_rom_data ( diag_rom_data ),
+  .diag_030      ( diag_030      ),
+  .diag_trace    ( diag_trace    ),
+  .diag_vbase    ( diag_vbase    ),
+
   // digital 16 bit audio output
   .audio ( audio )
 );
@@ -391,6 +432,63 @@ pll_160m pll_hdmi (
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 
+// ------------------------- DIAG status collection -------------------------
+wire [19:0] diag_now, diag_ever;
+wire        diag_vs_blink, diag_hs_blink, diag_fb_we;
+wire [15:0] diag_word;
+wire [191:0] diag_rows;
+`ifdef DIAG_OVERLAY
+diag_collect diag_collect (
+    .clk            ( clk32               ),
+    .st_hs_n        ( st_video_hs_n       ),
+    .st_vs_n        ( st_video_vs_n       ),
+    .st_de          ( st_video_de         ),
+    .st_rgb         ( { st_video_r, st_video_g, st_video_b } ),
+    .cpu_as_n       ( diag_flags[6]       ),
+    .cpu_halted_n   ( diag_flags[7]       ),
+    .rom_n          ( diag_flags[5]       ),
+    .rom_idx        ( diag_rom_idx        ),
+    .rom_data       ( diag_rom_data       ),
+    .c030_run_async ( diag_030[0]         ),
+    .c030_req       ( diag_030[1]         ),
+    .c030_rom_fetch ( rom_fetch           ),
+    .c030_dsack     ( diag_030[2]         ),
+    .c030_berr      ( diag_030[3]         ),
+    .st_resb        ( diag_flags[4]       ),
+    .ram_ready      ( diag_flags[3]       ),
+    .sd_ready       ( diag_flags[1]       ),
+    .mcu_reset      ( diag_flags[0]       ),
+    .mcu_ss_async   ( spi_io_ss           ),
+    .pll_lock_async ( pll_lock            ),
+    .fb_we          ( diag_fb_we          ),
+    .now            ( diag_now            ),
+    .ever           ( diag_ever           ),
+    .vs_blink       ( diag_vs_blink       ),
+    .hs_blink       ( diag_hs_blink       ),
+    .rom_word0      ( diag_word           ),
+    .led_030        ( diag_led_030        )
+);
+localparam DIAG_EN = 1;
+localparam DIAG_ST = `DIAG_FB_SELFTEST;
+// diag030c bit-bar rows (MSB = leftmost bar), see diag_overlay.v:
+//   a: first BERR address A31:0
+//   b: {got, FC2:0, RW, SIZE1:0, bad_space, $FF8201 byte, $FF8203 byte,
+//       wr_hi, wr_mid, 6 unused}
+//   c: A31:0 of the last bus cycle started by the 030
+//   d: last-start FC/RW/SIZE, in-progress/hung, termination, IACK, CPU pins
+//   e: bridge 68000-side state
+//   f: {bus cycles started mod 256, live last program fetch A23:0}
+assign diag_rows = { diag_trace[159:128],
+                     diag_trace[167:160], diag_vbase[15:0], diag_vbase[17:16], 6'd0,
+                     diag_trace[127:0] };
+`else
+assign diag_rows = 192'd0;
+assign diag_now = 20'd0;  assign diag_ever = 20'd0;  assign diag_word = 16'd0;
+assign diag_vs_blink = 1'b0;  assign diag_hs_blink = 1'b0;
+localparam DIAG_EN = 0;
+localparam DIAG_ST = 0;
+`endif
+
 `ifdef HDMI_TESTPATTERN
 // standalone 640x480@60 output; 50 MHz -> 126 MHz PLL -> CLKDIV/5
 // DVI_OUTPUT: 1 = plain DVI (no data islands/guard bands, no audio), for the
@@ -401,10 +499,21 @@ assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 //             0 = colour bars (stage 1)
 hdmi_testpattern_640 #(
     .DVI_OUTPUT ( 1 ),            // <-- set to 0 for HDMI mode
-    .ST_VIDEO   ( 1 )             // <-- set to 0 for the colour bars
+    .ST_VIDEO   ( 1 ),            // <-- set to 0 for the colour bars
+    .DIAG_OVERLAY ( DIAG_EN ),    // set by `define DIAG_OVERLAY above
+    .FB_SELFTEST  ( DIAG_ST )     // set by DIAG_FB_SELFTEST above
 ) hdmi_tp (
     .clk        ( clk        ),   // 50 MHz board clock
     .hdmi_lock  (            ),
+
+    // DIAG overlay status (all 0 in the normal build)
+    .diag_now      ( diag_now      ),
+    .diag_ever     ( diag_ever     ),
+    .diag_vs_blink ( diag_vs_blink ),
+    .diag_hs_blink ( diag_hs_blink ),
+    .diag_word     ( diag_word     ),
+    .diag_rows     ( diag_rows     ),
+    .diag_fb_we    ( diag_fb_we    ),
 
     // raw ST video from the core (stage 2)
     .clk32      ( clk32         ),

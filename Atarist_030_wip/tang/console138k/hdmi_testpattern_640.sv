@@ -31,7 +31,10 @@ module hdmi_testpattern_640 #(
     // ST capture window tuning (see st_framebuffer.v)
     parameter ST_H_OFS_COLOR = 96,  // clk32 from DE rise to 1st colour sample
     parameter ST_H_OFS_MONO  = 64,  // clk32 from DE rise to 1st mono pixel
-    parameter ST_V_BORDER    = 20   // colour border lines above the picture
+    parameter ST_V_BORDER    = 20,  // colour border lines above the picture
+    // FalconFPGA DIAG build (top.sv `define DIAG_OVERLAY), both 0 = normal:
+    parameter DIAG_OVERLAY   = 0,   // 1 = draw diag_overlay status squares
+    parameter FB_SELFTEST    = 0    // 1 = frame buffer fed by diag_fake_st
 ) (
     input        clk,          // 50 MHz board clock
 
@@ -45,6 +48,15 @@ module hdmi_testpattern_640 #(
     input  [3:0] st_b,
 
     output       hdmi_lock,    // HDMI PLL locked (for debug/LEDs)
+
+    // DIAG build only (tie to 0 / leave open otherwise), see diag_overlay.v
+    input [19:0] diag_now,     // per square "now" (clk32 domain, slow)
+    input [19:0] diag_ever,    // per square "ever" (clk32 domain, slow)
+    input        diag_vs_blink,
+    input        diag_hs_blink,
+    input [15:0] diag_word,    // first TOS word
+    input [191:0] diag_rows,   // diag030c: 6 bit-bar rows a..f, 32 bits each (slow)
+    output       diag_fb_we,   // frame buffer write enable (clk32 domain)
 
     output       tmds_clk_n,
     output       tmds_clk_p,
@@ -117,18 +129,31 @@ generate if (ST_VIDEO != 0) begin : g_stfb
     wire [11:0] fb_wdata, fb_rdata;
     wire        fb_mono;
 
+    // DIAG FB_SELFTEST: replace the real ST video at the capture input by a
+    // locally generated fake ST picture (clk32). Shows if buffer + read work.
+    wire        c_hs_n, c_vs_n, c_de;
+    wire [11:0] c_rgb;
+    if (FB_SELFTEST != 0) begin : g_selftest
+        diag_fake_st fake ( .clk(clk32), .hs_n(c_hs_n), .vs_n(c_vs_n),
+                            .de(c_de), .rgb(c_rgb) );
+    end else begin : g_realst
+        assign c_hs_n = st_hs_n;  assign c_vs_n = st_vs_n;
+        assign c_de   = st_de;    assign c_rgb  = { st_r, st_g, st_b };
+    end
+    assign diag_fb_we = fb_we;
+
     st_fb_capture #(
         .H_OFS_COLOR ( ST_H_OFS_COLOR ),
         .H_OFS_MONO  ( ST_H_OFS_MONO  ),
         .V_BORDER    ( ST_V_BORDER    )
     ) capture (
         .clk   ( clk32    ),
-        .hs_n  ( st_hs_n  ),
-        .vs_n  ( st_vs_n  ),
-        .de    ( st_de    ),
-        .r     ( st_r     ),
-        .g     ( st_g     ),
-        .b     ( st_b     ),
+        .hs_n  ( c_hs_n   ),
+        .vs_n  ( c_vs_n   ),
+        .de    ( c_de     ),
+        .r     ( c_rgb[11:8] ),
+        .g     ( c_rgb[7:4]  ),
+        .b     ( c_rgb[3:0]  ),
         .we    ( fb_we    ),
         .waddr ( fb_waddr ),
         .wdata ( fb_wdata ),
@@ -166,6 +191,31 @@ end else begin : g_bars
     assign v_cx = cx;           assign v_cy = cy;
     assign v_hsync_n = hsync_n; assign v_vsync_n = vsync_n;
     assign v_r = r;             assign v_g = g;   assign v_b = b;
+    assign diag_fb_we = 1'b0;
+end endgenerate
+
+// ----------------- DIAG status overlay (after the buffer) ----------------
+wire [7:0] o_r, o_g, o_b;
+generate if (DIAG_OVERLAY != 0) begin : g_diag
+    diag_overlay overlay (
+        .clk            ( clk_pixel     ),
+        .cx             ( v_cx          ),
+        .cy             ( v_cy          ),
+        .r_in           ( v_r           ),
+        .g_in           ( v_g           ),
+        .b_in           ( v_b           ),
+        .now_async      ( diag_now      ),
+        .ever_async     ( diag_ever     ),
+        .vs_blink_async ( diag_vs_blink ),
+        .hs_blink_async ( diag_hs_blink ),
+        .word_async     ( diag_word     ),
+        .rows_async     ( diag_rows     ),
+        .r              ( o_r           ),
+        .g              ( o_g           ),
+        .b              ( o_b           )
+    );
+end else begin : g_nodiag
+    assign o_r = v_r;  assign o_g = v_g;  assign o_b = v_b;
 end endgenerate
 
 // ------------------------------ audio -------------------------------
@@ -221,7 +271,7 @@ hdmi_640 #(
     .cy                ( v_cy         ),
     .hsync             ( v_hsync_n    ),
     .vsync             ( v_vsync_n    ),
-    .rgb               ( { v_r, v_g, v_b } ),
+    .rgb               ( { o_r, o_g, o_b } ),
     .audio_sample_word ( audio_word   ),
     .tmds              ( tmds         ),
     .tmds_clock        ( tmds_clock   )
