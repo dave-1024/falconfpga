@@ -1,0 +1,236 @@
+diff --git a/Atarist_030_wip/cpu030/wf68k30L_icache.vhd b/Atarist_030_wip/cpu030/wf68k30L_icache.vhd
+new file mode 100644
+--- /dev/null
++++ b/Atarist_030_wip/cpu030/wf68k30L_icache.vhd
+@@ -0,0 +1,103 @@
++--------------------------------------------
++-- 68030 instruction cache, MC68030UM 6.1.1.
++-- 16 lines of four long words. Each word has its own valid bit: the bus
++-- interface delivers one instruction word per OPCODE_RDY, so a miss fills
++-- that word only. A tag change clears the other words of the line.
++-- Tag is A31:8 and FC2. CPU space is never stored.
++-- CACR bit 0 enables, bit 1 freezes allocation, bit 3 clears. Bit 3 is a
++-- write strobe and is not stored in CACR. A data write drops the line only
++-- when its A31:8 matches the stored tag.
++-- A miss passes BUS_RDY straight through. The core drops REQ when the bus
++-- cycle starts, so gating the miss strobe on REQ blocks every fetch.
++-- A hit strobe is registered, so ready does not feed back into the request.
++-- FalconFPGA. The core is WF68K30L; this is the cache it did not have.
++--------------------------------------------
++
++library ieee;
++use ieee.std_logic_1164.all;
++use ieee.numeric_std.all;
++
++entity WF68K30L_ICACHE is
++    port (
++        CLK       : in std_logic;
++        RESET     : in bit;
++        EI        : in std_logic;
++        FI        : in std_logic;
++        CI        : in std_logic;
++        REQ       : in bit;
++        ADR       : in std_logic_vector(31 downto 0);
++        FC        : in std_logic_vector(2 downto 0);
++        WR        : in bit;
++        WR_ADR    : in std_logic_vector(31 downto 0);
++        BUS_RDY   : in bit;
++        BUS_WORD  : in std_logic_vector(15 downto 0);
++        BUS_REQ   : out bit;
++        RDY       : out bit;
++        WORD      : out std_logic_vector(15 downto 0)
++    );
++end entity WF68K30L_ICACHE;
++
++architecture RTL of WF68K30L_ICACHE is
++    type word_t is array (0 to 7) of std_logic_vector(15 downto 0);
++    type line_t is array (0 to 15) of word_t;
++    type tag_t is array (0 to 15) of std_logic_vector(24 downto 0);
++    type val_t is array (0 to 15) of std_logic_vector(7 downto 0);
++    signal lines : line_t := (others => (others => (others => '0')));
++    signal tags  : tag_t := (others => (others => '0'));
++    signal valid : val_t := (others => (others => '0'));
++    signal served : bit := '0';
++    signal hit_c  : std_logic := '0';
++    signal hit_rdy : bit := '0';
++begin
++    hit_c <= '1' when EI = '1' and FC /= "111"
++              and valid(to_integer(unsigned(ADR(7 downto 4))))(to_integer(unsigned(ADR(3 downto 1)))) = '1'
++              and tags(to_integer(unsigned(ADR(7 downto 4)))) = ADR(31 downto 8) & FC(2)
++             else '0';
++    BUS_REQ <= '0' when hit_c = '1' or served = '1' else REQ;
++    -- Miss: the bus strobe, even after REQ has fallen. Hit: the registered strobe.
++    RDY <= hit_rdy when hit_c = '1' else BUS_RDY;
++    WORD <= lines(to_integer(unsigned(ADR(7 downto 4))))(to_integer(unsigned(ADR(3 downto 1))))
++            when hit_c = '1' else BUS_WORD;
++
++    P_ICACHE: process (CLK)
++        variable idx  : integer range 0 to 15;
++        variable wsel : integer range 0 to 7;
++        variable widx : integer range 0 to 15;
++        variable tag  : std_logic_vector(24 downto 0);
++        variable v    : std_logic_vector(7 downto 0);
++    begin
++        if CLK = '1' and CLK'event then
++            idx  := to_integer(unsigned(ADR(7 downto 4)));
++            wsel := to_integer(unsigned(ADR(3 downto 1)));
++            widx := to_integer(unsigned(WR_ADR(7 downto 4)));
++            tag  := ADR(31 downto 8) & FC(2);
++            hit_rdy <= '0';
++
++            if RESET = '1' or CI = '1' then
++                valid <= (others => (others => '0'));
++                served <= '0';
++            else
++                if WR = '1' and tags(widx)(24 downto 1) = WR_ADR(31 downto 8) then
++                    valid(widx) <= (others => '0');
++                end if;
++
++                if REQ = '0' then
++                    served <= '0';
++                elsif hit_c = '1' and served = '0' then
++                    hit_rdy <= '1';
++                    served <= '1';
++                elsif hit_c = '0' and BUS_RDY = '1' and EI = '1' and FI = '0' and FC /= "111" then
++                    if tags(idx) /= tag then
++                        v := (others => '0');
++                    else
++                        v := valid(idx);
++                    end if;
++                    v(wsel) := '1';
++                    valid(idx) <= v;
++                    lines(idx)(wsel) <= BUS_WORD;
++                    tags(idx) <= tag;
++                end if;
++            end if;
++        end if;
++    end process P_ICACHE;
++end architecture RTL;
+diff --git a/Atarist_030_wip/cpu030/wf68k30L_pkg.vhd b/Atarist_030_wip/cpu030/wf68k30L_pkg.vhd
+--- a/Atarist_030_wip/cpu030/wf68k30L_pkg.vhd
++++ b/Atarist_030_wip/cpu030/wf68k30L_pkg.vhd
+@@ -65,6 +65,27 @@
+ 
+ type TRAPTYPE_OPC is(NONE, T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV, T_RTE); -- None is the first entry and default.
+ 
++
++component WF68K30L_ICACHE
++    port (
++        CLK       : in std_logic;
++        RESET     : in bit;
++        EI        : in std_logic;
++        FI        : in std_logic;
++        CI        : in std_logic;
++        REQ       : in bit;
++        ADR       : in std_logic_vector(31 downto 0);
++        FC        : in std_logic_vector(2 downto 0);
++        WR        : in bit;
++        WR_ADR    : in std_logic_vector(31 downto 0);
++        BUS_RDY   : in bit;
++        BUS_WORD  : in std_logic_vector(15 downto 0);
++        BUS_REQ   : out bit;
++        RDY       : out bit;
++        WORD      : out std_logic_vector(15 downto 0)
++    );
++end component;
++
+ component WF68K30L_ADDRESS_REGISTERS
+     port (
+         CLK                 : in std_logic;
+diff --git a/Atarist_030_wip/cpu030/wf68k30L_top.vhd b/Atarist_030_wip/cpu030/wf68k30L_top.vhd
+--- a/Atarist_030_wip/cpu030/wf68k30L_top.vhd
++++ b/Atarist_030_wip/cpu030/wf68k30L_top.vhd
+@@ -360,6 +360,10 @@
+ signal OP_SIZE_WB               : OP_SIZETYPE; -- Writeback.
+ signal OPCODE_REQ               : bit;
+ signal OPCODE_REQ_I             : bit;
++signal BUS_OPCODE_RDY           : bit;
++signal BUS_OPCODE_WORD          : std_logic_vector(15 downto 0);
++signal IC_BUS_REQ               : bit;
++signal IC_CI                    : std_logic;
+ signal OW_VALID                 : std_logic;
+ signal OPD_ACK_MAIN             : bit;
+ signal OP                       : OP_68K;
+@@ -840,6 +844,28 @@
+             "001" when DATA_RD = '1' or DATA_WR = '1' else
+             "110" when OPCODE_RD = '1' and SBIT = '1' else "010"; -- Default is OPCODE_RD and SBIT = '0'.
+ 
++    IC_CI <= '1' when CACR_WR = '1' and DATA_IN_EXH(3) = '1' else '0';
++
++    I_ICACHE: WF68K30L_ICACHE
++        port map(
++            CLK       => CLK,
++            RESET     => RESET_CPU,
++            EI        => CACR(0),
++            FI        => CACR(1),
++            CI        => IC_CI,
++            REQ       => OPCODE_REQ,
++            ADR       => ADR_P,
++            FC        => FC_I,
++            WR        => WR_REQ,
++            WR_ADR    => ADR_P,
++            BUS_RDY   => BUS_OPCODE_RDY,
++            BUS_WORD  => BUS_OPCODE_WORD,
++            BUS_REQ   => IC_BUS_REQ,
++            RDY       => OPCODE_RDY,
++            WORD      => OPCODE_TO_CORE
++        );
++
++
+     I_ADDRESSREGISTERS: WF68K30L_ADDRESS_REGISTERS
+         port map(
+             CLK                     => CLK,
+@@ -961,7 +987,7 @@
+             DATA_PORT_OUT       => DATA_OUT,
+             DATA_FROM_CORE      => DATA_FROM_CORE,
+             DATA_TO_CORE        => DATA_TO_CORE,
+-            OPCODE_TO_CORE      => OPCODE_TO_CORE,
++            OPCODE_TO_CORE      => BUS_OPCODE_WORD,
+ 
+             DATA_PORT_EN        => DATA_EN,
+             BUS_EN              => BUS_EN,
+@@ -973,8 +999,8 @@
+             WR_REQ              => WR_REQ,
+             DATA_RDY            => DATA_RDY,
+             DATA_VALID          => DATA_VALID,
+-            OPCODE_REQ          => OPCODE_REQ,
+-            OPCODE_RDY          => OPCODE_RDY,
++            OPCODE_REQ          => IC_BUS_REQ,
++            OPCODE_RDY          => BUS_OPCODE_RDY,
+             OPCODE_VALID        => OPCODE_VALID,
+             RMC                 => RMC,
+             BUSY_EXH            => BUSY_EXH,
+diff --git a/Atarist_030_wip/build_tc138k.tcl b/Atarist_030_wip/build_tc138k.tcl
+--- a/Atarist_030_wip/build_tc138k.tcl
++++ b/Atarist_030_wip/build_tc138k.tcl
+@@ -25,6 +25,7 @@
+ add_file cpu030/wf68k30L_data_registers.vhd
+ add_file cpu030/wf68k30L_exception_handler.vhd
+ add_file cpu030/wf68k30L_opcode_decoder.vhd
++add_file cpu030/wf68k30L_icache.vhd
+ add_file cpu030/wf68k30L_top.vhd
+ add_file cpu030/cpu030_st_bridge.v
+ add_file fdc1772/fdc1772.v
+diff --git a/Atarist_030_wip/atarist_tc138k.gprj b/Atarist_030_wip/atarist_tc138k.gprj
+--- a/Atarist_030_wip/atarist_tc138k.gprj
++++ b/Atarist_030_wip/atarist_tc138k.gprj
+@@ -29,6 +29,7 @@
+         <File path="cpu030/wf68k30L_data_registers.vhd" type="file.vhdl" enable="1"/>
+         <File path="cpu030/wf68k30L_exception_handler.vhd" type="file.vhdl" enable="1"/>
+         <File path="cpu030/wf68k30L_opcode_decoder.vhd" type="file.vhdl" enable="1"/>
++        <File path="cpu030/wf68k30L_icache.vhd" type="file.vhdl" enable="1"/>
+         <File path="cpu030/wf68k30L_top.vhd" type="file.vhdl" enable="1"/>
+         <File path="cpu030/cpu030_st_bridge.v" type="file.verilog" enable="1"/>
+         <File path="fx68k/fx68k.sv" type="file.verilog" enable="1"/>
+diff --git a/Atarist_030_wip/cpu030/sim/rtl/run_rtl.sh b/Atarist_030_wip/cpu030/sim/rtl/run_rtl.sh
+--- a/Atarist_030_wip/cpu030/sim/rtl/run_rtl.sh
++++ b/Atarist_030_wip/cpu030/sim/rtl/run_rtl.sh
+@@ -5,7 +5,7 @@
+ set -e
+ H=$(cd "$(dirname "$0")" && pwd); S=${WF_SRC:-$H/../..}; W=${1:-/tmp/sim030rtl}; mkdir -p $W/work; cd $W
+ G=${GHDL:-ghdl}; O="--std=08 -fsynopsys -frelaxed --workdir=work"
+-for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control top; do
++for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control icache top; do
+   $G -a $O $S/wf68k30L_$f.vhd 2>/dev/null; done
+ echo ffff > prog.hex; $G -a $O $H/tb030.vhd 2>/dev/null && $G -e $O tb030
+ fail=0
