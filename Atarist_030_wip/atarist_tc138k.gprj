@@ -30,6 +30,7 @@
         <File path="cpu030/wf68k30L_exception_handler.vhd" type="file.vhdl" enable="1"/>
         <File path="cpu030/wf68k30L_opcode_decoder.vhd" type="file.vhdl" enable="1"/>
         <File path="cpu030/wf68k30L_icache.vhd" type="file.vhdl" enable="1"/>
+        <File path="cpu030/wf68k30L_dcache.vhd" type="file.vhdl" enable="1"/>
         <File path="cpu030/wf68k30L_top.vhd" type="file.vhdl" enable="1"/>
         <File path="cpu030/cpu030_st_bridge.v" type="file.verilog" enable="1"/>
         <File path="fx68k/fx68k.sv" type="file.verilog" enable="1"/>

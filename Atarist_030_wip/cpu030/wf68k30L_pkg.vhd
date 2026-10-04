@@ -86,6 +86,29 @@ component WF68K30L_ICACHE
     );
 end component;
 
+
+component WF68K30L_DCACHE
+    port (
+        CLK       : in std_logic;
+        RESET     : in bit;
+        ED        : in std_logic;
+        FD        : in std_logic;
+        CD        : in std_logic;
+        REQ       : in bit;
+        LONG_OK   : in std_logic;
+        ADR       : in std_logic_vector(31 downto 0);
+        FC        : in std_logic_vector(2 downto 0);
+        WR        : in bit;
+        WR_ADR    : in std_logic_vector(31 downto 0);
+        WR_FC     : in std_logic_vector(2 downto 0);
+        BUS_RDY   : in bit;
+        BUS_DATA  : in std_logic_vector(31 downto 0);
+        BUS_REQ   : out bit;
+        RDY       : out bit;
+        DATA      : out std_logic_vector(31 downto 0)
+    );
+end component;
+
 component WF68K30L_ADDRESS_REGISTERS
     port (
         CLK                 : in std_logic;

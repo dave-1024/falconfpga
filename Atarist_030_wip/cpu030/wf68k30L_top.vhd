@@ -364,6 +364,11 @@ signal BUS_OPCODE_RDY           : bit;
 signal BUS_OPCODE_WORD          : std_logic_vector(15 downto 0);
 signal IC_BUS_REQ               : bit;
 signal IC_CI                    : std_logic;
+signal BUS_DATA_RDY             : bit;
+signal BUS_DATA_WORD            : std_logic_vector(31 downto 0);
+signal DC_BUS_REQ               : bit;
+signal DC_CD                    : std_logic;
+signal DC_LONG                  : std_logic;
 signal OW_VALID                 : std_logic;
 signal OPD_ACK_MAIN             : bit;
 signal OP                       : OP_68K;
@@ -865,6 +870,30 @@ begin
             WORD      => OPCODE_TO_CORE
         );
 
+    DC_CD <= '1' when CACR_WR = '1' and DATA_IN_EXH(11) = '1' else '0';
+    DC_LONG <= '1' when OP_SIZE = LONG and ADR_P(1 downto 0) = "00" else '0';
+
+    I_DCACHE: WF68K30L_DCACHE
+        port map(
+            CLK       => CLK,
+            RESET     => RESET_CPU,
+            ED        => CACR(8),
+            FD        => CACR(9),
+            CD        => DC_CD,
+            REQ       => RD_REQ,
+            LONG_OK   => DC_LONG,
+            ADR       => ADR_P,
+            FC        => FC_I,
+            WR        => WR_REQ,
+            WR_ADR    => ADR_P,
+            WR_FC     => FC_I,
+            BUS_RDY   => BUS_DATA_RDY,
+            BUS_DATA  => BUS_DATA_WORD,
+            BUS_REQ   => DC_BUS_REQ,
+            RDY       => DATA_RDY,
+            DATA      => DATA_TO_CORE
+        );
+
 
     I_ADDRESSREGISTERS: WF68K30L_ADDRESS_REGISTERS
         port map(
@@ -986,7 +1015,7 @@ begin
             DATA_PORT_IN        => DATA_IN,
             DATA_PORT_OUT       => DATA_OUT,
             DATA_FROM_CORE      => DATA_FROM_CORE,
-            DATA_TO_CORE        => DATA_TO_CORE,
+            DATA_TO_CORE        => BUS_DATA_WORD,
             OPCODE_TO_CORE      => BUS_OPCODE_WORD,
 
             DATA_PORT_EN        => DATA_EN,
@@ -995,9 +1024,9 @@ begin
             SIZE                => SIZE,
             OP_SIZE             => OP_SIZE_BUS,
 
-            RD_REQ              => RD_REQ,
+            RD_REQ              => DC_BUS_REQ,
             WR_REQ              => WR_REQ,
-            DATA_RDY            => DATA_RDY,
+            DATA_RDY            => BUS_DATA_RDY,
             DATA_VALID          => DATA_VALID,
             OPCODE_REQ          => IC_BUS_REQ,
             OPCODE_RDY          => BUS_OPCODE_RDY,

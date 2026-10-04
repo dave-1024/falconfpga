@@ -5,7 +5,7 @@
 set -e
 H=$(cd "$(dirname "$0")" && pwd); S=${WF_SRC:-$H/../..}; W=${1:-/tmp/sim030rtl}; mkdir -p $W/work; cd $W
 G=${GHDL:-ghdl}; O="--std=08 -fsynopsys -frelaxed --workdir=work"
-for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control icache top; do
+for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control icache dcache top; do
   $G -a $O $S/wf68k30L_$f.vhd 2>/dev/null; done
 echo ffff > prog.hex; $G -a $O $H/tb030.vhd 2>/dev/null && $G -e $O tb030
 fail=0
