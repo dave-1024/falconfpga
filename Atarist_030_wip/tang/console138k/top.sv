@@ -359,12 +359,11 @@ reg [1:0]  phase;
 reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// The flash controller is held in reset for the whole loan, then for 1024
-// clk32 cycles after the pins return. flash_ready is part of the 030 reset,
-// so the hold stays until that reinit has had time to finish.
-wire ae350_run = (phase == PH_LOAN);
-wire flash_reinit = (phase == PH_LOAN) || ((phase == PH_REINIT) && (reinit_cnt < 16'd1024));
-wire helper_hold = (phase != PH_RUN);
+// Loan off. flash_ready is part of the 030 reset, and lending the pins
+// leaves that flag down, so the count cannot release it.
+wire ae350_run = 1'b0;
+wire flash_reinit = 1'b0;
+wire helper_hold = !helper_timeout;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
