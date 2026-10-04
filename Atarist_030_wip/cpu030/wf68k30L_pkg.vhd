@@ -65,6 +65,27 @@ type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, AND
 
 type TRAPTYPE_OPC is(NONE, T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV, T_RTE); -- None is the first entry and default.
 
+
+component WF68K30L_ICACHE
+    port (
+        CLK       : in std_logic;
+        RESET     : in bit;
+        EI        : in std_logic;
+        FI        : in std_logic;
+        CI        : in std_logic;
+        REQ       : in bit;
+        ADR       : in std_logic_vector(31 downto 0);
+        FC        : in std_logic_vector(2 downto 0);
+        WR        : in bit;
+        WR_ADR    : in std_logic_vector(31 downto 0);
+        BUS_RDY   : in bit;
+        BUS_WORD  : in std_logic_vector(15 downto 0);
+        BUS_REQ   : out bit;
+        RDY       : out bit;
+        WORD      : out std_logic_vector(15 downto 0)
+    );
+end component;
+
 component WF68K30L_ADDRESS_REGISTERS
     port (
         CLK                 : in std_logic;
