@@ -42,6 +42,23 @@ module top(
 
   output [1:0]	leds_n,
 
+  // SOM DDR3, helper bring-up only. J9 SDRAM is unchanged.
+  output [2:0]	DDR3_BANK,
+  output		DDR3_CS_N,
+  output		DDR3_RAS_N,
+  output		DDR3_CAS_N,
+  output		DDR3_WE_N,
+  output		DDR3_CK,
+  output		DDR3_CK_N,
+  output		DDR3_CKE,
+  output		DDR3_RESET_N,
+  output		DDR3_ODT,
+  output [13:0]	DDR3_ADDR,
+  output [1:0]	DDR3_DM,
+  inout  [15:0]	DDR3_DQ,
+  inout  [1:0]	DDR3_DQS,
+  inout  [1:0]	DDR3_DQS_N,
+
   // interface to Tang onboard BL616 UART
   //input		uart_rx,
   //output		uart_tx,
@@ -304,8 +321,83 @@ wire [3:0]  diag_030;
 wire [167:0] diag_trace;
 wire [17:0] diag_vbase;
 
+// Helper bring-up. DDR3 may train. The AE350 CPU stays in reset: the 030
+// still owns MSPI for TOS, and this cut has no flash arbiter. The 030 is
+// held until DDR3_INIT, or about 4 seconds, so a dead helper still boots.
+wire        DDR3_MEMORY_CLK, DDR3_CLK_IN, DDR3_RW_CLK, DDR3_LOCK, DDR3_STOP;
+wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
+wire        ddr3_init_completed;
+wire        ddr3_rstn;
+wire [31:0] extm_hrdata;
+wire        extm_hreadyout;
+wire [1:0]  extm_hresp;
+
+gowin_pll_ae350 u_gowin_pll_ae350 (
+    .clkin(clk), .init_clk(clk),
+    .clkout0(DDR_CLK), .clkout1(CORE_CLK), .clkout2(AHB_CLK),
+    .clkout3(APB_CLK), .clkout4(RTC_CLK)
+);
+gowin_pll_ddr3 u_gowin_pll_ddr3 (
+    .clkin(clk), .init_clk(clk),
+    .enclk0(1'b1), .enclk1(1'b1), .enclk2(DDR3_STOP),
+    .clkout0(DDR3_CLK_IN), .clkout1(DDR3_RW_CLK),
+    .clkout2(DDR3_MEMORY_CLK), .lock(DDR3_LOCK)
+);
+key_debounce u_key_debounce_ddr3 (
+    .out(ddr3_rstn), .in(reset_n), .clk(clk), .rstn(1'b1)
+);
+
+reg [1:0] ddr3_init_sync;
+reg [27:0] helper_timer;
+always @(posedge clk32) begin
+    if (por) begin
+        ddr3_init_sync <= 2'b00;
+        helper_timer <= 28'd0;
+    end else begin
+        ddr3_init_sync <= {ddr3_init_sync[0], ddr3_init_completed};
+        if (!ddr3_init_sync[1] && helper_timer != 28'hfff_ffff)
+            helper_timer <= helper_timer + 28'd1;
+    end
+end
+wire helper_timeout = helper_timer[27];
+wire helper_hold = !ddr3_init_sync[1] && !helper_timeout;
+
+RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
+    .FLASH_SPI_CSN(), .FLASH_SPI_MISO(1'b1), .FLASH_SPI_MOSI(),
+    .FLASH_SPI_CLK(), .FLASH_SPI_HOLDN(), .FLASH_SPI_WPN(),
+    .DDR3_MEMORY_CLK(DDR3_MEMORY_CLK), .DDR3_CLK_IN(DDR3_CLK_IN),
+    .DDR3_RSTN(ddr3_rstn), .DDR3_LOCK(DDR3_LOCK), .DDR3_STOP(DDR3_STOP),
+    .DDR3_INIT(ddr3_init_completed),
+    .DDR3_BANK(DDR3_BANK), .DDR3_CS_N(DDR3_CS_N), .DDR3_RAS_N(DDR3_RAS_N),
+    .DDR3_CAS_N(DDR3_CAS_N), .DDR3_WE_N(DDR3_WE_N),
+    .DDR3_CK(DDR3_CK), .DDR3_CK_N(DDR3_CK_N), .DDR3_CKE(DDR3_CKE),
+    .DDR3_RESET_N(DDR3_RESET_N), .DDR3_ODT(DDR3_ODT), .DDR3_ADDR(DDR3_ADDR),
+    .DDR3_DM(DDR3_DM), .DDR3_DQ(DDR3_DQ), .DDR3_DQS(DDR3_DQS),
+    .DDR3_DQS_N(DDR3_DQS_N),
+    .clk_lane4(DDR3_RW_CLK), .addr_lane4(32'd0), .wr_mask_lane4(4'd0),
+    .wr_data_lane4(32'd0), .wr_en_lane4(1'b0), .wr_go_lane4(1'b0),
+    .burstcount_lane4(8'd0), .wr_wait_lane4(), .wr_done_lane4(),
+    .clk_lane5(DDR3_RW_CLK), .addr_lane5(32'd0), .rd_en_lane5(1'b0),
+    .rd_go_lane5(1'b0), .burstcount_lane5(8'd0),
+    .rd_valid_lane5(), .rd_data_lane5(), .rd_rdy_lane5(),
+    .EXTM_HADDR(32'd0), .EXTM_HBURST(3'd0), .EXTM_HPROT(4'd0),
+    .EXTM_HREADY(extm_hreadyout), .EXTM_HSEL(1'b0), .EXTM_HSIZE(3'd0),
+    .EXTM_HTRANS(2'd0), .EXTM_HWDATA(64'd0), .EXTM_HWRITE(1'b0),
+    .EXTM_HRDATA(extm_hrdata), .EXTM_HREADYOUT(extm_hreadyout),
+    .EXTM_HRESP(extm_hresp),
+    .TCK_IN(1'b0), .TMS_IN(1'b1), .TRST_IN(1'b1), .TDI_IN(1'b0),
+    .TDO_OUT(), .TDO_OE(),
+    .UART2_TXD(), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
+    .UART2_DCDN(1'b0), .UART2_DSRN(1'b0), .UART2_RIN(1'b0),
+    .UART2_DTRN(), .UART2_OUT1N(), .UART2_OUT2N(),
+    .GPIO(),
+    .CORE_CLK(CORE_CLK), .DDR_CLK(DDR_CLK), .AHB_CLK(AHB_CLK),
+    .APB_CLK(APB_CLK), .RTC_CLK(RTC_CLK),
+    .POR_RSTN(1'b0), .HW_RSTN(1'b0)
+);
+
 misterynano misterynano (
-  .reset ( s0_reset ), // S0 / AA13, qualified above. Not a level at config.
+  .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout
   .user  ( 1'b0), // !user_n ),
 
   // clock and power on reset from system

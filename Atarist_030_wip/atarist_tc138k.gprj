@@ -97,6 +97,12 @@
         <File path="tang/console138k/gowin_pll/pll_160m.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/gowin_pll/pll_160m_mod.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/pll_init.v" type="file.verilog" enable="1"/>
+        <File path="helper/key_debounce.v" type="file.verilog" enable="1"/>
+        <File path="helper/gowin_pll_ae350/gowin_pll_ae350.v" type="file.verilog" enable="1"/>
+        <File path="helper/gowin_pll_ae350/gowin_pll_ae350_mod.v" type="file.verilog" enable="1"/>
+        <File path="helper/gowin_pll_ddr3/gowin_pll_ddr3.v" type="file.verilog" enable="1"/>
+        <File path="helper/gowin_pll_ddr3/gowin_pll_ddr3_mod.v" type="file.verilog" enable="1"/>
+        <File path="helper/riscv_ae350_soc/riscv_ae350_soc.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v" type="file.verilog" enable="1"/>
         <File path="tang/console138k/video_testpattern_640.v" type="file.verilog" enable="1"/>

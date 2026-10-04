@@ -101,6 +101,12 @@ add_file tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file tang/console138k/gowin_pll/pll_160m.v
 add_file tang/console138k/gowin_pll/pll_160m_mod.v
 add_file tang/console138k/pll_init.v
+add_file helper/key_debounce.v
+add_file helper/gowin_pll_ae350/gowin_pll_ae350.v
+add_file helper/gowin_pll_ae350/gowin_pll_ae350_mod.v
+add_file helper/gowin_pll_ddr3/gowin_pll_ddr3.v
+add_file helper/gowin_pll_ddr3/gowin_pll_ddr3_mod.v
+add_file helper/riscv_ae350_soc/riscv_ae350_soc.v
 add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v
 add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v
 add_file tang/console138k/video_testpattern_640.v
