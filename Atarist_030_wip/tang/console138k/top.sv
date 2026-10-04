@@ -355,7 +355,13 @@ reg [29:0] helper_timer;
 reg [7:0]  gpio_s0, gpio_s1;
 reg [1:0]  ready_match;
 reg        helper_ready;
-wire ae350_run = ddr3_init_sync[1] && !helper_ready && !helper_timeout;
+reg [1:0]  phase;
+reg [3:0]  reinit_cnt;
+reg        flash_ready_s0, flash_ready_s1;
+localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
+wire ae350_run = (phase == PH_LOAN);
+wire flash_reinit = (phase == PH_REINIT) && (reinit_cnt != 4'hf);
+wire helper_hold = (phase != PH_RUN);
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
@@ -364,6 +370,10 @@ always @(posedge clk32) begin
         gpio_s1 <= 8'h00;
         ready_match <= 2'b00;
         helper_ready <= 1'b0;
+        phase <= PH_HOLD;
+        reinit_cnt <= 4'd0;
+        flash_ready_s0 <= 1'b0;
+        flash_ready_s1 <= 1'b0;
     end else begin
         ddr3_init_sync <= {ddr3_init_sync[0], ddr3_init_completed};
         if (helper_timer != 30'd640_000_000)
@@ -376,12 +386,26 @@ always @(posedge clk32) begin
             ready_match <= 2'b00;
         if (ready_match == 2'b11)
             helper_ready <= 1'b1;
+        flash_ready_s0 <= flash_ready;
+        flash_ready_s1 <= flash_ready_s0;
+        case (phase)
+            PH_HOLD: if (helper_timer == 30'd640_000_000)
+                    phase <= PH_REINIT;
+                else if (flash_ready_s1 && ddr3_init_sync[1])
+                    phase <= PH_LOAN;
+            PH_LOAN: if (helper_ready || helper_timer == 30'd640_000_000)
+                    phase <= PH_REINIT;
+            PH_REINIT: if (reinit_cnt != 4'hf)
+                    reinit_cnt <= reinit_cnt + 4'd1;
+                else if (flash_ready_s1)
+                    phase <= PH_RUN;
+            default: phase <= PH_RUN;
+        endcase
+        if (phase != PH_REINIT)
+            reinit_cnt <= 4'd0;
     end
 end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
-wire helper_hold = !helper_ready && !helper_timeout;
-// ae350_run is declared above. Resetting the core after the mark releases
-// the flash pins before the 030 fetches TOS.
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
@@ -417,12 +441,25 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .POR_RSTN(ae350_run), .HW_RSTN(ae350_run)
 );
 
-// The 030 keeps MSPI. flash_ready is part of its reset, and taking the
-// clock away stops that flag, so the hold never clears. The AE350 flash
-// wires stay internal until there is an arbiter that can give them back.
+// Loan MSPI only after flash_ready. MISO stays on the 030 net and is read
+// by the AE350. On the mark or the 20 second count, the pins come back and
+// the flash controller is reset before the 030 is released.
+wire        nano_mspi_cs;
+wire        nano_mspi_hold;
+wire        nano_mspi_wp;
+wire        nano_mspi_do;
+wire        mspi_clk_pll;
+assign mspi_cs   = ae350_run ? ae350_flash_csn   : nano_mspi_cs;
+assign mspi_clk  = ae350_run ? ae350_flash_clk   : mspi_clk_pll;
+assign mspi_do   = ae350_run ? ae350_flash_mosi  : nano_mspi_do;
+assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
+assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
+assign ae350_flash_miso = mspi_di;
 
 misterynano misterynano (
-  .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout
+  .reset ( s0_reset | helper_hold ), // S0, or held until the loan ends
+  .flash_reinit ( flash_reinit ),
+  .flash_ready ( flash_ready ),
   .user  ( 1'b0), // !user_n ),
 
   // clock and power on reset from system
@@ -437,11 +474,11 @@ misterynano misterynano (
   .ws2812 ( ),
 
   // spi flash interface
-  .mspi_cs   ( mspi_cs   ),
+  .mspi_cs   ( nano_mspi_cs   ),
   .mspi_di   ( mspi_di   ),
-  .mspi_hold ( mspi_hold ),
-  .mspi_wp   ( mspi_wp   ),
-  .mspi_do   ( mspi_do   ),
+  .mspi_hold ( nano_mspi_hold ),
+  .mspi_wp   ( nano_mspi_wp   ),
+  .mspi_do   ( nano_mspi_do   ),
 
   // SDRAM
   .sdram_clk   ( ),
@@ -539,7 +576,7 @@ pll_160m pll_hdmi (
                .clkout1(clk_pixel),          // 32 MHz
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
                .clkout3(flash_clk),          // 100 MHz
-               .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
+               .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
                .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
