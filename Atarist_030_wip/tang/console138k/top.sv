@@ -429,8 +429,8 @@ assign mspi_clk  = ae350_run ? ae350_flash_clk   : mspi_clk_pll;
 assign mspi_do   = ae350_run ? ae350_flash_mosi  : nano_mspi_do;
 assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
 assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
-assign mspi_di   = ae350_run ? 1'bz : nano_mspi_di;
 assign ae350_flash_miso = mspi_di;
+assign nano_mspi_di = mspi_di;
 
 misterynano misterynano (
   .reset ( s0_reset | helper_hold ), // S0, or held until DDR3 init / timeout

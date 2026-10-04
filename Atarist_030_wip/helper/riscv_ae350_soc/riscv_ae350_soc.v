@@ -33238,90 +33238,41 @@ wire [31:0] GPIO_OUT;
 wire [0:0] spi_out_r;
 wire VCC;
 wire GND;
-  IOBUF FLASH_SPI_CSN_iobuf (
-    .O(FLASH_SPI_CSN_in),
-    .IO(FLASH_SPI_CSN),
-    .I(spi1_csn_out),
-    .OEN(GND) 
-);
-  IOBUF FLASH_SPI_MISO_iobuf (
-    .O(FLASH_SPI_MISO_in),
-    .IO(FLASH_SPI_MISO),
-    .I(VCC),
-    .OEN(IO_7_77) 
-);
-  IOBUF FLASH_SPI_MOSI_iobuf (
-    .O(FLASH_SPI_MOSI_in),
-    .IO(FLASH_SPI_MOSI),
-    .I(spi_out_r[0]),
-    .OEN(GND) 
-);
-  IOBUF FLASH_SPI_CLK_iobuf (
-    .O(FLASH_SPI_CLK_in),
-    .IO(FLASH_SPI_CLK),
-    .I(n250_3),
-    .OEN(GND) 
-);
-  IOBUF FLASH_SPI_HOLDN_iobuf (
-    .O(FLASH_SPI_HOLDN_in),
-    .IO(FLASH_SPI_HOLDN),
-    .I(VCC),
-    .OEN(GND) 
-);
-  IOBUF FLASH_SPI_WPN_iobuf (
-    .O(FLASH_SPI_WPN_in),
-    .IO(FLASH_SPI_WPN),
-    .I(VCC),
-    .OEN(GND) 
-);
-  IOBUF GPIO_0_iobuf (
-    .O(GPIO_in[0]),
-    .IO(GPIO[0]),
-    .I(GPIO_OUT[0]),
-    .OEN(IO_7) 
-);
-  IOBUF GPIO_1_iobuf (
-    .O(GPIO_in[1]),
-    .IO(GPIO[1]),
-    .I(GPIO_OUT[1]),
-    .OEN(IO_7_46) 
-);
-  IOBUF GPIO_2_iobuf (
-    .O(GPIO_in[2]),
-    .IO(GPIO[2]),
-    .I(GPIO_OUT[2]),
-    .OEN(IO_7_47) 
-);
-  IOBUF GPIO_3_iobuf (
-    .O(GPIO_in[3]),
-    .IO(GPIO[3]),
-    .I(GPIO_OUT[3]),
-    .OEN(IO_7_48) 
-);
-  IOBUF GPIO_4_iobuf (
-    .O(GPIO_in[4]),
-    .IO(GPIO[4]),
-    .I(GPIO_OUT[4]),
-    .OEN(IO_7_49) 
-);
-  IOBUF GPIO_5_iobuf (
-    .O(GPIO_in[5]),
-    .IO(GPIO[5]),
-    .I(GPIO_OUT[5]),
-    .OEN(IO_7_50) 
-);
-  IOBUF GPIO_6_iobuf (
-    .O(GPIO_in[6]),
-    .IO(GPIO[6]),
-    .I(GPIO_OUT[6]),
-    .OEN(IO_7_51) 
-);
-  IOBUF GPIO_7_iobuf (
-    .O(GPIO_in[7]),
-    .IO(GPIO[7]),
-    .I(GPIO_OUT[7]),
-    .OEN(IO_7_52) 
-);
+  assign FLASH_SPI_CSN = spi1_csn_out;
+  assign FLASH_SPI_CSN_in = spi1_csn_out;
+  assign FLASH_SPI_MISO_in = FLASH_SPI_MISO;
+  assign FLASH_SPI_MOSI = spi_out_r[0];
+  assign FLASH_SPI_MOSI_in = spi_out_r[0];
+  assign FLASH_SPI_CLK = n250_3;
+  assign FLASH_SPI_CLK_in = n250_3;
+  assign FLASH_SPI_HOLDN = VCC;
+  assign FLASH_SPI_HOLDN_in = VCC;
+  assign FLASH_SPI_WPN = VCC;
+  assign FLASH_SPI_WPN_in = VCC;
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[0] = GPIO_OUT[0];
+  assign GPIO_in[0] = GPIO_OUT[0];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[1] = GPIO_OUT[1];
+  assign GPIO_in[1] = GPIO_OUT[1];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[2] = GPIO_OUT[2];
+  assign GPIO_in[2] = GPIO_OUT[2];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[3] = GPIO_OUT[3];
+  assign GPIO_in[3] = GPIO_OUT[3];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[4] = GPIO_OUT[4];
+  assign GPIO_in[4] = GPIO_OUT[4];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[5] = GPIO_OUT[5];
+  assign GPIO_in[5] = GPIO_OUT[5];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[6] = GPIO_OUT[6];
+  assign GPIO_in[6] = GPIO_OUT[6];
+  // Fabric wire, not a pad. The ready mark is read inside the FPGA.
+  assign GPIO[7] = GPIO_OUT[7];
+  assign GPIO_in[7] = GPIO_OUT[7];
   IOBUF GPIO_8_iobuf (
     .O(GPIO_in[8]),
     .IO(GPIO[8]),
