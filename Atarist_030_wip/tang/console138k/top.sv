@@ -152,7 +152,7 @@ module top(
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
-assign uart_ext_tx = ae350_uart_tx; // AE350 UART2, 115200 8N1, pin C22
+assign uart_ext_tx = ae350_uart_tx; // AE350 UART2 on U15, rigsdram wire. ready.c divisor is 115200, not 38400
 
 wire clk32;
 wire pll_lock;
@@ -373,12 +373,13 @@ reg [1:0]  phase;
 reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// Pins come back before flash reset is released. ready is only init==0,
-// and it stays 0 while flash_reinit holds resetn low, so the 030 is not
-// released until 1 ms after that reset rises.
-wire ae350_run = (phase == PH_LOAN);
-wire flash_reinit = (phase == PH_LOAN) || ((phase == PH_REINIT) && (reinit_cnt < 16'd1024));
-wire helper_hold = (phase != PH_RUN);
+// AE350 stays in the fabric (PLLs, DDR3, UART on C22) but is disconnected
+// from the 030. It is held in reset and does not own MSPI, so the 030
+// takes the known-good non-hold path. The phase machine is left in place
+// for a later separate AE350 debug; it does not gate reset or flash.
+wire ae350_run = 1'b0;
+wire flash_reinit = 1'b0;
+wire helper_hold = 1'b0;
 always @(posedge clk32) begin
     if (por) begin
         ddr3_init_sync <= 2'b00;
@@ -475,7 +476,7 @@ assign mspi_wp   = ae350_run ? ae350_flash_wpn   : nano_mspi_wp;
 assign ae350_flash_miso = mspi_di;
 
 misterynano misterynano (
-  .reset ( s0_reset | helper_hold ), // S0, or held until the loan ends
+  .reset ( s0_reset | helper_hold ), // S0 only; helper_hold is tied off
   .flash_reinit ( flash_reinit ),
   .flash_ready ( flash_ready ),
   .user  ( 1'b0), // !user_n ),
