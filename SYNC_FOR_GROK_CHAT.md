@@ -9,6 +9,54 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## HANDOFF 2026-10-05: AE350 is in the fabric, desktop is a separate build (read this first)
+
+David is building `d9a3daf` now. Do not rebuild it. Do not flash it. Do not write exFlash.
+Cable 417 only. TOS slot stays where it is. No patch to apply: this work is already on `main`.
+
+### Two builds, do not mix them
+
+- `build_tc138k.tcl` is the desktop. It is the `c2dea47` path. The 030 is not held. The AE350 is in the fabric, held in reset, and its flash ports are tied off through wires. They are not connected to the ST flash pins. This image boots to the desktop with no delay and no button. It is the known-good image with the helper present but off.
+- `build_ae350_serial.tcl` is the AE350 proof only. The 030 stays in reset, so there is no desktop. The bitstream is `ae350_serial.fs`, not `atarist_tc138k.fs`.
+
+Muxing MSPI into the desktop build kills the boot. `5630a36` and `988c846` both did that. Neither booted, and neither printed. Do not put that mux back on `build_tc138k.tcl`.
+
+### What the proof image does
+
+UART is U15, the rigsdram and hybrid `UART2_TXD` pin, 115200 8N1. The proof CST moves `spi_irqn` to C22. The desktop CST does not: U15 stays `spi_irqn`, C22 stays the old BL616 passthrough.
+
+Fabric letters, then the stub:
+
+- `PIN` means the lead, U15 and 115200 are good. Seen on `1e4cc74`. It does not mean the AE350 ran.
+- `D` means DDR3 init completed. `X` means it did not, within 8 seconds.
+- Flash is lent for about 2 ms, then `R`, then the AE350 reset rises.
+- `AE350 alive` is `helper_fw/ready/ready.c`. It does not write GPIO `0xA5`.
+
+`ready.bin` is already at `0x0600000`. Do not rebuild it for `d9a3daf`. Program Without Erasure if it has to be written again. Not `0x6000000`.
+
+The stub is linked with `ae350-ddr.ld`. It cannot reach `main` unless DDR3 trains and that bin is at `0x0600000`. `PIN` then `X` means the CPU was not started.
+
+### Clocks and the DDR3 block
+
+The DDR3 controller is the hybrid SOM DDR3 IP, not the rigsdram plug-in SDRAM. PLL settings match the hybrid: core 800 MHz, AHB and APB 50 MHz, DDR3 memory clock 200 MHz. UART divisor 27 is 50 MHz / (16 × 115200), about 0.5% fast. Rigsdram's old rate was 38400. This stub is 115200. DDR3 init on this splice is not yet proven.
+
+Gowin has no `set_option -verilog_define`. `build_ae350_serial.tcl` writes `` `define AE350_SERIAL `` into `tang/console138k/build_sel.vh` before synthesis. `build_tc138k.tcl` clears that file. `top.sv` includes it.
+
+Inouts cannot be tied to constants (`EX3434`). The desktop image ties the AE350 flash ports off through wires.
+
+### Commits, oldest first
+
+- `c2dea47` desktop restored. AE350 held off. David: boots, no delay.
+- `988c846` S1 mux on the desktop image. Did not boot, no UART.
+- `154678d` split the proof into `build_ae350_serial.tcl`.
+- `e94edae` header macro, after Gowin rejected `-verilog_define`.
+- `1e4cc74` the 2 second release was a one-clock pulse. Latched, and added `PIN`. David saw `PIN`.
+- `d9a3daf` `D`/`X`, lend flash, `R`, then release. David is building this.
+
+### Next
+
+Wait for David's letters. Do not start a Nano build. Do not write exFlash. SRAM only, cable 417.
+
 ## HANDOFF 2026-10-03/04: 68030 build now boots TOS 2.06 and EmuTOS to the desktop (read this first)
 
 State of main (Atarist_030_wip, Tang Console 138K): WF68K30L 68030 core with fixes F55-F59, synchronous
