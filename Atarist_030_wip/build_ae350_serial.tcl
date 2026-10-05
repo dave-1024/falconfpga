@@ -1,6 +1,12 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
 # Run from this directory: gw_sh build_tc138k.tcl
 
+
+# Proof image only. Does not change the desktop tcl.
+set fh [open tang/console138k/build_sel.vh w]
+puts $fh "`define AE350_SERIAL"
+close $fh
+
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
 
 add_file tang/console138k/top.sv
@@ -125,7 +131,6 @@ set_option -synthesis_tool gowinsynthesis
 set_option -output_base_name ae350_serial
 set_option -verilog_std sysv2017
 set_option -top_module top
-set_option -verilog_define {AE350_SERIAL}
 set_option -use_mspi_as_gpio 1
 set_option -use_sspi_as_gpio 1
 set_option -use_done_as_gpio 1

@@ -3,6 +3,7 @@
 
     This top level implements the default variant for tc138k
 */ 
+`include "build_sel.vh"
 
 `define GOWIN
 

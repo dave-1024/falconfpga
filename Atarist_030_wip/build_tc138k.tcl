@@ -1,6 +1,12 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
 # Run from this directory: gw_sh build_tc138k.tcl
 
+
+# Desktop image. Clears the proof macro if a serial build ran last.
+set fh [open tang/console138k/build_sel.vh w]
+puts $fh "// desktop"
+close $fh
+
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
 
 add_file tang/console138k/top.sv
