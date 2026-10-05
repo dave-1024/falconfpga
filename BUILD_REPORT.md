@@ -733,3 +733,8 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Stopped leftover laptop work from earlier icache requests; no programmer ops, no Gowin, TOS untouched.
 - Understood: `build_tc138k.tcl` = desktop (AE350 held off, flash ports tied through wires); `build_ae350_serial.tcl` = proof only (030 held, bitstream `ae350_serial.fs`). Do not put the MSPI mux back on the desktop build. UART proof is U15 at 115200. `ready.bin` already at `0x0600000`. David is building `d9a3daf`; do not rebuild or flash it.
 - Letters: `PIN` already seen. Next: `D` or `X`, then `R`, then `AE350 alive`. `PIN` then `X` means DDR3 did not train (CPU not started). Waiting for David's UART report.
+
+## 2026-10-05 17:52 BST – REQUEST_ID 20261005-3 (handoff 20261005-1750-pin-dr, ACTION APPLY_ONLY): RESULT: ACK (no patch, no build, no flash)
+- Pulled to 5eaa1be. Read SYNC top and the catchup note.
+- Board result on d9a3daf (ae350_serial.fs, U15 115200): printed `PIN` then `DR`. No `AE350 alive`. `ready.bin` is at `0x0600000` (not 0x6000000; not off-by-four).
+- Understood: PIN = fabric/UART OK; D = DDR3 trained on this splice; R = flash lent ~2 ms then AE350 reset rose; stub did not reach main. Open fault = AE350 flash read. Do not rebuild ready.bin for this, do not rebuild d9a3daf, do not mux MSPI into build_tc138k.tcl, do not write exFlash.
