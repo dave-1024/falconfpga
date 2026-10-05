@@ -152,7 +152,7 @@ module top(
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
-assign uart_ext_tx = bl616_tx;   // booting pinout; AE350 UART stays off this pin
+assign uart_ext_tx = ae350_uart_tx; // U15, 115200 8N1, after S1 releases the AE350
 
 wire clk32;
 wire pll_lock;
@@ -343,13 +343,7 @@ wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
 wire        ae350_uart_tx;
 wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
-// Inouts cannot be tied to constants. Held idle, not on the ST flash pins.
-assign ae350_flash_csn = 1'b1;
-assign ae350_flash_miso = 1'b1;
-assign ae350_flash_mosi = 1'b1;
-assign ae350_flash_clk = 1'b0;
-assign ae350_flash_holdn = 1'b1;
-assign ae350_flash_wpn = 1'b1;
+// AE350 drives these. They reach the flash pins only while ae350_run.
 wire [31:0] ae350_gpio;
 wire        ddr3_rstn;
 wire [31:0] extm_hrdata;
@@ -380,9 +374,9 @@ reg [1:0]  phase;
 reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// AE350 stays in the fabric and in reset. It is not on the flash pins.
-// 030 reset is S0 only.
-wire ae350_run = 1'b0;
+// Desktop path is unchanged until S1. S1 releases the AE350 and lends it
+// MSPI. Nothing feeds back into the 030 reset.
+wire ae350_run = s1_release && ddr3_init_sync[1];
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b0;
 always @(posedge clk32) begin
@@ -465,7 +459,14 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .POR_RSTN(ae350_run), .HW_RSTN(ae350_run)
 );
 
-// Flash pins are the 030 controller only. The AE350 flash ports are tied off.
+// Until S1, the pins are the 030 controller. After S1 they are the AE350.
+wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, mspi_clk_pll;
+assign mspi_cs   = ae350_run ? ae350_flash_csn  : nano_mspi_cs;
+assign mspi_clk  = ae350_run ? ae350_flash_clk  : mspi_clk_pll;
+assign mspi_do   = ae350_run ? ae350_flash_mosi : nano_mspi_do;
+assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
+assign mspi_wp   = ae350_run ? ae350_flash_wpn  : nano_mspi_wp;
+assign ae350_flash_miso = ae350_run ? mspi_di : 1'b1;
 
 misterynano misterynano (
   .reset ( s0_reset | helper_hold ), // S0 only; helper_hold is tied off
@@ -485,11 +486,11 @@ misterynano misterynano (
   .ws2812 ( ),
 
   // spi flash interface
-  .mspi_cs   ( mspi_cs   ),
+  .mspi_cs   ( nano_mspi_cs   ),
   .mspi_di   ( mspi_di   ),
-  .mspi_hold ( mspi_hold ),
-  .mspi_wp   ( mspi_wp   ),
-  .mspi_do   ( mspi_do   ),
+  .mspi_hold ( nano_mspi_hold ),
+  .mspi_wp   ( nano_mspi_wp   ),
+  .mspi_do   ( nano_mspi_do   ),
 
   // SDRAM
   .sdram_clk   ( ),
@@ -587,7 +588,7 @@ pll_160m pll_hdmi (
                .clkout1(clk_pixel),          // 32 MHz
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
                .clkout3(flash_clk),          // 100 MHz
-               .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
+               .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
                .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),

@@ -1,10 +1,8 @@
-/* AE350 ready stub. 115200 8N1 on UART2, then GPIO 0xA5.
- * "alive" means main started. "release" means the mark is being written.
+/* AE350 serial proof. Not connected to the 030.
+ * 115200 8N1 on UART2. "AE350 alive" means main started.
+ * Flash at 0x0600000. Does not write the GPIO mark.
  */
 #define UART_BASE 0xF0300000u
-#define GPIO_BASE 0xF0700000u
-#define GPIO_DOUT (GPIO_BASE + 0x24u)
-#define GPIO_DIR  (GPIO_BASE + 0x28u)
 
 static inline void wr(unsigned addr, unsigned val)
 {
@@ -40,10 +38,7 @@ static void uart_puts(const char *s)
 int main(void)
 {
     uart_init();
-    uart_puts("alive\r\n");
-    uart_puts("release\r\n");
-    wr(GPIO_DIR, 0x000000FFu);
-    wr(GPIO_DOUT, 0x000000A5u);
+    uart_puts("AE350 alive\r\n");
     for (;;)
         ;
     return 0;
