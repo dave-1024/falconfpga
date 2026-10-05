@@ -9,6 +9,26 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## RESULT 2026-10-05 17:50: proof image printed PIN DR, stub did not run
+
+David SRAM-programmed `d9a3daf` (`build_ae350_serial.tcl`, `ae350_serial.fs`) on cable 417. U15, 115200 8N1. He did not write exFlash. `ready.bin` is at `0x0600000`. He first typed `0x06000004`, then corrected it. The log address is `0x0600000`, not an off-by-four and not `0x6000000`.
+
+Serial text was:
+
+```
+PIN
+DR
+```
+
+No `AE350 alive` after `R`.
+
+- `PIN` is the fabric banner. Lead, U15 and 115200 are good.
+- `D` means `ddr3_init_completed` rose. The hybrid DDR3 block trained on this splice.
+- `R` means the flash pins had been lent for about 2 ms and the AE350 reset then rose.
+- The stub in `helper_fw/ready/ready.c` did not reach `main`. Do not rebuild `ready.bin` for this. It is unchanged.
+
+The remaining fault is the AE350 flash read, not the UART, not DDR3 init, and not the reset. The desktop build is still `build_tc138k.tcl`. Do not mux MSPI back into it. Do not rebuild `d9a3daf`. Do not write exFlash.
+
 ## HANDOFF 2026-10-05: AE350 is in the fabric, desktop is a separate build (read this first)
 
 David is building `d9a3daf` now. Do not rebuild it. Do not flash it. Do not write exFlash.
