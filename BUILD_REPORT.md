@@ -738,3 +738,9 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Pulled to 5eaa1be. Read SYNC top and the catchup note.
 - Board result on d9a3daf (ae350_serial.fs, U15 115200): printed `PIN` then `DR`. No `AE350 alive`. `ready.bin` is at `0x0600000` (not 0x6000000; not off-by-four).
 - Understood: PIN = fabric/UART OK; D = DDR3 trained on this splice; R = flash lent ~2 ms then AE350 reset rose; stub did not reach main. Open fault = AE350 flash read. Do not rebuild ready.bin for this, do not rebuild d9a3daf, do not mux MSPI into build_tc138k.tcl, do not write exFlash.
+
+## 2026-10-05 18:10 BST – AE350 serial proof: flash MOSI/MISO swap fixed (BUILD ONLY, not flashed)
+- Symptom: d9a3daf printed `PIN` / `DR` on U15 @ 115200; no `AE350 alive`. ready.bin at 0x0600000.
+- Cause: serial loan mux had MOSI on mspi_do (R22) and MISO from mspi_di (P22). Hybrid map is MOSI=P22=mspi_di, MISO=R22=mspi_do.
+- Fix: `top.sv` AE350_SERIAL path only — AE350 owns MSPI exclusively (030 held); SOC ports use the hybrid map; ST flash_dspi kept off the pads. Desktop path untouched (no mux on build_tc138k.tcl).
+- Build: `gw_sh build_ae350_serial.tcl`, PASS, TNS 0. clk32_core 75.0 MHz, clk_cpu030 16.7 MHz, ae350_ahb_clk 80.6, ddr3_memory_clk constraint 200 (reported high). Bitstream saved as `C:\Users\dave_\fpga_caps\ae350_serial_flashfix.fs` for David to SRAM-program. Not flashed by the bot.

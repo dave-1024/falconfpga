@@ -9,6 +9,18 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## FIX 2026-10-05 18:10: AE350 flash MOSI/MISO were swapped on the serial proof
+
+Cause: the serial proof loan mux routed `FLASH_SPI_MOSI` to `mspi_do` (R22) and
+sampled `FLASH_SPI_MISO` from `mspi_di` (P22). The hybrid bring-up that worked uses
+the opposite map (`FLASH_SPI_MOSI` = P22 = `mspi_di`, `FLASH_SPI_MISO` = R22 = `mspi_do`).
+UART and DDR3 were fine (`PIN` / `D` / `R`); the stub never fetched `ready.bin`.
+
+Fix (serial proof only): AE350 owns MSPI exclusively while the 030 is held; SOC flash
+ports connect with the hybrid ball map. Desktop `build_tc138k.tcl` is unchanged (no MSPI
+mux). Bitstream for David: `C:\Users\dave_\fpga_caps\ae350_serial_flashfix.fs` (BUILD ONLY,
+not flashed). Expect `PIN` then `DR` then `AE350 alive`.
+
 ## RESULT 2026-10-05 17:50: proof image printed PIN DR, stub did not run
 
 David SRAM-programmed `d9a3daf` (`build_ae350_serial.tcl`, `ae350_serial.fs`) on cable 417. U15, 115200 8N1. He did not write exFlash. `ready.bin` is at `0x0600000`. He first typed `0x06000004`, then corrected it. The log address is `0x0600000`, not an off-by-four and not `0x6000000`.

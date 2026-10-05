@@ -519,8 +519,13 @@ end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
+`ifdef AE350_SERIAL
+    .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MOSI(mspi_di), .FLASH_SPI_MISO(mspi_do),
+    .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(mspi_hold), .FLASH_SPI_WPN(mspi_wp),
+`else
     .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
     .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(ae350_flash_holdn), .FLASH_SPI_WPN(ae350_flash_wpn),
+`endif
     .DDR3_MEMORY_CLK(DDR3_MEMORY_CLK), .DDR3_CLK_IN(DDR3_CLK_IN),
     .DDR3_RSTN(ddr3_rstn), .DDR3_LOCK(DDR3_LOCK), .DDR3_STOP(DDR3_STOP),
     .DDR3_INIT(ddr3_init_completed),
@@ -553,13 +558,16 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 );
 
 `ifdef AE350_SERIAL
-wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, mspi_clk_pll;
-assign mspi_cs   = ae350_loan ? ae350_flash_csn  : nano_mspi_cs;
-assign mspi_clk  = ae350_loan ? ae350_flash_clk  : mspi_clk_pll;
-assign mspi_do   = ae350_loan ? ae350_flash_mosi : nano_mspi_do;
-assign mspi_hold = ae350_loan ? ae350_flash_holdn : nano_mspi_hold;
-assign mspi_wp   = ae350_loan ? ae350_flash_wpn  : nano_mspi_wp;
-assign ae350_flash_miso = ae350_loan ? mspi_di : 1'b1;
+// Proof: AE350 owns MSPI exclusively (030 is held). Hybrid pin map from
+// Hybrid030/.../tang_console_ae350_stage0.cst:
+//   FLASH_SPI_MOSI = P22 = mspi_di, FLASH_SPI_MISO = R22 = mspi_do.
+// The previous loan mux drove MOSI onto mspi_do and sampled MISO from
+// mspi_di (swapped), so after R the CPU could not fetch ready.bin.
+// ae350_loan still gates the reset release timing only.
+wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, nano_mspi_di, mspi_clk_pll;
+assign mspi_cs   = ae350_flash_csn;
+assign mspi_clk  = ae350_flash_clk;
+// mspi_di/do/hold/wp are AE350 inouts on the SOC instance (hybrid ball map).
 `endif
 
 misterynano misterynano (
@@ -581,8 +589,9 @@ misterynano misterynano (
 
   // spi flash interface
 `ifdef AE350_SERIAL
+  // Flash pins belong to the AE350; keep the ST flash controller off them.
   .mspi_cs   ( nano_mspi_cs   ),
-  .mspi_di   ( mspi_di   ),
+  .mspi_di   ( nano_mspi_di   ),
   .mspi_hold ( nano_mspi_hold ),
   .mspi_wp   ( nano_mspi_wp   ),
   .mspi_do   ( nano_mspi_do   ),
