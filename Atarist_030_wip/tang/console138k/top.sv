@@ -343,6 +343,13 @@ wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
 wire        ae350_uart_tx;
 wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
+// Inouts cannot be tied to constants. Held idle, not on the ST flash pins.
+assign ae350_flash_csn = 1'b1;
+assign ae350_flash_miso = 1'b1;
+assign ae350_flash_mosi = 1'b1;
+assign ae350_flash_clk = 1'b0;
+assign ae350_flash_holdn = 1'b1;
+assign ae350_flash_wpn = 1'b1;
 wire [31:0] ae350_gpio;
 wire        ddr3_rstn;
 wire [31:0] extm_hrdata;
@@ -425,8 +432,8 @@ end
 wire helper_timeout = (helper_timer == 30'd640_000_000);
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
-    .FLASH_SPI_CSN(1'b1), .FLASH_SPI_MISO(1'b1), .FLASH_SPI_MOSI(1'b1),
-    .FLASH_SPI_CLK(1'b0), .FLASH_SPI_HOLDN(1'b1), .FLASH_SPI_WPN(1'b1),
+    .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
+    .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(ae350_flash_holdn), .FLASH_SPI_WPN(ae350_flash_wpn),
     .DDR3_MEMORY_CLK(DDR3_MEMORY_CLK), .DDR3_CLK_IN(DDR3_CLK_IN),
     .DDR3_RSTN(ddr3_rstn), .DDR3_LOCK(DDR3_LOCK), .DDR3_STOP(DDR3_STOP),
     .DDR3_INIT(ddr3_init_completed),
