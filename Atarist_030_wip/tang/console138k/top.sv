@@ -388,50 +388,79 @@ reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
 `ifdef AE350_SERIAL
-// Proof image. 030 stays in reset. Release sticks after DDR3 init or 2s.
-// The old compare was equality, so reset was released for one clock only.
-wire ae350_run = ddr3_init_sync[1] || (helper_timer >= 30'd64_000_000);
+// Proof image. 030 stays in reset. Flash is lent before the CPU reset rises.
+// Stub is linked for DDR, so no D means it cannot reach main.
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b1;
-// Fabric banner at 115200 from clk32, before the AE350 owns the pin.
-// 32 MHz / 115200 = 278. PIN means the cable and pin are alive.
+reg ae350_loan;
+reg ae350_run;
 reg [8:0] banner_div;
 reg [3:0] banner_bit;
 reg [3:0] banner_idx;
 reg [7:0] banner_shift;
 reg banner_busy;
 reg banner_tx;
+reg [1:0] banner_st;
+reg [15:0] loan_wait;
+localparam BST_PIN = 0, BST_WAIT = 1, BST_TAIL = 2, BST_LOAN = 3;
 always @(posedge clk32) begin
     if (por) begin
+        ae350_loan <= 0;
+        ae350_run <= 0;
         banner_div <= 0;
         banner_bit <= 0;
         banner_idx <= 0;
-        banner_shift <= 8'h50; // 'P'
+        banner_shift <= 8'h50; // P
         banner_busy <= 1;
         banner_tx <= 1;
+        banner_st <= BST_PIN;
+        loan_wait <= 0;
+    end else if (banner_st == BST_WAIT) begin
+        if (ddr3_init_sync[1] || helper_timer >= 30'd256_000_000) begin
+            banner_shift <= ddr3_init_sync[1] ? 8'h44 : 8'h58; // D or X
+            banner_bit <= 0;
+            banner_idx <= 0;
+            banner_st <= BST_TAIL;
+        end
+    end else if (banner_st == BST_LOAN) begin
+        ae350_loan <= 1;
+        if (loan_wait != 16'hFFFF) loan_wait <= loan_wait + 1;
+        else begin
+            banner_shift <= 8'h52; // R
+            banner_bit <= 0;
+            banner_idx <= 1;
+            banner_st <= BST_TAIL;
+        end
     end else if (banner_busy) begin
         if (banner_div != 9'd277) banner_div <= banner_div + 1;
         else begin
             banner_div <= 0;
             if (banner_bit == 0) begin
-                banner_tx <= 0; // start
+                banner_tx <= 0;
                 banner_bit <= 1;
             end else if (banner_bit <= 8) begin
                 banner_tx <= banner_shift[0];
                 banner_shift <= {1'b1, banner_shift[7:1]};
                 banner_bit <= banner_bit + 1;
             end else begin
-                banner_tx <= 1; // stop
+                banner_tx <= 1;
                 banner_bit <= 0;
-                if (banner_idx == 4) banner_busy <= 0;
-                else begin
-                    banner_idx <= banner_idx + 1;
-                    case (banner_idx)
-                        0: banner_shift <= 8'h49; // I
-                        1: banner_shift <= 8'h4E; // N
-                        2: banner_shift <= 8'h0D;
-                        default: banner_shift <= 8'h0A;
-                    endcase
+                if (banner_st == BST_PIN) begin
+                    if (banner_idx == 4) banner_st <= BST_WAIT;
+                    else begin
+                        banner_idx <= banner_idx + 1;
+                        case (banner_idx)
+                            0: banner_shift <= 8'h49; // I
+                            1: banner_shift <= 8'h4E; // N
+                            2: banner_shift <= 8'h0D;
+                            default: banner_shift <= 8'h0A;
+                        endcase
+                    end
+                end else if (banner_idx == 0) begin
+                    banner_st <= BST_LOAN; // D or X sent, lend flash
+                end else begin
+                    ae350_run <= 1;        // R sent, release CPU, hand over the pin
+                    banner_busy <= 0;
                 end
             end
         end
@@ -525,12 +554,12 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 
 `ifdef AE350_SERIAL
 wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, mspi_clk_pll;
-assign mspi_cs   = ae350_run ? ae350_flash_csn  : nano_mspi_cs;
-assign mspi_clk  = ae350_run ? ae350_flash_clk  : mspi_clk_pll;
-assign mspi_do   = ae350_run ? ae350_flash_mosi : nano_mspi_do;
-assign mspi_hold = ae350_run ? ae350_flash_holdn : nano_mspi_hold;
-assign mspi_wp   = ae350_run ? ae350_flash_wpn  : nano_mspi_wp;
-assign ae350_flash_miso = ae350_run ? mspi_di : 1'b1;
+assign mspi_cs   = ae350_loan ? ae350_flash_csn  : nano_mspi_cs;
+assign mspi_clk  = ae350_loan ? ae350_flash_clk  : mspi_clk_pll;
+assign mspi_do   = ae350_loan ? ae350_flash_mosi : nano_mspi_do;
+assign mspi_hold = ae350_loan ? ae350_flash_holdn : nano_mspi_hold;
+assign mspi_wp   = ae350_loan ? ae350_flash_wpn  : nano_mspi_wp;
+assign ae350_flash_miso = ae350_loan ? mspi_di : 1'b1;
 `endif
 
 misterynano misterynano (
