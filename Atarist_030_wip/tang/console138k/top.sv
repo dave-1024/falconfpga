@@ -154,7 +154,7 @@ module top(
 // unused pins on PMOD1 (the middle one)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
 `ifdef AE350_SERIAL
-assign uart_ext_tx = ae350_uart_tx; // proof image only, U15, 115200 8N1
+assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then AE350.
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
 `endif
@@ -388,10 +388,55 @@ reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
 `ifdef AE350_SERIAL
-// Proof image. 030 stays in reset. AE350 runs once DDR3 inits, or after 2s.
-wire ae350_run = ddr3_init_sync[1] || (helper_timer == 30'd64_000_000);
+// Proof image. 030 stays in reset. Release sticks after DDR3 init or 2s.
+// The old compare was equality, so reset was released for one clock only.
+wire ae350_run = ddr3_init_sync[1] || (helper_timer >= 30'd64_000_000);
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b1;
+// Fabric banner at 115200 from clk32, before the AE350 owns the pin.
+// 32 MHz / 115200 = 278. PIN means the cable and pin are alive.
+reg [8:0] banner_div;
+reg [3:0] banner_bit;
+reg [3:0] banner_idx;
+reg [7:0] banner_shift;
+reg banner_busy;
+reg banner_tx;
+always @(posedge clk32) begin
+    if (por) begin
+        banner_div <= 0;
+        banner_bit <= 0;
+        banner_idx <= 0;
+        banner_shift <= 8'h50; // 'P'
+        banner_busy <= 1;
+        banner_tx <= 1;
+    end else if (banner_busy) begin
+        if (banner_div != 9'd277) banner_div <= banner_div + 1;
+        else begin
+            banner_div <= 0;
+            if (banner_bit == 0) begin
+                banner_tx <= 0; // start
+                banner_bit <= 1;
+            end else if (banner_bit <= 8) begin
+                banner_tx <= banner_shift[0];
+                banner_shift <= {1'b1, banner_shift[7:1]};
+                banner_bit <= banner_bit + 1;
+            end else begin
+                banner_tx <= 1; // stop
+                banner_bit <= 0;
+                if (banner_idx == 4) banner_busy <= 0;
+                else begin
+                    banner_idx <= banner_idx + 1;
+                    case (banner_idx)
+                        0: banner_shift <= 8'h49; // I
+                        1: banner_shift <= 8'h4E; // N
+                        2: banner_shift <= 8'h0D;
+                        default: banner_shift <= 8'h0A;
+                    endcase
+                end
+            end
+        end
+    end
+end
 `else
 // Desktop image. AE350 stays in reset and off the flash pins.
 wire ae350_run = 1'b0;
