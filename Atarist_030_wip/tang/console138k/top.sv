@@ -152,7 +152,7 @@ module top(
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
-assign uart_ext_tx = bl616_tx;   // from BL616 to PMOD
+assign uart_ext_tx = ae350_uart_tx; // AE350 UART2, 115200 8N1, pin C22
 
 wire clk32;
 wire pll_lock;
@@ -174,6 +174,19 @@ always @(posedge clk) begin
     end
 end
 wire s0_reset = (s0_arm == 16'hffff) && !s0_sync[1];
+// S1 releases the 030. There is no 20 second timeout.
+reg [1:0] s1_sync = 2'b11;
+reg       s1_release = 1'b0;
+always @(posedge clk32) begin
+    if (por) begin
+        s1_sync <= 2'b11;
+        s1_release <= 1'b0;
+    end else begin
+        s1_sync <= {s1_sync[0], user_n};
+        if (s1_sync == 2'b00)
+            s1_release <= 1'b1;
+    end
+end
 wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 
 reg     spi_ext = 1'b0;       // set when the external SPI interface on PMOD is active
@@ -328,6 +341,7 @@ wire        DDR3_MEMORY_CLK, DDR3_CLK_IN, DDR3_RW_CLK, DDR3_LOCK, DDR3_STOP;
 wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
+wire        ae350_uart_tx;
 wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
 wire [31:0] ae350_gpio;
 wire        ddr3_rstn;
@@ -392,11 +406,11 @@ always @(posedge clk32) begin
         flash_ready_s0 <= flash_ready;
         flash_ready_s1 <= flash_ready_s0;
         case (phase)
-            PH_HOLD: if (helper_timer == 30'd640_000_000)
+            PH_HOLD: if (s1_release)
                     phase <= PH_REINIT;
                 else if (flash_ready_s1 && ddr3_init_sync[1])
                     phase <= PH_LOAN;
-            PH_LOAN: if (helper_ready || helper_timer == 30'd640_000_000)
+            PH_LOAN: if (helper_ready || s1_release)
                     phase <= PH_REINIT;
             PH_REINIT: begin
                 reinit_cnt <= reinit_cnt + 16'd1;
@@ -436,7 +450,7 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .EXTM_HRESP(extm_hresp),
     .TCK_IN(1'b0), .TMS_IN(1'b1), .TRST_IN(1'b1), .TDI_IN(1'b0),
     .TDO_OUT(), .TDO_OE(),
-    .UART2_TXD(), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
+    .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
     .UART2_DCDN(1'b0), .UART2_DSRN(1'b0), .UART2_RIN(1'b0),
     .UART2_DTRN(), .UART2_OUT1N(), .UART2_OUT2N(),
     .GPIO(ae350_gpio),
