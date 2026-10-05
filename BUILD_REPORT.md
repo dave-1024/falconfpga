@@ -727,3 +727,9 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
   - A data write clears the line selected by WR_ADR(7:4) whatever its tag, so any write whose A7:4 matches a cached line drops it. A real 68030 I-cache is not snooped (software clears it via CACR); a tag compare would at least limit the drops.
   - The hit ready is combinational from REQ, and the decoder clears OPCODE_RD_I asynchronously on OPCODE_RDY (decoder P_BSY), which feeds REQ: an asynchronous loop on a hit. Better to register the hit ready, or check this path in the bench.
   - The bench above did not exercise hits (its loops run in DBcc loop mode, which needs no fetches, and its writes clear the loop's lines), so the hit path is still untested. A test with a longer loop (not loop mode) and no writes to matching A7:4 is needed.
+
+## 2026-10-05 17:40 BST – REQUEST_ID 20261005-2 (handoff 20261005-1736-ae350-catchup, ACTION APPLY_ONLY): RESULT: ACK (no patch, no build, no flash)
+- Pulled to c0ee2ce. Read SYNC top (AE350 handoff) and the catchup note. No HDL change.
+- Stopped leftover laptop work from earlier icache requests; no programmer ops, no Gowin, TOS untouched.
+- Understood: `build_tc138k.tcl` = desktop (AE350 held off, flash ports tied through wires); `build_ae350_serial.tcl` = proof only (030 held, bitstream `ae350_serial.fs`). Do not put the MSPI mux back on the desktop build. UART proof is U15 at 115200. `ready.bin` already at `0x0600000`. David is building `d9a3daf`; do not rebuild or flash it.
+- Letters: `PIN` already seen. Next: `D` or `X`, then `R`, then `AE350 alive`. `PIN` then `X` means DDR3 did not train (CPU not started). Waiting for David's UART report.
