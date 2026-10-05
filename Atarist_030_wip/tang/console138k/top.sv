@@ -152,7 +152,7 @@ module top(
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
-assign uart_ext_tx = ae350_uart_tx; // AE350 UART2 on U15, rigsdram wire. ready.c divisor is 115200, not 38400
+assign uart_ext_tx = ae350_uart_tx; // U15, 115200 8N1 once S1 releases the AE350
 
 wire clk32;
 wire pll_lock;
@@ -373,11 +373,10 @@ reg [1:0]  phase;
 reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
-// AE350 stays in the fabric (PLLs, DDR3, UART on C22) but is disconnected
-// from the 030. It is held in reset and does not own MSPI, so the 030
-// takes the known-good non-hold path. The phase machine is left in place
-// for a later separate AE350 debug; it does not gate reset or flash.
-wire ae350_run = 1'b0;
+// 030 is never held. S1, after the desktop is up, releases the AE350 and
+// lends it MSPI so it can fetch ready.bin. Nothing feeds back into the ST
+// reset. Pressing S1 before the desktop steals flash mid-boot.
+wire ae350_run = s1_release && ddr3_init_sync[1];
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b0;
 always @(posedge clk32) begin
