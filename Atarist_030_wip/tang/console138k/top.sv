@@ -67,9 +67,10 @@ module top(
   //output		bl616_mon_tx,
   //input			bl616_mon_rx,
 
-  // spi flash interface
-  output		mspi_cs,
-  output		mspi_clk,
+  // spi flash interface (inout: AE350 serial proof needs true IOBUFs on all
+  // six MSPI balls, matching Hybrid030; desktop still drives cs/clk as outs)
+  inout			mspi_cs,
+  inout			mspi_clk,
   inout			mspi_di,
   inout			mspi_hold,
   inout			mspi_wp,
@@ -388,10 +389,15 @@ reg [15:0] reinit_cnt;
 reg        flash_ready_s0, flash_ready_s1;
 localparam PH_HOLD = 2'd0, PH_LOAN = 2'd1, PH_REINIT = 2'd2, PH_RUN = 2'd3;
 `ifdef AE350_SERIAL
-// Proof image. 030 stays in reset. Flash is lent before the CPU reset rises.
+// Proof image. 030 stays in reset. Flash is on the AE350 from t0 (hybrid).
 // Stub is linked for DDR, so no D means it cannot reach main.
+// Release AE350 only after ddr3_init has been stable ~20 ms (hybrid key_debounce).
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b1;
+wire ae350_rstn_deb;
+key_debounce u_key_debounce_ae350 (
+    .out(ae350_rstn_deb), .in(ddr3_init_sync[1]), .clk(clk), .rstn(1'b1)
+);
 reg ae350_loan;
 reg ae350_run;
 reg [8:0] banner_div;
@@ -424,8 +430,8 @@ always @(posedge clk32) begin
         end
     end else if (banner_st == BST_LOAN) begin
         ae350_loan <= 1;
-        if (loan_wait != 16'hFFFF) loan_wait <= loan_wait + 1;
-        else begin
+        // Hybrid waits ~20 ms after DDR3_INIT via key_debounce before AE350 reset.
+        if (ae350_rstn_deb) begin
             banner_shift <= 8'h52; // R
             banner_bit <= 0;
             banner_idx <= 1;
@@ -520,8 +526,10 @@ wire helper_timeout = (helper_timer == 30'd640_000_000);
 
 RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 `ifdef AE350_SERIAL
-    .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MOSI(mspi_di), .FLASH_SPI_MISO(mspi_do),
-    .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(mspi_hold), .FLASH_SPI_WPN(mspi_wp),
+    // Direct to pads, hybrid map (no assign middleman on CSN/CLK).
+    .FLASH_SPI_CSN(mspi_cs), .FLASH_SPI_CLK(mspi_clk),
+    .FLASH_SPI_MOSI(mspi_di), .FLASH_SPI_MISO(mspi_do),
+    .FLASH_SPI_HOLDN(mspi_hold), .FLASH_SPI_WPN(mspi_wp),
 `else
     .FLASH_SPI_CSN(ae350_flash_csn), .FLASH_SPI_MISO(ae350_flash_miso), .FLASH_SPI_MOSI(ae350_flash_mosi),
     .FLASH_SPI_CLK(ae350_flash_clk), .FLASH_SPI_HOLDN(ae350_flash_holdn), .FLASH_SPI_WPN(ae350_flash_wpn),
@@ -558,16 +566,9 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 );
 
 `ifdef AE350_SERIAL
-// Proof: AE350 owns MSPI exclusively (030 is held). Hybrid pin map from
-// Hybrid030/.../tang_console_ae350_stage0.cst:
-//   FLASH_SPI_MOSI = P22 = mspi_di, FLASH_SPI_MISO = R22 = mspi_do.
-// The previous loan mux drove MOSI onto mspi_do and sampled MISO from
-// mspi_di (swapped), so after R the CPU could not fetch ready.bin.
-// ae350_loan still gates the reset release timing only.
+// Proof: AE350 owns MSPI exclusively (030 held). SOC flash ports are wired
+// straight to the six MSPI balls (hybrid map). ae350_loan only times reset.
 wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, nano_mspi_di, mspi_clk_pll;
-assign mspi_cs   = ae350_flash_csn;
-assign mspi_clk  = ae350_flash_clk;
-// mspi_di/do/hold/wp are AE350 inouts on the SOC instance (hybrid ball map).
 `endif
 
 misterynano misterynano (

@@ -131,12 +131,15 @@ set_option -synthesis_tool gowinsynthesis
 set_option -output_base_name ae350_serial
 set_option -verilog_std sysv2017
 set_option -top_module top
+# Hybrid AE350 fetch path: MSPI+CPU only. Ticking JTAG/SSPI/READY/DONE
+# (misterynano style) left the flash controller floating on the hybrid;
+# the AE350 never fetched. See Hybrid030/hybrid_falcon030/GUI.md.
 set_option -use_mspi_as_gpio 1
-set_option -use_sspi_as_gpio 1
-set_option -use_done_as_gpio 1
 set_option -use_cpu_as_gpio 1
-set_option -use_ready_as_gpio 1
-set_option -use_jtag_as_gpio 1
+set_option -use_jtag_as_gpio 0
+set_option -use_sspi_as_gpio 0
+set_option -use_ready_as_gpio 0
+set_option -use_done_as_gpio 0
 set_option -use_mode_as_gpio 0
 set_option -use_i2c_as_gpio 0
 set_option -print_all_synthesis_warning 0

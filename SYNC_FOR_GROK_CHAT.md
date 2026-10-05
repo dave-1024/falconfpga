@@ -416,3 +416,11 @@ The history is kept, so any of it can be restored.
 - Likely loop: stall in MOVE_TO_SR -> VBL -> handler -> RTE -> stall again. Suspect wf68k30L_control.vhd SLEEP state: MOVE_TO_SR waits for NEXT_EXEC_WB_STATE=IDLE (~line 2422) before START_OP / IPIPE_FLUSH (~line 1063).
 - A20..A18 is NOT a diag bug: the core's raw ADR_OUT drives $E1xxxx for program fetches that should be $FDxxxx (even after jsr $FC772E). Hidden because $E00000 is the ROM alias. Suspect PC_I / PC_L = PC + PC_ADR_OFFSET in wf68k30L_top.vhd, or synthesis. Separate bug.
 - Next: small GHDL bench of WF68K30L alone (move #$2300,sr / move #$2700,sr with IPL=2 held; jsr $00FC772E with ADR_OUT trace).
+
+## 2026-10-05 ~19:10 BST: AE350 serial flash-fetch v2 (hybrid dual-purpose)
+
+- 6702eaf MOSI/MISO fix was necessary but not sufficient: board still `PIN`/`DR`, no alive.
+- Root cause vs hybrid: dual-purpose must be **MSPI+CPU only** (not all six). Also need true inout IOBUFs on CS/CLK and hybrid-style ~20 ms debounce of DDR3_INIT before AE350 reset.
+- Serial-only fix committed; desktop stays mux-free / full six dual-purpose as before.
+- Bitstream `ae350_serial_flash_v2.fs` flashed op 53 @ 417. Leave ready.bin at 0x0600000 and TOS alone.
+- Next letters: `PIN` `DR` then hopefully `AE350 alive`. If still PINDR only, next suspects are SPI mode/clock vs hybrid IP defaults or ready.bin XIP map — not desktop mux.

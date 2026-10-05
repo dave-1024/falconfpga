@@ -744,3 +744,15 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Cause: serial loan mux had MOSI on mspi_do (R22) and MISO from mspi_di (P22). Hybrid map is MOSI=P22=mspi_di, MISO=R22=mspi_do.
 - Fix: `top.sv` AE350_SERIAL path only — AE350 owns MSPI exclusively (030 held); SOC ports use the hybrid map; ST flash_dspi kept off the pads. Desktop path untouched (no mux on build_tc138k.tcl).
 - Build: `gw_sh build_ae350_serial.tcl`, PASS, TNS 0. clk32_core 75.0 MHz, clk_cpu030 16.7 MHz, ae350_ahb_clk 80.6, ddr3_memory_clk constraint 200 (reported high). Bitstream saved as `C:\Users\dave_\fpga_caps\ae350_serial_flashfix.fs` for David to SRAM-program. Not flashed by the bot.
+
+## 2026-10-05 ~19:10 BST – AE350 serial proof v2: hybrid dual-purpose + IOBUF + debounce (FLASHED 417)
+
+- Symptom after 6702eaf (MOSI/MISO fix): still `PIN` then `DR` on U15 @ 115200; no `AE350 alive`. ready.bin untouched at 0x0600000.
+- Cause (vs Hybrid030): serial tcl still ticked all six dual-purpose pins (misterynano style). Hybrid GUI.md: only MSPI+CPU as GPIO; JTAG/SSPI/READY/DONE stay dedicated or AE350 never fetches. Also CS/CLK were fabric `output` assigns (not true pad IOBUFs); reset released after fixed ~2 ms loan_wait instead of hybrid `key_debounce` (~20 ms @ 50 MHz after DDR3_INIT).
+- Fix (serial proof only; desktop `build_tc138k.tcl` unchanged, no MSPI mux):
+  - `build_ae350_serial.tcl`: `use_mspi_as_gpio`/`use_cpu_as_gpio` = 1; jtag/sspi/ready/done = 0.
+  - `atarist_ae350_serial.cst`: drop V_JTAGSELN / jtagseln@T20 / DONE+READY LED locs / JTAG-ball BL616 SPI (conflict with dedicated pins); flash DRIVE=8 like hybrid (no DRIVE on mspi_do).
+  - `top.sv` AE350_SERIAL: `mspi_cs`/`mspi_clk` inout; SOC FLASH_SPI_* wired straight to the six pads (hybrid MOSI=P22=mspi_di, MISO=R22=mspi_do); ST flash on dummy nets; `key_debounce` on `ddr3_init_sync[1]` before `R`/ae350_run.
+- Build: `gw_sh build_ae350_serial.tcl`, PASS, TNS 0. clk32_core 85.515 MHz, clk_cpu030 16.732 MHz. `.fs` → `C:\Users\dave_\fpga_caps\ae350_serial_flash_v2.fs` (39751340).
+- Flash: programmer_cli op 53, location 417, SPI 0x000000, `ae350_serial_flash_v2.fs`: Program Flash finished, 0x000000-0x04BB300, 132.97 s, exit 0. TOS/ready.bin not touched.
+- Expect UART: `PIN` → `DR` → `AE350 alive` if fetch works.
