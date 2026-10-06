@@ -178,16 +178,22 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
    and the ST screen shows the ST side. If the helper is not
    running it prints one line and returns at once. Remove the
    `ST_HELPER_CART` line in `build_st_helper.tcl` to build without it.
-3. **Later, `MBXTERM.PRG` from a disk** once the AE350 serves a floppy or
-   hard disk image (FPGA-Companion port, section 7), or on any setup with a
-   working companion. It needs a keyboard too.
+3. **Later, `MBXTERM.PRG` from a floppy image on the SD card**, once the
+   AE350 runs the FPGA-Companion SD/floppy code (section 7, steps 2-3; no USB
+   needed for that part). `helper_fw/st_test/build.sh` also makes
+   `MBXTERM.ST`, a 720 KB FAT12 floppy image with `MBXTERM.PRG` in its root
+   (`mkst.py`). Copy it to the SD card, mount it as drive A: from the
+   companion, and start it from the desktop. Typing into it needs the
+   keyboard (section 7, step 4). It also works today on any setup with a
+   working companion.
 
 A cartridge ROM loaded from SPI flash was considered and not chosen: it would
 change the TOS ROM read path in `flash_dspi.v`, which is the part of this
-build that must not break. A tiny floppy image that the AE350 serves from
-flash needs the FPGA-Companion floppy path (`sdc` sector requests over the
-`mcu_spi` link) ported first, plus a keyboard or an AUTO folder to start the
-program; it is the natural next step after the port, not a first test.
+build that must not break. A tiny floppy image served by the AE350 from
+SPI flash was also considered: in this core the floppy and ACSI sector data
+always comes from the SD card through `misc/sd_card.v` (the companion only
+translates the sector numbers), so serving it from flash would need new
+HDL. The SD card route (item 3) needs no HDL change.
 
 ## 5. What to expect
 
@@ -254,27 +260,80 @@ $FFFB09 repeatedly to get `A`, CR, LF and the reply.
   firmware checks the ATCSPI200 ID first and leaves the link alone if it does
   not match (the desktop is unaffected either way).
 
-## 7. Port plan (FPGA-Companion on the AE350)
+## 7. Port plan: the whole BL616 helper on the AE350
 
-FPGA-Companion keeps the hardware behind `src/mcu_hw.h`; the BL616 version is
-`src/bl616/mcu_hw.c`. An AE350 port is a new `src/ae350/mcu_hw.c`:
+On MiSTeryNano the BL616 runs FPGA-Companion (Till Harbaum, Apache-2.0):
+USB host for keyboard, mouse and joysticks, the OSD menu, and SD card
+access with FAT, image mounting and sector translation for floppy and ACSI.
+It talks to the core only through `mcu_spi` (targets SYS, HID, OSD, SDC)
+and the IRQ line. This build already gives the AE350 that link, so the port
+is mostly firmware. The hardware stays as it is in this build unless noted.
 
-1. `mcu_hw_spi_begin/tx_u08/end`: the three functions from
-   `helper_fw/mailbox/mailbox.c` (GPIO[0] low, one ATCSPI200 write-and-read
-   byte, GPIO[0] high). Then multi-byte transfers for sector data, and a
-   faster SCK once the MISO margin is measured.
-2. IRQ: UART2 modem-status interrupt on DCD (MSR bit 3 delta, bit 7 level)
-   in place of the BL616 GPIO interrupt; `mcu_hw_irq_ack` re-enables it.
-3. Scheduling: FreeRTOS on the AE350 (the Andes SDK supports it), or a
-   bare-metal main loop for HID/OSD/SD first.
-4. Storage: the SD card is already behind the core (`sd_card.v`, SDC target);
-   FPGA-Companion reads it through the core, so no new driver is needed.
-5. USB HID: the AE350 has no USB host. Keyboard and mouse for the ST still
-   need a source: DB9 / the core's own inputs, a PS/2 or USB host core in the
-   fabric, or HID reports forwarded by the stock BL616 over its UART. This is
-   the main open design question.
-6. Remove the mailbox's debug role from the console once the companion menu
-   runs (or keep it as a debug channel).
+1. **Link layer (`src/ae350/mcu_hw.c`).** `mcu_hw_spi_begin/tx_u08/end` are
+   the three functions in `helper_fw/mailbox/mailbox.c` (GPIO[0] low, one
+   ATCSPI200 write-and-read byte, GPIO[0] high). Add multi-byte transfers
+   (FIFO bursts) for sector data. The IRQ is the UART2 modem-status
+   interrupt on DCD (MSR bit 3 delta, bit 7 level) in place of the BL616
+   GPIO interrupt; `mcu_hw_irq_ack` re-arms it. Raise SCK from ~1.6 MHz once
+   the MISO margin is measured. With the AHB-clock retiming in
+   `st_helper_mculink.v` the link passed simulation up to 6.25 MHz
+   (80 ns half-period).
+2. **OS and core status.** FreeRTOS from the Andes AE350 SDK (FPGA-Companion
+   already uses FreeRTOS on the BL616), or a bare-metal main loop first.
+   `sys_status_is_valid` already works (the link test). Then the SYS target:
+   core id, DIP/config bits, reset control.
+3. **SD card, floppy and ACSI.** No new HDL or driver. The SD card is wired
+   to the core (`misc/sd_card.v`, pins V15/Y16/AA15...). FPGA-Companion's
+   `sdc.c` + FatFs read the card through the SDC target (the core has a
+   512-byte MCU buffer). On a core request (`sdc_int` -> IRQ) the companion
+   translates the image sector to an SD sector, and the core reads it
+   straight into its own buffer. So the sector data never crosses the slow
+   link, only FAT and directory reads do (about 3 ms per 512 bytes at the
+   current SCK). `sdc.c`, `ff.c` and the image/mount code are portable C.
+   This step alone makes floppy images (and `MBXTERM.ST`) usable.
+4. **USB keyboard and mouse: reuse `usb_hid_host.v` from 168ktest/Hybrid030.**
+   The AE350 has no USB host, but the fabric can be one. nand2mario's
+   `usb_hid_host.v` (low-speed HID boot protocol, 12 MHz clock) is already
+   in `/workspace/ae350_old_bringup/168ktest/src/` and
+   `Hybrid030/hybrid_falcon030/src/` with its `usb_hid_host_rom.hex` and
+   `gowin_pll_usb`. It runs on the Console's two USB-A host ports (USB1 D+/D-
+   = H13/G13, USB2 = M15/M16, pins from the NESTang Console port). These
+   pins are free in the Atarist CST. Two ways to wire it, both behind a new
+   `ST_HELPER_USB` define:
+   - **4a. Through the AE350 (the companion way, needed for the OSD).** Each
+     `usb_hid_host` instance feeds a small register block that the AE350
+     reads: `typ`, a report counter, `key_modifiers`, `key1..4`, mouse
+     buttons/dx/dy. Hybrid030's `falcon_hid_ahb.v` already writes these
+     events into a DDR3 ring through the AE350's Extended AHB Master port
+     and can be reused. A smaller choice is an APB/GPIO-style read port.
+     The firmware replaces the BL616 USB host glue (under `src/bl616/`)
+     with a reader for these reports. It rebuilds an 8-byte boot-protocol
+     report from the registers and hands it to the existing `hid.c`
+     (`kbd_parse`/`mouse_parse`). That code
+     diffs the reports into key make/break codes and mouse movement and
+     sends them on the HID target, which `misc/hid.v` turns into IKBD events
+     (keyboard command 1, mouse 2, joystick 3). The OSD hotkey and menu work
+     because the MCU sees every key.
+   - **4b. Fabric-only shortcut (no firmware).** A `hid_inject.v` diffs the
+     `usb_hid_host` reports and drives `hid.v` with the same byte frames
+     the MCU would send, muxed with the `mcu_spi` HID strobe. This gives
+     keyboard and mouse on the ST before the firmware port (and makes
+     `MBXTERM` usable), but no OSD hotkey. It is a stepping stone only.
+   - **Clocks:** this build uses all 8 primary clocks (100%). The 12 MHz USB
+     clock must come from a spare output of an existing PLL on a non-primary
+     (long-wire) route, or a clock net must be freed. Check this first.
+     Joysticks: `usb_hid_host` also decodes gamepads (`typ` = 3).
+5. **OSD.** The core build has `osd_data_out = 8'h55` (no OSD in the 030
+   core yet). MiSTeryNano's `misc/osd_u8g2.v` is already in the tree but not
+   instantiated; wire it into the video path, or keep the menu on the
+   helper's UART console at first. FPGA-Companion's menu code (`menu.c`,
+   u8g2) is portable.
+6. **BL616 for good.** Once steps 1-4 work, the BL616 is only the USB-serial
+   bridge and JTAG for U15/V14 and programming. Its SPI pins stay tristated
+   and ignored (section 2). Keep the mailbox as a debug channel or drop it.
+7. **Order, simplest first:** 1+2 (link, already half done), 3 (SD
+   floppy: run `MBXTERM.ST`), 4b (keys on the ST), 4a (keys through the
+   companion), 5 (OSD).
 
 ## Credits
 
@@ -284,5 +343,8 @@ FPGA-Companion keeps the hardware behind `src/mcu_hw.h`; the BL616 version is
   contributors. The link protocol, `misc/mcu_spi.v` and `misc/sysctrl.v` are
   theirs (FPGA-Companion is Apache-2.0, `helper_fw/fpga-companion/LICENSE`;
   the HDL files carry their own headers).
+- `usb_hid_host.v` (port plan, step 4; not in this build): nand2mario,
+  based on work by hi631, https://github.com/nand2mario/usb_hid_host, as
+  used in 168ktest/Hybrid030.
 - The 030 bridge credits Stephen J. Leary's TerribleFire TF534 (see the
   README).
