@@ -11,7 +11,7 @@ old state.** While this note is active, Grok Bot may edit HDL at David's request
 
 ## NEW 2026-10-06 08:35: ST_HELPER build, AE350 helper next to the ST desktop (BUILD ONLY, not flashed)
 
-Commits `316dfde`, `93873fa`, `ae4b41a`, `af53a41` (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`
+Commits `316dfde`, `93873fa`, `ae4b41a`, `af53a41`, `ad072c8` (docs: full port plan incl. 168ktest `usb_hid_host.v`; `MBXTERM.ST` floppy image) (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`
 (`` `define ST_HELPER `` via `build_sel.vh`). `build_tc138k.tcl` is untouched; every change
 is inside `` `ifdef ST_HELPER ``. Full write-up: `Atarist_030_wip/docs/ST_HELPER.md`.
 
