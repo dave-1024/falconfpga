@@ -392,6 +392,71 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
    floppy: run `MBXTERM.ST`), 4b (keys on the ST), 4a (keys through the
    companion), 5 (OSD).
 
+## 7a. Port status, 6 Oct 2026: steps 1-3 run on the board
+
+The FPGA-Companion sources (`helper_fw/fpga-companion`, upstream `0e5e590`,
+Till Harbaum) run unchanged on the AE350. Only a new `src/ae350/` platform
+directory was added, next to `bl616/` and `rp2040/`. There is no new HDL; the
+core is `build_st_helper.tcl` at `e2297e8`, with TNS 0 on every clock.
+
+- **Platform (`src/ae350/`).** `mcu_hw.c` provides the link and the IRQ. The
+  link is bit-banged SPI mode 1 on GPIO0/1/2 with MISO on UART2 CTS (the
+  ATCSPI200 registers cannot be reached, section 5a). The core IRQ is the
+  polled DCD level. `mcu_hw.c` also does the flash handoff (0xA5), the time
+  base, the heap, and stubs for USB. `main.c` holds the start-up and the main
+  loop. `console.c` is the COM4 command line. `stubs.c` covers the menu, OSD
+  and HID until steps 4/5. `rtos_shim/` has FreeRTOS API stubs, so `sdc.c`
+  and `sysctrl.c` build unchanged. `ffconf.h` sets CP437 and no float.
+  Build with `helper_fw/companion/build_companion.bat` (AndeSight gcc,
+  laptop). `check_box.sh` is a compile/link check with Debian gcc + picolibc.
+- **Bare metal, not FreeRTOS (yet).** One main loop polls the IRQ and the
+  console. Nothing in steps 1-3 needs threads, and with no scheduler the
+  fixed-latency SPI bit-banging can never be preempted. FreeRTOS (Andes SDK
+  port) comes in with USB HID/OSD, when the menu, HID and SD tasks of the
+  BL616 port need to run in parallel. The shim keeps the source compatible
+  either way.
+- **Start-up.** Calibrate the time base against the UART. Send 0xA5 (the
+  flash goes to the ST). Wait for DSR (link up). Run `sys_wait4fpga`.
+  `sdc_init`. Load the core XML (via the SD, otherwise the core's own gzip'd
+  `atarist.xml` over `SPI_SYS_READ_CFG`). Run the `init` action. One
+  difference from the BL616: R (reset) is left alone, because the ST is
+  already running. Then `/sd/atarist.ini` is read and the default images are
+  mounted.
+- **Link.** The default is `spd 2`. The `xml 20` test passed 20/20 at spd 8,
+  4, 2 and 1 (the XML read takes 63 ms at spd 8 and 22 ms at spd 1). Floppy
+  sectors do not cross the link: `sdc.c` sends the core a cluster link table
+  (or direct mapping for contiguous files), and `sd_card.v` reads the card
+  itself.
+- **SD card.** An 8 GB FAT32 card (SDHCv2) in the Console's TF slot works
+  through `misc/sd_card.v` (status 8c). On the card are `blank.st` (720 KB)
+  and `atarist.ini`, which `save` writes. Images go in the root or in
+  folders. Floppies are raw `.st`; MSA is not supported by FPGA-Companion
+  either, so convert it first (e.g. Hatari `hmsa`). ACSI hard disks are
+  `.hd`/`.img` (`mount h0 ...`).
+- **Results on the board (flash, location 417).** Port1b: `ls` lists the card
+  and `mount a blank.st` works. On the desktop, Alt+A (sent with
+  `key alt+a`) opens `A:\*.*` with "0 bytes used in 0 items". File > New
+  Folder made an `AE350` folder; the ST wrote it into the image on the SD
+  card, and it is still there after a cold boot (`c`). `save` wrote
+  `atarist.ini`. Port1c (spd 2): from power-up the helper reads
+  `atarist.ini` and mounts `blank.st` as A: before TOS starts. The desktop
+  shows the `AE350` folder. ![drive A](img/st_helper_port1_drive_a.png)
+- **COM4 commands:** `s i w c` as v4, plus `sd [init]`, `ls [dir]`,
+  `mount a|b|h0|h1 <file>`, `eject`, `save`, `cfg`, `xml [n]`, `spd [n]`,
+  `key <k>...` (e.g. `key alt+a`, `key ctrl+n`), `type <text>`,
+  `mouse dx dy`, `click [2]`. The key and mouse commands send the same HID
+  target frames that `hid.c` will send in step 4. Other lines are still
+  echoed for the mailbox cartridge.
+- **Known gaps.** `var X=N` settings from the ini are stored but not yet
+  applied to the core. MCU reset (`mcu_hw_reset`) is ignored, because the
+  image cannot be reloaded after the handoff. `mcycle` gives about 797k/ms
+  and PLMT mtime runs at ~50 MHz (not 32768 Hz); the ticks are calibrated
+  against the UART, so timeouts are right.
+- **Next.** Step 4: `usb_hid_host.v` + a register block read by the AE350,
+  feeding `hid.c`. The 12 MHz clock route has to be checked first (section 7,
+  step 4). Then FreeRTOS. Step 5: `osd_u8g2.v` in the video path, plus
+  `menu.c`/u8g2.
+
 ## Credits
 
 - Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
