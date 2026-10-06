@@ -88,6 +88,39 @@ With it, a frozen CPU can be diagnosed from a photo or capture of the screen.
   normal build is the same as without it.
 - **What the bars and squares mean:** see [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md).
 
+## Build option: AE350 helper alongside the desktop (`ST_HELPER`, separate build)
+
+`gw_sh build_st_helper.tcl` builds the ST desktop **with** the AE350 RISC-V
+helper running next to it (`impl/pnr/st_helper.fs`). `build_tc138k.tcl` (the
+desktop) does not set the define and is unchanged. Full description, register
+map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md).
+
+- **Goal:** the AE350 replaces the BL616 as the core's helper MCU, so the
+  FPGA-Companion firmware (keyboard, mouse, OSD, floppy, hard disk) can run on
+  it and the BL616 never has to be reflashed.
+- **Flash: boot-then-release.** The 030 is held in reset while the AE350 boots
+  from the SPI flash and copies its image (0x600000) into DDR3. Its firmware
+  then sets GPIO[7:0] = 0xA5 ("done with flash"); once its CS# is idle the
+  flash pins switch **once, for good** to the ST and the 030 is released, so
+  TOS 2.06 loads as usual. A timeout fallback (letters `X`/`T`/`C`/`K` on U15,
+  or S1 held at power-up) boots the desktop without the helper. Unlike the
+  988c846 runtime mux, the switch happens before the ST's flash controller
+  leaves reset, and the ST's dual-I/O pads keep their own output enables.
+- **Companion link:** after the handoff the AE350's idle flash SPI controller
+  drives the core's `mcu_spi` port (the BL616's port), with GPIO[0] as SS#;
+  the core's IRQ# and a "link up" flag reach the AE350 as UART2 DCD#/DSR#.
+  The BL616 is kept off the link (its inputs ignored, MISO tristated, IRQ held
+  high).
+- **Mailbox for the ST:** $FFFB00-$FFFB1F (unused on ST/STE/TT/Falcon),
+  bridged to the helper's UART2 inside the FPGA. `helper_fw/st_test/`
+  (`MBXTERM.PRG`) is a small terminal for it.
+- **Serial:** U15 (BL616 USB serial, 115200 8N1) carries the AE350's UART2;
+  `spi_irqn` moves to C22 in `atarist_st_helper.cst`.
+- **Firmware:** `helper_fw/mailbox/` (`build_mailbox.bat`, AndeSight), flashed
+  at 0x0600000.
+- **Why a separate build:** it changes the boot sequence and the flash pad
+  path; the desktop build must keep booting TOS exactly as before.
+
 ## What this build is for
 
 This folder is an Atari ST in which a 68030 replaces the 68000, built the way a

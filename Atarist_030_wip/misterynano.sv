@@ -38,10 +38,27 @@ module misterynano #(
 
   // spi flash interface
   output		mspi_cs,
+`ifdef ST_HELPER
+  // FalconFPGA ST_HELPER: pad buffers live in top.sv (flash handoff from the
+  // AE350); see tang/console60k/flash_dspi.v and st_helper_ctrl.v
+  output [1:0]	mspi_io_o,
+  output [1:0]	mspi_io_oe,
+  input  [1:0]	mspi_io_i,
+  // helper mailbox bus ($FFFB00-$FFFB1F, decoded in atarist.v)
+  output		ext_io_cs,
+  output [4:1]	ext_io_a,
+  output		ext_io_rw,
+  output		ext_io_uds_n,
+  output		ext_io_lds_n,
+  output [15:0]	ext_io_wdata,
+  input  [15:0]	ext_io_rdata,
+  input			ext_io_dtack,
+`else
   inout			mspi_di,
   inout			mspi_hold,
   inout			mspi_wp,
   inout			mspi_do,
+`endif
 					
   // "Magic" port names that the gowin compiler connects to the on-chip SDRAM
   output		sdram_clk,
@@ -183,10 +200,16 @@ flash flash (
     .dout(rom_dout),
 
     .mspi_cs(mspi_cs),
+`ifdef ST_HELPER
+    .mspi_io_o(mspi_io_o),
+    .mspi_io_oe(mspi_io_oe),
+    .mspi_io_i(mspi_io_i)
+`else
     .mspi_di(mspi_di),
     .mspi_do(mspi_do),
     .mspi_wp(mspi_wp),
     .mspi_hold(mspi_hold)
+`endif
 );
 
 /* -------------------- RAM -------------------- */
@@ -664,6 +687,17 @@ atarist atarist (
     .dbg_030(diag_030),
     .dbg_trace(diag_trace),
     .dbg_vbase(diag_vbase)
+`ifdef ST_HELPER
+    ,
+    .ext_io_cs(ext_io_cs),
+    .ext_io_a(ext_io_a),
+    .ext_io_rw(ext_io_rw),
+    .ext_io_uds_n(ext_io_uds_n),
+    .ext_io_lds_n(ext_io_lds_n),
+    .ext_io_wdata(ext_io_wdata),
+    .ext_io_rdata(ext_io_rdata),
+    .ext_io_dtack(ext_io_dtack)
+`endif
   );
 
 // FalconFPGA DIAG: export raw status (duplicates the resb term, does not

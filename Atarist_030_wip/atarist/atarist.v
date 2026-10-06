@@ -118,6 +118,21 @@ module atarist (
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
 	output wire [17:0] dbg_vbase          // {wr_hi, wr_mid, $FF8201, $FF8203} written bytes
+`ifdef ST_HELPER
+	,
+	// FalconFPGA ST_HELPER (build_st_helper.tcl only): one extra I/O device,
+	// the AE350 helper mailbox at $FFFB00-$FFFB1F (st_helper_mailbox.v in
+	// top.sv). Supervisor data cycles only, decoded like the other $FFxxxx
+	// devices; the device answers with its own DTACK like the MFP.
+	output wire        ext_io_cs,         // AS & supervisor data & $FFFB00-$FFFB1F
+	output wire [4:1]  ext_io_a,
+	output wire        ext_io_rw,
+	output wire        ext_io_uds_n,
+	output wire        ext_io_lds_n,
+	output wire [15:0] ext_io_wdata,
+	input  wire [15:0] ext_io_rdata,
+	input  wire        ext_io_dtack
+`endif
 );
 
 // registered reset signals
@@ -254,7 +269,8 @@ assign      cpu_din =
 // STE only       {12'hfff, button_n ? 4'hf : ste_buttons} &
 // STE only       {joyrh_n ? 8'hff : ste_joy_in[15:8], joyrl_n ? 8'hff : ste_joy_in[7:0]} &
               {12'hfff, (rtccs_n & rw) ? 4'hf : rtc_data_out} &
-              {mcu_oe_h ? mcu_dout[15:8] : 8'hff, mcu_oe_l ? mcu_dout[7:0] : 8'hff};
+              {mcu_oe_h ? mcu_dout[15:8] : 8'hff, mcu_oe_l ? mcu_dout[7:0] : 8'hff} &
+              ext_io_din;   // FalconFPGA ST_HELPER mailbox ($ffff in the desktop build)
 
 // Shifter signals
 wire        cmpcs_n, latch, rdat_n, wdat_n, dcyc_n, sreq, sload_n, mono;
@@ -278,7 +294,7 @@ wire [15:0] mbus_dout = !rdat_n ? shifter_dout :
                         ~rdy_i ? dma_data_out :
                         cpu_dout;
 
-wire        dtack_n = mcu_dtack_n_adj & ~mfp_dtack & blitter_dtack_n;
+wire        dtack_n = mcu_dtack_n_adj & ~mfp_dtack & blitter_dtack_n & ext_io_dtack_n;
 `else
 // combined bus signals
 wire        fc0 = cpu_fc0;
@@ -294,7 +310,7 @@ wire [15:0] mbus_dout = !rdat_n ? shifter_dout :
                         ~rdy_i ? dma_data_out :
                         cpu_dout;
 
-wire        dtack_n = mcu_dtack_n_adj & ~mfp_dtack;
+wire        dtack_n = mcu_dtack_n_adj & ~mfp_dtack & ext_io_dtack_n;
 
 // remove blitter from br/bg/bgack chains (keeping some of the blitter signal names)
 assign blitter_br_n = 1'b1;
@@ -304,6 +320,26 @@ assign blitter_sel = 1'b0;
 assign blitter_data_out = 16'h0000;
 wire blitter_irq_n = 1'b1;
 
+`endif
+
+`ifdef ST_HELPER
+// FalconFPGA ST_HELPER: helper mailbox at $FFFB00-$FFFB1F (A23:5 = $7FFD8).
+// $FFFBxx is unused on ST/STE/Mega STE/TT/Falcon (hardware register listing
+// v9.1, between TT MFP2 $FFFA81-$FFFAAF and the ACIAs at $FFFC00) and the
+// GSTMCU does not decode it (no DTACK, no VPA: $FFFCxx-$FFFDxx is the VPA
+// range), so before this device existed an access there ended in the GSTMCU
+// bus-error timeout. TOS 2.06 does not probe it.
+assign ext_io_cs    = iodevice & (mbus_a[23:5] == 19'h7FFD8);
+assign ext_io_a     = mbus_a[4:1];
+assign ext_io_rw    = rw;
+assign ext_io_uds_n = uds_n;
+assign ext_io_lds_n = lds_n;
+assign ext_io_wdata = mbus_dout;
+wire [15:0] ext_io_din     = (ext_io_cs & rw) ? ext_io_rdata : 16'hffff;
+wire        ext_io_dtack_n = ~ext_io_dtack;
+`else
+wire [15:0] ext_io_din     = 16'hffff;   // desktop: constant, removed by synthesis
+wire        ext_io_dtack_n = 1'b1;
 `endif
 
 // FalconFPGA DIAG diag030b: video base bytes as written on the ST bus

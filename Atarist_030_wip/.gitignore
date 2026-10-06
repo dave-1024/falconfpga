@@ -10,3 +10,4 @@ impl/pnr/
 impl/*.html
 impl/*.rpt
 !impl/atarist_tc138k_process_config.json
+helper_fw/st_test/*.PRG

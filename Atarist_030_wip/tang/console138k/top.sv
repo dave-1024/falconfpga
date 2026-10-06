@@ -156,6 +156,10 @@ module top(
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
 `ifdef AE350_SERIAL
 assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then AE350.
+`elsif ST_HELPER
+// U15 (BL616 USB serial, 115200 8N1): fabric letters while the AE350 is in
+// reset, the AE350's UART2 while it runs (st_helper_ctrl.v).
+assign uart_ext_tx = sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
 `endif
@@ -212,11 +216,24 @@ wire spi_intn;
 
 // intn and dout are outputs driven by the FPGA to the MCU
 // din, ss and clk are inputs coming from the MCU
+`ifdef ST_HELPER
+// ST_HELPER: the AE350 is the companion MCU (st_helper_mculink.v). The BL616
+// (and a PMOD companion) are kept OFF the link so the two masters can never
+// fight: their SS#/SCK/MOSI inputs are ignored, the BL616 MISO pin (spi_dir)
+// is tristated and its IRQ pin (spi_irqn, C22 in this build) is held
+// inactive high. The stock BL616 firmware only keeps the USB serial bridge
+// (U15) and its JTAG/programming role; it is never reflashed.
+assign spi_dir  = 1'bz;
+assign spi_irqn = 1'b1;
+assign pmod_companion_dout = 1'b0;
+assign pmod_companion_intn = 1'b1;
+`else
 assign spi_dir = pll_lock?spi_io_dout:1'b1;
 assign spi_irqn = pll_lock?spi_intn:1'b1;
 
 assign pmod_companion_dout = spi_io_dout;
 assign pmod_companion_intn = spi_intn;
+`endif
    
 // by default the internal SPI is being used. Once there is
 // a select from the external spi, then the connection is
@@ -237,9 +254,14 @@ end
 
 // switch between internal SPI connected to the on-board bl616
 // or to the external one possibly connected to a FPGA Companion
+`ifdef ST_HELPER
+// ST_HELPER: mcu_spi is driven only by the AE350 (st_helper_mculink below).
+wire spi_io_din, spi_io_ss, spi_io_clk;
+`else
 wire spi_io_din = spi_ext?pmod_companion_din:spi_dat;
 wire spi_io_ss = spi_ext?pmod_companion_ss:spi_csn;
 wire spi_io_clk = spi_ext?pmod_companion_clk:spi_sclk;
+`endif
 
 wire [15:0] audio [2];
 wire        vreset;
@@ -349,7 +371,12 @@ wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
 wire        ae350_uart_tx;
 wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
-`ifndef AE350_SERIAL
+`ifdef AE350_SERIAL
+`elsif ST_HELPER
+// ST_HELPER: the SoC drives ae350_flash_csn/clk/mosi; they reach the MSPI
+// balls only until the one-way switch (see the flash pad block below).
+// ae350_flash_miso is fed from the R22 ball there.
+`else
 // Desktop image. Inouts cannot be tied to constants. Not on the ST flash pins.
 assign ae350_flash_csn = 1'b1;
 assign ae350_flash_miso = 1'b1;
@@ -375,9 +402,18 @@ gowin_pll_ddr3 u_gowin_pll_ddr3 (
     .clkout0(DDR3_CLK_IN), .clkout1(DDR3_RW_CLK),
     .clkout2(DDR3_MEMORY_CLK), .lock(DDR3_LOCK)
 );
+`ifdef ST_HELPER
+// ST_HELPER: S0 resets the ST only. The helper runs from DDR3 and its flash
+// has been handed to the ST, so a DDR3 reset would kill it for good. DDR3
+// reset is released 20 ms after configuration, independent of S0.
+key_debounce u_key_debounce_ddr3 (
+    .out(ddr3_rstn), .in(1'b1), .clk(clk), .rstn(1'b1)
+);
+`else
 key_debounce u_key_debounce_ddr3 (
     .out(ddr3_rstn), .in(reset_n), .clk(clk), .rstn(1'b1)
 );
+`endif
 
 reg [1:0] ddr3_init_sync;
 reg [29:0] helper_timer;
@@ -472,6 +508,41 @@ always @(posedge clk32) begin
         end
     end
 end
+`elsif ST_HELPER
+// ---------------------------------------------------------------------------
+// ST_HELPER (build_st_helper.tcl): boot-then-release. The AE350 boots from
+// the flash first while the ST is held, then the flash goes to the ST for
+// good and TOS boots; the helper keeps running from DDR3. Details and the
+// safety argument: st_helper_ctrl.v. Mailbox: st_helper_mailbox.v.
+// ---------------------------------------------------------------------------
+wire       sth_ae_run, sth_flash_to_st, sth_st_release;
+wire       sth_helper_up, sth_helper_fail, sth_fab_tx, sth_ae_rxd;
+wire [7:0] sth_boot_code, sth_gpio;
+st_helper_ctrl u_sth_ctrl (
+    .clk         ( clk32               ),
+    .rst         ( por                 ),
+    .ddr3_init_a ( ddr3_init_completed ),
+    .ae_gpio_a   ( ae350_gpio[7:0]     ),
+    .ae_csn_a    ( ae350_flash_csn     ),
+    .s1_n_a      ( user_n              ),
+    .ae_run      ( sth_ae_run          ),
+    .flash_to_st ( sth_flash_to_st     ),
+    .st_release  ( sth_st_release      ),
+    .helper_up   ( sth_helper_up       ),
+    .helper_fail ( sth_helper_fail     ),
+    .boot_code   ( sth_boot_code       ),
+    .ae_gpio     ( sth_gpio            ),
+    .fab_tx      ( sth_fab_tx          )
+);
+wire ae350_run   = sth_ae_run;
+wire helper_hold = ~sth_st_release;        // ST (030 + chipset) in reset until the switch
+// The ST flash controller is held in reset (flash_ready low) until the pads
+// are the ST's; its reset is released synchronously to flash_clk.
+reg [1:0] sth_frel = 2'b00;
+always @(posedge flash_clk or posedge por)
+    if (por) sth_frel <= 2'b00;
+    else     sth_frel <= {sth_frel[0], sth_st_release};
+wire flash_reinit = ~sth_frel[1];
 `else
 // Desktop image. AE350 stays in reset and off the flash pins.
 wire ae350_run = 1'b0;
@@ -556,8 +627,17 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .EXTM_HRESP(extm_hresp),
     .TCK_IN(1'b0), .TMS_IN(1'b1), .TRST_IN(1'b1), .TDI_IN(1'b0),
     .TDO_OUT(), .TDO_OE(),
+`ifdef ST_HELPER
+    .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(sth_ae_rxd), .UART2_CTSN(1'b0),
+`else
     .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
+`endif
+`ifdef ST_HELPER
+    // companion IRQ# -> DCD (MSR b7), link up -> DSR (MSR b5); RI unused
+    .UART2_DCDN(sth_helper_up ? spi_intn : 1'b1), .UART2_DSRN(~sth_helper_up), .UART2_RIN(1'b1),
+`else
     .UART2_DCDN(1'b0), .UART2_DSRN(1'b0), .UART2_RIN(1'b0),
+`endif
     .UART2_DTRN(), .UART2_OUT1N(), .UART2_OUT2N(),
     .GPIO(ae350_gpio),
     .CORE_CLK(CORE_CLK), .DDR_CLK(DDR_CLK), .AHB_CLK(AHB_CLK),
@@ -569,6 +649,74 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
 // Proof: AE350 owns MSPI exclusively (030 held). SOC flash ports are wired
 // straight to the six MSPI balls (hybrid map). ae350_loan only times reset.
 wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, nano_mspi_di, mspi_clk_pll;
+`endif
+
+`ifdef ST_HELPER
+// ---------------------------------------------------------------------------
+// ST_HELPER flash pads. One mux, switched ONCE by sth_flash_to_st (sticky,
+// clk32 register), while the AE350's CS# has been high for 8 us and the ST
+// flash controller is in reset (CS# high): no CS# glitch, and an SCK glitch
+// with CS# high is ignored by the flash.
+//   before: AE350 owns the balls, hybrid / serial-proof map:
+//           CSN T19, CLK L12, MOSI -> P22 (mspi_di, IO0), MISO <- R22
+//           (mspi_do, IO1), WP# P21 = 1, HOLD# R21 = 1.
+//   after:  exactly the desktop ST flash controller: CS#, SCK = PLL clkout4
+//           (100 MHz, 22.5 deg), IO0/IO1 bidirectional with the controller's
+//           OWN output enables (dual-I/O read 0xBB), HOLD# = 1, WP# = 0.
+// The pads are real IOBUFs on IO0/IO1 (tristate with the ST's OE), so the
+// dual-I/O turnaround that the 988c846 runtime mux broke is preserved.
+// Once switched, the AE350's CS# goes nowhere and its CLK/MOSI/MISO become
+// the FPGA-Companion SPI link to mcu_spi (st_helper_mculink.v), never the flash.
+// ---------------------------------------------------------------------------
+wire        st_mspi_cs, mspi_clk_pll;
+wire [1:0]  st_mspi_io_o, st_mspi_io_oe;
+assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : ae350_flash_csn;
+assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : ae350_flash_clk;
+assign mspi_di   = sth_flash_to_st ? (st_mspi_io_oe[0] ? st_mspi_io_o[0] : 1'bz)
+                                   : ae350_flash_mosi;
+assign mspi_do   = (sth_flash_to_st && st_mspi_io_oe[1]) ? st_mspi_io_o[1] : 1'bz;
+assign mspi_hold = 1'b1;                   // both masters keep HOLD# high
+assign mspi_wp   = ~sth_flash_to_st;       // AE350: 1 (as its IP), ST: 0 (as flash_dspi.v)
+// After the switch the AE350's (now idle) flash SPI controller becomes the
+// FPGA-Companion SPI master: MISO returns mcu_spi's dout once the link is up.
+assign ae350_flash_miso = sth_flash_to_st ? (sth_helper_up ? spi_io_dout : 1'b1)
+                                          : mspi_do;
+
+// AE350 -> core companion link (replaces the BL616), see st_helper_mculink.v
+st_helper_mculink u_sth_mculink (
+    .clk_ae    ( AHB_CLK          ),
+    .link_en_a ( sth_helper_up    ),
+    .ae_ss_n_a ( ae350_gpio[0]    ),
+    .ae_sck_a  ( ae350_flash_clk  ),
+    .ae_mosi_a ( ae350_flash_mosi ),
+    .ss_n      ( spi_io_ss        ),
+    .sck       ( spi_io_clk       ),
+    .mosi      ( spi_io_din       )
+);
+
+// Helper mailbox at $FFFB00-$FFFB1F (ST side), UART2 link (helper side)
+wire        ext_io_cs, ext_io_rw, ext_io_uds_n, ext_io_lds_n, ext_io_dtack;
+wire [4:1]  ext_io_a;
+wire [15:0] ext_io_wdata, ext_io_rdata;
+st_helper_mailbox u_sth_mailbox (
+    .clk         ( clk32           ),
+    .rst         ( por             ),
+    .cs          ( ext_io_cs       ),
+    .uds_n       ( ext_io_uds_n    ),
+    .lds_n       ( ext_io_lds_n    ),
+    .rw          ( ext_io_rw       ),
+    .a           ( ext_io_a        ),
+    .wdata       ( ext_io_wdata    ),
+    .rdata       ( ext_io_rdata    ),
+    .dtack       ( ext_io_dtack    ),
+    .ae_txd_a    ( ae350_uart_tx   ),
+    .ae_rxd      ( sth_ae_rxd      ),
+    .ae_run      ( sth_ae_run      ),
+    .helper_up   ( sth_helper_up   ),
+    .helper_fail ( sth_helper_fail ),
+    .boot_code   ( sth_boot_code   ),
+    .ae_gpio     ( sth_gpio        )
+);
 `endif
 
 misterynano misterynano (
@@ -589,7 +737,21 @@ misterynano misterynano (
   .ws2812 ( ),
 
   // spi flash interface
-`ifdef AE350_SERIAL
+`ifdef ST_HELPER
+  // Pads are built above (boot-then-release mux)
+  .mspi_cs    ( st_mspi_cs              ),
+  .mspi_io_o  ( st_mspi_io_o            ),
+  .mspi_io_oe ( st_mspi_io_oe           ),
+  .mspi_io_i  ( { mspi_do, mspi_di }    ),
+  .ext_io_cs    ( ext_io_cs    ),
+  .ext_io_a     ( ext_io_a     ),
+  .ext_io_rw    ( ext_io_rw    ),
+  .ext_io_uds_n ( ext_io_uds_n ),
+  .ext_io_lds_n ( ext_io_lds_n ),
+  .ext_io_wdata ( ext_io_wdata ),
+  .ext_io_rdata ( ext_io_rdata ),
+  .ext_io_dtack ( ext_io_dtack ),
+`elsif AE350_SERIAL
   // Flash pins belong to the AE350; keep the ST flash controller off them.
   .mspi_cs   ( nano_mspi_cs   ),
   .mspi_di   ( nano_mspi_di   ),
@@ -702,6 +864,8 @@ pll_160m pll_hdmi (
                .clkout3(flash_clk),          // 100 MHz
 `ifdef AE350_SERIAL
                .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
+`elsif ST_HELPER
+               .clkout4(mspi_clk_pll),       // 100 MHz, 22,5°: to the SCK pad mux
 `else
                .clkout4(mspi_clk),           // 100 MHz, shifted by 22,5°
 `endif

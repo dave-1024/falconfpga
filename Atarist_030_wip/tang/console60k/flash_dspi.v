@@ -31,10 +31,21 @@ module flash
  
  // interface to the chip
  output reg	   mspi_cs,
+`ifdef ST_HELPER
+ // FalconFPGA ST_HELPER (build_st_helper.tcl only): the pad buffers are
+ // built in top.sv, which also connects the AE350 SoC to the same flash
+ // during boot. The controller's own output enables are passed out so the
+ // dual-I/O turnaround on the pads stays exactly as in the desktop build.
+ // HOLD#/WP# are driven by top.sv (same levels as below: 1 and 0).
+ output [1:0]	   mspi_io_o,   // {IO1, IO0} data to the pads
+ output [1:0]	   mspi_io_oe,  // {IO1, IO0} output enables
+ input  [1:0]	   mspi_io_i,   // {IO1 = mspi_do pad, IO0 = mspi_di pad}
+`else
  inout		   mspi_di, // data in into flash chip
  inout		   mspi_hold,
  inout		   mspi_wp,
  inout		   mspi_do, // data out from flash chip
+`endif
  
 `ifdef VERILATOR		
  input [1:0]	   mspi_din, 
@@ -47,9 +58,11 @@ reg		   dspi_mode;
 
 wire [1:0]	   dspi_out;
    
+`ifndef ST_HELPER
 // drive hold and wp to their static default
 assign mspi_hold = 1'b1;
 assign mspi_wp   = 1'b0;
+`endif
 
 wire [1:0] output_en = { 
     dspi_mode?(state<=6'd22):1'b0,    // io1 is do in SPI mode and thus never driven
@@ -61,8 +74,13 @@ wire [1:0] data_out = {
     dspi_mode?dspi_out[0]:spi_di       
 };
 
+`ifdef ST_HELPER
+assign mspi_io_o  = data_out;
+assign mspi_io_oe = output_en;
+`else
 assign mspi_do   = output_en[1]?data_out[1]:1'bz;
 assign mspi_di   = output_en[0]?data_out[0]:1'bz;
+`endif
 
 // use "fast read dual IO" command
 wire [7:0]   CMD_RD_DIO = 8'hbb;  
@@ -101,6 +119,8 @@ assign dspi_out =
    
 `ifdef VERILATOR
 wire [1:0] dspi_in = mspi_din;  
+`elsif ST_HELPER
+wire [1:0] dspi_in = mspi_io_i;
 `else
 wire [1:0] dspi_in = { mspi_do, mspi_di };  
 `endif
