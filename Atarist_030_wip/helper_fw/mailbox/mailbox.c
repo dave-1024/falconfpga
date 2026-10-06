@@ -1,7 +1,7 @@
-/* AE350 helper, mailbox v1 (build option ST_HELPER, build_st_helper.tcl).
+/* AE350 helper, mailbox v2 (build option ST_HELPER, build_st_helper.tcl).
  * Flash output/helper_mailbox.bin at 0x0600000 (leading 0, not 0x6000000).
  *
- * 1. "Done with flash": GPIO[7:0] = 0xA5. This image runs from DDR3 (the
+ * 1. "Done with flash": GPIO[7:0] = 0xA5 (after flash_release()). This image runs from DDR3 (the
  *    BUILD_BURN loader in loader.c copied it there), so from here on the
  *    flash is never touched. The fabric (st_helper_ctrl.v) then waits for
  *    our flash CS# to be idle, gives the flash pins to the ST for good and
@@ -32,16 +32,20 @@
 #define UART_LSR    (UART_BASE + 0x34u)
 #define UART_MSR    (UART_BASE + 0x38u)
 #define MSR_DSR     0x20u                 /* fabric: companion link up */
+#define MSR_RI      0x40u                 /* fabric: our flash CS# is low (asserted) */
 #define MSR_DCD     0x80u                 /* fabric: core IRQ# asserted */
 
 #define GPIO_BASE   0xF0700000u           /* ATCGPIO100 */
 #define GPIO_DOUT   (GPIO_BASE + 0x24u)
 #define GPIO_DIR    (GPIO_BASE + 0x28u)
 
-/* Flash SPI controller (AE350 SPI1, ATCSPI200; memory-mapped at 0x80000000).
- * Andes AE350 map. Override with -DSPI1_BASE=... if the probe says no. */
+/* Flash SPI controller (ATCSPI200, memory-mapped at 0x80000000; "spi1" in
+ * the SoC netlist, FLASH_SPI_* ports). The Gowin AE350 BSP (ae350.h,
+ * SPI_BASE) puts the SoC's only SPI at 0xF0F00000. The Andes reference map
+ * has a flash SPI at 0xF0B00000, but in this SoC nothing answers there: v1
+ * read it and the bus hung (hardware, 6 Oct 2026). */
 #ifndef SPI1_BASE
-#define SPI1_BASE   0xF0B00000u
+#define SPI1_BASE   0xF0F00000u
 #endif
 #define SPI_IDREV   (SPI1_BASE + 0x00u)
 #define SPI_FMT     (SPI1_BASE + 0x10u)
@@ -158,6 +162,25 @@ static int core_status(int verbose)
     return b0 == 0x5C && b1 == 0x42;
 }
 
+/* End any memory-mapped flash access so the controller lets CS# go high:
+ * one register-mode, command-only transfer (WRDI 0x04, harmless). On
+ * hardware v1 the fabric saw CS# stay low after the boot loader's copy
+ * although the CPU ran from DDR3, and fell back ('C'). */
+static void flash_release(void)
+{
+    unsigned t;
+    for (t = 0; t < 1000000u && (rd(SPI_STATUS) & 1u); t++) ;
+    wr(SPI_TCTRL, (1u << 30) | (7u << 24));          /* CmdEn, TransMode 7 = no data */
+    wr(SPI_CMD, 0x04u);                              /* WRDI, starts the transfer */
+    for (t = 0; t < 1000000u && (rd(SPI_STATUS) & 1u); t++) ;
+}
+static void cs_report(const char *when)
+{
+    puts_("flash CS# "); puts_(when); puts_(": ");
+    puts_((rd(UART_MSR) & MSR_RI) ? "LOW (asserted)" : "high");
+    puts_("\r\n");
+}
+
 static void irq_report(void)
 {
     puts_("core IRQ# ");
@@ -173,9 +196,9 @@ static void link_bringup(void)
         puts_("link: DSR never set by the fabric, companion link not used\r\n");
         return;
     }
-    puts_("link: fabric says up, probing SPI1 @"); puthex(SPI1_BASE, 8); puts_("\r\n");
+    puts_("link: fabric says up (MSR "); puthex(rd(UART_MSR), 2); puts_(")\r\n");
     id = rd(SPI_IDREV);
-    puts_("SPI1 IDREV "); puthex(id, 8);
+    puts_("SPI IDREV "); puthex(id, 8);
     if ((id >> 16) != 0x0200u) {
         puts_(" (not an ATCSPI200, link not used)\r\n");
         return;
@@ -198,12 +221,21 @@ int main(void)
     char line[64];
     unsigned n = 0;
 
-    /* 1. done with flash: everything below runs from DDR3 */
-    gpio_set(HS_CODE);
-    wr(GPIO_DIR, rd(GPIO_DIR) | 0xFFu);
-
+    /* 1. done with flash: everything below runs from DDR3. The fabric waits
+     *    up to 2 s for 0xA5, so there is time to report first. */
     uart_init();
-    puts_("\r\nAE350 helper mailbox v1 ready (flash released, running from DDR3)\r\n");
+    gpio_set(0x01u);                                 /* SS# (GPIO[0]) idle high */
+    wr(GPIO_DIR, rd(GPIO_DIR) | 0xFFu);
+    puts_("\r\nAE350 helper mailbox v2 (running from DDR3)\r\n");
+    puts_("flash SPI @"); puthex(SPI1_BASE, 8); puts_(": IDREV ");
+    puthex(rd(SPI_IDREV), 8);
+    puts_(" MEMCTRL "); puthex(rd(SPI1_BASE + 0x50u), 8);
+    puts_(" STATUS "); puthex(rd(SPI_STATUS), 8); puts_("\r\n");
+    cs_report("after boot copy");
+    flash_release();
+    cs_report("after release");
+    gpio_set(HS_CODE);                               /* 0xA5: done with flash */
+    puts_("0xA5 sent, flash handed to the ST\r\n");
     link_bringup();
     help();
     puts_("> ");

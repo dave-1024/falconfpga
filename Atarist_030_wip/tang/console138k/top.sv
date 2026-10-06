@@ -636,8 +636,10 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
 `endif
 `ifdef ST_HELPER
-    // companion IRQ# -> DCD (MSR b7), link up -> DSR (MSR b5); RI unused
-    .UART2_DCDN(sth_helper_up ? spi_intn : 1'b1), .UART2_DSRN(~sth_helper_up), .UART2_RIN(1'b1),
+    // companion IRQ# -> DCD (MSR b7), link up -> DSR (MSR b5)
+    // RI (MSR b6) = the SoC's own flash CS# asserted (diagnostic: the
+    // firmware prints it around the flash release, see mailbox.c)
+    .UART2_DCDN(sth_helper_up ? spi_intn : 1'b1), .UART2_DSRN(~sth_helper_up), .UART2_RIN(ae350_flash_csn),
 `else
     .UART2_DCDN(1'b0), .UART2_DSRN(1'b0), .UART2_RIN(1'b0),
 `endif

@@ -55,12 +55,16 @@
 //   'R'          AE350 reset released, the next text is the AE350's own
 //   'T' CR LF    no 0xA5 from the firmware within T_HS: AE350 reset again,
 //                desktop boots without the helper
-//   'C' CR LF    AE350 CS# never idle: AE350 reset, desktop boots
+//   'C' CR LF    AE350 CS# never idle AND 0xA5 gone: AE350 reset, desktop
+//                boots. (CS# still low 1 ms after a valid 0xA5 is not a
+//                failure: the switch is forced, BOOT = 5, see S_CSIDLE.)
 //   'K' CR LF    S1 pressed: helper skipped, desktop boots
 //   ('X' is also followed by CR LF and the desktop boot.)
 //
 // boot_code (mailbox register BOOT): 0 = helper running, 1 = DDR3 timeout,
-// 2 = handshake timeout, 3 = S1 skip, 4 = CS# never idle, $FF = booting.
+// 2 = handshake timeout, 3 = S1 skip, 4 = CS# never idle (0xA5 lost),
+// 5 = helper running, switch forced with the AE350 CS# still low,
+// $FF = booting.
 //
 // All logic is in the clk32 domain. Asynchronous inputs (DDR3 init, AE350
 // GPIO, AE350 flash CS#, S1) go through 2-flop synchronisers; the 8-bit
@@ -72,7 +76,7 @@ module st_helper_ctrl #(
     parameter [31:0] T_DEB     = 32'd640_000,     // 20 ms DDR3_INIT stable (hybrid key_debounce)
     parameter [31:0] T_HS      = 32'd64_000_000,  // 2 s   firmware must signal 0xA5
     parameter [31:0] T_CSIDLE  = 32'd256,         // 8 us  AE350 CS# high before the switch
-    parameter [31:0] T_CSMAX   = 32'd32_000,      // 1 ms  give up waiting for CS# idle
+    parameter [31:0] T_CSMAX   = 32'd32_000,      // 1 ms  then switch anyway if 0xA5 is still there
     parameter [31:0] T_RSTWAIT = 32'd32_000,      // 1 ms  after re-asserting AE350 reset
     parameter [31:0] T_SETTLE  = 32'd64,          // 2 us  after the switch, before ST release
     parameter [7:0]  HS_CODE   = 8'hA5,
@@ -158,6 +162,7 @@ module st_helper_ctrl #(
     reg [2:0]  msg;        // letter index within a short message
     reg [1:0]  hs_cnt;
     reg [7:0]  fail_letter;
+    reg        cs_forced;  // switched after T_CSMAX with CS# still low
 
 
     always @(posedge clk) begin
@@ -165,7 +170,7 @@ module st_helper_ctrl #(
             st <= S_BANNER; t <= 32'd0; tc <= 32'd0; msg <= 3'd0; hs_cnt <= 2'd0;
             ae_run <= 1'b0; flash_to_st <= 1'b0; st_release <= 1'b0;
             helper_up <= 1'b0; helper_fail <= 1'b0; boot_code <= 8'hFF;
-            u_go <= 1'b0; u_char <= 8'h00; fail_letter <= 8'h00;
+            u_go <= 1'b0; u_char <= 8'h00; fail_letter <= 8'h00; cs_forced <= 1'b0;
         end else begin
             u_go <= 1'b0;
             if (t != 32'hFFFF_FFFF) t <= t + 32'd1;
@@ -220,13 +225,28 @@ module st_helper_ctrl #(
                     flash_to_st <= 1'b1;                         // the one-way switch
                     st <= S_SETTLE; t <= 32'd0;
                 end else if (t >= T_CSMAX) begin
-                    boot_code <= 8'd4; fail_letter <= 8'h43; st <= S_FAIL; t <= 32'd0; // C
+                    // CS# not idle 1 ms after 0xA5. Seen on hardware (6 Oct
+                    // 2026): the AE350 flash controller can leave CS# low
+                    // after its last memory-mapped read although the CPU
+                    // runs from DDR3. The firmware has said it is done with
+                    // the flash (0xA5 is still there, checked again here),
+                    // so switch anyway: the flash sees CS# rise (the ST's
+                    // CS# is high, the ST is in reset), which ends any read,
+                    // and the ST flash controller re-initialises the flash
+                    // (16 ones on IO0 also leave a continuous-read mode).
+                    if (ae_gpio == HS_CODE) begin
+                        flash_to_st <= 1'b1;
+                        cs_forced   <= 1'b1;
+                        st <= S_SETTLE; t <= 32'd0;
+                    end else begin
+                        boot_code <= 8'd4; fail_letter <= 8'h43; st <= S_FAIL; t <= 32'd0; // C
+                    end
                 end
             end
             S_SETTLE: if (t >= T_SETTLE) begin
                 st_release <= 1'b1;
                 helper_up  <= 1'b1;
-                boot_code  <= 8'd0;
+                boot_code  <= cs_forced ? 8'd5 : 8'd0;
                 st <= S_RUN;
             end
             S_RUN: ;                                             // stay here until power-off
