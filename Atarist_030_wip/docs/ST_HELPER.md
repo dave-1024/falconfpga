@@ -172,7 +172,10 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
    sends `hello from the ST` to the helper, shows the helper's answer
    (`helper: got 17 bytes: HELLO FROM THE ST`) for a few seconds and returns,
    so TOS carries on to the desktop. The helper prints the same exchange on
-   U15. No disk, keyboard or flash write needed. If the helper is not
+   U15. No disk, keyboard or flash write needed. **U15 alone is enough for
+   the first test:** with just the U15 output in a terminal (V14 not used),
+   David sees the boot letters, the link test and the cartridge exchange,
+   and the ST screen shows the ST side. If the helper is not
    running it prints one line and returns at once. Remove the
    `ST_HELPER_CART` line in `build_st_helper.tcl` to build without it.
 3. **Later, `MBXTERM.PRG` from a disk** once the AE350 serves a floppy or
@@ -181,7 +184,10 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
 
 A cartridge ROM loaded from SPI flash was considered and not chosen: it would
 change the TOS ROM read path in `flash_dspi.v`, which is the part of this
-build that must not break.
+build that must not break. A tiny floppy image that the AE350 serves from
+flash needs the FPGA-Companion floppy path (`sdc` sector requests over the
+`mcu_spi` link) ported first, plus a keyboard or an AUTO folder to start the
+program; it is the natural next step after the port, not a first test.
 
 ## 5. What to expect
 
