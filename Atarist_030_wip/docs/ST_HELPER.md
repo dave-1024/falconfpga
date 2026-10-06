@@ -164,8 +164,8 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
    and the AE350-to-core link. It does not test the ST side of the mailbox.
 2. **Self-test cartridge (build option `ST_HELPER_CART`, on in
    `build_st_helper.tcl`).** A 644-byte cartridge ROM at $FA0000 is built
-   into the bitstream (`st_helper_cart_rom.v`, generated from
-   `helper_fw/st_test/mbxcart.s`). The GSTMCU already decodes ROM4 and
+   into the bitstream (`st_helper_cart_rom.v`, one block RAM, contents
+   `st_helper_cart.hex` generated from `helper_fw/st_test/mbxcart.s`). The GSTMCU already decodes ROM4 and
    acknowledges it like the TOS ROM; the core only supplies the data. TOS 2.06
    finds the cartridge magic at boot and calls it once (CA_INIT bit 3, after
    GEMDOS, before the boot disk). It prints BOOT and STATUS on the ST screen,

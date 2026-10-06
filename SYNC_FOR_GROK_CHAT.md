@@ -9,6 +9,38 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## NEW 2026-10-06 07:30: ST_HELPER build, AE350 helper next to the ST desktop (BUILD ONLY, not flashed)
+
+Commits `316dfde` and `93873fa` (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`
+(`` `define ST_HELPER `` via `build_sel.vh`). `build_tc138k.tcl` is untouched; every change
+is inside `` `ifdef ST_HELPER ``. Full write-up: `Atarist_030_wip/docs/ST_HELPER.md`.
+
+- Goal (David): the AE350 replaces the BL616 as the core's helper MCU (FPGA-Companion:
+  HID, OSD, floppy, HDD), so the BL616 never has to be reflashed.
+- Flash boot-then-release (`st_helper_ctrl.v`): 030 held, AE350 boots from flash and copies
+  its image to DDR3, writes GPIO 0xA5; after its CS# is idle 8 us the flash pads switch ONCE
+  (sticky) to the ST, the ST flash controller reinitialises, 030 released, TOS 2.06 boots.
+  Fallback letters on U15: `X` DDR3, `T` no 0xA5 in 2 s, `C` CS# busy, `K` S1 held: AE350
+  back in reset, desktop boots anyway. IO0/IO1 are real tristate pads with the ST
+  controller's own OEs (new ST_HELPER ports on `flash_dspi.v`) - the 988c846 failure mode.
+- Companion link (`st_helper_mculink.v`): after the handoff the AE350's idle flash SPI
+  controller (SPI1) drives the core's `mcu_spi` (the BL616 port). SS# = AE350 GPIO[0], core
+  IRQ# -> UART2 DCD#, link-up -> UART2 DSR#. SCK/MOSI/SS# retimed on AHB_CLK. BL616 kept off
+  the link: its inputs ignored, `spi_dir` tristated, `spi_irqn` held high (now on C22).
+- ST mailbox (`st_helper_mailbox.v`): $FFFB00-$FFFB1F, bridged to the helper's UART2 in the
+  fabric. U15 = AE350 UART2 (BL616 USB serial, 115200); V14 (PC -> BL616 -> FPGA) is ANDed
+  into UART2 RX, so David can type to the helper from the same terminal.
+- No disk or keyboard on the ST in this build (no companion yet), so `ST_HELPER_CART` (on in
+  `build_st_helper.tcl`) puts a 644-byte self-test cartridge ROM at $FA0000 (GSTMCU ROM4,
+  `st_helper_cart_rom.v` + `st_helper_cart.hex` from `helper_fw/st_test/mbxcart.s`). TOS runs it once at
+  boot: it sends `hello from the ST` and shows the helper's reply, then the desktop starts.
+- Firmware `helper_fw/mailbox/` -> `C:\Users\dave_\fpga_caps\helper_mailbox.bin` (0x0600000).
+  ST test `helper_fw/st_test/mbxterm.s` -> `C:\Users\dave_\fpga_caps\MBXTERM.PRG`.
+- Laptop build PASS, TNS 0 on all clocks: clk32_core 33.98 MHz, clk_cpu030 16.26 MHz.
+  Bitstream `C:\Users\dave_\fpga_caps\st_helper_v1.fs`. Not flashed.
+- Not done / open: FPGA-Companion itself is not ported (plan in docs/ST_HELPER.md section 7;
+  USB HID source is the open question). Untested on hardware.
+
 ## FIX 2026-10-05 18:10: AE350 flash MOSI/MISO were swapped on the serial proof
 
 Cause: the serial proof loan mux routed `FLASH_SPI_MOSI` to `mspi_do` (R22) and

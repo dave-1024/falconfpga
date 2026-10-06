@@ -339,13 +339,14 @@ assign ext_io_uds_n = uds_n;
 assign ext_io_lds_n = lds_n;
 assign ext_io_wdata = mbus_dout;
 `ifdef ST_HELPER_CART
-// ST_HELPER_CART: mailbox self-test cartridge at $FA0000-$FA0FFF (generated
-// from helper_fw/st_test/mbxcart.s). The GSTMCU decodes ROM4 and gives the
-// DTACK, exactly as for the TOS ROM; this only supplies the data. TOS finds
-// the cartridge magic at boot and runs it once (see docs/ST_HELPER.md).
+// ST_HELPER_CART: mailbox self-test cartridge at $FA0000-$FA03FF (1 KB block
+// RAM ROM, st_helper_cart.hex from helper_fw/st_test/mbxcart.s). The GSTMCU
+// decodes ROM4 and gives the DTACK, exactly as for the TOS ROM; this only
+// supplies the data (registered, one clk32 after the address). TOS finds the
+// cartridge magic at boot and runs it once (see docs/ST_HELPER.md).
 wire [15:0] cart4_rom;
-st_helper_cart_rom u_sth_cart ( .a ( mbus_a[11:1] ), .d ( cart4_rom ) );
-wire [15:0] cart4_din = (!cart4_n && mbus_a[15:12] == 4'h0) ? cart4_rom : 16'hffff;
+st_helper_cart_rom u_sth_cart ( .clk ( clk_32 ), .a ( mbus_a[9:1] ), .d ( cart4_rom ) );
+wire [15:0] cart4_din = (!cart4_n && mbus_a[15:10] == 6'h00) ? cart4_rom : 16'hffff;
 `else
 wire [15:0] cart4_din = 16'hffff;
 `endif

@@ -1,5 +1,5 @@
 | MBXCART - ST_HELPER mailbox self-test, built into the ST_HELPER core as a
-| cartridge ROM at $FA0000 (st_helper_cart_rom.v, build option
+| cartridge ROM at $FA0000 (st_helper_cart_rom.v + .hex, build option
 | ST_HELPER_CART). Needs no floppy, hard disk, keyboard or mouse.
 |
 | TOS finds the cartridge magic at boot and calls the init entry (CA_INIT
@@ -9,7 +9,7 @@
 | to the desktop. The helper prints the same exchange on U15.
 | If the helper is not running it prints one line and returns at once.
 |
-| Build (box): ./build.sh -> st_helper_cart_rom.v (committed) + MBXTERM.PRG
+| Build (box): ./build.sh -> st_helper_cart.hex (committed) + MBXTERM.PRG
 
         .equ    MB, -0x500              | $FFFB00 as a sign-extended .w address
         .equ    CART, 0xfa0000
