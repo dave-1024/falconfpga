@@ -1,4 +1,4 @@
-/* AE350 helper, mailbox v3 (build option ST_HELPER, build_st_helper.tcl).
+/* AE350 helper, mailbox v4 (build option ST_HELPER, build_st_helper.tcl).
  * Flash output/helper_mailbox.bin at 0x0600000 (leading 0, not 0x6000000).
  *
  * 1. "Done with flash": GPIO[7:0] = 0xA5. This image runs from DDR3 (the
@@ -19,7 +19,8 @@
  *    types in the PC terminal (BL616 USB serial TX, V14); UART2 TX goes to
  *    U15 (USB serial) and into the ST's RX FIFO ($FFFB09). Every byte is
  *    echoed; on CR the line is answered. Commands: "s" link status, "i" IRQ
- *    line, "?" help; anything else is echoed back in upper case.
+ *    line, "w" reset the ST, "c" cold-boot the ST (sysctrl R), "?" help;
+ *    anything else is echoed back in upper case.
  *
  * UART2 is an ATCUART100: the 16550 registers start at +0x20 (ready.c).
  */
@@ -76,9 +77,23 @@ static void uart_init(void)
     wr(UART_FCR, 0x07u);
     wr(UART_MCR, 0u);
 }
+/* RX is drained into a software ring while we wait to transmit, so a line
+ * from the ST (or the PC) that arrives while we print is not lost to a
+ * UART FIFO overrun (v3 lost one byte of "hello from the ST" that way). */
+static unsigned char rxq[256];
+static unsigned rxh, rxt;
+static void rx_poll(void)
+{
+    unsigned lsr, c;
+    while ((lsr = rd(UART_LSR)) & 0x01u) {
+        c = rd(UART_THR) & 0xFFu;
+        if ((lsr & 0x1Cu) || c == 0u) continue;        /* PE, FE, BI, NUL */
+        if (((rxh + 1u) & 255u) != rxt) { rxq[rxh] = (unsigned char)c; rxh = (rxh + 1u) & 255u; }
+    }
+}
 static void putc_(char c)
 {
-    while ((rd(UART_LSR) & 0x20u) == 0) ;
+    while ((rd(UART_LSR) & 0x20u) == 0) rx_poll();
     wr(UART_THR, (unsigned char)c);
 }
 static void puts_(const char *s) { while (*s) putc_(*s++); }
@@ -93,17 +108,16 @@ static void putdec(unsigned v)
     while (i) putc_(b[--i]);
 }
 /* UART2 RX is the ST mailbox AND the PC terminal (V14). Bytes with a
- * framing/parity error or break, and NULs, are dropped, so an idle-low or
- * noisy line cannot flood the echo. */
+ * framing/parity error or break, and NULs, are dropped (rx_poll), so an
+ * idle-low or noisy line cannot flood the echo. */
 static int getc_nb(void)
 {
-    unsigned lsr = rd(UART_LSR);
-    if (lsr & 0x01u) {
-        unsigned c = rd(UART_THR) & 0xFFu;
-        if ((lsr & 0x1Cu) || c == 0u) return -1;   /* PE, FE, BI */
-        return (int)c;
-    }
-    return -1;
+    int c;
+    rx_poll();
+    if (rxh == rxt) return -1;
+    c = rxq[rxt];
+    rxt = (rxt + 1u) & 255u;
+    return c;
 }
 
 /* ---------------- companion SPI (mcu_hw_spi_* equivalents) ----------------
@@ -165,6 +179,31 @@ static void cs_report(const char *when)
     puts_("\r\n");
 }
 
+/* FPGA-Companion sys_set_val(): SYS target, SETVAL, id, value */
+static void sys_set_val(char id, unsigned char v)
+{
+    mcu_spi_begin();
+    mcu_spi_tx_u08(0);              /* SPI_TARGET_SYS */
+    mcu_spi_tx_u08(4);              /* SPI_SYS_SETVAL */
+    mcu_spi_tx_u08((unsigned char)id);
+    mcu_spi_tx_u08(v);
+    mcu_spi_end();
+}
+static void wait_ms_approx(unsigned ms)
+{
+    unsigned i;
+    while (ms--) for (i = 0; i < 2000u; i++) (void)rd(UART_MSR);
+}
+/* Reset the ST through sysctrl "R" like the companion's OSD: 1 = reset,
+ * 3 = cold boot (the core scrambles RAM, so TOS cannot warm-boot), 0 = run */
+static void st_reset(int cold)
+{
+    puts_(cold ? "ST cold boot via sysctrl R=3\r\n" : "ST reset via sysctrl R=1\r\n");
+    sys_set_val('R', cold ? 3u : 1u);
+    wait_ms_approx(100u);
+    sys_set_val('R', 0u);
+}
+
 static void irq_report(void)
 {
     puts_("core IRQ# ");
@@ -191,8 +230,8 @@ static void link_bringup(void)
 
 static void help(void)
 {
-    puts_("commands: s = core status over the companion SPI link, "
-          "i = core IRQ line, ? = this; other lines are echoed in upper case\r\n");
+    puts_("commands: s = core status over the companion SPI link, i = core IRQ line, "
+          "w = reset the ST, c = cold-boot the ST, ? = this; other lines are echoed in upper case\r\n");
 }
 
 int main(void)
@@ -205,7 +244,7 @@ int main(void)
     uart_init();
     gpio_set(0x01u);                                 /* SS# (GPIO[0]) idle high */
     wr(GPIO_DIR, rd(GPIO_DIR) | 0xFFu);
-    puts_("\r\nAE350 helper mailbox v3 (running from DDR3)\r\n");
+    puts_("\r\nAE350 helper mailbox v4 (running from DDR3)\r\n");
     puts_("flash SPI @"); puthex(SPI1_BASE, 8); puts_(": IDREV ");
     puthex(rd(SPI_IDREV), 8);
     puts_(" (0 = registers not reachable; link is bit-banged)\r\n");
@@ -227,6 +266,9 @@ int main(void)
                     link_ok = core_status(1);
                 else
                     puts_("companion link not up (see boot messages)\r\n");
+            } else if (n == 1 && (line[0] == 'w' || line[0] == 'c')) {
+                if (spi_usable) st_reset(line[0] == 'c');
+                else puts_("companion link not up (see boot messages)\r\n");
             } else if (n == 1 && line[0] == 'i') {
                 irq_report();
             } else if (n == 1 && line[0] == '?') {
