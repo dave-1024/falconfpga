@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdint.h>
 #include <ff.h>
 
 #include "../mcu_hw.h"
@@ -38,6 +39,7 @@ static void help(void) {
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
          "  spd [n]      bit-bang delay per half SCK period (default 8)\r\n"
+         "  xml [n]      link test: read the core's gzip'd XML config n times (default 1)\r\n"
          "  ?            this help; other lines are echoed in upper case\r\n");
 }
 
@@ -160,6 +162,31 @@ static void sd_eject(int drive) {
   printf("drive %d (%s): ejected\r\n", drive, drive_name[drive]);
 }
 
+/* Link integrity and speed test: SPI_SYS_READ_CFG streams the core's
+   gzip'd atarist.xml (~1 KB) and puff() inflates it twice (size pass,
+   then data pass), so a single wrong bit fails the inflate or changes the
+   FNV-1a hash of the result. */
+static void xml_test(int n) {
+  static uint32_t ref_hash; static unsigned ref_len;
+  int ok = 0;
+  for(int i = 0; i < n; i++) {
+    TickType_t t0 = xTaskGetTickCount();
+    char *x = sys_get_config();
+    TickType_t dt = xTaskGetTickCount() - t0;
+    if(!x) { printf("xml %d: read/inflate FAILED (%lu ms)\r\n", i, (unsigned long)dt); continue; }
+    uint32_t h = 2166136261u; unsigned len = 0;
+    for(char *c = x; *c; c++, len++) h = (h ^ (unsigned char)*c) * 16777619u;
+    vPortFree(x);
+    if(!ref_len) { ref_len = len; ref_hash = h; }
+    int same = (len == ref_len && h == ref_hash);
+    ok += same;
+    if(n == 1 || !same)
+      printf("xml %d: %u bytes, hash %08lx, %lu ms at spd %u -> %s\r\n", i, len, (unsigned long)h,
+             (unsigned long)dt, ae350_spi_div(), same ? "OK" : "MISMATCH");
+  }
+  if(n > 1) printf("xml: %d/%d OK at spd %u\r\n", ok, n, ae350_spi_div());
+}
+
 static void run_line(const char *line) {
   char *argv[4]; int argc = 0;
   char buf[160];
@@ -215,6 +242,11 @@ static void run_line(const char *line) {
     if(!sd_ready()) return;
     inifile_write("atarist.ini");
     printf("settings written to %s/atarist.ini\r\n", CARD_MOUNTPOINT);
+    return;
+  }
+  if(!strcmp(c, "xml")) {
+    if(!link) { printf("companion link not up (see boot messages)\r\n"); return; }
+    xml_test(argc > 1 ? atoi(argv[1]) : 1);
     return;
   }
   if(!strcmp(c, "cfg")) {
