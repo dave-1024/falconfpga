@@ -133,13 +133,55 @@ For the end goal the mailbox is a debug console, not the companion path:
 FPGA-Companion reaches the ST through the normal core targets (IKBD, FDC,
 ACSI/SD) over the SPI link above.
 
-## 4. U15 and C22
+## 4. U15, V14 and C22
 
 U15 is the FPGA-to-BL616 UART line; the stock BL616 bridges it to its USB
 serial port (115200 8N1). In ST_HELPER, U15 carries the fabric boot letters
 while the AE350 is in reset and the AE350's UART2 afterwards, as in the
 serial proof. `spi_irqn` moves to C22 (held high, see above). Only the pin
 file differs from the desktop: `tang/console138k/atarist_st_helper.cst`.
+
+The other direction, PC -> BL616 -> FPGA, is ball V14 (`uart_rx` in the CST
+comments; in this design the input is called `bl616_jtagsel` and idles high
+with a pull-up). ST_HELPER ANDs it into UART2 RX next to the mailbox, so
+typing in the same PC terminal talks to the helper directly (expected from
+the CST's "internal BL616 UART" note; not yet tested). Typing on the PC while
+the ST sends garbles both; the firmware drops bytes with framing errors and
+NULs, so an idle-low V14 cannot flood it.
+
+## 4a. Getting test code onto the ST in this build
+
+The ST normally gets its floppy and hard disk images, and its USB keyboard
+and mouse, from FPGA-Companion on the BL616. The stock BL616 firmware on this
+board does not do that (it never did in the desktop build either), and the
+AE350 port of FPGA-Companion does not exist yet. So there is no disk and no
+keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
+
+1. **U15 + V14 only (no ST program).** The helper's boot text, including the
+   companion-link test (`core status: 5C 42 ... link OK`), appears on U15 by
+   itself. Typing in the PC terminal reaches the helper (V14), so `s`, `i`
+   and echo lines work from the PC. This tests the flash handoff, the AE350
+   and the AE350-to-core link. It does not test the ST side of the mailbox.
+2. **Self-test cartridge (build option `ST_HELPER_CART`, on in
+   `build_st_helper.tcl`).** A 644-byte cartridge ROM at $FA0000 is built
+   into the bitstream (`st_helper_cart_rom.v`, generated from
+   `helper_fw/st_test/mbxcart.s`). The GSTMCU already decodes ROM4 and
+   acknowledges it like the TOS ROM; the core only supplies the data. TOS 2.06
+   finds the cartridge magic at boot and calls it once (CA_INIT bit 3, after
+   GEMDOS, before the boot disk). It prints BOOT and STATUS on the ST screen,
+   sends `hello from the ST` to the helper, shows the helper's answer
+   (`helper: got 17 bytes: HELLO FROM THE ST`) for a few seconds and returns,
+   so TOS carries on to the desktop. The helper prints the same exchange on
+   U15. No disk, keyboard or flash write needed. If the helper is not
+   running it prints one line and returns at once. Remove the
+   `ST_HELPER_CART` line in `build_st_helper.tcl` to build without it.
+3. **Later, `MBXTERM.PRG` from a disk** once the AE350 serves a floppy or
+   hard disk image (FPGA-Companion port, section 7), or on any setup with a
+   working companion. It needs a keyboard too.
+
+A cartridge ROM loaded from SPI flash was considered and not chosen: it would
+change the TOS ROM read path in `flash_dspi.v`, which is the part of this
+build that must not break.
 
 ## 5. What to expect
 
@@ -161,7 +203,21 @@ Then the GEM desktop appears on HDMI, a fraction of a second later than with
 the desktop build. Fallback: a single `X`, `T`, `C` or `K` line instead of
 the helper text, and the desktop still boots.
 
-ST side: run `MBXTERM.PRG` (`helper_fw/st_test/`). It prints VER, BOOT,
+ST screen (with `ST_HELPER_CART`), during the TOS boot, before the desktop:
+
+```
+ST_HELPER mailbox self-test (cartridge $FA0000)
+BOOT $00  STATUS $25            (or $27 if helper bytes are waiting)
+sent 'hello from the ST', helper says:
+hello from the ST
+helper: got 17 bytes: HELLO FROM THE ST
+>
+-- mailbox test done, TOS continues --
+```
+
+From the PC terminal (V14), type `s` and RETURN to rerun the link test.
+
+ST side, once a disk path exists: run `MBXTERM.PRG` (`helper_fw/st_test/`). It prints VER, BOOT,
 STATUS and HGPIO, then everything typed goes to the helper and its replies
 are shown. Type `hello` and RETURN: `helper: got 5 bytes: HELLO`. Type `s`
 and RETURN: the helper runs the companion status frame again and shows the
@@ -184,6 +240,10 @@ $FFFB09 repeatedly to get `A`, CR, LF and the reply.
 - Boot delay: about 25 ms with the helper, up to about 6 s (DDR3 timeout +
   handshake timeout) if it is missing; S1 at power-up skips it.
 - S0 resets only the ST in this build; DDR3 and the helper keep running.
+- `ST_HELPER_CART` makes TOS find a cartridge. The self-test returns within
+  a few seconds whatever happens on the helper side (all loops have
+  budgets), but a cartridge that hung would stop the boot: remove the define
+  if the boot stops after its title line.
 - SPI1 base 0xF0B00000 is the Andes AE350 map for the flash controller; the
   firmware checks the ATCSPI200 ID first and leaves the link alone if it does
   not match (the desktop is unaffected either way).

@@ -1,11 +1,19 @@
 #!/bin/sh
-# Builds MBXTERM.PRG with GNU m68k binutils (box: /workspace/tools/bin).
-# MBXTERM.PRG is a build product: not in git.
+# Builds, with GNU m68k binutils (box: /workspace/tools/bin):
+#  - MBXTERM.PRG  ST terminal for the mailbox (build product, not in git)
+#  - ../../tang/console138k/st_helper_cart_rom.v  the self-test cartridge
+#    ROM for build option ST_HELPER_CART (generated, committed: the laptop
+#    has no m68k toolchain). Rebuild the core after changing mbxcart.s.
 set -e
 cd "$(dirname "$0")"
 B=${M68K_BIN:-/workspace/tools/bin}
-$B/m68k-linux-gnu-as -m68000 --register-prefix-optional -o mbxterm.o mbxterm.s
+AS="$B/m68k-linux-gnu-as -m68000 --register-prefix-optional"
+$AS -o mbxterm.o mbxterm.s
 $B/m68k-linux-gnu-ld -Ttext=0 -e 0 -o mbxterm.elf mbxterm.o
 $B/m68k-linux-gnu-objcopy -O binary mbxterm.elf MBXTERM.PRG
-rm -f mbxterm.o mbxterm.elf
-ls -l MBXTERM.PRG
+$AS -o mbxcart.o mbxcart.s
+$B/m68k-linux-gnu-ld -Ttext=0xfa0000 -e 0xfa0000 -o mbxcart.elf mbxcart.o
+$B/m68k-linux-gnu-objcopy -O binary mbxcart.elf MBXCART.BIN
+python3 mkcart.py MBXCART.BIN ../../tang/console138k/st_helper_cart_rom.v
+rm -f mbxterm.o mbxterm.elf mbxcart.o mbxcart.elf
+ls -l MBXTERM.PRG MBXCART.BIN

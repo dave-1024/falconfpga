@@ -115,7 +115,12 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   bridged to the helper's UART2 inside the FPGA. `helper_fw/st_test/`
   (`MBXTERM.PRG`) is a small terminal for it.
 - **Serial:** U15 (BL616 USB serial, 115200 8N1) carries the AE350's UART2;
-  `spi_irqn` moves to C22 in `atarist_st_helper.cst`.
+  typing in the same terminal reaches the helper through V14. `spi_irqn`
+  moves to C22 in `atarist_st_helper.cst`.
+- **ST-side test without disk or keyboard:** `ST_HELPER_CART` (on in this
+  build) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
+  at boot: it sends a line to the helper and shows the answer, then the
+  desktop starts.
 - **Firmware:** `helper_fw/mailbox/` (`build_mailbox.bat`, AndeSight), flashed
   at 0x0600000.
 - **Why a separate build:** it changes the boot sequence and the flash pad

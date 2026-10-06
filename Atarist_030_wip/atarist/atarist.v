@@ -155,6 +155,9 @@ reg  [10:0] dr_cnt = 11'd0;
 // rom cartridge related signals
 wire 	    cart_n;   
 wire [15:0] cart_data_out;
+`ifdef ST_HELPER_CART
+wire        cart4_n;   // FalconFPGA ST_HELPER_CART: ROM4 ($FAxxxx) self-test cartridge
+`endif
    
 always @(posedge clk_32) begin
 
@@ -335,7 +338,18 @@ assign ext_io_rw    = rw;
 assign ext_io_uds_n = uds_n;
 assign ext_io_lds_n = lds_n;
 assign ext_io_wdata = mbus_dout;
-wire [15:0] ext_io_din     = (ext_io_cs & rw) ? ext_io_rdata : 16'hffff;
+`ifdef ST_HELPER_CART
+// ST_HELPER_CART: mailbox self-test cartridge at $FA0000-$FA0FFF (generated
+// from helper_fw/st_test/mbxcart.s). The GSTMCU decodes ROM4 and gives the
+// DTACK, exactly as for the TOS ROM; this only supplies the data. TOS finds
+// the cartridge magic at boot and runs it once (see docs/ST_HELPER.md).
+wire [15:0] cart4_rom;
+st_helper_cart_rom u_sth_cart ( .a ( mbus_a[11:1] ), .d ( cart4_rom ) );
+wire [15:0] cart4_din = (!cart4_n && mbus_a[15:12] == 4'h0) ? cart4_rom : 16'hffff;
+`else
+wire [15:0] cart4_din = 16'hffff;
+`endif
+wire [15:0] ext_io_din     = ((ext_io_cs & rw) ? ext_io_rdata : 16'hffff) & cart4_din;
 wire        ext_io_dtack_n = ~ext_io_dtack;
 `else
 wire [15:0] ext_io_din     = 16'hffff;   // desktop: constant, removed by synthesis
@@ -423,7 +437,11 @@ gstmcu gstmcu (
 	.ROM1_N     ( ),           // unused E4xxxx-E7xxxx
 	.ROM2_N     ( rom_n ),     // TOS rom E0xxxx/FCxxxx
 	.ROM3_N     ( cart_n ),    // cartridge FBxxxx
+`ifdef ST_HELPER_CART
+	.ROM4_N     ( cart4_n ),   // cartridge FAxxxx: ST_HELPER self-test ROM
+`else
 	.ROM4_N     ( ),           // cartridge FAxxxx
+`endif
 	.ROM5_N     ( ),           // unused D4xxxx-D7xxxx
 	.ROM6_N     ( ),           // unused D0xxxx-D3xxxx
 	.ROMP_N     ( ),           // unused FE0xxx-FE1xxx

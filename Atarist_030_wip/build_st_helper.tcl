@@ -7,6 +7,7 @@
 #   st_helper_ctrl.v     boot-then-release of the SPI flash (AE350 boots first)
 #   st_helper_mailbox.v  ST mailbox at $FFFB00, UART2 link to the AE350
 #   st_helper_mculink.v  AE350 = FPGA-Companion MCU on mcu_spi (BL616 off)
+#   st_helper_cart_rom.v self-test cartridge (ST_HELPER_CART, generated)
 #   atarist_st_helper.cst  desktop pins with U15 = AE350 UART, C22 = spi_irqn
 #   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
 # Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
@@ -14,6 +15,9 @@
 # Output: impl/pnr/st_helper.fs. See README "Build option: ST_HELPER".
 set fh [open tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
+# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
+# next line to build without it.
+puts $fh "`define ST_HELPER_CART"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -132,6 +136,7 @@ add_file tang/console138k/diag_overlay.v
 add_file tang/console138k/st_helper_ctrl.v
 add_file tang/console138k/st_helper_mailbox.v
 add_file tang/console138k/st_helper_mculink.v
+add_file tang/console138k/st_helper_cart_rom.v
 add_file tang/console138k/atarist_st_helper.cst
 add_file tang/console138k/atarist_st_helper.sdc
 add_file fx68k/microrom.mem

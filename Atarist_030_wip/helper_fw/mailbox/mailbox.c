@@ -14,8 +14,9 @@
  *      IRQ# = UART2 MSR.DCD (1 = core interrupt pending)
  *    The link test sends the FPGA-Companion sys_status_is_valid() frame
  *    (sysctrl.c) and expects 5C 42.
- * 3. Mailbox: UART2 RX carries bytes the ST wrote to $FFFB07; UART2 TX goes
- *    to U15 (USB serial) and into the ST's RX FIFO ($FFFB09). Every byte is
+ * 3. Mailbox: UART2 RX carries bytes the ST wrote to $FFFB07 and what David
+ *    types in the PC terminal (BL616 USB serial TX, V14); UART2 TX goes to
+ *    U15 (USB serial) and into the ST's RX FIFO ($FFFB09). Every byte is
  *    echoed; on CR the line is answered. Commands: "s" link status, "i" IRQ
  *    line, "?" help; anything else is echoed back in upper case.
  *
@@ -97,9 +98,17 @@ static void putdec(unsigned v)
     do { b[i++] = (char)('0' + v % 10u); v /= 10u; } while (v);
     while (i) putc_(b[--i]);
 }
+/* UART2 RX is the ST mailbox AND the PC terminal (V14). Bytes with a
+ * framing/parity error or break, and NULs, are dropped, so an idle-low or
+ * noisy line cannot flood the echo. */
 static int getc_nb(void)
 {
-    if (rd(UART_LSR) & 0x01u) return (int)(rd(UART_THR) & 0xFFu);
+    unsigned lsr = rd(UART_LSR);
+    if (lsr & 0x01u) {
+        unsigned c = rd(UART_THR) & 0xFFu;
+        if ((lsr & 0x1Cu) || c == 0u) return -1;   /* PE, FE, BI */
+        return (int)c;
+    }
     return -1;
 }
 
