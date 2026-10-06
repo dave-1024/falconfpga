@@ -1,0 +1,15 @@
+diff --git a/Atarist_030_wip/build_ae350_serial.tcl b/Atarist_030_wip/build_ae350_serial.tcl
+index 99978fa..80a363a 100644
+--- a/Atarist_030_wip/build_ae350_serial.tcl
++++ b/Atarist_030_wip/build_ae350_serial.tcl
+@@ -112,7 +112,9 @@ add_file helper/gowin_pll_ae350/gowin_pll_ae350.v
+ add_file helper/gowin_pll_ae350/gowin_pll_ae350_mod.v
+ add_file helper/gowin_pll_ddr3/gowin_pll_ddr3.v
+ add_file helper/gowin_pll_ddr3/gowin_pll_ddr3_mod.v
+-add_file helper/riscv_ae350_soc/riscv_ae350_soc.v
++# Serial proof: flash IOBUFs restored (Gowin-generated, as 168ktest/Hybrid030).
++# Made by handoff/20261005-2050-ae350-serial-netlist.py. Desktop keeps helper/riscv_ae350_soc.
++add_file helper/riscv_ae350_soc_serial/riscv_ae350_soc.v
+ add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v
+ add_file tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v
+ add_file tang/console138k/video_testpattern_640.v
