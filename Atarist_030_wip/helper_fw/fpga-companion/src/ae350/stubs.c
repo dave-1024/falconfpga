@@ -44,7 +44,10 @@ void menu_notify(unsigned long msg) { (void)msg; }
 void osd_enable(char en) { (void)en; }
 
 /* ---- hid.c (step 4) ---- */
-void hid_handle_event(void) { usb_debugf("HID event (USB HID not ported yet)"); }
 
 /* ---- at_wifi.c: no network on the AE350 ---- */
 void at_wifi_port_byte(unsigned char b) { (void)b; }
+
+/* OSD (step 5) not ported yet: hid.c forwards every key to the core */
+int osd_is_visible(void) { return 0; }
+void menu_joystick_state(unsigned char state) { (void)state; }

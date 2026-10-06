@@ -94,10 +94,12 @@ int main(void) {
     debugf("Start-up done after %lu ms, entering main loop", (unsigned long)xTaskGetTickCount());
   }
 
+  if(ae350_link_up()) usb_init();
   console_init();
   for(;;) {
     if(mcu_hw_irq_pending())
       sys_handle_interrupts(sys_irq_ctrl(0xff), false);
+    usb_poll();
     console_poll();
   }
   return 0;

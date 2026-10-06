@@ -21,4 +21,9 @@ int  ae350_tick_source(void);
 void console_init(void);
 void console_poll(void);
 
+/* usb.c: fabric USB host reports (ST_HELPER_USB) -> hid.c */
+void usb_init(void);
+void usb_poll(void);
+void usb_status(void);
+
 #endif

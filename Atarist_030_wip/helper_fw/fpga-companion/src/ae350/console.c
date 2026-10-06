@@ -29,6 +29,7 @@ static const char *drive_name[4] = { "A:", "B:", "ACSI 0", "ACSI 1" };
 
 static void help(void) {
   printf("commands (end each with Enter):\r\n"
+         "  usb          USB keyboard/mouse status (Console USB-A ports, fabric host)\r\n"
          "  s            core status over the companion link (SYS target)\r\n"
          "  i            core IRQ line and pending sources\r\n"
          "  w / c        reset / cold-boot the ST (sysctrl R=1 / R=3, then 0)\r\n"
@@ -315,6 +316,7 @@ static void run_line(const char *line) {
     return;
   }
   if(!strcmp(c, "s")) { core_status(); return; }
+  if(!strcmp(c, "usb")) { if(link) usb_status(); else printf("companion link not up\r\n"); return; }
   if(!strcmp(c, "i")) { irq_report(); return; }
   if(!strcmp(c, "w") || !strcmp(c, "c")) { st_reset(c[0] == 'c'); return; }
   if(!strcmp(c, "sd")) {
