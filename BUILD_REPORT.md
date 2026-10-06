@@ -756,3 +756,11 @@ NOTES: Nothing flashed. No bitstream (.fs kept at /workspace/outputs/atarist_030
 - Build: `gw_sh build_ae350_serial.tcl`, PASS, TNS 0. clk32_core 85.515 MHz, clk_cpu030 16.732 MHz. `.fs` → `C:\Users\dave_\fpga_caps\ae350_serial_flash_v2.fs` (39751340).
 - Flash: programmer_cli op 53, location 417, SPI 0x000000, `ae350_serial_flash_v2.fs`: Program Flash finished, 0x000000-0x04BB300, 132.97 s, exit 0. TOS/ready.bin not touched.
 - Expect UART: `PIN` → `DR` → `AE350 alive` if fetch works.
+
+## 2026-10-06 08:35 BST – ST_HELPER: AE350 helper alongside the ST desktop (BUILD ONLY, not flashed)
+- Commits: `316dfde` (ST_HELPER build: flash boot-then-release, AE350 on the core's `mcu_spi` companion link, BL616 kept off the link, ST mailbox $FFFB00, U15/C22 swap), `93873fa` (ST_HELPER_CART self-test cartridge, V14 into UART2 RX, firmware error filter), `ae4b41a` (cartridge as a registered block RAM ROM), `af53a41` (docs). Write-up: `Atarist_030_wip/docs/ST_HELPER.md`.
+- `316dfde`: box and laptop `gw_sh build_st_helper.tcl` PASS, TNS 0. clk32_core 33.98 MHz, clk_cpu030 16.26 MHz. Desktop regression `build_tc138k.tcl` PASS, TNS 0 (clk32_core 34.07, clk_cpu030 16.84). All later HDL changes are inside `ifdef ST_HELPER_CART`.
+- `93873fa`: FAILED timing on the box (clk_cpu030 15.02 MHz, TNS -634; clk32_core 31.48). Cause: a combinational 11-bit case ROM in the `cpu_din` path (+2354 LUTs).
+- `ae4b41a`: box build PASS, TNS 0 on all 46 rows. clk32_core 33.218 MHz, clk_cpu030 16.620 MHz, ae350_ahb_clk 78.57 MHz. Logic 36756/138240, registers 13820, BSRAM 161/340. Cartridge contents checked in the netlist (INIT_RAM_00 starts ABCDEF42).
+- Artefacts on the box, `/workspace/st_helper_out/`: `st_helper_v1.fs` (39420756 bytes, SHA256 200df614ea3a7a0f5720e1153243be7b88547c9e5809486a12b4d05f302e2f16), `MBXTERM.PRG` (684, 3268ca91...1f66), `MBXCART.BIN` (644, reference only, already inside the .fs). Firmware `helper_mailbox.bin` (built on the laptop from `93873fa`; `mailbox.c` unchanged since): `C:\Users\dave_\fpga_caps\helper_mailbox.bin`, 39740 bytes, SHA256 FD6F80DF...9AD0.
+- Not flashed. Flash order when David chooses: core `.fs` at 0x000000 (programmer_cli op 53, location 417), then `helper_mailbox.bin` at 0x600000 (op 56, `--spiaddr 0x600000`). TOS at 0x500000 untouched.

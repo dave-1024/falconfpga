@@ -9,9 +9,9 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
-## NEW 2026-10-06 07:30: ST_HELPER build, AE350 helper next to the ST desktop (BUILD ONLY, not flashed)
+## NEW 2026-10-06 08:35: ST_HELPER build, AE350 helper next to the ST desktop (BUILD ONLY, not flashed)
 
-Commits `316dfde` and `93873fa` (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`
+Commits `316dfde`, `93873fa`, `ae4b41a`, `af53a41` (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`
 (`` `define ST_HELPER `` via `build_sel.vh`). `build_tc138k.tcl` is untouched; every change
 is inside `` `ifdef ST_HELPER ``. Full write-up: `Atarist_030_wip/docs/ST_HELPER.md`.
 
@@ -32,12 +32,17 @@ is inside `` `ifdef ST_HELPER ``. Full write-up: `Atarist_030_wip/docs/ST_HELPER
   into UART2 RX, so David can type to the helper from the same terminal.
 - No disk or keyboard on the ST in this build (no companion yet), so `ST_HELPER_CART` (on in
   `build_st_helper.tcl`) puts a 644-byte self-test cartridge ROM at $FA0000 (GSTMCU ROM4,
-  `st_helper_cart_rom.v` + `st_helper_cart.hex` from `helper_fw/st_test/mbxcart.s`). TOS runs it once at
-  boot: it sends `hello from the ST` and shows the helper's reply, then the desktop starts.
+  `st_helper_cart_rom.v` + `st_helper_cart.hex` from `helper_fw/st_test/mbxcart.s`, one block RAM,
+  registered read). TOS runs it once at boot: it sends `hello from the ST` and shows the helper's
+  reply, then the desktop starts. (`93873fa` had it as a combinational case ROM: it failed
+  timing, clk_cpu030 15.0 MHz; fixed in `ae4b41a`.) U15 alone is enough for the first test.
 - Firmware `helper_fw/mailbox/` -> `C:\Users\dave_\fpga_caps\helper_mailbox.bin` (0x0600000).
   ST test `helper_fw/st_test/mbxterm.s` -> `C:\Users\dave_\fpga_caps\MBXTERM.PRG`.
-- Laptop build PASS, TNS 0 on all clocks: clk32_core 33.98 MHz, clk_cpu030 16.26 MHz.
-  Bitstream `C:\Users\dave_\fpga_caps\st_helper_v1.fs`. Not flashed.
+- Final build of `ae4b41a` (= HEAD `af53a41` minus a doc edit) on the box: PASS, TNS 0 on all 46
+  rows: clk32_core 33.22 MHz, clk_cpu030 16.62 MHz. Logic 36756, registers 13820, BSRAM 161.
+  Bitstream on the box `/workspace/st_helper_out/st_helper_v1.fs` (SHA256 200DF614...2F16).
+  The laptop was offline: `C:\Users\dave_\fpga_caps\st_helper_v1.fs` there is the OLD 316dfde
+  build (no cartridge, no V14) until it is replaced. Not flashed.
 - Not done / open: FPGA-Companion itself is not ported (plan in docs/ST_HELPER.md section 7;
   USB HID source is the open question). Untested on hardware.
 
