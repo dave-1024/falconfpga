@@ -40,6 +40,10 @@ static void help(void) {
          "  cfg          dump the core's XML config\r\n"
          "  spd [n]      bit-bang delay per half SCK period (default 8)\r\n"
          "  xml [n]      link test: read the core's gzip'd XML config n times (default 1)\r\n"
+         "  key <k> ...  press keys on the ST via the core's HID target: a-z 0-9 ret esc\r\n"
+         "               space tab bs del up down left right f1-f10 help undo, alt+x ctrl+x shift+x\r\n"
+         "  type <text>  type text on the ST (letters, digits, space, '.')\r\n"
+         "  mouse <dx> <dy>  move the ST mouse;  click [2]  left click (2 = double)\r\n"
          "  ?            this help; other lines are echoed in upper case\r\n");
 }
 
@@ -162,6 +166,99 @@ static void sd_eject(int drive) {
   printf("drive %d (%s): ejected\r\n", drive, drive_name[drive]);
 }
 
+/* ---- HID target: what hid.c sends once USB HID (port step 4) exists.
+   Until then these commands let the PC drive the ST's keyboard and mouse
+   through the same frames (misc/hid.v: key code = USB HID usage, modifiers
+   at 0x68+, bit 7 = released). ---- */
+static void kbd_tx(uint8_t code) {
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_HID);
+  mcu_hw_spi_tx_u08(SPI_HID_KEYBOARD);
+  mcu_hw_spi_tx_u08(code);
+  mcu_hw_spi_end();
+}
+
+static int key_code(const char *k) {
+  static const struct { const char *n; uint8_t c; } names[] = {
+    {"ret",0x28},{"enter",0x28},{"esc",0x29},{"bs",0x2a},{"tab",0x2b},{"space",0x2c},
+    {"del",0x4c},{"ins",0x49},{"home",0x4a},{"help",0x4b},{"undo",0x4e},
+    {"right",0x4f},{"left",0x50},{"down",0x51},{"up",0x52},{".",0x37},{"-",0x2d},{"/",0x38},
+    {NULL,0}
+  };
+  if(!k[1] && k[0] >= 'a' && k[0] <= 'z') return 0x04 + k[0] - 'a';
+  if(!k[1] && k[0] >= '1' && k[0] <= '9') return 0x1e + k[0] - '1';
+  if(!k[1] && k[0] == '0') return 0x27;
+  if((k[0] == 'f' || k[0] == 'F') && k[1] >= '1' && k[1] <= '9') {
+    int n = atoi(k + 1);
+    if(n >= 1 && n <= 10) return 0x3a + n - 1;
+  }
+  for(int i = 0; names[i].n; i++) if(!strcasecmp(k, names[i].n)) return names[i].c;
+  return -1;
+}
+
+/* one key with optional modifier prefixes ("alt+a", "shift+ctrl+x") */
+static int key_press(const char *tok) {
+  uint8_t mods[3]; int nm = 0;
+  char t[24]; snprintf(t, sizeof(t), "%s", tok);
+  char *k = t, *plus;
+  while((plus = strchr(k, '+')) && plus[1]) {
+    *plus = 0;
+    if(!strcasecmp(k, "ctrl")) mods[nm++] = 0x68;
+    else if(!strcasecmp(k, "shift")) mods[nm++] = 0x69;
+    else if(!strcasecmp(k, "alt")) mods[nm++] = 0x6a;
+    else return -1;
+    k = plus + 1;
+    if(nm == 3) break;
+  }
+  int c = key_code(k);
+  if(c < 0) return -1;
+  for(int i = 0; i < nm; i++) { kbd_tx(mods[i]); vTaskDelay(30); }
+  kbd_tx((uint8_t)c); vTaskDelay(80);
+  kbd_tx(0x80 | (uint8_t)c); vTaskDelay(30);
+  for(int i = nm - 1; i >= 0; i--) { kbd_tx(0x80 | mods[i]); vTaskDelay(30); }
+  vTaskDelay(50);
+  return 0;
+}
+
+static void type_text(const char *s) {
+  for(; *s; s++) {
+    char k[16];
+    if(*s >= 'A' && *s <= 'Z') snprintf(k, sizeof(k), "shift+%c", *s - 'A' + 'a');
+    else if(*s == ' ') snprintf(k, sizeof(k), "space");
+    else snprintf(k, sizeof(k), "%c", *s);
+    if(key_press(k)) printf("cannot type '%c'\r\n", *s);
+  }
+}
+
+static void mouse_tx(uint8_t btns, int8_t dx, int8_t dy) {
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_HID);
+  mcu_hw_spi_tx_u08(SPI_HID_MOUSE);
+  mcu_hw_spi_tx_u08(btns);
+  mcu_hw_spi_tx_u08((uint8_t)dx);
+  mcu_hw_spi_tx_u08((uint8_t)dy);
+  mcu_hw_spi_end();
+}
+
+/* hid.v plays the counts out as quadrature steps (one per ~1 ms), so big
+   moves go in chunks */
+static void mouse_move(int dx, int dy) {
+  while(dx || dy) {
+    int sx = dx > 60 ? 60 : dx < -60 ? -60 : dx;
+    int sy = dy > 60 ? 60 : dy < -60 ? -60 : dy;
+    mouse_tx(0, (int8_t)sx, (int8_t)sy);
+    dx -= sx; dy -= sy;
+    vTaskDelay(80);
+  }
+}
+
+static void mouse_click(int n) {
+  for(int i = 0; i < n; i++) {
+    mouse_tx(1, 0, 0); vTaskDelay(60);
+    mouse_tx(0, 0, 0); vTaskDelay(80);
+  }
+}
+
 /* Link integrity and speed test: SPI_SYS_READ_CFG streams the core's
    gzip'd atarist.xml (~1 KB) and puff() inflates it twice (size pass,
    then data pass), so a single wrong bit fails the inflate or changes the
@@ -242,6 +339,29 @@ static void run_line(const char *line) {
     if(!sd_ready()) return;
     inifile_write("atarist.ini");
     printf("settings written to %s/atarist.ini\r\n", CARD_MOUNTPOINT);
+    return;
+  }
+  if(!strcmp(c, "key") || !strcmp(c, "type") || !strcmp(c, "mouse") || !strcmp(c, "click")) {
+    if(!link) { printf("companion link not up (see boot messages)\r\n"); return; }
+    if(!strcmp(c, "key")) {
+      /* argv holds at most 3 tokens: walk the raw line instead */
+      const char *q = line; while(*q == ' ') q++; q += 3;
+      char tok[24];
+      while(*q) {
+        while(*q == ' ') q++;
+        int i = 0;
+        while(*q && *q != ' ' && i < 23) tok[i++] = *q++;
+        tok[i] = 0;
+        if(i && key_press(tok)) printf("unknown key '%s'\r\n", tok);
+      }
+    } else if(!strcmp(c, "type")) {
+      const char *q = line; while(*q == ' ') q++; q += 4; if(*q == ' ') q++;
+      type_text(q);
+    } else if(!strcmp(c, "mouse")) {
+      if(argc < 3) { printf("usage: mouse <dx> <dy>\r\n"); return; }
+      mouse_move(atoi(argv[1]), atoi(argv[2]));
+    } else mouse_click(argc > 1 ? atoi(argv[1]) : 1);
+    printf("ok\r\n");
     return;
   }
   if(!strcmp(c, "xml")) {
