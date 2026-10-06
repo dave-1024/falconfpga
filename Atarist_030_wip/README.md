@@ -100,15 +100,18 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   it and the BL616 never has to be reflashed.
 - **Flash: boot-then-release.** The 030 is held in reset while the AE350 boots
   from the SPI flash and copies its image (0x600000) into DDR3. Its firmware
-  then sets GPIO[7:0] = 0xA5 ("done with flash"); once its CS# is idle the
-  flash pins switch **once, for good** to the ST and the 030 is released, so
-  TOS 2.06 loads as usual. A timeout fallback (letters `X`/`T`/`C`/`K` on U15,
+  then sets GPIO[7:0] = 0xA5 ("done with flash"); once its CS# is idle (or,
+  as on the real SoC, which leaves CS# asserted, once 0xA5 has been held for
+  1 ms: BOOT $05) the flash pins switch **once, for good** to the ST and the
+  030 is released, so TOS loads as usual. A timeout fallback (letters `X`/`T`/`C`/`K` on U15,
   or S1 held at power-up) boots the desktop without the helper. Unlike the
   988c846 runtime mux, the switch happens before the ST's flash controller
   leaves reset, and the ST's dual-I/O pads keep their own output enables.
-- **Companion link:** after the handoff the AE350's idle flash SPI controller
-  drives the core's `mcu_spi` port (the BL616's port), with GPIO[0] as SS#;
-  the core's IRQ# and a "link up" flag reach the AE350 as UART2 DCD#/DSR#.
+- **Companion link:** after the handoff the AE350 bit-bangs the core's
+  `mcu_spi` port (the BL616's port) on GPIO[0..2] (SS#, SCK, MOSI); MISO,
+  the core's IRQ# and a "link up" flag reach the AE350 as UART2 CTS#, DCD#
+  and DSR# (the SoC's flash SPI registers are not reachable from its CPU).
+  Tested on the board 6 Oct 2026: `core status: 5C 42 ... link OK`.
   The BL616 is kept off the link (its inputs ignored, MISO tristated, IRQ held
   high).
 - **Mailbox for the ST:** $FFFB00-$FFFB1F (unused on ST/STE/TT/Falcon),

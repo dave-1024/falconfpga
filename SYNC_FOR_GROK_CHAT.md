@@ -9,6 +9,33 @@ Grok Bot for changes directly, and Grok Bot edits, builds and logs everything he
 `BUILD_REPORT.md`. **Grok chat: please read this file first when you are back, before assuming any
 old state.** While this note is active, Grok Bot may edit HDL at David's request.
 
+## NEW 2026-10-06 18:25: ST_HELPER on hardware: handoff fixed, companion link OK (FLASHED 417)
+
+Commits `269bff8`, `194197d`, `3e0d6b8` + docs. Full notes: `Atarist_030_wip/docs/ST_HELPER.md` sections 1, 2, 5, 5a.
+
+- Root cause of David's 17:00 U15 output (`STH / DR / AE350 hel?C`): the SoC leaves its flash
+  CS# **asserted** after the boot copy (the CPU runs from DDR3 anyway). `st_helper_ctrl` waited
+  1 ms for CS# idle and fell back with **`C`**: AE350 back in reset mid-character, U15 back to
+  the fabric, which printed `C`. So the fallback letter was there; the 0xF8 byte before it is the
+  half-sent character. Evidence: the new RI# input reports `flash CS# before 0xA5: LOW` and
+  `after handoff: LOW`; `hel` = ~1 ms of 115200 after 0xA5.
+- First block (old serial-proof core, firmware v1): `probing SPI1 @F0B00000` then nothing. That
+  address is not decoded in this SoC and hangs the CPU (Andes Zephyr map; Gowin `ae350.h` says
+  SPI_BASE 0xF0F00000, which reads all zeros: the flash controller is not reachable).
+- Fixes: ctrl forces the switch if CS# is still low after 1 ms while 0xA5 is held (BOOT $05;
+  `C` now = 0xA5 withdrawn). Companion link bit-banged on GPIO0-2, MISO on UART2 CTS#, flash
+  CS# on RI#. Firmware v4: RX ring, `w`/`c` = reset / cold-boot the ST via sysctrl R.
+- Build 194197d (box): PASS, TNS 0 all rows. clk32_core 32.544 MHz, clk_cpu030 17.087 MHz,
+  ae350_ahb_clk 75.476 MHz.
+- Flashed (location 417; TOS at 0x500000 untouched): op53 ae4b41a (repro), op56 fw v2, op56 fw
+  v3, op53 `st_helper_v2_194197d.fs` (SHA256 c583dd51...8b12), op56 `helper_mailbox_v4.bin`
+  (40828 B, SHA256 8a84fb44...3ebd). Board now runs 194197d + v4.
+- Result: `core status: 5C 42 ... link OK`, cart shows BOOT $05 and the helper's reply on the ST,
+  PC typing over V14 works.
+- Open: (1) first cart line loses one byte at power-up (fine after `w`/`c`); (2) EmuTOS 1.4 (the
+  slot holds EmuTOS, not TOS 2.06) says `System halted!` after a warm reset, desktop after a cold
+  boot (`c`); cart vs warm boot not yet separated (needs a build without ST_HELPER_CART).
+
 ## NEW 2026-10-06 08:35: ST_HELPER build, AE350 helper next to the ST desktop (BUILD ONLY, not flashed)
 
 Commits `316dfde`, `93873fa`, `ae4b41a`, `af53a41`, `ad072c8` (docs: full port plan incl. 168ktest `usb_hid_host.v`; `MBXTERM.ST` floppy image) (+ this log). New build `Atarist_030_wip/build_st_helper.tcl`

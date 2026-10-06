@@ -22,15 +22,29 @@ One SPI NOR holds the core (0x000000), TOS (0x500000) and the helper image
 | power-up | AE350 (in reset) | reset | reset | `STH` |
 | DDR3 trained, +20 ms | AE350 | reset | running, boot loader copies `ready`-style image from 0x600000 into DDR3 | `D`, `R`, then the helper's own text |
 | firmware writes GPIO[7:0] = 0xA5 ("done with flash"), runs from DDR3 | AE350, CS# idle | reset | running | helper text |
-| CS# high for 8 us: **one-way switch** (`flash_to_st`, sticky) | ST | reset, its flash controller reinitialises | running, flash disconnected (MISO = 1) | |
-| +2 us | ST | **released, TOS 2.06 boots** | running, companion link up | |
+| CS# high for 8 us (or 0xA5 still held after 1 ms, see below): **one-way switch** (`flash_to_st`, sticky) | ST | reset, its flash controller reinitialises | running, flash disconnected (MISO = 1) | |
+| +2 us | ST | **released, TOS boots** (EmuTOS 1.4 on David's board) | running, companion link up | |
 
 `st_helper_ctrl.v` is the state machine (clk32). Fallback, so the desktop
 always boots: if DDR3 does not train in 4 s (`X`), the firmware does not
-signal 0xA5 within 2 s (`T`), its CS# is not idle within 1 ms (`C`), or S1 is
-held (`K`), the AE350 is put back into reset, the flash goes to the ST after
-1 ms and the 030 is released; the letter is printed on U15 and BOOT
+signal 0xA5 within 2 s (`T`), 0xA5 goes away again before the switch (`C`),
+or S1 is held (`K`), the AE350 is put back into reset, the flash goes to the
+ST after 1 ms and the 030 is released; the letter is printed on U15 and BOOT
 ($FFFB11) says why.
+
+**The SoC's flash CS# never goes idle (hardware, 6 Oct 2026).** The first
+cut waited for CS# high and fell back with `C` after 1 ms. On the board the
+SoC leaves its flash CS# **asserted (low)** after the boot loader's copy,
+even though the CPU then runs from DDR3, and the flash controller's
+registers cannot be reached to release it (see section 6). The fabric now
+reads that line into the firmware (UART2 RI#, `flash CS# ...: LOW
+(asserted)` on U15), and if CS# is still low after 1 ms **while GPIO still
+holds 0xA5** the switch is forced: the firmware has said in its own words
+that it is done with the flash, and the 030 has not started yet, so no ST
+transaction can be cut. BOOT then reads $05 instead of $00. The ST flash
+controller is reset after the switch and its 16-ones mode-exit sequence
+puts the flash back into a known state, so whatever command the AE350's
+controller had left open is abandoned. `C` now only means "0xA5 went away".
 
 **Why this is safe when the 988c846 runtime mux was not.** 988c846 muxed the
 flash between ST and AE350 at run time and left an always-driven assign on
@@ -62,26 +76,32 @@ the JTAG dual-purpose pins. In ST_HELPER:
 | FPGA-Companion signal | BL616 (desktop) | AE350 (ST_HELPER) |
 |---|---|---|
 | SS# | `spi_csn` (TMS) | AE350 **GPIO[0]**, held by firmware for a whole message |
-| SCK | `spi_sclk` (TCK) | AE350 flash SPI controller (SPI1) SCLK, after the handoff |
-| MOSI | `spi_dat` (TDI) | SPI1 MOSI |
-| MISO | `spi_dir` (TDO) | SPI1 MISO (`FLASH_SPI_MISO`) |
+| SCK | `spi_sclk` (TCK) | AE350 **GPIO[1]** (bit-banged) |
+| MOSI | `spi_dat` (TDI) | AE350 **GPIO[2]** |
+| MISO | `spi_dir` (TDO) | UART2 **CTS#** (MSR bit 4 reads the MISO level) |
 | IRQ# | `spi_irqn` (U15) | UART2 **DCD#** (MSR bit 7 reads 1 while an IRQ is pending) |
 | link up | (n/a) | UART2 **DSR#** (MSR bit 5 reads 1 once the link is wired) |
+| (diagnostic) | (n/a) | UART2 **RI#** (MSR bit 6 reads 1 while the SoC's flash CS# is low) |
 
 Why these: the SoC netlist has no free SPI controller and no AHB/APB slave
-port towards the fabric (only the Extended AHB master port). But after the
-handoff its flash SPI controller is idle and its pins are plain fabric nets,
-so it becomes the companion SPI master. Its own CS# toggles on every
-transfer, so SS# comes from GPIO[0] instead; that also means a stray XIP read
-of 0x80000000 can never reach the core. GPIO inputs are not readable from
-the fabric side in this netlist, but the UART2 modem-status inputs are, so
-IRQ# and "link up" use DCD# and DSR#.
+port towards the fabric (only the Extended AHB master port). The first cut
+reused the SoC's flash SPI controller after the handoff, at the Andes map
+address 0xF0B00000. On the board that address is not decoded in this SoC
+and a read hangs the CPU (the old serial-proof core printed `probing SPI1
+@F0B00000` and nothing more); the Gowin BSP's `SPI_BASE` 0xF0F00000 reads
+all zeros, so the controller is not reachable at all. The link is therefore
+**bit-banged** on GPIO[2:0], which the fabric sees, and MISO comes back on a
+UART2 modem-status input, the only fabric-to-CPU path the netlist offers
+(GPIO inputs are not readable from the fabric side). IRQ# and "link up" use
+DCD# and DSR# the same way. SS# on GPIO[0] means a stray XIP read of
+0x80000000 can never reach the core.
 
 `st_helper_mculink.v` re-registers SS#/SCK/MOSI on AHB_CLK (50 MHz) and only
-passes a level after two equal samples, so a LUT glitch on the SoC's SCLK net
-can never clock `mcu_spi`. The cost is about 80 ns of SCK delay, so the
-firmware runs SPI1 slowly for now (SCLK_DIV 15, 1.6 MHz if SPI1 is clocked
-at 50 MHz). The BL616 runs this link at 13.3 MHz; faster is a later step.
+passes a level after two equal samples, so a glitch can never clock
+`mcu_spi`. The firmware waits 8 MSR reads per half bit (a few hundred kHz
+SCK). That is plenty for status and settings; the BL616 runs this link at
+13.3 MHz, and floppy/HDD sector traffic over it (port plan) will want a
+faster path later.
 
 **The BL616 is kept off the link.** Its SS#/SCK/MOSI inputs (and a PMOD
 companion's) are ignored, its MISO pin `spi_dir` is tristated and its IRQ pin
@@ -112,7 +132,7 @@ Bytes on odd addresses (D7:0), like the MFP; a word read returns $FF in D15:8.
 | $FFFB0B | RXCOUNT | R | bytes waiting (saturates at 255) |
 | $FFFB0D | CTRL | W | b0 flush RX, b1 clear RXOVR/RXFERR, b2 flush TX |
 | $FFFB0F | HGPIO | R | AE350 GPIO[7:0] ($A5 after the handoff; bit 0 is the companion SS#) |
-| $FFFB11 | BOOT | R | $00 helper up, $01 DDR3 timeout, $02 no flash-done, $03 S1 skip, $04 CS# never idle |
+| $FFFB11 | BOOT | R | $00 helper up, $05 helper up with the switch forced (CS# stuck low, normal on this SoC), $01 DDR3 timeout, $02 no flash-done, $03 S1 skip, $04 0xA5 withdrawn |
 | $FFFB13-$FFFB1F | SCRATCH0-6 | R/W | scratch bytes for a bus test |
 
 **Why $FFFB00.** It is unused on ST, STE, Mega STE, TT and Falcon (hardware
@@ -199,27 +219,39 @@ HDL. The SD card route (item 3) needs no HDL change.
 
 U15, 115200 8N1:
 
+Recorded on the board, 6 Oct 2026 (core 194197d, firmware v4):
+
 ```
 STH
 DR
-AE350 helper mailbox v1 ready (flash released, running from DDR3)
-link: fabric says up, probing SPI1 @F0B00000
-SPI1 IDREV 0200xxxx
+AE350 helper mailbox v4 (running from DDR3)
+flash SPI @F0F00000: IDREV 00000000 (0 = registers not reachable; link is bit-banged)
+flash CS# before 0xA5: LOW (asserted)
+0xA5 sent, flash handed to the ST
+link: fabric says up (BOOT 0 or 5), MSR E0
+flash CS# after handoff: LOW (asserted)
 core status: 5C 42 id=00 cb=00 -> link OK
 core IRQ# asserted (pending, not acked by this test)
-commands: s = core status ..., i = core IRQ line, ? = this; ...
+commands: s = core status over the companion SPI link, i = core IRQ line, w = reset the ST, c = cold-boot the ST, ? = this; other lines are echoed in upper case
+> hello from the T
+helper: got 16 bytes: HELLO FROM THE T
 >
 ```
 
-Then the GEM desktop appears on HDMI, a fraction of a second later than with
-the desktop build. Fallback: a single `X`, `T`, `C` or `K` line instead of
-the helper text, and the desktop still boots.
+Fallback: the helper text stops and a `X`, `T`, `C` or `K` line follows; the
+desktop still boots. A cut-off line followed by a letter (`AE350 hel?C`) is
+the fallback resetting the AE350 mid-character: U15 goes back to the fabric,
+which prints the letter. That is what the first cut (ae4b41a) showed: `C`
+1 ms after 0xA5, because CS# never went idle.
+
+`w` and `c` reset the ST through sysctrl `R` (1 = reset, 3 = cold boot with
+RAM scramble, then 0), the same values the FPGA-Companion OSD actions use.
 
 ST screen (with `ST_HELPER_CART`), during the TOS boot, before the desktop:
 
 ```
 ST_HELPER mailbox self-test (cartridge $FA0000)
-BOOT $00  STATUS $25            (or $27 if helper bytes are waiting)
+BOOT $05  STATUS $27            ($00 if CS# went idle; $25 if no helper bytes are waiting)
 sent 'hello from the ST', helper says:
 hello from the ST
 helper: got 17 bytes: HELLO FROM THE ST
@@ -256,9 +288,34 @@ $FFFB09 repeatedly to get `A`, CR, LF and the reply.
   a few seconds whatever happens on the helper side (all loops have
   budgets), but a cartridge that hung would stop the boot: remove the define
   if the boot stops after its title line.
-- SPI1 base 0xF0B00000 is the Andes AE350 map for the flash controller; the
-  firmware checks the ATCSPI200 ID first and leaves the link alone if it does
-  not match (the desktop is unaffected either way).
+- The SoC's flash SPI controller is not reachable from the CPU in this SoC
+  (0xF0B00000 hangs the bus, 0xF0F00000 reads zeros), so the firmware must not
+  touch either address; v4 reads only the zero ID at 0xF0F00000 as a report.
+- Forced switch (BOOT $05): the AE350's flash controller may still think a
+  command is open. It can no longer reach the pads (MISO reads 1, CS#/SCK go
+  to the ST), and the firmware runs from DDR3, so this only matters if a
+  future firmware reads flash after 0xA5. Do not.
+
+## 5a. Hardware results, 6 Oct 2026
+
+- Core 194197d + firmware v4: handoff forced (BOOT $05), link OK (`5C 42`),
+  cartridge exchange shown on the ST screen and on U15, `s`/`w`/`c` typed on
+  the PC over V14 work.
+- One byte of the cartridge's first line is lost at power-up on both v3 and
+  v4 (`hello from the T`, `hello from theST`); after a `w` or `c` reset all
+  17 bytes arrive. The mailbox simulation loses nothing. Not solved yet;
+  likely the helper's RX at the moment the 030 starts (RXOVR or framing
+  state from the handoff), not the ST side.
+- The TOS slot at 0x500000 holds **EmuTOS 1.4** on this board, not TOS 2.06.
+- After a `w` (warm reset, R=1) EmuTOS printed the cartridge exchange and then
+  `System halted!`. After a `c` (cold boot, R=3) in the same session it
+  reached the GEM desktop. Two flash-triggered boots also halted, and David's
+  first boot reached the desktop. A reconfiguration leaves SDRAM contents in
+  place (ram_scramble restarts at 0), so EmuTOS sees valid warm-boot RAM, and
+  the BL616 companion's start-up only holds R=1 and never cold-boots, so a
+  plain desktop build sees the same RAM state. Whether the halt comes from the
+  cartridge or from a warm boot in general has not been separated yet; a
+  build without `ST_HELPER_CART`, warm-reset with `w`, will tell.
 
 ## 7. Port plan: the whole BL616 helper on the AE350
 
@@ -337,6 +394,8 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
 
 ## Credits
 
+- Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
+  peripheral map used by the firmware (UART2 0xF0300000, GPIO 0xF0700000).
 - Boot handoff and AE350 wiring follow the working AE350 bring-up in
   `Hybrid030` / 168ktest (DDR3 reset timing, flash ball map, boot loader).
 - MiSTeryNano and FPGA-Companion: Till Harbaum and the MiSTle-Dev
