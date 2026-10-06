@@ -1,19 +1,20 @@
-/* AE350 helper, mailbox v2 (build option ST_HELPER, build_st_helper.tcl).
+/* AE350 helper, mailbox v3 (build option ST_HELPER, build_st_helper.tcl).
  * Flash output/helper_mailbox.bin at 0x0600000 (leading 0, not 0x6000000).
  *
- * 1. "Done with flash": GPIO[7:0] = 0xA5 (after flash_release()). This image runs from DDR3 (the
+ * 1. "Done with flash": GPIO[7:0] = 0xA5. This image runs from DDR3 (the
  *    BUILD_BURN loader in loader.c copied it there), so from here on the
- *    flash is never touched. The fabric (st_helper_ctrl.v) then waits for
- *    our flash CS# to be idle, gives the flash pins to the ST for good and
- *    releases the 68030 (TOS boots).
- * 2. Companion link: once UART2 MSR.DSR = 1 (fabric: link up) our idle flash
- *    SPI controller (SPI1, ATCSPI200) is wired to the core's mcu_spi, the
- *    port the BL616 / FPGA-Companion normally drives (st_helper_mculink.v):
- *      SS#  = GPIO[0] (frame select, mcu_hw_spi_begin/end)
- *      SCK/MOSI/MISO = SPI1, MODE1, one byte per transfer
+ *    flash is never touched. The fabric (st_helper_ctrl.v) then gives the
+ *    flash pins to the ST for good (after CS# is idle 8 us, or after 1 ms
+ *    with CS# still low: the SoC's flash controller can leave it asserted)
+ *    and releases the 68030 (TOS boots).
+ * 2. Companion link: once UART2 MSR.DSR = 1 (fabric: link up) the firmware
+ *    is the SPI master of the core's mcu_spi, the port the BL616 /
+ *    FPGA-Companion normally drives (st_helper_mculink.v), bit-banged:
+ *      SS# = GPIO[0], SCK = GPIO[1], MOSI = GPIO[2], MISO = MSR.CTS
  *      IRQ# = UART2 MSR.DCD (1 = core interrupt pending)
  *    The link test sends the FPGA-Companion sys_status_is_valid() frame
- *    (sysctrl.c) and expects 5C 42.
+ *    (sysctrl.c) and expects 5C 42. MSR.RI = the SoC's flash CS# is low
+ *    (diagnostic for the handoff).
  * 3. Mailbox: UART2 RX carries bytes the ST wrote to $FFFB07 and what David
  *    types in the PC terminal (BL616 USB serial TX, V14); UART2 TX goes to
  *    U15 (USB serial) and into the ST's RX FIFO ($FFFB09). Every byte is
@@ -48,17 +49,6 @@
 #define SPI1_BASE   0xF0F00000u
 #endif
 #define SPI_IDREV   (SPI1_BASE + 0x00u)
-#define SPI_FMT     (SPI1_BASE + 0x10u)
-#define SPI_TCTRL   (SPI1_BASE + 0x20u)
-#define SPI_CMD     (SPI1_BASE + 0x24u)
-#define SPI_DATA    (SPI1_BASE + 0x2Cu)
-#define SPI_CTRL    (SPI1_BASE + 0x30u)
-#define SPI_STATUS  (SPI1_BASE + 0x34u)
-#define SPI_INTREN  (SPI1_BASE + 0x38u)
-#define SPI_TIMING  (SPI1_BASE + 0x40u)
-#ifndef SPI_SCLK_DIV
-#define SPI_SCLK_DIV 15u                  /* spi_clk / 32, see st_helper_mculink.v */
-#endif
 
 #define HS_CODE     0xA5u
 #define UCLK_HZ     50000000u
@@ -116,29 +106,35 @@ static int getc_nb(void)
     return -1;
 }
 
-/* ---------------- companion SPI (mcu_hw_spi_* equivalents) ---------------- */
+/* ---------------- companion SPI (mcu_hw_spi_* equivalents) ----------------
+ * Bit-banged (hardware 6 Oct 2026: the flash SPI controller's registers are
+ * not reachable in this SoC). GPIO[0] = SS#, GPIO[1] = SCK, GPIO[2] = MOSI,
+ * MISO = UART2 MSR bit 4 (CTS). MODE1 like the BL616: MOSI changes with the
+ * rising edge, mcu_spi samples it on the falling edge and drives MISO after
+ * the rising edge, so MISO is read just before the falling edge. Each half
+ * period is a few blocking APB reads (well above the fabric's ~80 ns
+ * retiming in st_helper_mculink.v), a few hundred kHz overall. */
+#define GP_SS    0x01u
+#define GP_SCK   0x02u
+#define GP_MOSI  0x04u
+#define MSR_CTS  0x10u
 static void gpio_set(unsigned v) { gpio_shadow = v; wr(GPIO_DOUT, v); }
-
-static void spi_init(void)
-{
-    while (rd(SPI_STATUS) & 1u) ;                    /* idle */
-    wr(SPI_INTREN, 0u);
-    wr(SPI_FMT, (7u << 8) | 1u);                     /* 8 bit, MSB first, CPHA=1 CPOL=0 (MODE1) */
-    wr(SPI_CTRL, rd(SPI_CTRL) | 0x6u);               /* reset RX and TX FIFO */
-    while (rd(SPI_CTRL) & 0x6u) ;
-    wr(SPI_TIMING, (rd(SPI_TIMING) & ~0xFFu) | SPI_SCLK_DIV);
-}
-static void mcu_spi_begin(void) { gpio_set(gpio_shadow & ~1u); }   /* SS# low */
-static void mcu_spi_end(void)   { gpio_set(gpio_shadow |  1u); }   /* SS# high */
+static void bb_wait(void) { int i; for (i = 0; i < 8; i++) (void)rd(UART_MSR); }
+static void mcu_spi_begin(void) { gpio_set(gpio_shadow & ~(GP_SS | GP_SCK)); bb_wait(); }
+static void mcu_spi_end(void)   { bb_wait(); gpio_set((gpio_shadow & ~GP_SCK) | GP_SS); bb_wait(); }
 static unsigned char mcu_spi_tx_u08(unsigned char b)
 {
-    wr(SPI_TCTRL, 0u);              /* no cmd/addr, write&read, 1 byte each way */
-    wr(SPI_CMD, 0u);                /* start */
-    while (rd(SPI_STATUS) & (1u << 23)) ;            /* TX FIFO full */
-    wr(SPI_DATA, b);
-    while (rd(SPI_STATUS) & 1u) ;                    /* transfer done */
-    while (rd(SPI_STATUS) & (1u << 14)) ;            /* RX FIFO empty */
-    return (unsigned char)rd(SPI_DATA);
+    unsigned r = 0, v;
+    int i;
+    for (i = 7; i >= 0; i--) {
+        v = (gpio_shadow & ~(GP_SCK | GP_MOSI)) | (((b >> i) & 1u) ? GP_MOSI : 0u);
+        gpio_set(v | GP_SCK);                        /* rising edge, MOSI valid */
+        bb_wait();
+        r = (r << 1) | ((rd(UART_MSR) & MSR_CTS) ? 1u : 0u);
+        gpio_set(v);                                 /* falling edge: core samples MOSI */
+        bb_wait();
+    }
+    return (unsigned char)r;
 }
 
 /* FPGA-Companion sysctrl.c sys_status_is_valid(), byte for byte */
@@ -162,18 +158,6 @@ static int core_status(int verbose)
     return b0 == 0x5C && b1 == 0x42;
 }
 
-/* End any memory-mapped flash access so the controller lets CS# go high:
- * one register-mode, command-only transfer (WRDI 0x04, harmless). On
- * hardware v1 the fabric saw CS# stay low after the boot loader's copy
- * although the CPU ran from DDR3, and fell back ('C'). */
-static void flash_release(void)
-{
-    unsigned t;
-    for (t = 0; t < 1000000u && (rd(SPI_STATUS) & 1u); t++) ;
-    wr(SPI_TCTRL, (1u << 30) | (7u << 24));          /* CmdEn, TransMode 7 = no data */
-    wr(SPI_CMD, 0x04u);                              /* WRDI, starts the transfer */
-    for (t = 0; t < 1000000u && (rd(SPI_STATUS) & 1u); t++) ;
-}
 static void cs_report(const char *when)
 {
     puts_("flash CS# "); puts_(when); puts_(": ");
@@ -189,22 +173,17 @@ static void irq_report(void)
 
 static void link_bringup(void)
 {
-    unsigned t, id;
+    unsigned t;
     for (t = 0; t < 2000u && !(rd(UART_MSR) & MSR_DSR); t++)
         delay(10000u);
     if (!(rd(UART_MSR) & MSR_DSR)) {
         puts_("link: DSR never set by the fabric, companion link not used\r\n");
         return;
     }
-    puts_("link: fabric says up (MSR "); puthex(rd(UART_MSR), 2); puts_(")\r\n");
-    id = rd(SPI_IDREV);
-    puts_("SPI IDREV "); puthex(id, 8);
-    if ((id >> 16) != 0x0200u) {
-        puts_(" (not an ATCSPI200, link not used)\r\n");
-        return;
-    }
-    puts_("\r\n");
-    spi_init();
+    puts_("link: fabric says up (BOOT 0 or 5), MSR "); puthex(rd(UART_MSR), 2); puts_("\r\n");
+    cs_report("after handoff");
+    gpio_set(GP_SS);                                 /* SS# high, SCK low, MOSI low */
+    bb_wait();
     spi_usable = 1;
     link_ok = core_status(1);
     irq_report();
@@ -226,14 +205,11 @@ int main(void)
     uart_init();
     gpio_set(0x01u);                                 /* SS# (GPIO[0]) idle high */
     wr(GPIO_DIR, rd(GPIO_DIR) | 0xFFu);
-    puts_("\r\nAE350 helper mailbox v2 (running from DDR3)\r\n");
+    puts_("\r\nAE350 helper mailbox v3 (running from DDR3)\r\n");
     puts_("flash SPI @"); puthex(SPI1_BASE, 8); puts_(": IDREV ");
     puthex(rd(SPI_IDREV), 8);
-    puts_(" MEMCTRL "); puthex(rd(SPI1_BASE + 0x50u), 8);
-    puts_(" STATUS "); puthex(rd(SPI_STATUS), 8); puts_("\r\n");
-    cs_report("after boot copy");
-    flash_release();
-    cs_report("after release");
+    puts_(" (0 = registers not reachable; link is bit-banged)\r\n");
+    cs_report("before 0xA5");
     gpio_set(HS_CODE);                               /* 0xA5: done with flash */
     puts_("0xA5 sent, flash handed to the ST\r\n");
     link_bringup();

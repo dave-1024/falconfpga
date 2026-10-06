@@ -631,7 +631,10 @@ RiscV_AE350_SOC_Top u_RiscV_AE350_SOC_Top (
     // UART2 RX = ST mailbox TX AND the BL616 USB-serial TX (V14, idle high,
     // "uart_rx" in the CST), so David can also type to the helper from the
     // PC terminal. Two senders at once garble each other (debug use only).
-    .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(sth_ae_rxd & bl616_jtagsel), .UART2_CTSN(1'b0),
+    .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(sth_ae_rxd & bl616_jtagsel),
+    // companion MISO -> CTS (MSR b4 = MISO) once the link is up; MCR AFE is
+    // off, so CTS never throttles TX
+    .UART2_CTSN(sth_helper_up ? ~spi_io_dout : 1'b0),
 `else
     .UART2_TXD(ae350_uart_tx), .UART2_RTSN(), .UART2_RXD(1'b1), .UART2_CTSN(1'b0),
 `endif
@@ -692,8 +695,8 @@ st_helper_mculink u_sth_mculink (
     .clk_ae    ( AHB_CLK          ),
     .link_en_a ( sth_helper_up    ),
     .ae_ss_n_a ( ae350_gpio[0]    ),
-    .ae_sck_a  ( ae350_flash_clk  ),
-    .ae_mosi_a ( ae350_flash_mosi ),
+    .ae_sck_a  ( ae350_gpio[1]    ),   // bit-banged (see st_helper_mculink.v)
+    .ae_mosi_a ( ae350_gpio[2]    ),
     .ss_n      ( spi_io_ss        ),
     .sck       ( spi_io_clk       ),
     .mosi      ( spi_io_din       )

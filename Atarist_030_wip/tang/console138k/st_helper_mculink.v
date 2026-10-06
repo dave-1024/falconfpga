@@ -8,6 +8,13 @@
 // role so the BL616 never has to be reflashed; the BL616's pins are ignored
 // (top.sv).
 //
+// HARDWARE UPDATE (6 Oct 2026): in this Gowin SoC the flash controller's
+// registers are not reachable (0xF0B00000 hangs the bus, 0xF0F00000 reads
+// all zero), so it cannot run register-mode transfers. The link is now
+// bit-banged by the firmware: SS# = GPIO[0], SCK = GPIO[1], MOSI = GPIO[2]
+// (top.sv), MISO = mcu_spi dout -> UART2_CTSN (MSR bit 4 CTS = MISO). The
+// retiming below is unchanged. The original plan, kept for reference:
+//
 // The AE350 SoC netlist has no free SPI controller ports, but after the
 // boot-time flash handoff (st_helper_ctrl.v) its flash SPI controller (SPI1,
 // ATCSPI200) is idle and its CLK/MOSI/MISO are plain fabric nets. So the
@@ -40,8 +47,8 @@ module st_helper_mculink (
     input  wire clk_ae,       // AE350 AHB_CLK
     input  wire link_en_a,    // st_helper_ctrl helper_up (clk32, sticky)
     input  wire ae_ss_n_a,    // AE350 GPIO[0]
-    input  wire ae_sck_a,     // AE350 FLASH_SPI_CLK
-    input  wire ae_mosi_a,    // AE350 FLASH_SPI_MOSI
+    input  wire ae_sck_a,     // AE350 GPIO[1] (bit-banged SCK)
+    input  wire ae_mosi_a,    // AE350 GPIO[2] (bit-banged MOSI)
     output reg  ss_n,         // to mcu_spi spi_io_ss
     output reg  sck,          // to mcu_spi spi_io_clk
     output reg  mosi          // to mcu_spi spi_io_din
