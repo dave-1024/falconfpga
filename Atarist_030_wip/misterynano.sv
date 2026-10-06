@@ -53,6 +53,11 @@ module misterynano #(
   output [15:0]	ext_io_wdata,
   input  [15:0]	ext_io_rdata,
   input			ext_io_dtack,
+`ifdef ST_HELPER_USB
+  // Console USB-A host ports (st_helper_usb.v, read by the AE350 companion)
+  inout			usb1_dp, usb1_dn,
+  inout			usb2_dp, usb2_dn,
+`endif
 `else
   inout			mspi_di,
   inout			mspi_hold,
@@ -438,6 +443,28 @@ wire [7:0] int_ack;
 wire hid_int;
 wire hid_iack = int_ack[1];
 
+`ifdef ST_HELPER_USB
+// FalconFPGA ST_HELPER_USB: USB keyboard/mouse reports for the AE350
+// companion on HID command 0x40 (st_helper_usb.v); every other HID command
+// is answered by hid.v as before.
+wire [7:0] hid_data_out_hid;
+wire [7:0] usb_data_out;
+wire       usb_active;
+assign hid_data_out = usb_active ? usb_data_out : hid_data_out_hid;
+
+st_helper_usb st_helper_usb (
+        .clk32(clk32),
+        .reset(por),
+        .usb1_dp(usb1_dp), .usb1_dn(usb1_dn),
+        .usb2_dp(usb2_dp), .usb2_dn(usb2_dn),
+        .data_in_strobe(mcu_hid_strobe),
+        .data_in_start(mcu_start),
+        .data_in(mcu_data_out),
+        .active(usb_active),
+        .data_out(usb_data_out)
+        );
+`endif
+
 hid hid (
         .clk(clk32),
         .reset(por),
@@ -446,7 +473,11 @@ hid hid (
         .data_in_strobe(mcu_hid_strobe),
         .data_in_start(mcu_start),
         .data_in(mcu_data_out),
+`ifdef ST_HELPER_USB
+        .data_out(hid_data_out_hid),
+`else
         .data_out(hid_data_out),
+`endif
 
         // input local db9 joystick port events to be sent to MCU. Changes also trigger
         // an interrupt, so the MCU doesn't have to poll for joystick events

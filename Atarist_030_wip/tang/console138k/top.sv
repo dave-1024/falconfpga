@@ -149,6 +149,14 @@ module top(
   output		tmds_clk_p,
   output [2:0]	tmds_d_n,
   output [2:0]	tmds_d_p
+`ifdef ST_HELPER_USB
+  ,
+  // USB-A host ports (pins from the NESTang Console port, as in Hybrid030)
+  inout			usb1_dp, // H13
+  inout			usb1_dn, // G13
+  inout			usb2_dp, // M15
+  inout			usb2_dn  // M16
+`endif
 );
 
 // route BL616 debug uart via the twi signals through the FPGA to
@@ -759,6 +767,10 @@ misterynano misterynano (
   .ext_io_wdata ( ext_io_wdata ),
   .ext_io_rdata ( ext_io_rdata ),
   .ext_io_dtack ( ext_io_dtack ),
+`ifdef ST_HELPER_USB
+  .usb1_dp ( usb1_dp ), .usb1_dn ( usb1_dn ),
+  .usb2_dp ( usb2_dp ), .usb2_dn ( usb2_dn ),
+`endif
 `elsif AE350_SERIAL
   // Flash pins belong to the AE350; keep the ST flash controller off them.
   .mspi_cs   ( nano_mspi_cs   ),

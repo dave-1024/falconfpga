@@ -18,6 +18,9 @@ puts $fh "`define ST_HELPER"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
 # next line to build without it.
 puts $fh "`define ST_HELPER_CART"
+# USB keyboard/mouse on the Console USB-A ports for the AE350 companion
+# (st_helper_usb.v, port step 4). Delete the next line to build without it.
+puts $fh "`define ST_HELPER_USB"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -138,6 +141,9 @@ add_file tang/console138k/st_helper_mailbox.v
 add_file tang/console138k/st_helper_mculink.v
 add_file tang/console138k/st_helper_cart_rom.v
 add_file tang/console138k/st_helper_cart.hex
+add_file tang/console138k/st_helper_usb.v
+add_file tang/console138k/usb_hid_host.v
+add_file tang/console138k/usb_hid_host_rom.hex
 add_file tang/console138k/atarist_st_helper.cst
 add_file tang/console138k/atarist_st_helper.sdc
 add_file fx68k/microrom.mem
