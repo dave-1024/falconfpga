@@ -1,0 +1,256 @@
+/*
+  console.c - COM4 command line of the AE350 FPGA-Companion port.
+
+  There is no OSD yet (port step 5), so the companion's file selector and
+  system menu are reachable as text commands on UART2 (U15/V14 -> BL616
+  USB serial, COM4 on David's laptop). Every command ends with Enter.
+  The same UART is the ST's $FFFB00 mailbox, so lines that are not commands
+  are answered "helper: got N bytes: ..." like mailbox v4 (the self-test
+  cartridge relies on that).
+
+  Uses the unmodified FPGA-Companion sdc.c / sysctrl.c / inifile.c /
+  config.c (Till Harbaum and the MiSTle-Dev contributors, Apache-2.0).
+*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <ff.h>
+
+#include "../mcu_hw.h"
+#include "../sysctrl.h"
+#include "../sdc.h"
+#include "../config.h"
+#include "../inifile.h"
+#include "ae350_hw.h"
+
+static const char *drive_name[4] = { "A:", "B:", "ACSI 0", "ACSI 1" };
+
+static void help(void) {
+  printf("commands (end each with Enter):\r\n"
+         "  s            core status over the companion link (SYS target)\r\n"
+         "  i            core IRQ line and pending sources\r\n"
+         "  w / c        reset / cold-boot the ST (sysctrl R=1 / R=3, then 0)\r\n"
+         "  sd [init]    SD card and drive status [re-initialise the card]\r\n"
+         "  ls [dir]     list an SD directory (default /sd)\r\n"
+         "  mount <d> <file>  insert an image: d = a, b (floppy .st), h0, h1 (ACSI .hd/.img)\r\n"
+         "  eject <d>    remove the image from drive d\r\n"
+         "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
+         "  cfg          dump the core's XML config\r\n"
+         "  spd [n]      bit-bang delay per half SCK period (default 8)\r\n"
+         "  ?            this help; other lines are echoed in upper case\r\n");
+}
+
+static int sd_ready(void) {
+  if(sdc_get_cwd(0)) return 1;
+  printf("SD card not mounted (see 'sd'; 'sd init' retries)\r\n");
+  return 0;
+}
+
+static int parse_drive(const char *s) {
+  if(!s) return -1;
+  if(!strcasecmp(s, "a") || !strcasecmp(s, "a:") || !strcmp(s, "0")) return 0;
+  if(!strcasecmp(s, "b") || !strcasecmp(s, "b:") || !strcmp(s, "1")) return 1;
+  if(!strcasecmp(s, "h0") || !strcasecmp(s, "hd0") || !strcmp(s, "2")) return 2;
+  if(!strcasecmp(s, "h1") || !strcasecmp(s, "hd1") || !strcmp(s, "3")) return 3;
+  return -1;
+}
+
+static void core_status(void) {
+  unsigned char b0, b1, id, cb;
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SYS);
+  mcu_hw_spi_tx_u08(SPI_SYS_STATUS);
+  mcu_hw_spi_tx_u08(0);
+  b0 = mcu_hw_spi_tx_u08(0);
+  b1 = mcu_hw_spi_tx_u08(0);
+  id = mcu_hw_spi_tx_u08(0);
+  cb = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  printf("core status: %02X %02X id=%02X cb=%02X -> %s\r\n", b0, b1, id, cb,
+         (b0 == 0x5C && b1 == 0x42) ? "link OK" : "no 5C 42, link FAIL");
+}
+
+static void irq_report(void) {
+  unsigned msr = ae350_msr();
+  unsigned char pend = sys_irq_ctrl(0);         /* ack nothing, read pending */
+  printf("core IRQ# %s, pending sources %02X (bit0 sys, bit1 hid, bit3 sdc)\r\n",
+         (msr & 0x80) ? "asserted" : "idle", pend);
+}
+
+static void st_reset(int cold) {
+  printf(cold ? "ST cold boot via sysctrl R=3\r\n" : "ST reset via sysctrl R=1\r\n");
+  sys_set_val('R', cold ? 3 : 1);
+  vTaskDelay(pdMS_TO_TICKS(100));
+  sys_set_val('R', 0);
+}
+
+static void sd_status(void) {
+  unsigned char st;
+  static const char *type[] = { "UNKNOWN", "SDv1", "SDv2", "SDHCv2" };
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(SPI_SDC_STATUS);
+  st = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  printf("SD (core sd_card.v): status %02X, card state %d (%s), type %s\r\n", st, st >> 4,
+         ((st & 0xF0) == 0x80) ? "ready" : "not ready: no card, card not routed to the FPGA, or init failed",
+         type[(st >> 2) & 3]);
+  printf("FAT: %s\r\n", sdc_get_cwd(0) ? "mounted as /sd" : "not mounted");
+  for(int d = 0; d < 4; d++) {
+    char *n = sdc_get_image_name(d);
+    printf("  drive %d %-7s %s%s%s\r\n", d, drive_name[d], n ? sdc_get_cwd(d) : "", n ? "/" : "", n ? n : "(empty)");
+  }
+}
+
+static void sd_ls(const char *path) {
+  DIR dir; FILINFO fno; int n = 0;
+  if(!sd_ready()) return;
+  if(!path) path = sdc_get_cwd(0);
+  sdc_lock();
+  FRESULT r = f_opendir(&dir, path);
+  if(r != FR_OK) { sdc_unlock(); printf("ls %s: error %d\r\n", path, r); return; }
+  printf("directory %s:\r\n", path);
+  for(;;) {
+    if(f_readdir(&dir, &fno) != FR_OK || !fno.fname[0]) break;
+    const char *dot = strrchr(fno.fname, '.');
+    const char *tag = "";
+    if(dot && !strcasecmp(dot, ".st")) tag = "  [floppy: mount a/b]";
+    else if(dot && (!strcasecmp(dot, ".hd") || !strcasecmp(dot, ".img"))) tag = "  [hard disk: mount h0/h1]";
+    else if(dot && !strcasecmp(dot, ".msa")) tag = "  [MSA: convert to .ST first]";
+    if(fno.fattrib & AM_DIR) printf("  %-40s  <DIR>\r\n", fno.fname);
+    else printf("  %-40s %10lu%s\r\n", fno.fname, (unsigned long)fno.fsize, tag);
+    n++;
+  }
+  f_closedir(&dir);
+  sdc_unlock();
+  printf("%d entries\r\n", n);
+}
+
+static void sd_mount(int drive, const char *file) {
+  if(!sd_ready()) return;
+  const char *dot = strrchr(file, '.');
+  if(dot && !strcasecmp(dot, ".msa")) {
+    printf("MSA images are compressed; the core reads raw sectors (.ST) like MiSTeryNano.\r\n"
+           "Convert it on the PC first (e.g. Hatari: hmsa file.msa -> file.st).\r\n");
+    return;
+  }
+  /* full path below /sd, or relative to the drive's current directory */
+  char full[300];
+  if(file[0] == '/') snprintf(full, sizeof(full), "%s", file);
+  else snprintf(full, sizeof(full), "%s/%s", sdc_get_cwd(drive), file);
+  if(strncasecmp(full, CARD_MOUNTPOINT "/", strlen(CARD_MOUNTPOINT) + 1)) {
+    printf("path must be below %s\r\n", CARD_MOUNTPOINT);
+    return;
+  }
+  sdc_set_default(drive, full);                 /* splits into cwd + name */
+  char *n = sdc_get_image_name(drive);
+  if(!n) { printf("bad file name\r\n"); return; }
+  char name[strlen(n) + 1];
+  strcpy(name, n);                              /* sdc_image_open frees its copy */
+  if(sdc_image_open(drive, name) == 0)
+    printf("drive %d (%s): %s mounted\r\n", drive, drive_name[drive], full);
+  else
+    printf("drive %d (%s): mounting %s FAILED (file missing?)\r\n", drive, drive_name[drive], full);
+}
+
+static void sd_eject(int drive) {
+  if(!sd_ready()) return;
+  sdc_image_open(drive, NULL);
+  printf("drive %d (%s): ejected\r\n", drive, drive_name[drive]);
+}
+
+static void run_line(const char *line) {
+  char *argv[4]; int argc = 0;
+  char buf[160];
+  snprintf(buf, sizeof(buf), "%s", line);       /* split a copy, echo the raw line */
+  char *p = buf;
+  while(argc < 4) {
+    while(*p == ' ' || *p == '\t') p++;
+    if(!*p) break;
+    argv[argc++] = p;
+    /* the last argument of mount keeps its spaces (long file names) */
+    if(argc == 3 && !strcasecmp(argv[0], "mount")) break;
+    while(*p && *p != ' ' && *p != '\t') p++;
+    if(*p) *p++ = 0;
+  }
+  if(!argc) return;
+  const char *c = argv[0];
+  int link = ae350_link_up();
+
+  if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
+  if(!strcmp(c, "spd")) {
+    if(argc > 1) ae350_spi_set_div((unsigned)atoi(argv[1]));
+    printf("bit-bang delay %u MSR reads per half period\r\n", ae350_spi_div());
+    return;
+  }
+  if(!link && (!strcmp(c, "s") || !strcmp(c, "i") || !strcmp(c, "w") || !strcmp(c, "c") ||
+               !strcmp(c, "sd") || !strcmp(c, "ls") || !strcmp(c, "mount") ||
+               !strcmp(c, "eject") || !strcmp(c, "save"))) {
+    printf("companion link not up (see boot messages)\r\n");
+    return;
+  }
+  if(!strcmp(c, "s")) { core_status(); return; }
+  if(!strcmp(c, "i")) { irq_report(); return; }
+  if(!strcmp(c, "w") || !strcmp(c, "c")) { st_reset(c[0] == 'c'); return; }
+  if(!strcmp(c, "sd")) {
+    if(argc > 1 && !strcmp(argv[1], "init")) sdc_init();
+    sd_status();
+    return;
+  }
+  if(!strcmp(c, "ls")) { sd_ls(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "mount")) {
+    int d = parse_drive(argc > 1 ? argv[1] : NULL);
+    if(d < 0 || argc < 3) { printf("usage: mount a|b|h0|h1 <file>\r\n"); return; }
+    sd_mount(d, argv[2]);
+    return;
+  }
+  if(!strcmp(c, "eject")) {
+    int d = parse_drive(argc > 1 ? argv[1] : NULL);
+    if(d < 0) { printf("usage: eject a|b|h0|h1\r\n"); return; }
+    sd_eject(d);
+    return;
+  }
+  if(!strcmp(c, "save")) {
+    if(!sd_ready()) return;
+    inifile_write("atarist.ini");
+    printf("settings written to %s/atarist.ini\r\n", CARD_MOUNTPOINT);
+    return;
+  }
+  if(!strcmp(c, "cfg")) {
+    if(cfg) config_dump(); else printf("no core config loaded\r\n");
+    return;
+  }
+
+  /* not a command: mailbox echo (v4 behaviour, used by the cartridge) */
+  printf("helper: got %u bytes: ", (unsigned)strlen(line));
+  for(const char *q = line; *q; q++) ae350_putc((*q >= 'a' && *q <= 'z') ? *q - 32 : *q);
+  printf("\r\n");
+}
+
+static char line[160];
+static unsigned n;
+
+void console_init(void) {
+  help();
+  ae350_puts("> ");
+}
+
+void console_poll(void) {
+  int c;
+  while((c = ae350_getc_nb()) >= 0) {
+    if(c == '\r' || c == '\n') {
+      if(c == '\n' && n == 0) continue;           /* CR LF */
+      line[n] = 0;
+      ae350_puts("\r\n");
+      if(n) run_line(line);
+      n = 0;
+      ae350_puts("> ");
+    } else if(c == 8 || c == 127) {
+      if(n) { n--; ae350_puts("\b \b"); }
+    } else if(c >= 32) {
+      ae350_putc((char)c);
+      if(n < sizeof(line) - 1) line[n++] = (char)c;
+    }
+  }
+}
