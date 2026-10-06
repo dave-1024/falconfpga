@@ -32,7 +32,7 @@ module misterynano #(
   output [15:0] diag_rom_data,// ROM data from flash
   output [3:0]  diag_030,     // 030 bridge {berr, dsack, req, run}
   output [167:0] diag_trace,  // diag030c: bridge first-BERR / bus-cycle watch
-  output [17:0] diag_vbase,   // diag030b: {wr_hi, wr_mid, $FF8201, $FF8203}
+  output [23:0] diag_vbase,   // diag030w: {boot-path flags, cmdload word}
   output		ws2812,
   output		jtagsel,
 

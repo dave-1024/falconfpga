@@ -117,7 +117,7 @@ module atarist (
 	output wire        dbg_cpu_halted_n,  // CPU not halted (double bus fault)
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
-	output wire [17:0] dbg_vbase          // {wr_hi, wr_mid, $FF8201, $FF8203} written bytes
+	output wire [23:0] dbg_vbase          // diag030w: {boot-path flags[7:0], last word read from cmdload $482}
 `ifdef ST_HELPER
 	,
 	// FalconFPGA ST_HELPER (build_st_helper.tcl only): one extra I/O device,
@@ -357,21 +357,45 @@ wire [15:0] ext_io_din     = 16'hffff;   // desktop: constant, removed by synthe
 wire        ext_io_dtack_n = 1'b1;
 `endif
 
-// FalconFPGA DIAG diag030b: video base bytes as written on the ST bus
-// ($FF8201 high, $FF8203 mid: byte writes to odd addresses, LDS, CPU D7:0).
-// Observation only, cleared by the ST reset.
-reg [7:0] dbg_vb_hi = 8'd0, dbg_vb_mid = 8'd0;
-reg       dbg_vb_whi = 1'b0, dbg_vb_wmid = 1'b0;
+// FalconFPGA DIAG diag030w: EmuTOS 1.4 boot-path probe (warm-boot "System halted!").
+// Sticky flags, set when the CPU runs a PROGRAM-space ST bus cycle at a fixed
+// address in the tail of biosmain() (bios.c), for both the 256K image (E0xxxx)
+// and the 192K image (FCxxxx). Addresses are >= 12 bytes past any branch so
+// a prefetch past a taken branch cannot set them. Plus the last word read from
+// cmdload ($482). Observation only, cleared by the ST reset.
+//   [23] CMD   cmdload path, Pexec(COMMAND.PRG)   256K E016A6 / 192K FC0E7C
+//   [22] EXEC  exec_os path, Pexec(PE_BASEPAGE)   E016C4 / FC0E9A
+//   [21] P1RET first Pexec returned              E016E2 / FC0EB8
+//   [20] AES   exec_os entry (gm_init) fetched   E1EAA8 / FD79A8
+//   [19] HALT  biosmain "System halted!" call    E01714 / FC0EE4
+//   [18] FCROM program fetch from FC0000-FEFFFF seen
+//   [17] E0ROM program fetch from E00000-E3FFFF seen
+//   [16] CMDRD $482 read seen
+//   [15:0] last word read from $482
+wire       dbg_pf = !as_n && rw && fc1 && !fc0;
+wire [23:0] dbg_pa = {mbus_a, 1'b0};
+reg  [7:0] dbg_bf = 8'd0;
+reg [15:0] dbg_cmd = 16'd0;
 always @(posedge clk_32) begin
 	if (reset) begin
-		dbg_vb_whi <= 1'b0;  dbg_vb_wmid <= 1'b0;
-		dbg_vb_hi  <= 8'd0;  dbg_vb_mid  <= 8'd0;
-	end else if (!as_n && !rw && !lds_n) begin
-		if (mbus_a == 23'h7fc100) begin dbg_vb_hi  <= cpu_dout[7:0]; dbg_vb_whi  <= 1'b1; end
-		if (mbus_a == 23'h7fc101) begin dbg_vb_mid <= cpu_dout[7:0]; dbg_vb_wmid <= 1'b1; end
+		dbg_bf <= 8'd0; dbg_cmd <= 16'd0;
+	end else begin
+		if (dbg_pf) begin
+			if (dbg_pa == 24'he016a6 || dbg_pa == 24'hfc0e7c) dbg_bf[7] <= 1'b1;
+			if (dbg_pa == 24'he016c4 || dbg_pa == 24'hfc0e9a) dbg_bf[6] <= 1'b1;
+			if (dbg_pa == 24'he016e2 || dbg_pa == 24'hfc0eb8) dbg_bf[5] <= 1'b1;
+			if (dbg_pa == 24'he1eaa8 || dbg_pa == 24'hfd79a8) dbg_bf[4] <= 1'b1;
+			if (dbg_pa == 24'he01714 || dbg_pa == 24'hfc0ee4) dbg_bf[3] <= 1'b1;
+			if (dbg_pa[23:18] == 6'b111111 && dbg_pa[17:16] != 2'b11) dbg_bf[2] <= 1'b1;
+			if (dbg_pa[23:18] == 6'b111000) dbg_bf[1] <= 1'b1;
+		end
+		if (!as_n && rw && mbus_a == 23'h000241) begin
+			dbg_bf[0] <= 1'b1;
+			dbg_cmd   <= cpu_din;
+		end
 	end
 end
-assign dbg_vbase = {dbg_vb_whi, dbg_vb_wmid, dbg_vb_hi, dbg_vb_mid};
+assign dbg_vbase = {dbg_bf, dbg_cmd};
 
 /* ------------------------------------------------------------------------------ */
 /* ------------------------------ GSTMCU + Shifter ------------------------------ */

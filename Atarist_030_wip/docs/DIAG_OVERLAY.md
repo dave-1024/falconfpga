@@ -38,7 +38,7 @@ Each row: coloured label square (x 16-35), then up to 32 bars, 12 px wide, MSB l
 | row | label | bars y (640x480) | content |
 |---|---|---|---|
 | a | RED | 102-121 | first BERR address A31:0 (unchanged from diag030b) |
-| b | MAGENTA | 134-153 | got FC2 FC1 FC0, RW SIZ1 SIZ0 BAD, $FF8201 byte, $FF8203 byte, WH WM (unchanged) |
+| b | MAGENTA | 134-153 | bits 31-24: got FC2 FC1 FC0, RW SIZ1 SIZ0 BAD; bits 23-8: last word read from cmdload $482; bits 7-0: EmuTOS boot-path flags (diag030w, see below) |
 | c | CYAN | 166-185 | A31:0 of the LAST bus cycle STARTED by the 030 (raw WF68K30L ADR_OUT on the clk_cpu edge where AS is first seen low) |
 | d | GREEN | 198-217 | see below |
 | e | ORANGE | 230-249 | bridge (68000 side, clk_32) state, see below |
@@ -54,6 +54,20 @@ Row d (GREEN), bits 31..0, groups G1..G8:
 - G7: ASn, DSn, DSACK1n, DSACK0n at the 030 (live; DSACK = 01 when bridge acks)
 - G8: BERRn, AVECn, RMCn, RWn at the 030 (live)
 Rows c, d and f are cleared while the 030 is held in reset.
+
+Row b (MAGENTA) bits 7-0, diag030w EmuTOS 1.4 boot-path flags (sticky, cleared by
+the ST reset; set by a PROGRAM-space ST bus cycle at a fixed address in the tail of
+biosmain(), 256K image E0xxxx / 192K image FCxxxx; atarist.v):
+- bit 7 CMD: cmdload path, Pexec("COMMAND.PRG") (E016A6 / FC0E7C)
+- bit 6 EXEC: exec_os path, Pexec(PE_BASEPAGE) for the AES (E016C4 / FC0E9A)
+- bit 5 P1RET: that first Pexec returned (E016E2 / FC0EB8)
+- bit 4 AES: exec_os entry gm_init fetched (E1EAA8 / FD79A8)
+- bit 3 HALT: biosmain's "System halted!" call reached (E01714 / FC0EE4)
+- bit 2 FCROM / bit 1 E0ROM: a program fetch from FC0000-FEFFFF / E00000-E3FFFF was seen
+- bit 0 CMDRD: $482 was read (bits 23-8 then hold the last word read)
+The icache can hide a fetch from the bus only if that line was already cached,
+which does not happen for this once-per-boot code. These addresses are only valid
+for the EmuTOS 1.4 UK 192K/256K images.
 
 Row e (ORANGE), bridge state, live:
 - G1: phase2:0 (0 IDLE, 1 S0, 2 S2, 3 S4 = waiting for DTACK/VPA/BERR, 4 S6), pending (030 request not yet accepted)
