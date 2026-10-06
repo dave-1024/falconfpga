@@ -179,7 +179,8 @@ static void calibrate_with(const char *s) {
    the absolute floor is ~80 ns per half period (passed simulation at
    6.25 MHz). Console command "spd <n>" changes bb_div at run time. */
 static unsigned gpio_shadow;
-static unsigned bb_div = 8;
+static unsigned bb_div = 2;   /* 6 Oct: xml link test 20/20 OK at 4, 2 and 1;
+                                 2 keeps a 2x margin (XML read 63 ms at 8, 22 ms at 1) */
 static int link_up;
 
 static void gpio_set(unsigned v) { gpio_shadow = v; wr(GPIO_DOUT, v); }

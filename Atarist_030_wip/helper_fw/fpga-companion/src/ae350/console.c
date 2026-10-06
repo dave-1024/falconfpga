@@ -38,7 +38,7 @@ static void help(void) {
          "  eject <d>    remove the image from drive d\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
-         "  spd [n]      bit-bang delay per half SCK period (default 8)\r\n"
+         "  spd [n]      bit-bang delay per half SCK period (default 2)\r\n"
          "  xml [n]      link test: read the core's gzip'd XML config n times (default 1)\r\n"
          "  key <k> ...  press keys on the ST via the core's HID target: a-z 0-9 ret esc\r\n"
          "               space tab bs del up down left right f1-f10 help undo, alt+x ctrl+x shift+x\r\n"
