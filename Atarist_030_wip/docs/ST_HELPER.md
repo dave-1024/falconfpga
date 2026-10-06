@@ -457,6 +457,62 @@ core is `build_st_helper.tcl` at `e2297e8`, with TNS 0 on every clock.
   step 4). Then FreeRTOS. Step 5: `osd_u8g2.v` in the video path, plus
   `menu.c`/u8g2.
 
+## 7b. Step 4: USB keyboard and mouse (ST_HELPER_USB), 6 Oct 2026
+
+Built, timing-clean and flashed. The SD and floppy features still work with it.
+Not yet tested with a real keyboard or mouse, because nothing was plugged in
+overnight.
+
+- **No 12 MHz clock net.** This build has no free PRIMARY or LW clock
+  resources (8/8 each). So `usb_hid_host` (nand2mario, copied from 168ktest,
+  same as Hybrid030) got a `usbce` clock enable on its three always blocks
+  and its ROM. It runs on `clk32` with a 3-of-8 enable, which is exactly
+  12 MHz on average. Edges land on a 31 ns grid. The receiver re-syncs on
+  every D- edge and samples mid-bit, so the jitter is well inside what
+  low-speed devices accept. There is no new PLL output and no clock domain
+  crossing (the reports are in the `mcu_spi` domain).
+- **Fabric (`tang/console138k/st_helper_usb.v`, behind ``ST_HELPER_USB`` in
+  `build_st_helper.tcl` only).** Two cores, one per USB-A port: usb1 is
+  H13/G13 and usb2 is M15/M16. The pins and settings come from nand2mario's
+  NESTang `src/boards/console.cst`, where "usb1 is on the left". Each port
+  latches the device type, a report counter, the keyboard modifiers and
+  keys 1-4, and the mouse buttons with dx/dy summed since the last read.
+  Reading clears the sum. The AE350 reads this on the existing companion
+  link with HID command 0x40 (frame in the file header). `misterynano.sv`
+  muxes it onto `hid_data_out` only for that command; `hid.v` is unchanged.
+  Commit `6942ad4`. Timing: TNS 0 on every clock. 29% logic, BSRAM 163/340.
+- **Firmware (`src/ae350/usb.c`).** The main loop reads both ports every
+  4 ms. A new report becomes the boot-protocol packet (8-byte keyboard,
+  3-byte mouse) and goes to FPGA-Companion's unchanged `hid.c`
+  (`kbd_parse`, `mouse_parse`) and `ps2helper.c`. Those send the HID target
+  frames, which `hid.v` turns into IKBD events, exactly as on the BL616. When
+  a keyboard is unplugged, all its keys are released. The F12 OSD hotkey is
+  already filtered by `kbd_parse` (the menu is a stub until step 5).
+  `usb_init` checks for the 0x5A reply, so the same firmware also runs on a
+  core without USB. COM4 `usb` shows both ports. Commit `4d13c84`.
+- **What to use:** either USB-A port on the Console. Only low-speed HID
+  boot-protocol devices work (most plain wired keyboards and mice). No hubs.
+  Full-speed devices (many gaming, wireless and combo receivers) are not
+  supported by `usb_hid_host`. Gamepads are detected (typ 3) but not yet
+  forwarded.
+- **On the board:** after power-up, `USB: fabric USB host found
+  (ST_HELPER_USB), polling both USB-A ports`. `usb` shows both ports `none`
+  with nothing plugged in, and 83k polls without an error. The core link,
+  `xml 20` (20/20 OK), atarist.ini automount of A: and the desktop A: window
+  are all as in 7a.
+- **To test:** plug a keyboard into one port and a mouse into the other. COM4
+  should print `USB port 1: keyboard` / `USB port 2: mouse`. Type in a
+  desktop dialog (File > New Folder) and move the pointer. If a port stays
+  `none`, the device is probably full-speed; try another one.
+- **Step 5 (OSD) findings.** `osd_u8g2` is already instantiated in
+  `tang/nano20k/video.v`, but only on the LCD path. HDMI shows the raw ST
+  video through `hdmi_tp`'s frame buffer (top.sv: "raw ST video (no OSD)").
+  The OSD therefore needs `osd_u8g2` in front of that frame buffer (or on
+  its output), with `osd_data_out` wired. The firmware side needs
+  FPGA-Companion's `osd_u8g2.c` and `menu.c`, plus the u8g2 library (not in
+  `src/`, it comes from the BL616 SDK), most likely with FreeRTOS for the
+  menu task. Not started.
+
 ## Credits
 
 - Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
