@@ -126,6 +126,14 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   desktop starts.
 - **Firmware:** `helper_fw/mailbox/` (`build_mailbox.bat`, AndeSight), flashed
   at 0x0600000.
+- **USB keyboard/mouse:** `ST_HELPER_USB` (on in this build) is a USB host
+  on both Console USB-A ports. The AE350 companion firmware
+  (`helper_fw/companion/`) reads it. See docs/ST_HELPER.md 7b.
+- **Colour monitor:** `ST_COLOUR_MONITOR` (on in this build) holds the ST's
+  mono-detect line high, so TOS boots in colour (low res; medium via
+  Options > Change resolution). Delete its line in `build_st_helper.tcl` to
+  get ST High (mono). The desktop build (`build_tc138k.tcl`) has no such
+  define and stays mono.
 - **Why a separate build:** it changes the boot sequence and the flash pad
   path; the desktop build must keep booting TOS exactly as before.
 

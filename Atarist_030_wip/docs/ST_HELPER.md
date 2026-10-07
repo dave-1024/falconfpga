@@ -513,6 +513,26 @@ overnight.
   `src/`, it comes from the BL616 SDK), most likely with FreeRTOS for the
   menu task. Not started.
 
+## 7c. Colour monitor (`ST_COLOUR_MONITOR`), 7 Oct 2026
+
+- Commit 869d445 forced ST High by tying `mono_detect` low. With
+  `ST_COLOUR_MONITOR` (set in `build_st_helper.tcl` only), `misterynano.sv`
+  ties it high instead, so the ST sees a colour monitor. The setting is fixed
+  at build time. It does not follow `system_video` or the ini `var`
+  settings, because the helper does not apply those to the core yet.
+- `st_framebuffer.v` already handles colour: 240 lines x 640 samples,
+  line-doubled to 480. A low res pixel is 2 samples and a medium res pixel 1
+  sample. With `H_OFS_COLOR` = 96 medium res loses its leftmost 2 pixels,
+  which is not visible on the desktop. The mode is detected per frame from
+  the hsync period, so no setting is needed. The DIAG overlay is not in this
+  build (`DIAG_EN` 0).
+- On the board (`st_helper_colour_30e5fe5.fs`, TNS 0, helper usb1
+  unchanged), after `c`: the EmuTOS desktop came up in colour low res
+  (green). Alt+A showed A: with GEMBENCH's files. Options > Change
+  resolution switched to medium res, which displayed correctly. The USB mouse
+  showed up on port 1. The keyboard did not enumerate on port 2 after the
+  reflash (`usb`: none); replug it.
+
 ## Credits
 
 - Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
