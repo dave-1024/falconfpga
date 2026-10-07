@@ -396,7 +396,7 @@ always @ (posedge clk or negedge rstn)
 		   if(sddatin[0] == 1) begin
 		      sddat_stat <= RTAIL;
                       ridx   <= 0; 
-		   end else if(ridx > (WRITE_FIX ? 16000000 : 1000000)) begin
+		   end else if(WRITE_FIX ? ridx[24] : (ridx > 1000000)) begin   // ~16.7M clocks ≈1 s; single-bit test keeps timing
 		      sddat_stat <= WERR;   // busy timeout
 		      ridx   <= 0; 
 		   end else begin

@@ -182,8 +182,6 @@ set_option -vccx 1.8
 set_option -vcc 0.9
 set_option -power_on_reset_monitor 1
 set_option -timing_driven 1
-set_option -place_option 1
-set_option -route_option 1
 set_option -cst_warn_to_error 1
 set_option -rpt_auto_place_io_info 1
 set_option -convert_sdp32_36_to_sdp16_18 1
