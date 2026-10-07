@@ -27,6 +27,7 @@ puts $fh "`define ST_COLOUR_MONITOR"
 # MiSTeryNano OSD on the HDMI output, drawn by the AE350 companion
 # (st_helper_osd.v, port step 5). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_OSD"
+puts $fh "`define ST_STE"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

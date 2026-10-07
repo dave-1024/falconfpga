@@ -168,6 +168,15 @@ ws2812 ws2812_inst (
 // and used to control the system in general
 wire [1:0] system_leds;
 wire [1:0] system_chipset;
+// FalconFPGA ST_STE (build_st_helper.tcl): force the STE chipset (STE video/
+// DMA sound/joypads + blitter) but keep TOS in the ST ROM slot (flash 0x500000)
+`ifdef ST_STE
+wire [1:0] core_chipset = 2'd2;
+wire       rom_ste_bit  = 1'b0;
+`else
+wire [1:0] core_chipset = system_chipset;
+wire       rom_ste_bit  = (system_chipset >= 2'd2);
+`endif
 wire       system_memory;
 wire       system_video;
 wire [1:0] system_reset;   // reset and coldboot flag
@@ -200,7 +209,7 @@ flash flash (
     // cpu expects ROM to start at $fc0000 and it is in fact is at $100000 in
     // ST mode and at $140000 in STE mode. $180000 and $1c0000 are the secondary
     // slots which can be selected from the OSD
-    .address( { 3'b001, system_tos_slot, (system_chipset >= 2'd2)?1'b1:1'b0, rom_addr[17:1] } ),
+    .address( { 3'b001, system_tos_slot, rom_ste_bit, rom_addr[17:1] } ),
     .cs( !rom_n ),
     .dout(rom_dout),
 
@@ -718,8 +727,8 @@ atarist atarist (
     .rom_data_out(rom_dout),
 
     // external configurations
-    .blitter_en(system_chipset >= 2'd1),    // MegaST (1) or STE (2)
-    .ste(system_chipset >= 2'd2),           // STE (2)
+    .blitter_en(core_chipset >= 2'd1),    // MegaST (1) or STE (2)
+    .ste(core_chipset >= 2'd2),           // STE (2)
     .enable_extra_ram(system_memory),       // enable extra ram
     .floppy_protected(system_floppy_wprot), // floppy write protection
     .cubase_en(system_cubase_en),           // enable cubase dongles
@@ -878,7 +887,7 @@ end
 `endif
 
 sd_card #(
-`ifdef ST_HELPER
+`ifdef ST_SD_WRITE_FIX
     .WRITE_FIX(1),                         // FalconFPGA: helper bulk writes (sd_rw.v)
 `endif
     .CLK_DIV(SD_CLK_DIV)                   // for 32 Mhz clock -> sd card clock = 16Mhz
