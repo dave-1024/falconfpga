@@ -134,6 +134,12 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   Options > Change resolution). Delete its line in `build_st_helper.tcl` to
   get ST High (mono). The desktop build (`build_tc138k.tcl`) has no such
   define and stays mono.
+- **OSD menu:** `ST_HELPER_OSD` (on in this build) puts the MiSTeryNano
+  OSD (`st_helper_osd.v`) over the ST video in front of the HDMI frame
+  buffer. The AE350 companion draws it with the original FPGA-Companion
+  menu.c/osd_u8g2.c and u8g2. Press F12 to open it (Shift+F12 opens the
+  system menu), or use `osd toggle` on the COM console. See
+  docs/ST_HELPER.md 7d.
 - **Why a separate build:** it changes the boot sequence and the flash pad
   path; the desktop build must keep booting TOS exactly as before.
 

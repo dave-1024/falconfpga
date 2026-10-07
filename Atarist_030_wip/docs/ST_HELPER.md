@@ -533,6 +533,45 @@ overnight.
   showed up on port 1. The keyboard did not enumerate on port 2 after the
   reflash (`usb`: none); replug it.
 
+## 7d. Step 5: the OSD menu (`ST_HELPER_OSD`), 7 Oct 2026
+
+What runs:
+
+- **Core:** `tang/console138k/st_helper_osd.v` is built from `misc/osd_u8g2.v`. It
+  takes the same OSD-target SPI commands (1 = show/hide, 2 = tile data) and
+  has a 1 KB buffer. It sits on the raw ST video (clk32) in front of
+  `st_framebuffer`, so it shows on HDMI. Each frame it measures the DE
+  window and centres the OSD in it:
+  - Colour: 8 clk32 x 2 lines per OSD pixel.
+  - Mono: 4 x 4.
+  - Either way it is 512x256 on the 640x480 HDMI output.
+- **Build switch:** behind `ST_HELPER_OSD` in `build_st_helper.tcl`. The
+  desktop tcl is unchanged, and video.v's osd_u8g2 stays on the LCD path.
+- **Firmware:** the companion runs the unchanged FPGA-Companion `menu.c` and
+  `osd_u8g2.c` with olikraus/u8g2 at dc9fc73, the pin from the FPGA-Companion
+  submodule. `src/u8g2/` is a subset with its BSD-2-Clause LICENSE; see
+  `README.FalconFPGA`.
+- **FreeRTOS stand-in:** FreeRTOS is replaced by a small cooperative shim
+  (`src/ae350/rtos_shim/coop.c`): one menu task, software timers and queues.
+- **Start-up:** the original order runs: XML `init` (R=1), atarist.ini, mount
+  the defaults, then `ready` (R=0).
+- **Hotkey:** F12 opens the menu and Shift+F12 opens the system menu. This is
+  the ini HOTKEY default, through hid.c.
+- **COM console:** `osd toggle|up|down|left|right|select|back|pgup|pgdn|system`
+  drives the menu the same way.
+- **Mounting:** choosing a file in "Disk A:" mounts it through sdc.c. The
+  `mount`, `ls`, `sd` and `usb` console commands still work.
+
+Board test, 7 Oct 2026 (core 1f7f519, firmware helper_companion_osd1.bin):
+
+- `osd toggle` showed the menu (Disk A:, System, Storage, Settings) over
+  the GEM desktop in medium res.
+- `select` opened the file list (No Disk, blank.st).
+- `select` mounted /sd/blank.st on A:.
+- `toggle` closed the menu. The A: window then listed the disk.
+
+Known issue: the OSD sits a few pixels left of centre.
+
 ## Credits
 
 - Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
