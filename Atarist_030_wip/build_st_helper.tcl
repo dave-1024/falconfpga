@@ -190,6 +190,11 @@ set_option -cst_warn_to_error 1
 set_option -rpt_auto_place_io_info 1
 set_option -convert_sdp32_36_to_sdp16_18 1
 set_option -correct_hold_violation 1
+# F60 build: with the default placer (0) the AE350 DDR3 PLL init counter
+# (u_gowin_pll_ddr3/u_pll_init/waitcnt, clk_osc) missed hold by up to 0.131 ns
+# (clk_osc hold TNS -0.371, 4 endpoints; clock skew -0.75 ns). Placer 1 is
+# clean on every clock (clk_cpu030 17.65 MHz, clk32_core 32.11 MHz).
+set_option -place_option 1
 set_option -loading_rate 70.000
 set_option -ireg_in_iob 1
 set_option -oreg_in_iob 1

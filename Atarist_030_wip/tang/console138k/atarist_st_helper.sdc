@@ -57,6 +57,8 @@ report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {cl
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030}]
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk32_core}]
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030_n}] -to_clock [get_clocks {clk_cpu030}]
+// F60: clk_osc hold report (the DDR3 PLL init counter missed hold with placer 0)
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_osc}] -to_clock [get_clocks {clk_osc}]
 
 // AE350 helper clocks. CORE_CLK is the hard 800 MHz core clock and is not timed here.
 create_clock -name ae350_ddr_clk -period 20 -waveform {0 10} [get_nets {DDR_CLK}]
