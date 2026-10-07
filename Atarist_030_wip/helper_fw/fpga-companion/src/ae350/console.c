@@ -49,6 +49,7 @@ static void help(void) {
          "  type <text>  type text on the ST (letters, digits, space, '.')\r\n"
          "  mouse <dx> <dy>  move the ST mouse;  click [2]  left click (2 = double)\r\n"
          "  put <f> / h <hex> / pend  upload a file to /sd (PC script, hex lines)\r\n"
+         "  crc <f>      size and CRC32 of /sd/<f>\r\n"
          "  ?            this help; other lines are echoed in upper case\r\n");
 }
 
@@ -357,6 +358,17 @@ static void up_end(void) {
   printf("done %lu bytes crc32 %08lx\r\n", (unsigned long)up_len, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
 }
 
+static void up_crcfile(const char *name) {
+  char path[96]; static uint8_t b[512]; UINT r; FIL f;
+  if(!sd_ready() || !name) return;
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&f, path, FA_READ) != FR_OK) { printf("e open\r\n"); return; }
+  up_crc = 0xFFFFFFFFu; up_len = 0;
+  while(f_read(&f, b, sizeof(b), &r) == FR_OK && r) { up_crc_add(b, r); up_len += r; }
+  f_close(&f);
+  printf("done %lu bytes crc32 %08lx\r\n", (unsigned long)up_len, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
+}
+
 static void run_line(const char *line) {
   char *argv[4]; int argc = 0;
   char buf[160];
@@ -376,6 +388,7 @@ static void run_line(const char *line) {
   if(!strcmp(c, "h")) { up_hex(argc > 1 ? argv[1] : ""); return; }
   if(!strcmp(c, "put")) { up_put(argc > 1 ? argv[1] : NULL); return; }
   if(!strcmp(c, "pend")) { up_end(); return; }
+  if(!strcmp(c, "crc")) { up_crcfile(argc > 1 ? argv[1] : NULL); return; }
   int link = ae350_link_up();
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }

@@ -58,7 +58,7 @@ static void sdc_spi_begin(void) {
 // stalled fpga/card hangs the MCU forever and, worse, the caller currently
 // has no way to notice a sector that never really finished
 #define SDC_BUSY_TIMEOUT_MS   1000
-#define SDC_READY_TIMEOUT_MS  500
+#define SDC_READY_TIMEOUT_MS  3000   /* FalconFPGA: > core write busy wait (1 s, sd_rw WRITE_FIX) */
 #define SDC_CORE_RW_TIMEOUT_MS 1000
 
 static LBA_t clst2sect(DWORD clst) {
