@@ -673,7 +673,14 @@ begin
                   x"0000" & STATUS_REG when(OP = ORI_TO_CCR or OP = ORI_TO_SR) else 
                   DATA_TO_CORE when OP = CAS or OP = CAS2 else -- Destination operand.
                   DR_OUT_2 when (OP = CHK2 or OP = CMP2) and USE_DREG = '1' else
-                  AR_OUT_2 when OP = CHK or OP = CHK2 or OP = CMP2 else
+                  -- F60: CHK compares the DATA register Dn (BIW_0(11:9), DR port 2 per
+                  -- DR_SEL_ADH_2_I) against the <ea> bound (M68000PM CHK). The original
+                  -- arm fed CHK from AR port 2, whose select defaults to "000" for CHK,
+                  -- so every CHK tested A0.W: no trap for a bad index when A0.W was in
+                  -- range, and a spurious trap ("Subscript out of range" in HiSoft
+                  -- BASIC / GEMBENCH 6) when A0.W was negative or above the bound.
+                  DR_OUT_2 when OP = CHK else
+                  AR_OUT_2 when OP = CHK2 or OP = CMP2 else
                   DATA_TO_CORE when OP = CMPM else
                   DR_OUT_2 when OP = DBcc or OP = SWAP else
                   DR_OUT_2 when OP = DIVS or OP = DIVU else
