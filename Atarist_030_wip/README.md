@@ -129,6 +129,11 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
 - **USB keyboard/mouse:** `ST_HELPER_USB` (on in this build) is a USB host
   on both Console USB-A ports. The AE350 companion firmware
   (`helper_fw/companion/`) reads it. See docs/ST_HELPER.md 7b.
+- **STE:** `ST_STE` (on in `build_st_helper.tcl`) forces the STE chipset
+  (STE video/DMA sound/joypads, blitter) but keeps TOS in the ST ROM slot
+  (flash 0x500000) instead of the MiSTeryNano STE offset. Extra 8 MB RAM stays
+  on its own OSD setting. `ST_SD_WRITE_FIX` (off) enables the unfinished
+  sd_rw write-busy fix (67793da), which is not timing-clean yet.
 - **Colour monitor:** `ST_COLOUR_MONITOR` (on in this build) holds the ST's
   mono-detect line high, so TOS boots in colour (low res; medium via
   Options > Change resolution). Delete its line in `build_st_helper.tcl` to

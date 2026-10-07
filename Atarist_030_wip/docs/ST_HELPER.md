@@ -600,3 +600,16 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   used in 168ktest/Hybrid030.
 - The 030 bridge credits Stephen J. Leary's TerribleFire TF534 (see the
   README).
+
+## 7f. STE chipset (`ST_STE`), 7 Oct 2026
+
+- `misterynano.sv`: under `ST_STE` the core uses `core_chipset = 2` for
+  `.ste` and `.blitter_en` (OSD chipset ignored) and `rom_ste_bit = 0`, so TOS
+  is still read from the ST slot (flash 0x500000, TOS 2.06 UK). Without the
+  define nothing changes. Extra RAM is still `system_memory` (OSD), not `ste`.
+- The helper SD `WRITE_FIX` is now behind `ST_SD_WRITE_FIX` (off): it broke
+  timing (see 7e).
+- Build 784effc: timing clean (clk_cpu030 16.010 MHz, TNS 0). Flashed as
+  `st_helper_ste_784effc.fs`; TOS 2.06 boots to the colour desktop. TOS 2.06 on
+  a 68030 shows Options > Cache (not Blitter), so that menu does not prove the
+  blitter. _MCH cookie, DMA sound and joypads not yet verified.
