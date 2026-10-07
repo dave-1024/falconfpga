@@ -35,7 +35,7 @@
 
 void rtos_poll(void);  /* rtos_shim/coop.c */
 
-#define FW_VERSION "osd1"
+#define FW_VERSION "osd2"
 
 static void load_config(void) {
   FIL fil;

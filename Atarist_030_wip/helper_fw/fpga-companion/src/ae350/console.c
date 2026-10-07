@@ -48,6 +48,7 @@ static void help(void) {
          "               space tab bs del up down left right f1-f10 help undo, alt+x ctrl+x shift+x\r\n"
          "  type <text>  type text on the ST (letters, digits, space, '.')\r\n"
          "  mouse <dx> <dy>  move the ST mouse;  click [2]  left click (2 = double)\r\n"
+         "  put <f> / h <hex> / pend  upload a file to /sd (PC script, hex lines)\r\n"
          "  ?            this help; other lines are echoed in upper case\r\n");
 }
 
@@ -316,6 +317,46 @@ static void osd_events(const char *q) {
   }
 }
 
+/* ---- file upload to the SD card (hex lines, acked, for a PC script) ----
+   put <file>   create/overwrite /sd/<file> (refuses atarist.ini)
+   h <hex>      append bytes (up to 64, 2 hex digits each); "h0" = 64 zeros
+   pend         close; prints size and CRC32
+   Each h line answers "k <total>" or "e <reason>"; echo is off meanwhile. */
+static FIL up_f; static int up_open; static uint32_t up_len, up_crc;
+static void up_crc_add(const uint8_t *b, unsigned n) {
+  while(n--) { up_crc ^= *b++; for(int k = 0; k < 8; k++) up_crc = (up_crc >> 1) ^ (0xEDB88320u & -(up_crc & 1u)); }
+}
+static int hexv(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
+static void up_put(const char *name) {
+  char path[96];
+  if(!sd_ready()) return;
+  if(!name || !*name || strchr(name, '/') || !strcasecmp(name, "atarist.ini")) { printf("e name\r\n"); return; }
+  if(up_open) { f_close(&up_f); up_open = 0; }
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&up_f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) { printf("e open\r\n"); return; }
+  up_open = 1; up_len = 0; up_crc = 0xFFFFFFFFu;
+  printf("k 0\r\n");
+}
+static void up_hex(const char *q) {
+  uint8_t b[64]; unsigned n = 0; UINT w;
+  if(!up_open) { printf("e notopen\r\n"); return; }
+  if(q[0] == '0' && !q[1]) { memset(b, 0, 64); n = 64; }
+  else while(q[0] && q[1] && n < 64) {
+    int h = hexv(q[0]), l = hexv(q[1]);
+    if(h < 0 || l < 0) { printf("e hex\r\n"); return; }
+    b[n++] = (uint8_t)(h << 4 | l); q += 2;
+  }
+  if(*q) { printf("e len\r\n"); return; }
+  if(f_write(&up_f, b, n, &w) != FR_OK || w != n) { printf("e write\r\n"); return; }
+  up_crc_add(b, n); up_len += n;
+  printf("k %lu\r\n", (unsigned long)up_len);
+}
+static void up_end(void) {
+  if(!up_open) { printf("e notopen\r\n"); return; }
+  f_close(&up_f); up_open = 0;
+  printf("done %lu bytes crc32 %08lx\r\n", (unsigned long)up_len, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
+}
+
 static void run_line(const char *line) {
   char *argv[4]; int argc = 0;
   char buf[160];
@@ -332,6 +373,9 @@ static void run_line(const char *line) {
   }
   if(!argc) return;
   const char *c = argv[0];
+  if(!strcmp(c, "h")) { up_hex(argc > 1 ? argv[1] : ""); return; }
+  if(!strcmp(c, "put")) { up_put(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "pend")) { up_end(); return; }
   int link = ae350_link_up();
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
@@ -432,14 +476,14 @@ void console_poll(void) {
     if(c == '\r' || c == '\n') {
       if(c == '\n' && n == 0) continue;           /* CR LF */
       line[n] = 0;
-      ae350_puts("\r\n");
+      if(!up_open) ae350_puts("\r\n");
       if(n) run_line(line);
       n = 0;
-      ae350_puts("> ");
+      if(!up_open) ae350_puts("> ");
     } else if(c == 8 || c == 127) {
       if(n) { n--; ae350_puts("\b \b"); }
     } else if(c >= 32) {
-      ae350_putc((char)c);
+      if(!up_open) ae350_putc((char)c);
       if(n < sizeof(line) - 1) line[n++] = (char)c;
     }
   }
