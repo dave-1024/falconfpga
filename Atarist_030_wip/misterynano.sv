@@ -614,7 +614,14 @@ atarist atarist (
     .r(st_r),
     .g(st_g),
     .b(st_b),
+`ifdef ST_COLOUR_MONITOR
+    // FalconFPGA ST_COLOUR_MONITOR (build_st_helper.tcl): colour monitor, TOS
+    // boots in low res (medium via Options). Fixed, not from the helper's
+    // ini "var" settings (not applied yet); st_framebuffer.v shows both.
+    .mono_detect(1'b1),
+`else
     .mono_detect(1'b0),              // FalconFPGA: force ST High (mono). color was !system_video
+`endif
 
     .keyboard_matrix_out(keyboard_matrix_out),
     .keyboard_matrix_in(keyboard_matrix_in),

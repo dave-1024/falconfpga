@@ -21,6 +21,9 @@ puts $fh "`define ST_HELPER_CART"
 # USB keyboard/mouse on the Console USB-A ports for the AE350 companion
 # (st_helper_usb.v, port step 4). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_USB"
+# Colour monitor (ST low/medium res) instead of mono. Delete the next line
+# for ST High (mono), as in the desktop build.
+puts $fh "`define ST_COLOUR_MONITOR"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
