@@ -648,3 +648,33 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   no-cache build. It is only wrong once TOS enables the caches (no CIIN, no
   DMA snoop; stale lines from an earlier enable can hit again after EI/ED is
   set without a CI/CD clear).
+
+## 7h. GEMBENCH 6 "Subscript out of range": WF68K30L CHK bug (F60), 7-8 Oct 2026
+
+- Why: GEMBENCH 6 (exxos, HiSoft BASIC) stopped on the board with "Subscript
+  out of range at line 20" (HiSoft error 9; the line number is never updated,
+  so it means nothing) under TOS 2.06 and both EmuTOS images, ST and STE,
+  with and without caches, while the same disk runs in Hatari.
+- The HiSoft runtime bounds-checks every array index with `CHK.W (a1)+,Dn`
+  (program text $CC28/$CC34) and its CHK vector ($D77C -> $D18E) raises
+  error 9. A good Hatari run executes CHK 25 times before the resolution
+  check and never traps.
+- Root cause, in the original WF68K30L import (3b9afa6): `wf68k30L_top.vhd`
+  fed ALU operand 2 for CHK from address register port 2 (`AR_OUT_2 when OP =
+  CHK or OP = CHK2 or OP = CMP2`), whose select (`AR_SEL_RD_2`) defaults to
+  "000" for CHK. So every CHK compared A0.W, not Dn, with the bound. In the
+  runtime A0 is a pointer into the program's data (e.g. $0002CDA4 in Hatari),
+  so A0.W is negative and the very first array access traps.
+- GHDL proof (`cpu030/sim/rtl/prog_chk.s`, tb030 ST=1): with A0 = $0002CDA4
+  the old core trapped on all five CHK.W cases, including 0 <= 5 and 5 <= 5;
+  with A0 = 0 it trapped on none, including 6 > 5, -1 and CHK.L 0x12345 >
+  0x12344. Trap counts after each case, expected 0 0 1 2 2 2 3 3 4 5: old core
+  1 2 3 4 5 5 5 5 5 5, fixed core 0 0 1 2 2 2 3 3 4 5 (Dn unchanged, (An)+
+  increments).
+- Fix [F60]: `DR_OUT_2 when OP = CHK` (Dn = BIW_0(11:9), already selected on
+  DR port 2 by `DR_SEL_ADH_2_I`); CHK2/CMP2 keep the AR port for an address
+  register Rn. Behaves like a real 68030 (M68000PM CHK); no software-specific
+  change. This also fixes the earlier "CHK never traps" sim finding (that
+  test had A0 = 0).
+- Side checks: every file on the GEMBENCH disk matches the archive; faking
+  CPU/FPU cookies in Hatari does not reproduce the error.
