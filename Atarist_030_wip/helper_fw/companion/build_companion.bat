@@ -43,11 +43,14 @@ if errorlevel 1 (popd & exit /b 1)
 popd
 REM u8g2 (olikraus, BSD-2-Clause) for the OSD menu, own object directory
 if not exist "%OUT%\obj\u8g2" mkdir "%OUT%\obj\u8g2"
-del /q "%OUT%\obj\u8g2\*.o" 2>nul
+del /q %U8OBJ% 2>nul
 pushd "%OUT%\obj\u8g2"
-for %%f in ("%S%\u8g2\csrc\*.c" "%S%\u8g2\sys\bitmap\common\u8x8_d_bitmap.c") do ("%GCC%" %COMMON% %APPINC% -c "%%f" || (popd & exit /b 1))
+for %%f in ("%S%\u8g2\csrc\*.c" "%S%\u8g2\sys\bitmap\common\u8x8_d_bitmap.c") do ("%GCC%" %COMMON% %APPINC% -c "%%~f" || (popd & exit /b 1))
+setlocal enabledelayedexpansion
+set U8OBJ=
+for %%o in ("%OUT%\obj\u8g2\*.o") do set U8OBJ=!U8OBJ! "%%~o"
 popd
-"%GCC%" %LDFLAGS% "%OUT%\obj\start.o" "%OUT%\obj\ae350.o" "%OUT%\obj\cache.o" "%OUT%\obj\initfini.o" "%OUT%\obj\interrupt.o" "%OUT%\obj\loader.o" "%OUT%\obj\reset.o" "%OUT%\obj\trap.o" "%OUT%\obj\main.o" "%OUT%\obj\mcu_hw.o" "%OUT%\obj\console.o" "%OUT%\obj\stubs.o" "%OUT%\obj\tinyprintf.o" "%OUT%\obj\usb.o" "%OUT%\obj\hid.o" "%OUT%\obj\ps2helper.o" "%OUT%\obj\coop.o" "%OUT%\obj\menu.o" "%OUT%\obj\osd_u8g2.o" "%OUT%\obj\u8g2\*.o" "%OUT%\obj\sdc.o" "%OUT%\obj\sysctrl.o" "%OUT%\obj\inifile.o" "%OUT%\obj\config.o" "%OUT%\obj\xml.o" "%OUT%\obj\puff.o" "%OUT%\obj\ff.o" "%OUT%\obj\ffunicode.o" -o "%OUT%\helper_companion.adx" -lc -lgcc
+"%GCC%" %LDFLAGS% "%OUT%\obj\start.o" "%OUT%\obj\ae350.o" "%OUT%\obj\cache.o" "%OUT%\obj\initfini.o" "%OUT%\obj\interrupt.o" "%OUT%\obj\loader.o" "%OUT%\obj\reset.o" "%OUT%\obj\trap.o" "%OUT%\obj\main.o" "%OUT%\obj\mcu_hw.o" "%OUT%\obj\console.o" "%OUT%\obj\stubs.o" "%OUT%\obj\tinyprintf.o" "%OUT%\obj\usb.o" "%OUT%\obj\hid.o" "%OUT%\obj\ps2helper.o" "%OUT%\obj\coop.o" "%OUT%\obj\menu.o" "%OUT%\obj\osd_u8g2.o" %U8OBJ% "%OUT%\obj\sdc.o" "%OUT%\obj\sysctrl.o" "%OUT%\obj\inifile.o" "%OUT%\obj\config.o" "%OUT%\obj\xml.o" "%OUT%\obj\puff.o" "%OUT%\obj\ff.o" "%OUT%\obj\ffunicode.o" -o "%OUT%\helper_companion.adx" -lc -lgcc
 if errorlevel 1 exit /b 1
 "%OBJCOPY%" -S -O binary "%OUT%\helper_companion.adx" "%OUT%\helper_companion.bin"
 "%OBJDUMP%" -h "%OUT%\helper_companion.adx" | findstr /i ".bootloader" >nul

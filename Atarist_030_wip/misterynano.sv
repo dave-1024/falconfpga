@@ -287,9 +287,11 @@ wire [3:0] st_b;
 assign st_video_hs_n = st_hs_n;
 assign st_video_vs_n = st_vs_n;
 assign st_video_de   = st_de;
+`ifndef ST_HELPER_OSD
 assign st_video_r    = st_r;
 assign st_video_g    = st_g;
 assign st_video_b    = st_b;
+`endif
 
 wire [14:0] audio_l;
 wire [14:0] audio_r;
@@ -330,6 +332,22 @@ mcu_spi mcu (
         .mcu_sdc_din(sdc_data_out)
         );
         
+`ifdef ST_HELPER_OSD
+// FalconFPGA ST_HELPER_OSD: the MiSTeryNano OSD on the raw ST video, in
+// front of the HDMI frame buffer (st_helper_osd.v); written by the AE350
+// companion over the OSD target like osd_u8g2 by the BL616.
+st_helper_osd st_helper_osd (
+        .clk(clk32),
+        .reset(por),
+        .data_in_strobe(mcu_osd_strobe),
+        .data_in_start(mcu_start),
+        .data_in(mcu_data_out),
+        .hs_n(st_hs_n), .vs_n(st_vs_n), .de(st_de),
+        .r_in(st_r), .g_in(st_g), .b_in(st_b),
+        .r_out(st_video_r), .g_out(st_video_g), .b_out(st_video_b)
+        );
+`endif
+
 // ---- Mix HID mouse/joystick and DB9 joystick -----
 
 // The basic information needed for joystick/mouse mapping is, how
