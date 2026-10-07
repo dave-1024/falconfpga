@@ -639,3 +639,12 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   GEMBENCH 6 (EmuCON, after a cold boot) still stops with "Subscript out of
   range at line 20 in file E:\GB6\GUI31.BAS", so the caches were not the
   cause. Four warm resets (`w`) in a row all reached the desktop.
+- Same build with TOS 2.06 UK flashed back to 0x500000: desktop OK, GEMBENCH 6
+  (double-click from the A: window) stops with the same "Subscript out of
+  range at line 20" error. TOS 2.06 is now in the TOS slot.
+- Review of the old cache code with CACR EI/ED = 0: `hit_c` needs EI/ED = 1
+  and `served` is only set on a hit, so BUS_REQ = REQ, RDY = BUS_RDY and the
+  word/data come from the bus, with no extra cycle; RTL behaviour matches the
+  no-cache build. It is only wrong once TOS enables the caches (no CIIN, no
+  DMA snoop; stale lines from an earlier enable can hit again after EI/ED is
+  set without a CI/CD clear).
