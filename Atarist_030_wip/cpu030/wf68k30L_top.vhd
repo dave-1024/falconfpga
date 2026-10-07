@@ -158,7 +158,13 @@ entity WF68K30L_TOP is
         NO_LOOP         : boolean := false; -- If true the DBcc loop mechanism is disabled.
         -- [F58] 1: the falling-edge registers are clocked by CLK_N (a 180 degree copy of CLK,
         -- e.g. a second PLL output on a global clock) instead of an inverted CLK.
-        CLK_N_EXT       : integer := 0);
+        CLK_N_EXT       : integer := 0;
+        -- [F59] 1: instantiate the experimental instruction and data caches
+        -- (WF68K30L_ICACHE/DCACHE, enabled by CACR EI/ED). 0 (default): no
+        -- caches, every opcode and data access goes to the bus, exactly as
+        -- with CACR EI = ED = 0. CACR/CAAR stay MOVEC read/write either way.
+        -- The caches are incomplete (no CIIN, burst fill, WA or DMA snoop).
+        CACHES          : integer := 0);
 
     port (
         CLK             : in std_logic;
@@ -851,6 +857,7 @@ begin
 
     IC_CI <= '1' when CACR_WR = '1' and DATA_IN_EXH(3) = '1' else '0';
 
+    G_CACHES: if CACHES /= 0 generate
     I_ICACHE: WF68K30L_ICACHE
         port map(
             CLK       => CLK,
@@ -893,6 +900,19 @@ begin
             RDY       => DATA_RDY,
             DATA      => DATA_TO_CORE
         );
+    end generate G_CACHES;
+
+    -- [F59] No caches: the core talks to the bus interface directly. This is
+    -- what the cache modules do on every access while EI/ED are clear
+    -- (hit = 0, served = 0: BUS_REQ = REQ, RDY = BUS_RDY, data = bus data).
+    G_NO_CACHES: if CACHES = 0 generate
+        IC_BUS_REQ     <= OPCODE_REQ;
+        OPCODE_RDY     <= BUS_OPCODE_RDY;
+        OPCODE_TO_CORE <= BUS_OPCODE_WORD;
+        DC_BUS_REQ     <= RD_REQ;
+        DATA_RDY       <= BUS_DATA_RDY;
+        DATA_TO_CORE   <= BUS_DATA_WORD;
+    end generate G_NO_CACHES;
 
 
     I_ADDRESSREGISTERS: WF68K30L_ADDRESS_REGISTERS

@@ -176,7 +176,12 @@ module cpu030_st_bridge #(
     WF68K30L_TOP i_wf68k30l (
 `else
     WF68K30L_TOP #(
-        .CLK_N_EXT ( 1             )    // falling-edge registers on clk_cpu_n (global clock)
+        .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
+`ifdef ST_030_CACHES
+        .CACHES    ( 1             )    // experimental I/D caches (incomplete), CACR EI/ED
+`else
+        .CACHES    ( 0             )    // no caches, as a TF534/TF536 with ST-RAM (default)
+`endif
     ) i_wf68k30l (
 `endif
         .CLK       ( clk_cpu       ),

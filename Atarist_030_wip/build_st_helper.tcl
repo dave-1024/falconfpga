@@ -28,6 +28,9 @@ puts $fh "`define ST_COLOUR_MONITOR"
 # (st_helper_osd.v, port step 5). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_OSD"
 puts $fh "`define ST_STE"
+# Experimental WF68K30L instruction/data caches (incomplete: no CIIN, burst
+# fill, WA or DMA snoop). Off by default; add the next line to build them in.
+# puts $fh "`define ST_030_CACHES"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
