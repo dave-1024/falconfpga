@@ -678,3 +678,9 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   test had A0 = 0).
 - Side checks: every file on the GEMBENCH disk matches the archive; faking
   CPU/FPU cookies in Hatari does not reproduce the error.
+- Build 87fac46 + 6c706f0 (`place_option 1`): timing clean, TNS 0 on every
+  clock, clk_cpu030 17.648 MHz, clk32_core 32.113 MHz. With the default placer
+  the same code had a clk_osc hold miss (TNS -0.371, 4 endpoints) in the AE350
+  DDR3 PLL init wait counter (`u_gowin_pll_ddr3/u_pll_init/waitcnt`, clock skew
+  -0.75 ns), unrelated to the CPU change; placer 1 is clean. Bitstream
+  `st_helper_chkfix_6c706f0.fs` (SHA256 307e86ab...7e63d6aa).
