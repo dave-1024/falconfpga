@@ -340,7 +340,7 @@ static void up_put(const char *name) {
 static void up_hex(const char *q) {
   uint8_t b[64]; unsigned n = 0; UINT w;
   if(!up_open) { printf("e notopen\r\n"); return; }
-  if(q[0] == '0' && !q[1]) { memset(b, 0, 64); n = 64; }
+  if(q[0] == '0' && !q[1]) { memset(b, 0, 64); n = 64; q++; }
   else while(q[0] && q[1] && n < 64) {
     int h = hexv(q[0]), l = hexv(q[1]);
     if(h < 0 || l < 0) { printf("e hex\r\n"); return; }

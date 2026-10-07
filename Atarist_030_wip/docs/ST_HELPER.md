@@ -572,7 +572,20 @@ Board test, 7 Oct 2026 (core 1f7f519, firmware helper_companion_osd1.bin):
 
 Known issue: the OSD sits a few pixels left of centre.
 
-## Credits
+### 7e. SD upload over COM4 (firmware osd2), 7 Oct 2026
+
+The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
+`helper_fw/tools/sd_upload.ps1` uses them to write a file to /sd.
+
+- **Speed:** about 3.3 KB/s.
+- **Not working yet:** writes fail with "SDC: write timeout on sector N"
+  after anywhere between 0 and 390 KB. The core's `sd_card.v` then sticks in
+  card state 13, and only reloading the core clears it.
+- **Workaround:** until the write path is fixed, copy images to the card on
+  a PC.
+- **Fixed in source, not yet flashed:** the `h0` (64 zero bytes) shortcut
+  was broken in osd2.
+
 
 - Gowin RiscV_AE350_SOC BSP (`ae350.h`, Gowin Semiconductor / Andes): the
   peripheral map used by the firmware (UART2 0xF0300000, GPIO 0xF0700000).
