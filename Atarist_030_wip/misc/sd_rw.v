@@ -8,7 +8,11 @@
 
 module sd_rw # (
     parameter [2:0] CLK_DIV = 3'd2,
-    parameter       SIMULATE = 0
+    parameter       SIMULATE = 0,
+    // FalconFPGA ST_HELPER: 1 = wait up to ~1 s for the card's write busy
+    // (SD spec allows 250/500 ms; 62 ms was hit by sustained MCU writes) and
+    // retry a CMD24 that got no response instead of hanging in state 13
+    parameter       WRITE_FIX = 0
 ) (
     // rstn active-low, 1:working, 0:reset
     input wire	       rstn,
@@ -253,6 +257,8 @@ always @ (posedge clk or negedge rstn)
                                 sdcmd_stat <= READY;
                 CMD24   :   if(~timeout && ~syntaxe)
                                 sdcmd_stat <= WRITING;
+                            else if(WRITE_FIX)
+                                set_cmd(1, 128, 24, sectoraddr);   // card still programming: retry
                 CMD17   :   if(~timeout && ~syntaxe)
                                 sdcmd_stat <= READING;
                             else
@@ -390,7 +396,7 @@ always @ (posedge clk or negedge rstn)
 		   if(sddatin[0] == 1) begin
 		      sddat_stat <= RTAIL;
                       ridx   <= 0; 
-		   end else if(ridx > 1000000) begin
+		   end else if(ridx > (WRITE_FIX ? 16000000 : 1000000)) begin
 		      sddat_stat <= WERR;   // busy timeout
 		      ridx   <= 0; 
 		   end else begin

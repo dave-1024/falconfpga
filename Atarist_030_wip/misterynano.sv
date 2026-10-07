@@ -878,6 +878,9 @@ end
 `endif
 
 sd_card #(
+`ifdef ST_HELPER
+    .WRITE_FIX(1),                         // FalconFPGA: helper bulk writes (sd_rw.v)
+`endif
     .CLK_DIV(SD_CLK_DIV)                   // for 32 Mhz clock -> sd card clock = 16Mhz
 ) sd_card (
     .rstn(!por),                     // rstn active-low, 1:working, 0:reset

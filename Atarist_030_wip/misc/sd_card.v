@@ -12,7 +12,8 @@
 
 module sd_card # (
     parameter [2:0] CLK_DIV = 3'd2,
-    parameter       SIMULATE = 0
+    parameter       SIMULATE = 0,
+    parameter       WRITE_FIX = 0     // see sd_rw.v (FalconFPGA ST_HELPER)
 ) (
     // rstn active-low, 1:working, 0:reset
     input			  rstn,
@@ -499,7 +500,7 @@ always @(posedge clk) begin
    end
 end
    
-sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE)) sd_rw (
+sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
    // rstn active-low, 1:working, 0:reset
    .rstn(rstn),
    .clk(clk),
