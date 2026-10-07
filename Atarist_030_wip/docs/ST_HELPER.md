@@ -632,3 +632,10 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   ST_030_CACHES `` (commented out in `build_st_helper.tcl`). The desktop build
   has no such define, so it is cache-free too.
 
+- Build 45d036b: timing clean (clk_cpu030 17.208 MHz against 16 MHz, all TNS
+  0); the synthesis log no longer processes WF68K30L_ICACHE/DCACHE. Flashed as
+  `st_helper_nocache_45d036b.fs` (SHA256 2fdb6969...613bab) with 256K EmuTOS
+  1.4 in the TOS slot: boot screen M68030 / Atari STe / 4 MB, desktop OK.
+  GEMBENCH 6 (EmuCON, after a cold boot) still stops with "Subscript out of
+  range at line 20 in file E:\GB6\GUI31.BAS", so the caches were not the
+  cause. Four warm resets (`w`) in a row all reached the desktop.
