@@ -43,7 +43,7 @@ if errorlevel 1 (popd & exit /b 1)
 popd
 REM u8g2 (olikraus, BSD-2-Clause) for the OSD menu, own object directory
 if not exist "%OUT%\obj\u8g2" mkdir "%OUT%\obj\u8g2"
-del /q %U8OBJ% 2>nul
+del /q "%OUT%\obj\u8g2\*.o" 2>nul
 pushd "%OUT%\obj\u8g2"
 for %%f in ("%S%\u8g2\csrc\*.c" "%S%\u8g2\sys\bitmap\common\u8x8_d_bitmap.c") do ("%GCC%" %COMMON% %APPINC% -c "%%~f" || (popd & exit /b 1))
 setlocal enabledelayedexpansion
