@@ -613,3 +613,22 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   `st_helper_ste_784effc.fs`; TOS 2.06 boots to the colour desktop. TOS 2.06 on
   a 68030 shows Options > Cache (not Blitter), so that menu does not prove the
   blitter. _MCH cookie, DMA sound and joypads not yet verified.
+
+## 7g. 030 caches out by default (`ST_030_CACHES`), 7 Oct 2026
+
+- The WF68K30L I/D caches added on 4 Oct (a6e3fee/a7ccf76 icache, e9a4fd9
+  dcache) were in every build since, active whenever TOS sets CACR EI/ED
+  (TOS 2.06 and 256K EmuTOS do). They are incomplete: no CIIN (ST-RAM and
+  I/O get cached), no burst fill, no WA, no snoop of floppy DMA/blitter/shifter
+  writes, and the icache never ran on the board. A TF534/TF536 does not cache
+  ST-RAM either.
+- `wf68k30L_top.vhd` [F59]: new generic `CACHES` (integer, default 0). With 0
+  the cache modules are generated out and the core is wired straight to the
+  bus interface (`IC_BUS_REQ = OPCODE_REQ`, `OPCODE_RDY = BUS_OPCODE_RDY`,
+  `DC_BUS_REQ = RD_REQ`, `DATA_RDY = BUS_DATA_RDY`, data from the bus) - the
+  same path the cache modules take on every access while EI/ED are clear.
+  CACR/CAAR (`P_CACHE_REGS`) are unchanged, so MOVEC still reads/writes them.
+- `cpu030_st_bridge.v`: passes `CACHES = 1` only under `` `define
+  ST_030_CACHES `` (commented out in `build_st_helper.tcl`). The desktop build
+  has no such define, so it is cache-free too.
+

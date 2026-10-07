@@ -134,6 +134,13 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   (flash 0x500000) instead of the MiSTeryNano STE offset. Extra 8 MB RAM stays
   on its own OSD setting. `ST_SD_WRITE_FIX` (off) enables the unfinished
   sd_rw write-busy fix (67793da), which is not timing-clean yet.
+- **030 caches:** `ST_030_CACHES` (off; commented out in
+  `build_st_helper.tcl`) builds in the experimental WF68K30L instruction and
+  data caches (`wf68k30L_icache.vhd`, `wf68k30L_dcache.vhd`, CACHES generic on
+  `WF68K30L_TOP`). They are incomplete (no CIIN, burst fill, write-allocate or
+  DMA/blitter snoop), and a TF534/TF536 does not cache ST-RAM, so by default
+  the core has no caches: every access goes to the bus. CACR/CAAR stay MOVEC
+  readable/writable either way. See docs/ST_HELPER.md 7g.
 - **Colour monitor:** `ST_COLOUR_MONITOR` (on in this build) holds the ST's
   mono-detect line high, so TOS boots in colour (low res; medium via
   Options > Change resolution). Delete its line in `build_st_helper.tcl` to
