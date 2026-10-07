@@ -10,10 +10,10 @@
     gzip'd atarist.xml) -> pending IRQs -> "init" action (loads
     atarist.ini) -> sdc_mount_defaults -> main loop (core IRQ, console)
 
-  One difference on purpose: on the BL616 the "init" action holds the ST in
-  reset (R=1) and "ready" releases it. Here the fabric releases the 68030
-  right after the flash handoff, before the helper can talk to the core,
-  so R is never set at start-up. The core's sd_ready still delays the ST
+  Since step 5 (OSD) the start-up is the original one: "init" holds the ST
+  in reset (R=1) and "ready" releases it. The fabric has already started
+  the 68030 after the flash handoff, so the ST restarts once, about half a
+  second into its boot, now with the menu settings applied. The core's sd_ready still delays the ST
   boot by up to 2 s until an image is inserted, which gives the default
   floppy (atarist.ini drive0) the same chance to be there at boot as on
   MiSTeryNano.
@@ -29,9 +29,13 @@
 #include "../inifile.h"
 #include "../xml.h"
 #include "../debug.h"
+#include "../menu.h"
+#include "../osd.h"
 #include "ae350_hw.h"
 
-#define FW_VERSION "port1"
+void rtos_poll(void);  /* rtos_shim/coop.c */
+
+#define FW_VERSION "osd1"
 
 static void load_config(void) {
   FIL fil;
@@ -55,8 +59,8 @@ static void load_config(void) {
   if(cfg) debugf("config '%s' loaded ('cfg' on the console dumps it)", cfg->name ? cfg->name : "?");
 }
 
-/* sys_run_action() without the reset: see the header comment */
-static void run_action_no_reset(config_action_t *action, int depth) {
+/* sys_run_action() without the reset (steps 1-4 start-up, kept for reference) */
+__attribute__((unused)) static void run_action_no_reset(config_action_t *action, int depth) {
   if(!action || depth > 4) return;
   sys_debugf("Running action '%s' (AE350: R is left alone, the ST is already running)", action->name);
   for(config_action_command_t *c = action->commands; c; c = c->next) {
@@ -88,9 +92,16 @@ int main(void) {
     /* pending interrupts; irq 0 at this point is the FPGA cold boot flag */
     sys_handle_interrupts(sys_irq_ctrl(0xff), true);
 
-    if(cfg) run_action_no_reset(config_get_action("init"), 0);
-
-    if(sdc_get_cwd(0)) sdc_mount_defaults();
+    if(cfg) {
+      /* step 5: the original order. osd_init, then menu_init runs "init"
+         (loads atarist.ini, holds the ST in reset with R=1) and applies the
+         menu variables to the core; the images are mounted and "ready"
+         releases the ST (R=0), which then boots with these settings. */
+      osd_init();
+      menu_init();
+      if(sdc_get_cwd(0)) sdc_mount_defaults();
+      sys_run_action_by_name("ready");
+    } else if(sdc_get_cwd(0)) sdc_mount_defaults();
     debugf("Start-up done after %lu ms, entering main loop", (unsigned long)xTaskGetTickCount());
   }
 
@@ -100,6 +111,7 @@ int main(void) {
     if(mcu_hw_irq_pending())
       sys_handle_interrupts(sys_irq_ctrl(0xff), false);
     usb_poll();
+    rtos_poll();      /* menu task and its timers (OSD) */
     console_poll();
   }
   return 0;

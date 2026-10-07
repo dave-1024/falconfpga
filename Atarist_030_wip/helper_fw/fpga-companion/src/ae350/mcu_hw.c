@@ -140,10 +140,6 @@ TickType_t xTaskGetTickCount(void) {
   return (TickType_t)(++soft_ticks >> 4);
 }
 
-void vTaskDelay(TickType_t ticks) {
-  TickType_t t0 = xTaskGetTickCount();
-  while((TickType_t)(xTaskGetTickCount() - t0) < ticks) ae350_rx_poll();
-}
 
 uint32_t ae350_cycles_per_ms(void) { return cyc_per_ms; }
 int ae350_tick_source(void) { return tick_src; }

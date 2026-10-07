@@ -27,12 +27,12 @@ REM Two include sets: the BSP has its own config.h (CFG_BURN etc., needed
 REM for the .bootloader section) and FPGA-Companion has a different
 REM config.h, so the two groups are compiled separately and then linked.
 set BSPINC=-I"%BSP%\ae350" -I"%BSP%\config" -I"%BSP%\driver\ae350" -I"%BSP%\driver\include" -I"%BSP%\lib"
-set APPINC=-I"%S%\ae350\rtos_shim" -I"%S%\ae350" -I"%S%" -I"%S%\fatfs\source"
+set APPINC=-I"%S%\ae350\rtos_shim" -I"%S%\ae350" -I"%S%" -I"%S%\fatfs\source" -I"%S%\u8g2\csrc"
 set COMMON=-DREF_TEST_CLK -O2 -mcmodel=medium -g3 -Wall -Wno-unused-function -mcpu=a25 -ffunction-sections -fdata-sections -fno-builtin -fomit-frame-pointer
 set LDFLAGS=-mcpu=a25 -O2 -nostartfiles -static -T"%BSP%\sag\ae350-ddr.ld" -Wl,--gc-sections -Wl,-Map="%OUT%\helper_companion.map"
 set BSPSRC="%BSP%\ae350\start.S" "%BSP%\ae350\ae350.c" "%BSP%\ae350\cache.c" "%BSP%\ae350\initfini.c" "%BSP%\ae350\interrupt.c" "%BSP%\ae350\loader.c" "%BSP%\ae350\reset.c" "%BSP%\ae350\trap.c"
-set PORTSRC="%S%\ae350\main.c" "%S%\ae350\mcu_hw.c" "%S%\ae350\console.c" "%S%\ae350\stubs.c" "%S%\ae350\tinyprintf.c" "%S%\ae350\usb.c"
-set COMPSRC="%S%\sdc.c" "%S%\sysctrl.c" "%S%\inifile.c" "%S%\config.c" "%S%\xml.c" "%S%\puff.c" "%S%\hid.c" "%S%\ps2helper.c" "%S%\fatfs\source\ff.c" "%S%\fatfs\source\ffunicode.c"
+set PORTSRC="%S%\ae350\main.c" "%S%\ae350\mcu_hw.c" "%S%\ae350\console.c" "%S%\ae350\stubs.c" "%S%\ae350\tinyprintf.c" "%S%\ae350\usb.c" "%S%\ae350\rtos_shim\coop.c"
+set COMPSRC="%S%\sdc.c" "%S%\sysctrl.c" "%S%\inifile.c" "%S%\config.c" "%S%\xml.c" "%S%\puff.c" "%S%\hid.c" "%S%\ps2helper.c" "%S%\menu.c" "%S%\osd_u8g2.c" "%S%\fatfs\source\ff.c" "%S%\fatfs\source\ffunicode.c"
 if not exist "%OUT%\obj" mkdir "%OUT%\obj"
 del /q "%OUT%\obj\*.o" 2>nul
 pushd "%OUT%\obj"
@@ -41,7 +41,13 @@ if errorlevel 1 (popd & exit /b 1)
 "%GCC%" %COMMON% %APPINC% -c %PORTSRC% %COMPSRC%
 if errorlevel 1 (popd & exit /b 1)
 popd
-"%GCC%" %LDFLAGS% "%OUT%\obj\start.o" "%OUT%\obj\ae350.o" "%OUT%\obj\cache.o" "%OUT%\obj\initfini.o" "%OUT%\obj\interrupt.o" "%OUT%\obj\loader.o" "%OUT%\obj\reset.o" "%OUT%\obj\trap.o" "%OUT%\obj\main.o" "%OUT%\obj\mcu_hw.o" "%OUT%\obj\console.o" "%OUT%\obj\stubs.o" "%OUT%\obj\tinyprintf.o" "%OUT%\obj\usb.o" "%OUT%\obj\hid.o" "%OUT%\obj\ps2helper.o" "%OUT%\obj\sdc.o" "%OUT%\obj\sysctrl.o" "%OUT%\obj\inifile.o" "%OUT%\obj\config.o" "%OUT%\obj\xml.o" "%OUT%\obj\puff.o" "%OUT%\obj\ff.o" "%OUT%\obj\ffunicode.o" -o "%OUT%\helper_companion.adx" -lc -lgcc
+REM u8g2 (olikraus, BSD-2-Clause) for the OSD menu, own object directory
+if not exist "%OUT%\obj\u8g2" mkdir "%OUT%\obj\u8g2"
+del /q "%OUT%\obj\u8g2\*.o" 2>nul
+pushd "%OUT%\obj\u8g2"
+for %%f in ("%S%\u8g2\csrc\*.c" "%S%\u8g2\sys\bitmap\common\u8x8_d_bitmap.c") do ("%GCC%" %COMMON% %APPINC% -c "%%f" || (popd & exit /b 1))
+popd
+"%GCC%" %LDFLAGS% "%OUT%\obj\start.o" "%OUT%\obj\ae350.o" "%OUT%\obj\cache.o" "%OUT%\obj\initfini.o" "%OUT%\obj\interrupt.o" "%OUT%\obj\loader.o" "%OUT%\obj\reset.o" "%OUT%\obj\trap.o" "%OUT%\obj\main.o" "%OUT%\obj\mcu_hw.o" "%OUT%\obj\console.o" "%OUT%\obj\stubs.o" "%OUT%\obj\tinyprintf.o" "%OUT%\obj\usb.o" "%OUT%\obj\hid.o" "%OUT%\obj\ps2helper.o" "%OUT%\obj\coop.o" "%OUT%\obj\menu.o" "%OUT%\obj\osd_u8g2.o" "%OUT%\obj\u8g2\*.o" "%OUT%\obj\sdc.o" "%OUT%\obj\sysctrl.o" "%OUT%\obj\inifile.o" "%OUT%\obj\config.o" "%OUT%\obj\xml.o" "%OUT%\obj\puff.o" "%OUT%\obj\ff.o" "%OUT%\obj\ffunicode.o" -o "%OUT%\helper_companion.adx" -lc -lgcc
 if errorlevel 1 exit /b 1
 "%OBJCOPY%" -S -O binary "%OUT%\helper_companion.adx" "%OUT%\helper_companion.bin"
 "%OBJDUMP%" -h "%OUT%\helper_companion.adx" | findstr /i ".bootloader" >nul

@@ -14,40 +14,6 @@
 #include "../hid.h"
 #include "../debug.h"
 
-TaskHandle_t menu_handle = NULL;
-
-/* ---- menu.c (step 5). The variables an ini file sets ('var X=n') are
-   kept, so 'save' writes them back, but they are not sent to the core:
-   in the original they are applied while the init action holds the ST in
-   reset, and here the ST is already running when the helper starts. ---- */
-static menu_variable_t *vars = NULL;
-
-menu_variable_t *menu_get_variables(void) { return vars; }
-
-void menu_set_value(unsigned char id, int8_t value) {
-  if(id == 'R') { menu_debugf("suppressing 'R' reset variable"); return; }
-  menu_variable_t *v = vars;
-  while(v && v->id != (char)id) v = v->next;
-  if(!v) {
-    v = malloc(sizeof(menu_variable_t));
-    v->id = id; v->next = vars; vars = v;
-  }
-  v->value = value;
-  menu_debugf("var %c = %d kept (not applied until the OSD port)", id, value);
-}
-
-void menu_button_state(unsigned char state) { menu_debugf("core button %d (OSD not ported yet)", state); }
-void menu_run_current_image_action(void) { }
-void menu_notify(unsigned long msg) { (void)msg; }
-
-/* ---- osd (step 5) ---- */
-void osd_enable(char en) { (void)en; }
-
-/* ---- hid.c (step 4) ---- */
-
 /* ---- at_wifi.c: no network on the AE350 ---- */
 void at_wifi_port_byte(unsigned char b) { (void)b; }
 
-/* OSD (step 5) not ported yet: hid.c forwards every key to the core */
-int osd_is_visible(void) { return 0; }
-void menu_joystick_state(unsigned char state) { (void)state; }

@@ -23,12 +23,15 @@
 #include "../sdc.h"
 #include "../config.h"
 #include "../inifile.h"
+#include "../menu.h"
 #include "ae350_hw.h"
 
 static const char *drive_name[4] = { "A:", "B:", "ACSI 0", "ACSI 1" };
 
 static void help(void) {
   printf("commands (end each with Enter):\r\n"
+         "  osd <ev> ... OSD menu as the keyboard would drive it (F12 opens it):\r\n"
+         "               toggle (F12) up down left right select (Enter) back (Esc) pgup pgdn\r\n"
          "  usb          USB keyboard/mouse status (Console USB-A ports, fabric host)\r\n"
          "  s            core status over the companion link (SYS target)\r\n"
          "  i            core IRQ line and pending sources\r\n"
@@ -285,6 +288,34 @@ static void xml_test(int n) {
   if(n > 1) printf("xml: %d/%d OK at spd %u\r\n", ok, n, ae350_spi_div());
 }
 
+
+static void osd_events(const char *q) {
+  static const struct { const char *n; unsigned long e; } ev[] = {
+    {"toggle",MENU_EVENT_TOGGLE},{"f12",MENU_EVENT_TOGGLE},{"up",MENU_EVENT_UP},{"down",MENU_EVENT_DOWN},
+    {"left",MENU_EVENT_LEFT},{"right",MENU_EVENT_RIGHT},{"select",MENU_EVENT_SELECT},{"enter",MENU_EVENT_SELECT},
+    {"back",MENU_EVENT_BACK},{"esc",MENU_EVENT_BACK},{"pgup",MENU_EVENT_PGUP},{"pgdn",MENU_EVENT_PGDOWN},
+    {"system",MENU_EVENT_SYSTEM},{NULL,0}
+  };
+  char tok[16];
+  while(*q) {
+    while(*q == ' ') q++;
+    int i = 0;
+    while(*q && *q != ' ' && i < 15) tok[i++] = *q++;
+    tok[i] = 0;
+    if(!i) break;
+    int k;
+    for(k = 0; ev[k].n && strcasecmp(tok, ev[k].n); k++);
+    if(!ev[k].n) { printf("unknown osd event '%s'\r\n", tok); continue; }
+    menu_notify(ev[k].e);
+    vTaskDelay(60);                     /* main context: the menu task runs from rtos_poll */
+    extern void rtos_poll(void);
+    for(int n = 0; n < 20; n++) rtos_poll();
+    if(ev[k].e <= MENU_EVENT_BACK) menu_notify(MENU_EVENT_KEY_RELEASE);
+    for(int n = 0; n < 20; n++) rtos_poll();
+    vTaskDelay(150);
+  }
+}
+
 static void run_line(const char *line) {
   char *argv[4]; int argc = 0;
   char buf[160];
@@ -314,6 +345,11 @@ static void run_line(const char *line) {
                !strcmp(c, "eject") || !strcmp(c, "save"))) {
     printf("companion link not up (see boot messages)\r\n");
     return;
+  }
+  if(!strcmp(c, "osd")) {
+    if(!link) { printf("companion link not up\r\n"); return; }
+    const char *q = line; while(*q == ' ') q++; q += 3;
+    osd_events(q); printf("ok\r\n"); return;
   }
   if(!strcmp(c, "s")) { core_status(); return; }
   if(!strcmp(c, "usb")) { if(link) usb_status(); else printf("companion link not up\r\n"); return; }
