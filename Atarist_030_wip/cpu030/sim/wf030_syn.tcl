@@ -10,7 +10,7 @@ foreach f {pkg address_registers alu bus_interface control data_registers except
 # F58: synthesise with CLK_N_EXT = 1 like cpu030_st_bridge.v (falling-edge
 # registers on the CLK_N port). The generic default is rewritten in a copy.
 set fh [open $here/../wf68k30L_top.vhd r]; set t [read $fh]; close $fh
-if {![regsub {(CLK_N_EXT +: integer := )0\)} $t {\11)} t]} { error "CLK_N_EXT generic not found" }
+if {![regsub {(CLK_N_EXT +: integer := )0([;)])} $t {\11\2} t]} { error "CLK_N_EXT generic not found" }
 set fh [open wf68k30L_top_clkn.vhd w]; puts -nonewline $fh $t; close $fh
 add_file [file normalize wf68k30L_top_clkn.vhd]
 set_option -synthesis_tool gowinsynthesis
