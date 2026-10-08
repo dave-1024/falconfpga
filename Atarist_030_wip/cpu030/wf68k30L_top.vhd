@@ -346,6 +346,7 @@ signal IPEND_In                 : bit;
 signal IRQ_PEND                 : std_logic_vector(2 downto 0);
 signal IPIPE_FILL               : bit;
 signal IPIPE_FLUSH              : bit;
+signal OPC_DISMISS              : bit; -- [F62c]
 signal IPIPE_FLUSH_EXH          : bit;
 signal IPIPE_FLUSH_MAIN         : bit;
 signal IPIPE_OFFESET            : std_logic_vector(2 downto 0);
@@ -1067,7 +1068,7 @@ begin
             OPC_RD              => OPCODE_RD, -- [F62]
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
-            IPIPE_FLUSH         => IPIPE_FLUSH,
+            OPC_DISMISS         => OPC_DISMISS, -- [F62c]
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,
@@ -1366,6 +1367,7 @@ begin
 
             IPIPE_FILL              => IPIPE_FILL,
             IPIPE_FLUSH             => IPIPE_FLUSH,
+            OPCODE_DISMISS          => OPC_DISMISS, -- [F62c]
 
             -- Fault logic:
             OW_VALID                => OW_VALID,

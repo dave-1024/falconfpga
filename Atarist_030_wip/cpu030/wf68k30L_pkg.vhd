@@ -247,7 +247,7 @@ component WF68K30L_BUS_INTERFACE
         OPC_RD              : in bit; -- [F62]
         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
-        IPIPE_FLUSH         : in bit; -- [F62]
+        OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
         INBUFFER            : out std_logic_vector(31 downto 0);
         OUTBUFFER           : out std_logic_vector(31 downto 0);
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -524,6 +524,7 @@ component WF68K30L_OPCODE_DECODER
         OPCODE_DATA         : in std_logic_vector(15 downto 0);
         IPIPE_FILL          : in bit;
         IPIPE_FLUSH         : in bit;
+        OPCODE_DISMISS      : out bit; -- [F62c]
         OW_VALID            : out std_logic;
         RC                  : out std_logic;
         RB                  : out std_logic;
