@@ -761,3 +761,69 @@ The new whole-ST bus bench (`cpu030/sim/st`, Gowin netlist of the CPU via `cpu03
   - one of the three cc2acd5 fixes.
   The sims (CPU programs, bus test, TOS boot to the palette) do not cover this.
 - The fallback `st_helper_chkfix_6c706f0.fs` is back on the board.
+
+## 7j. F63: SDRAM early start + ST bus bridge F61, 8 Oct 2026
+
+Main runs the F60 CPU (no F62 prefetch queue), with the F61 bridge back in and a new early start in the SDRAM controller.
+Board build: `st_helper_f63_f484271.fs`.
+
+- Why F61 failed: the bridge took RAM data at A+375 (A = the bridge's 68000 S0), but RAM data only reached the ST bus at A+406 (7i).
+- RAM timing on the ST side:
+  - The video RAS runs from A+0 to A+156. The CPU/DMA RAS runs from A+250 to A+406 (time0 low and addrselb low).
+  - `ramcyc` is loaded on the `cycsel_en` edge at A+219.
+  - `sdram.v` started on its registered `cs` edge: ACTIVE at A+281, READ at A+312, `dout` at A+406.
+- Fix [F63], gstmcu side: `gstmcu.v` gets a new output `RAM_EARLY` (not an original ASIC signal):
+  `~turbo & cycsel_en & ~addrselb & ramsel(read) & irwz & (ram1 | ram2)`.
+  - It means: a CPU/DMA RAM read RAS starts on the next clk32 edge.
+  - `ADDR` already carries the CPU/DMA address at that point (addrselb has been low since A+156).
+- Fix [F63], SDRAM side: `sdram.v` gets a new input `ecs` (`ram_early && !ram_a[23]` in `misterynano.sv`).
+  - When `ecs` is set, the controller opens the row at A+219, either from idle or from the last state of the video cycle.
+    The video cycle's ACTIVE (or refresh) was at A+31, and its READ auto-precharges.
+  - READ then goes out at A+250 and `dout` is valid at A+344, 2 clk32 earlier than before.
+  - The RAS edge that follows finds the controller busy and is ignored. Writes still start at RAS.
+  - This changes only when the access starts. The RAS/CAS/DTACK timing the chipset sees is the same, and there are no posted writes.
+- Bridge [F61, 0104f1b]:
+  - The ST cycle starts from the live 030 request.
+  - DSACK comes at S4 en2, and RAM/ROM/IO read data is taken at en1 entering S6 (A+375).
+  - The TOS flash read starts at the address phase (gstmcu `ROM2E_N`).
+- Whole-ST bus bench (`cpu030/sim/st`):
+  - The bench now runs the real `sdram.v` with an SDRAM chip model (CL2). Run on the F60 CPU netlist, both CPU clock phases.
+  - Bus test results are the same as with the old bridge, apart from the blitter poll count, which depends on timing.
+  - Read data was valid at the capture edge (A+375) for every read: RAM 2211 of 2211, ROM 5981 of 5981, I/O 78 of 78.
+  - The SDRAM made 2467 early starts, and no CPU-half read was started by RAS.
+  - Negative control (`+early=0`): the same bridge reads stale RAM data again.
+  - 1221 requests were back to back (the 030 asserts AS again ≤ 62.5 ns after negating it). Every one of them began S0 62.5 ns after the previous ST AS negation, i.e. directly after S7.
+    - Their AS→AS spacing was 500 ns in 403 cases. The longer spacings (625/750/875 ns) only occur after a RAM cycle that started off the RAM slot and got MMU wait states, as a 68000 on an ST would.
+  - Most of the remaining gaps come from the CPU core: the 030 waits 156-281 ns between bus cycles.
+  - The bus test takes 7.535 ms (old bridge: 8.700 ms).
+  - TOS 2.06 boot sim: its first 11543 data writes are identical to the old bridge's, and the palette is set at 8.394 ms (old: 8.860 ms).
+- Build f484271 (`place_option 1`): TNS 0 on all clocks; clk32_core 32.029 MHz, clk_cpu030 17.035 MHz.
+  `st_helper_f63_f484271.fs`, SHA256 b50d52b89153329a948e4815e538edd69ada151285f25b8e9957146d269705a5.
+- Board, 8 Oct 2026: flashed (op 53, location 417).
+  - Cold boot of TOS 2.06 with `blank.st`: mailbox hello, the 4096 KB memory test completes, then the desktop.
+  - A warm reset also reaches the desktop.
+  - In ST Medium, GEMBENCH 6.31 menus work (no hang like F62b's), and All Tests completes.
+
+| GEMBENCH 6.31 (ratio to stock STE) | F60 6c706f0 | F63 f484271 |
+|---|---|---|
+| GEM Dialog Box | 39% | 47% |
+| VDI Text | 28% | 33% |
+| VDI Text Effects | 33% | 40% |
+| VDI Small Text | 31% | 37% |
+| VDI Graphics | 58% | 68% |
+| GEM Window | 35% | 42% |
+| Integer Division | 603% | 611% |
+| RAM Access | 48% | 61% |
+| ROM Access | 60% | 69% |
+| Blitting | 11% | 13% |
+| VDI Scroll | 24% | 28% |
+| Justified Text | 28% | 33% |
+| VDI Enquire | 57% | 68% |
+| **Display / CPU / Average** | **31% / 120% / 61%** | **37% / 137% / 71%** |
+
+- Times in seconds (F63): 27.660, 43.100, 53.515, 59.765, 40.850, 23.265, 5.145, -, 58.810, 107.520, 25.905, 33.265, 34.380, 30.185.
+- Screenshot: box `/workspace/st_helper_out/busfix/gb6_results_f484271.png`. Notes: `/workspace/st_helper_out/busfix/STAGE_A_NOTES.md`.
+- Still open:
+  - Memory-bound tests are still below an 8 MHz STE. The core leaves 156-281 ns between bus cycles, so many RAM cycles start off-slot and get wait states.
+  - The blitter is still reported as disabled.
+  - The F62 prefetch queue (branch `f62-prefetch`) has to be debugged before it can help.
