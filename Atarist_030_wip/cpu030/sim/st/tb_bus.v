@@ -175,6 +175,18 @@ module tb_bus;
         if (req_open && ph == 3'd1 && ph_q != 3'd1) begin
             q = ($time - t_as30) / 31250; if (q > 31) q = 31; hlat[q] = hlat[q] + 1; req_open = 0; end
     end
+    // back-to-back 030 requests (030 AS reasserted <= 2 clk32 after it negated): ST idle time between
+    // the previous ST AS negation and the new S0, and the ST AS->AS spacing of the pair
+    integer hbi [0:31]; integer hbs [0:31]; integer last_gap = 99, bb = 0; time t_stneg = 0, t_stfall = 0; reg stas_q = 1;
+    initial for (k = 0; k < 32; k = k + 1) begin hbi[k] = 0; hbs[k] = 0; end
+    always @(posedge clk32) begin
+        stas_q <= dut.cpu_as_n;
+        if (asn30_q && !dut.cpu030.cpu_asn) last_gap = (t_neg30 != 0) ? ($time - t_neg30) / 31250 : 99;
+        if (!stas_q && dut.cpu_as_n) t_stneg = $time;
+        if (ph == 3'd1 && ph_q != 3'd1) begin bb = (last_gap <= 2);
+            if (bb) begin q = ($time - t_stneg) / 31250; if (q > 31) q = 31; hbi[q] = hbi[q] + 1; end end
+        if (stas_q && !dut.cpu_as_n) begin if (bb && t_stfall != 0) begin q = ($time - t_stfall) / 125000; if (q > 31) q = 31; hbs[q] = hbs[q] + 1; end t_stfall = $time; end
+    end
     task report; begin
         $display("%0d ST cycles at %0t ns", n, $time/1000);
         for (j = 0; j < 3; j = j + 1) $display("%s reads: data valid from A+312:%0d A+344:%0d A+375:%0d A+406:%0d A+437:%0d  (late for A+375: %0d)",
@@ -182,6 +194,8 @@ module tb_bus;
         $display("SDRAM ACTIVE: early (CPU/DMA read) %0d, at RAS in the CPU half: reads %0d writes %0d, video half %0d", n_early, n_rasrd, n_raswr, n_vid);
         $write("030 AS -> ST S0 (31.25ns units):"); for (k = 0; k < 32; k = k + 1) if (hlat[k]) $write(" %0d:%0d", k, hlat[k]); $display("");
         $write("030 AS negate -> next 030 AS (31.25ns units):"); for (k = 0; k < 32; k = k + 1) if (hgap[k]) $write(" %0d:%0d", k, hgap[k]); $display("");
+        $write("back-to-back: ST AS negate -> next S0 (31.25ns units):"); for (k = 0; k < 32; k = k + 1) if (hbi[k]) $write(" %0d:%0d", k, hbi[k]); $display("");
+        $write("back-to-back: ST AS->AS spacing (125ns units):"); for (k = 0; k < 32; k = k + 1) if (hbs[k]) $write(" %0d:%0d", k, hbs[k]); $display("");
         $write("AS->AS spacing (125ns units) all:");  for (k = 2; k < 32; k = k + 1) if (hist[k]) $write(" %0d:%0d", k, hist[k]); $display("");
         $write("AS->AS spacing RAM->RAM:");          for (k = 2; k < 32; k = k + 1) if (hr[k]) $write(" %0d:%0d", k, hr[k]); $display("");
         $fclose(tf); $finish;
