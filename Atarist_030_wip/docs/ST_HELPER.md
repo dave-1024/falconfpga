@@ -684,3 +684,22 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   DDR3 PLL init wait counter (`u_gowin_pll_ddr3/u_pll_init/waitcnt`, clock skew
   -0.75 ns), unrelated to the CPU change; placer 1 is clean. Bitstream
   `st_helper_chkfix_6c706f0.fs` (SHA256 307e86ab...7e63d6aa).
+- Board, 8 Oct 2026: `st_helper_chkfix_6c706f0.fs` flashed to location 417
+  (op 53, "Program Flash finished", 0x000000-0x04DCB00, 102 s); TOS 2.06 UK in
+  the TOS slot, `blank.st` as A:, cold boot. GEMBENCH 6.31 (GB608B31.PRG) no
+  longer stops with "Subscript out of range": in ST Low it shows its own
+  "does not run in this resolution" alert (the same as Hatari); in ST Medium it
+  reaches the main screen (System: TOS 2.06, STE 68030, BLiTTER Disabled,
+  CACHE D=ON I=ON - CACR bits only, the core has no caches) and both test
+  groups complete. Times (s) / ratio to the stock STE reference: GEM Dialog
+  Box 33.450/39%, VDI Text 52.220/28%, VDI Text Effects 64.290/33%, VDI Small
+  Text 72.130/31%, VDI Graphics 47.355/58%, GEM Window 28.115/35%, Integer
+  Division 5.210/603%, Float Math - (no FPU), RAM Access 75.260/48%, ROM
+  Access 123.540/60%, Blitting 30.450/11%, VDI Scroll 38.360/24%, Justified
+  Text 41.235/28%, VDI Enquire 35.800/57%. Display 31%, CPU 120%, average 61%.
+- Open points from that run: memory-bound tests (RAM/ROM access, all VDI
+  tests) run at about half an 8 MHz STE, so each 030 bus cycle through the
+  bridge costs far more than a 68000 cycle; TOS 2.06 reports the blitter
+  disabled (Blitting 11%), so the ST_STE blitter is not in use under the 030.
+  Screenshots: box `/workspace/st_helper_out/chkfix/` (`cf_gb1.png` low-res
+  alert, `cf_gb2.png` main screen, `gb6_results_6c706f0.png` results).
