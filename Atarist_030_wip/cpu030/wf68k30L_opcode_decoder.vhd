@@ -103,6 +103,7 @@ entity WF68K30L_OPCODE_DECODER is
 
         IPIPE_FILL          : in bit;
         IPIPE_FLUSH         : in bit; -- Abandon the instruction pipe.
+        OPCODE_DISMISS      : out bit; -- [F62c] OPCODE_FLUSH: the next OPCODE_RDY is dismissed (prefetch queue uses it as is).
 
         -- Fault logic:
         OW_VALID            : out std_logic; -- Operation words valid.
@@ -228,6 +229,7 @@ begin
     end process P_OPCODE_FLUSH;
 
     OPCODE_RD <= OPCODE_RD_I;
+    OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
     OPCODE_RDY_I <= '0' when OPCODE_FLUSH = '1' else OPCODE_RDY; -- Dismiss the current read cycle.
     BUSY_OPD <= '0' when EXH_REQ = '1' and BUSY_MAIN = '0' and IPIPE_PNTR > 0 and OPCODE_RD_I = '0' else -- Fill one opcode is sufficient here.
                 '1' when IPIPE_PNTR < 3 or OPCODE_RD_I = '1' else '0';

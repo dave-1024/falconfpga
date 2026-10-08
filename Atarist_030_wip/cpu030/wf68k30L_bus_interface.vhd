@@ -116,7 +116,7 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_RD              : in bit; -- [F62] Raw decoder opcode request (not masked while the bus is busy).
         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
-        IPIPE_FLUSH         : in bit; -- [F62] Decoder pipe flush (mirrors its OPCODE_FLUSH dismissal).
+        OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -655,13 +655,6 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         if PREFETCH_Q /= 0 then
-            -- Mirror of the decoder's OPCODE_FLUSH: the first ready after a flush with a pending request is dismissed.
-            if IPIPE_FLUSH = '1' and OPC_RD = '1' and OPCODE_RDY_I = '0' then
-                Q_DISMISS <= '1';
-            elsif OPCODE_RDY_I = '1' or BUSY_EXH = '1' then
-                Q_DISMISS <= '0';
-            end if;
-            --
             W := Q_W; F := Q_F; CNT := Q_CNT;
             if Q_HIT = '1' then
                 W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3);
@@ -721,11 +714,14 @@ begin
                 CNT := 0;
                 INFL <= '0';
                 INFL_STALE <= '0';
-                Q_DISMISS <= '0';
             end if;
             Q_W <= W; Q_F <= F; Q_CNT <= CNT;
         end if;
     end process P_QUEUE;
+
+    -- [F62c] The decoder's own dismissal flag, not a registered copy of its logic: one flip-flop decides
+    -- whether the next opcode ready is a dummy, so the decoder and the queue cannot disagree.
+    Q_DISMISS <= OPC_DISMISS;
 
     FC_OUT <= F_FC when PF_ACC = '1' else FC_IN; -- [F62]
 
