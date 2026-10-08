@@ -703,3 +703,61 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   disabled (Blitting 11%), so the ST_STE blitter is not in use under the 030.
   Screenshots: box `/workspace/st_helper_out/chkfix/` (`cf_gb1.png` low-res
   alert, `cf_gb2.png` main screen, `gb6_results_6c706f0.png` results).
+
+## 7i. Bus bridge (F61) and long-word instruction fetch (F62/F62b): both not adopted, 8 Oct 2026
+
+Main stays on the F60 CPU and bridge (board build `st_helper_chkfix_6c706f0.fs`).
+The new whole-ST bus bench (`cpu030/sim/st`, Gowin netlist of the CPU via `cpu030/sim/wf030_syn.tcl`) is kept.
+
+### Stage A: ST bus bridge F61 (0104f1b, reverted in 6611246)
+- Goal: start the ST cycle from the live 030 request and give DSACK early (S4), so back-to-back 030 cycles use consecutive 500 ns ST slots.
+- Finding in the corrected bench (016016e: the RAM model now samples write data/DQM like `sdram.v`): with A = the start of the ST cycle (S0),
+  RAM read data reaches the ST data bus (iEdb) only at A+406 ns (sdram dout 5 clk32 after RAS).
+  The 030 latches data 93.75 ns after DSACK, so F61 (DSACK at A+312, so the latch is at A+375) read wrong RAM data. ROM and I/O were fine.
+- So DSACK cannot move earlier until RAM data arrives earlier. The next stage is a RAM controller early start, then rework the bridge from 0104f1b.
+  The F61 code is not active on main.
+
+### Stage B: F62 opcode prefetch queue (branch `f62-prefetch`, cc2acd5)
+- F62 change: aligned long-word instruction fetches (SIZ = 00) with no idle clocks between them.
+  - A jump to a 4n+2 target fetches the aligned long and drops the first word.
+  - A speculative fetch is issued when the queue has at most 1 word left.
+  - Write snoop; faults are tracked per half.
+- F62 also has three fixes to the original core, each with a GHDL test (`prog_branch.s`, checked at 0/1/3/7 wait states):
+  - an unused prefetch fault no longer fails the next data read (DATA_VALID);
+  - a faulted opword gives BERR instead of line F;
+  - no stale line-F trap after a BERR.
+- Build: timing clean (clk32_core 32.45 MHz, clk_cpu030 17.09 MHz). `st_helper_fetch_cc2acd5.fs`, SHA256 ab5c96d0...61e01aa9.
+- Board: black screen at boot, and no mailbox "hello" (that is printed after GEMDOS init).
+- Cause, found in sim (the TOS 2.06 UK ROM in the whole-ST bench):
+  - Because the PAL flag is set (E0001D bit 0), TOS runs a vblank sync at E013D2 **before** it sets the palette (E000AE).
+  - First a timer B event count on DE, then the loop E013F0-E013FA: `move.b (a0),d4; move.w #615,d3; 1: cmp.b (a0),d4; bne 0b; dbf d3,1b`.
+    The loop must run 616 times with no DE edge, so all of it must fit inside one vertical blank.
+  - At reset the shifter runs at 60 Hz, so the blank is about 63 lines, about 4.0 ms. Each iteration must take less than about 6.5 us.
+  - The loop target E013F6 is at 4n+2. F62 fetches the long at E013F4 and wastes a word, then E013F8, E013FC, a speculative E01400, plus the MFP read.
+    That is 9 ST cycles, about 6.75 us per iteration. The loop never ends and the palette is never set.
+  - Bench evidence (bench aid: the MFP timer trigger/AER registers get a reset value, and DE is driven as 200 lines of 4 us plus a 4 ms blank):
+    the old core reaches the palette at 8.860 ms, while F62 is still in the loop at 15.9 ms.
+  - The GHDL copy of the loop (`prog_loop.s`, 616 iterations, target at 4n+2, WS = 5) finishes at clk 45885 on the old core and 56927 on F62 (+24%).
+
+### F62b (branch `f62-prefetch`, ed5718d): a deviation from the 68030
+- A restart now fetches a long at the requested **word**. A 4n+2 target gives one misaligned long (words 4n+2 and 4n+4, two bus cycles on the 16-bit ST bus) and drops nothing.
+- **Deviation:** a real 68030 always fetches instructions as aligned longs. This is done because there is no instruction cache yet at 16 MHz,
+  and the TOS 2.06 UK 60 Hz vblank-sync loop at E013F0 has no time to spare. Revisit this once the I-cache exists.
+- Sim results:
+  - `prog_loop` WS5: 44627 clk (old core 45885). `run_rtl.sh` passes, with a new loop timing guard.
+  - Whole-ST bus test: same results as the old core (byte loop +6%, misaligned loop equal).
+  - TOS sim reaches the palette at 8.858 ms.
+- Build ed5718d (`place_option 1`): TNS 0 on all clocks; clk32_core 32.002 MHz, clk_cpu030 16.080 MHz.
+  `st_helper_fetch_ed5718d.fs`, SHA256 a13a4c16f00640183904be00ff0363ab5ca8cab07c541ebeceefc9de63f270e6.
+- Board:
+  - Cold boot (TOS 2.06, blank.st) reaches the desktop; a warm reset also reaches the desktop.
+  - ST Medium works and GEMBENCH 6.31 loads its main screen.
+  - **Moving the pointer into GEMBENCH's menu bar freezes the ST** (pointer stops, no menu drops). Seen 2 times out of 2, while the TOS desktop menus work.
+  - So there are no GEMBENCH figures; the baseline is still F60 (RAM 48%, ROM 60%, Display 31%, CPU 120%, average 61%).
+- Not yet diagnosed. A frozen pointer means VBL/IKBD interrupts are no longer serviced. Candidates:
+  - side effects of the speculative prefetch;
+  - write snoop;
+  - an interrupt during a queue restart;
+  - one of the three cc2acd5 fixes.
+  The sims (CPU programs, bus test, TOS boot to the palette) do not cover this.
+- The fallback `st_helper_chkfix_6c706f0.fs` is back on the board.
