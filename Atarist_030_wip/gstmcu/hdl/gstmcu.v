@@ -68,8 +68,6 @@ module gstmcu (
     output ROM0_N,
     output ROM1_N,
     output ROM2_N,
-    input  ASE_N,      // FalconFPGA F61: bus master address valid before AS (68030 bridge S0), 1 if unused
-    output ROM2E_N,    // FalconFPGA F61: ROM2_N decoded from ASE_N or AS_N (TOS flash read start)
     output ROM3_N,
     output ROM4_N,
     output ROM5_N,
@@ -204,14 +202,6 @@ wire romxb = ~(irom0 | irom1 | irom2 | irom3 | irom4 | irom6 | irom6 | romp);
 assign ROM0_N = ~irom0;
 assign ROM1_N = ~irom1;
 assign ROM2_N = ~irom2;
-// FalconFPGA F61: the same TOS ROM decode with the address strobe widened to
-// the bus master's address phase (ASE_N, the 68030 bridge's S0), so the SPI
-// flash read starts when the address is valid, like a ROM's address access
-// time, instead of at AS. DTACK and everything else still use AS.
-wire iase   = ias | (~ixdma & ~ASE_N);
-wire irom2e = (iase & rvec & A[23:16] == 8'h00) |
-              (rom & iase & ((~tos192k & A[23:18] == { 4'hE, 2'b00 }) | (tos192k & A[23:18] == { 4'hF, 2'b11 } & A[19:16] != 4'hF)));
-assign ROM2E_N = ~irom2e;
 assign ROM3_N = ~irom3;
 assign ROM4_N = ~irom4;
 assign ROM5_N = ~irom5;
