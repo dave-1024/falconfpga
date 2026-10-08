@@ -3,7 +3,8 @@
 # Checks that a level-4 interrupt is never taken with mask 7 (F55, MOVE to SR),
 # and that prog_chk.s / prog_branch.s (F62: branches to 4n/4n+2, jumps, traps,
 # prefetch bus errors, code written ahead of the PC, user mode) write the
-# results in expect_*.txt with 0, 1, 3 and 7 wait states.
+# results in expect_*.txt with 0, 1, 3 and 7 wait states, and that the TOS
+# vblank-sync loop (prog_loop.s) is not slower than with the original core.
 # Usage: run_rtl.sh [scratch dir, default /tmp/sim030rtl]. Needs GHDL >= 4 and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); S=${WF_SRC:-$H/../..}; W=${1:-/tmp/sim030rtl}; mkdir -p $W/work; cd $W
@@ -41,4 +42,12 @@ print(' '.join(s))")
     [ "$r" = "$(cat $H/expect_$p.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_$p WS=$ws"; fail=1; }
   done
 done
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match"
+# F62: TOS 2.06 vblank-sync loop (prog_loop.s, target at 4n+2) must not be slower than
+# the original core (45885 clocks at WS=5), else TOS UK hangs before the palette.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_loop.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_loop.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+$G -r $O tb030 -gROMFILE=prog_loop.hex -gWS=5 -gMAXCLK=200000 2>/dev/null > r.log || true
+lc=$(awk '/DONE/{print $NF}' r.log); echo "prog_loop WS=5: DONE at clk ${lc:-none}"
+[ -n "$lc" ] && [ "$lc" -le 45885 ] || { echo "FAIL prog_loop slower than the original core"; fail=1; }
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, loop timing ok"
