@@ -218,6 +218,7 @@ component WF68K30L_ALU
 end component;
 
 component WF68K30L_BUS_INTERFACE
+    generic (PREFETCH_Q : integer := 0); -- [F62]
     port (
         CLK                 : in std_logic;
         CLK_F               : in std_logic; -- [F58]
@@ -243,6 +244,10 @@ component WF68K30L_BUS_INTERFACE
         OPCODE_VALID        : out std_logic;
         RMC                 : in bit;
         BUSY_EXH            : in bit;
+        OPC_RD              : in bit; -- [F62]
+        OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
+        OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
+        IPIPE_FLUSH         : in bit; -- [F62]
         INBUFFER            : out std_logic_vector(31 downto 0);
         OUTBUFFER           : out std_logic_vector(31 downto 0);
         SSW_80              : out std_logic_vector(8 downto 0);

@@ -973,11 +973,16 @@ begin
     TRAP_cc <= '1' when RESET_CPU = '0' and OP = TRAPcc and ALU_COND = true and FETCH_STATE = SLEEP and NEXT_FETCH_STATE = START_OP else '0';
     TRAP_V <= '1' when RESET_CPU = '0' and OP = TRAPV and ALU_COND = true and FETCH_STATE = SLEEP and NEXT_FETCH_STATE = START_OP else '0';
 
-    BERR <= '0' when FETCH_STATE = START_OP and EXEC_WB_STATE = IDLE else -- Disable when controller is not active.
-            '0' when OP = BKPT else -- No bus error during breakpoint cycle.
-            '1' when DATA_RDY = '1' and DATA_VALID = '0' else
+    -- [F62] A faulted operation word is reported when the controller takes it, which is at the
+    -- instruction boundary (FETCH_STATE = START_OP): the idle gate below applies to data cycles only.
+    -- Before, an instruction fetch fault on an operation word was dropped and the bus's $FFFF was
+    -- executed as a line F opcode.
+    BERR <= '0' when OP = BKPT and FETCH_STATE /= START_OP else -- No bus error during breakpoint cycle.
             '1' when OPD_ACK = '1' and OW_VALID = '0' else
-            '1' when EW_ACK = '1' and OW_VALID = '0' else '0';
+            '1' when EW_ACK = '1' and OW_VALID = '0' else
+            '0' when FETCH_STATE = START_OP and EXEC_WB_STATE = IDLE else -- Disable when controller is not active.
+            '0' when OP = BKPT else
+            '1' when DATA_RDY = '1' and DATA_VALID = '0' else '0';
 
     SFC_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"000" else '0';
     SFC_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1(11 downto 0) = x"000" and EXEC_WB_STATE = WRITEBACK else '0';

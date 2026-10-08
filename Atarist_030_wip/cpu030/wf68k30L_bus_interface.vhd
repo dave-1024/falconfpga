@@ -68,6 +68,13 @@ use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
 entity WF68K30L_BUS_INTERFACE is
+    generic (
+        -- [F62] 1: opcode prefetch queue. Instruction words are fetched as aligned long
+        -- words (SIZE = 00, two word cycles with dynamic bus sizing on a 16-bit port, as a
+        -- 68030 does) into a three-word queue, ahead of the decoder and back to back on
+        -- the bus. Decoder requests that hit the queue are served in one clock. 0: the
+        -- original one-word-per-request opcode cycles (used with the caches).
+        PREFETCH_Q          : integer := 0);
     port (
         -- System control:
         CLK                 : in std_logic; -- System clock.
@@ -106,6 +113,10 @@ entity WF68K30L_BUS_INTERFACE is
         OPCODE_VALID        : out std_logic; -- The opcode buffer contains valid data when '1'.
         RMC                 : in bit; -- Indicates a read modify write operation.
         BUSY_EXH            : in bit;
+        OPC_RD              : in bit; -- [F62] Raw decoder opcode request (not masked while the bus is busy).
+        OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
+        OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
+        IPIPE_FLUSH         : in bit; -- [F62] Decoder pipe flush (mirrors its OPCODE_FLUSH dismissal).
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -195,6 +206,34 @@ signal T_SLICE              : TIME_SLICES := IDLE;  -- [F54] measured warm-boot 
 signal WAITSTATES           : bit := '0';  -- [F54] measured warm-boot value
 signal WP_BUFFER            : std_logic_vector(31 downto 0);
 signal WRITE_ACCESS         : bit := '0';  -- [F54] measured warm-boot value
+-- [F62] Opcode prefetch queue.
+type QWORDS_T is array (0 to 3) of std_logic_vector(15 downto 0);
+signal Q_W                  : QWORDS_T;
+signal Q_F                  : bit_vector(0 to 3) := "0000";  -- Word fetched with a bus error.
+signal Q_CNT                : integer range 0 to 4 := 0;
+signal Q_ADR                : std_logic_vector(31 downto 1) := (others => '0'); -- Address of Q_W(0).
+signal Q_FC                 : std_logic_vector(2 downto 0) := "110";
+signal S_VALID              : bit := '0'; -- The queue holds the stream starting at Q_ADR.
+signal S_FAULTED            : bit := '0'; -- A fetch of this stream faulted: no further eager fetches.
+signal F_ADR                : std_logic_vector(31 downto 2) := (others => '0'); -- Next long word to fetch.
+signal DROP1_NEXT           : bit := '0'; -- The next fetch starts the stream on an odd word.
+signal INFL                 : bit := '0'; -- A prefetch is in flight.
+signal INFL_STALE           : bit := '0'; -- ... and its data is to be discarded.
+signal INFL_DROP1           : bit := '0'; -- ... and its first word is to be dropped.
+signal F_CUR                : std_logic_vector(31 downto 2) := (others => '0');
+signal F_FC                 : std_logic_vector(2 downto 0) := "110";
+signal PF_ACC               : bit := '0'; -- The current opcode access is a queue prefetch.
+signal PF_FLT0              : bit := '0';
+signal PF_FLT1              : bit := '0';
+signal Q_DISMISS            : bit := '0';
+signal Q_HIT                : bit;
+signal Q_MISS               : bit;
+signal Q_DUMMY              : bit;
+signal Q_MATCH              : bit;
+signal PF_REQ               : bit;
+signal PF_START             : bit;
+signal PF_DONE              : bit;
+signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 begin
 
     P_SYNC_N: process(CLK_F)
@@ -254,17 +293,22 @@ begin
                 READ_ACCESS <= '1';
             elsif WR_REQ = '1' then
                 WRITE_ACCESS <= '1';
-            elsif OPCODE_REQ = '1' then
+            elsif OPC_LEGACY = '1' then
                 OPCODE_ACCESS <= '1';
+            elsif PF_START = '1' then
+                OPCODE_ACCESS <= '1';
+                PF_ACC <= '1';
             end if;
         elsif AERR = '1' then -- Reject due to address error.
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
             OPCODE_ACCESS <= '0';
+            PF_ACC <= '0';
         elsif BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE and SIZE_N = "000" then
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
             OPCODE_ACCESS <= '0';
+            PF_ACC <= '0';
         end if;
     end process ACCESSTYPE;
 
@@ -417,6 +461,8 @@ begin
                     when WORD => SIZE_N <= "010";
                     when BYTE => SIZE_N <= "001";
                 end case;
+            elsif PREFETCH_Q /= 0 and OPC_LEGACY = '0' then -- [F62] Queue prefetch.
+                SIZE_N <= "100"; -- LONG.
             else -- OPCODE_ACCESS.
                 SIZE_N <= "010"; -- WORD.
             end if;
@@ -476,7 +522,8 @@ begin
     end process BUS_STATE_REG;
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
-                          OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS)
+                          OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
+                          OPC_LEGACY, PF_REQ)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -493,8 +540,10 @@ begin
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
                 elsif WR_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New write cycle.
-                elsif OPCODE_REQ = '1' and SIZE_N = "000" then
+                elsif OPC_LEGACY = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
+                elsif PF_REQ = '1' and SIZE_N = "000" then
+                    NEXT_BUS_CTRL_STATE <= START_CYCLE; -- [F62] New prefetch cycle.
                 elsif READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- Pending (split) bus cycles.
                 else
@@ -507,10 +556,10 @@ begin
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif OPCODE_REQ = '1' and ADR_IN_P(0) = '1' then
                     NEXT_BUS_CTRL_STATE <= IDLE; -- Abort due to address error.
-                elsif OPCODE_REQ = '1' and ADR_IN_P(0) = '1' then
-                    NEXT_BUS_CTRL_STATE <= IDLE; -- Abort due to address error.
-                elsif OPCODE_REQ = '1' then
+                elsif OPC_LEGACY = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
+                elsif PF_REQ = '1' then
+                    NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [F62]
                 else
                     NEXT_BUS_CTRL_STATE <= IDLE;
                 end if;
@@ -561,7 +610,7 @@ begin
         end if;
     end process P_ADR_OFFS;
 
-    ADR_OUT_I <= ADR_IN_P + ADR_OFFSET;
+    ADR_OUT_I <= (F_CUR & "00") + ADR_OFFSET when PF_ACC = '1' else ADR_IN_P + ADR_OFFSET; -- [F62]
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -574,7 +623,115 @@ begin
     -- Address and bus errors:
     AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
 
-    FC_OUT <= FC_IN;
+    -- [F62] Opcode prefetch queue. The decoder requests one word at a time (OPC_RD, address
+    -- OPC_ADR = PC_L). The queue fetches the instruction stream as aligned long words in its
+    -- own cycles while the bus is otherwise free (data requests keep priority), so up to
+    -- three words wait ahead of the decoder and the fetches follow each other back to back.
+    -- A request that is not the head of the stream restarts it (branch, exception); a stream
+    -- starting on an odd word drops the first word of its first long. A bus error is kept
+    -- per word and only reported (OPCODE_VALID = 0) when the decoder takes that word, as on
+    -- a 68030 where a prefetch fault is signalled only if the word is used. Odd addresses
+    -- still take the ordinary opcode cycle path to raise the address error. A write that
+    -- touches the queued or in-flight long words flushes the queue.
+    OPC_LEGACY <= OPCODE_REQ when PREFETCH_Q = 0 else
+                  OPCODE_REQ and To_Bit(ADR_IN_P(0));
+    Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
+    Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
+    Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
+                       not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
+    Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
+    PF_REQ <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 else '0';
+    PF_START <= '1' when BUS_CTRL_STATE = START_CYCLE and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and
+                         RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
+    PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
+
+    P_QUEUE: process
+    variable W      : QWORDS_T;
+    variable F      : bit_vector(0 to 3);
+    variable CNT    : integer range 0 to 4;
+    variable F0, F1 : bit;
+    variable WDIST  : std_logic_vector(31 downto 2);
+    begin
+        wait until CLK = '1' and CLK' event;
+        if PREFETCH_Q /= 0 then
+            -- Mirror of the decoder's OPCODE_FLUSH: the first ready after a flush with a pending request is dismissed.
+            if IPIPE_FLUSH = '1' and OPC_RD = '1' and OPCODE_RDY_I = '0' then
+                Q_DISMISS <= '1';
+            elsif OPCODE_RDY_I = '1' or BUSY_EXH = '1' then
+                Q_DISMISS <= '0';
+            end if;
+            --
+            W := Q_W; F := Q_F; CNT := Q_CNT;
+            if Q_HIT = '1' then
+                W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3);
+                CNT := CNT - 1;
+                Q_ADR <= Q_ADR + '1';
+            end if;
+            -- Bus errors of the running prefetch, per word.
+            if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
+                if ADR_OFFSET(1) = '0' then PF_FLT0 <= '1'; else PF_FLT1 <= '1'; end if;
+            end if;
+            if PF_START = '1' then
+                INFL <= '1';
+                INFL_STALE <= '0';
+                INFL_DROP1 <= DROP1_NEXT;
+                DROP1_NEXT <= '0';
+                F_CUR <= F_ADR;
+                F_FC <= Q_FC;
+                F_ADR <= F_ADR + '1';
+                PF_FLT0 <= '0';
+                PF_FLT1 <= '0';
+            end if;
+            if PF_DONE = '1' then
+                F0 := PF_FLT0 or (To_Bit(BUS_FLT) and not To_Bit(ADR_OFFSET(1)));
+                F1 := F0 or PF_FLT1 or (To_Bit(BUS_FLT) and To_Bit(ADR_OFFSET(1)));
+                if INFL_STALE = '0' then
+                    if INFL_DROP1 = '0' then
+                        W(CNT) := DATA_INMUX(31 downto 16); F(CNT) := F0; CNT := CNT + 1;
+                    end if;
+                    W(CNT) := DATA_INMUX(15 downto 0); F(CNT) := F1; CNT := CNT + 1;
+                    if F1 = '1' then
+                        S_FAULTED <= '1'; -- Words up to the fault are queued; refetch on demand only.
+                    end if;
+                end if;
+                INFL <= '0';
+                INFL_STALE <= '0';
+            end if;
+            -- A write into the queued or in-flight long words flushes the queue.
+            WDIST := ADR_IN_P(31 downto 2) - Q_ADR(31 downto 2) + '1'; -- From the long word below the head (misaligned writes).
+            if BUS_CTRL_STATE = START_CYCLE and RD_REQ = '0' and WR_REQ = '1' and READ_ACCESS = '0' and
+               WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and WDIST(31 downto 4) = x"000000" & "0000" then
+                S_VALID <= '0';
+                CNT := 0;
+                if INFL = '1' then
+                    INFL_STALE <= '1';
+                end if;
+            end if;
+            -- Restart the stream at the requested word.
+            if Q_MISS = '1' then
+                CNT := 0;
+                S_VALID <= '1';
+                S_FAULTED <= '0';
+                Q_ADR <= OPC_ADR(31 downto 1);
+                Q_FC <= OPC_FC;
+                F_ADR <= OPC_ADR(31 downto 2);
+                DROP1_NEXT <= To_Bit(OPC_ADR(1));
+                if (INFL = '1' and PF_DONE = '0') or PF_START = '1' then
+                    INFL_STALE <= '1';
+                end if;
+            end if;
+            if RESET_CPU_I = '1' then
+                S_VALID <= '0';
+                CNT := 0;
+                INFL <= '0';
+                INFL_STALE <= '0';
+                Q_DISMISS <= '0';
+            end if;
+            Q_W <= W; Q_F <= F; Q_CNT <= CNT;
+        end if;
+    end process P_QUEUE;
+
+    FC_OUT <= F_FC when PF_ACC = '1' else FC_IN; -- [F62]
 
     -- The output multiplexer is as follows:
     -- SIZE    ADR    Bytes (L = long word port, W = word port, B = Byte port, x = not used by either port)
@@ -700,7 +857,9 @@ begin
         --
         if RESET_CPU_I = '1' then
             OPCODE_VALID <= '1';
-        elsif OPCODE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
+        elsif PREFETCH_Q /= 0 and Q_HIT = '1' then -- [F62] Fault flag of the served word.
+            if Q_F(0) = '1' then OPCODE_VALID <= '0'; else OPCODE_VALID <= '1'; end if;
+        elsif PREFETCH_Q = 0 and OPCODE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
             OPCODE_VALID <= '0';
         elsif OPCODE_RDY_I = '1' then
             OPCODE_VALID <= '1'; -- Reset after use, TRAP_BERR is asserted during DATA_RDY.
@@ -710,8 +869,8 @@ begin
             DATA_VALID <= '1';
         elsif READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' and HALT_In = '0' then
             null; -- This is the RETRY condition, no bus error.
-        elsif BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
-            DATA_VALID <= '0';
+        elsif (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
+            DATA_VALID <= '0'; -- [F62] Data cycles only: an opcode fetch fault must not fail the next data read.
         elsif DATA_RDY_I = '1' then
             DATA_VALID <= '1'; -- Reset after use, TRAP_BERR is asserted during DATA_RDY.
         end if;
@@ -732,7 +891,7 @@ begin
         --
         -- The following variable is responsible, that the _RDY signals are
         -- always strobes.
-        if DATA_RDY_I = '1' or OPCODE_RDY_I = '1' then
+        if DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
             RDY_VAR := '0';
         elsif BUS_CTRL_STATE = START_CYCLE then
             RDY_VAR := '1';
@@ -740,6 +899,13 @@ begin
         -- Opcode cycle:
         if AERR_I = '1' then
             OPCODE_RDY_I <= '1';
+        elsif PREFETCH_Q /= 0 then -- [F62] Served from the prefetch queue (P_QUEUE).
+            if Q_DUMMY = '1' then
+                OPCODE_RDY_I <= '1'; -- Dismissed by the decoder (pipe flush with a pending request).
+            elsif Q_HIT = '1' then
+                OBUFFER <= Q_W(0);
+                OPCODE_RDY_I <= '1';
+            end if;
         elsif OPCODE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
             -- Instruction prefetches are always long and on word boundaries.
             -- The word is available after the first word read.
@@ -778,7 +944,7 @@ begin
                   '1' when RESET_OUT_I = '1' else -- No bus fault during RESET instruction.
                   '0' when DSACK_In /= "11" else -- For asynchronous bus cycles.
                   '0' when STERM_In = '0' else -- For synchronous bus cycles.
-                  '0' when FC_IN = "111" and ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' else -- F6/H12: AVEC terminates CPU-space IACK ONLY; ordinary cycles at $xFxxxx (grounded-AVECn systems, slow memory) must not be cut short.
+                  '0' when PF_ACC = '0' and FC_IN = "111" and ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' else -- F6/H12: AVEC terminates CPU-space IACK ONLY; ordinary cycles at $xFxxxx (grounded-AVECn systems, slow memory) must not be cut short.
                   '0' when BUS_FLT = '1' else -- In case of a bus error;
                   '0' when RESET_CPU_I = '1' else '1'; -- A CPU reset terminates the current bus cycle.
 

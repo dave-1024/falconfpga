@@ -437,7 +437,11 @@ begin
             BIW_0 <= IPIPE.D;
             BIW_1 <= IPIPE.C;
             BIW_2 <= IPIPE.B;
-            TRAP_CODE <= TRAP_CODE_I;
+            if IPIPE_D_FAULT = '1' then
+                TRAP_CODE <= NONE; -- [F62] Faulted operation word: the bus error is taken, not its decode.
+            else
+                TRAP_CODE <= TRAP_CODE_I;
+            end if;
             --
             if OP_I = STOP then
                 OP_STOP := true;
