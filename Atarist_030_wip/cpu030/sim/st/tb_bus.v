@@ -1,7 +1,7 @@
 `timescale 1ps/1ps
 // Whole ST core (atarist.v, CPU_030 + cpu030_st_bridge + WF68K30L netlist)
 // with board-like memory latencies:
-//   RAM: cycle model of tang/mega138kpro/sdram.v (CL2, dout 5 clk32 after RAS)
+//   RAM: cycle model of tang/mega138kpro/sdram.v (CL2, dout 5 clk32 after RAS, write data/DQM sampled 1.5 clk32 after RAS)
 //   ROM: cycle model of tang/console60k/flash_dspi.v at 100 MHz (async to
 //        clk32, 2-flop cs sync, 25 states, dout filled 2 bits per clock)
 // Checks every bridge read: iEdb at en1 entering S6 (A+375) against iEdb at
@@ -31,22 +31,21 @@ module tb_bus;
     end
     // ---- sdram.v cycle model ----
     wire cs = !ras_n && !ram_a[23];
-    reg csD = 0; reg [2:0] st = 0; reg [21:0] la;
+    reg csD = 0, wr = 0; reg [2:0] st = 0; reg [21:0] la;
     always @(posedge clk32) begin
         csD <= cs;
         if (st == 0) begin
             if (cs && !csD && !refresh) st <= 1;
         end else begin
             st <= (st == 6) ? 0 : st + 1;
-            if (st == 1) begin
-                la = ram_a[22:1];
-                if (!we_n) begin
-                    if (!cash_n) ram[la][15:8] <= mdout[15:8];
-                    if (!casl_n) ram[la][7:0]  <= mdout[7:0];
-                end
-            end
-            if (st == 4 && we_n) mdin <= ram[la];
+            if (st == 1) begin la = ram_a[22:1]; wr <= !we_n; end
+            if (st == 4 && !wr) mdin <= ram[la];
         end
+    end
+    // WRITE command issued at the end of state 1; the SDRAM (sd_clk = ~clk) samples DQ/DQM half a clock later
+    always @(negedge clk32) if (st == 2 && wr) begin
+        if (!cash_n) ram[la][15:8] <= mdout[15:8];
+        if (!casl_n) ram[la][7:0]  <= mdout[7:0];
     end
     // ---- flash_dspi.v cycle model ----
     reg fD = 0, fD2 = 0, busy = 0; reg [5:0] fs = 0; reg [15:0] fw;

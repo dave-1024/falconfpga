@@ -56,6 +56,7 @@ report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {c
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030_n}]
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_cpu030}]
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk32_core}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk32_core}]
 report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030_n}] -to_clock [get_clocks {clk_cpu030}]
 // F60: clk_osc hold report (the DDR3 PLL init counter missed hold with placer 0)
 report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_osc}] -to_clock [get_clocks {clk_osc}]

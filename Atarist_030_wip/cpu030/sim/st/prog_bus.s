@@ -4,6 +4,7 @@
         .long   start
 start:  move.w  #0x2700,%sr
         lea     0x8000,%sp
+        move.b  #0x0a,0xffff8001.w      | MMU bank config (2+2 MB), as TOS does
         lea     berr(%pc),%a0
         move.l  %a0,0x8.w
         clr.l   0x1200.w
@@ -87,7 +88,7 @@ start:  move.w  #0x2700,%sr
         move.w  0xffff8a20.w,(%a1)+     | 1234
         move.w  #0xbeef,0xffff8a00.w    | halftone 0
         move.w  0xffff8a00.w,(%a1)+     | beef
-        move.w  0xffff8604.w,%d0        | DMA/FDC
+        move.w  #0x0080,0xffff8606.w    | DMA mode: FDC status register
         move.w  0xffff8606.w,(%a1)+     | DMA status
         move.l  %a1,0x11fc.w
 | bus error on an unmapped address
