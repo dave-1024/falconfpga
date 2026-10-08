@@ -410,6 +410,8 @@ signal SP_ADD_DISPL             : bit;
 signal SP_ADD_DISPL_EXH         : bit;
 signal SP_ADD_DISPL_MAIN        : bit;
 signal SBIT                     : std_logic;
+signal OPC_FC                   : std_logic_vector(2 downto 0); -- [F62]
+constant PREFETCH_Q_EN          : integer := 1 - CACHES; -- [F62] Opcode prefetch queue when the caches are not built.
 signal SSW_80                   : std_logic_vector(8 downto 0);
 signal BFLT_SSW                 : std_logic_vector(8 downto 0); -- F1
 signal BFLT_ADR                 : std_logic_vector(31 downto 0); -- F1
@@ -828,6 +830,7 @@ begin
     end process REFILL_STATUS;
 
     SBIT <= STATUS_REG(13);
+    OPC_FC <= "110" when SBIT = '1' else "010"; -- [F62]
 
     ADR_L <= x"000000" & "000" & BIW_0(2 downto 0) & "00" when BKPT_CYCLE = '1' else
              x"FFFFFFF" & IRQ_PEND & '1' when CPU_SPACE_EXH = '1' else
@@ -1029,6 +1032,7 @@ begin
         );
 
     I_BUS_IF: WF68K30L_BUS_INTERFACE
+        generic map(PREFETCH_Q => PREFETCH_Q_EN) -- [F62]
         port map(
             CLK                 => CLK,
             CLK_F               => CLK_F, -- [F58]
@@ -1060,6 +1064,10 @@ begin
             OPCODE_VALID        => OPCODE_VALID,
             RMC                 => RMC,
             BUSY_EXH            => BUSY_EXH,
+            OPC_RD              => OPCODE_RD, -- [F62]
+            OPC_ADR             => PC_L,
+            OPC_FC              => OPC_FC,
+            IPIPE_FLUSH         => IPIPE_FLUSH,
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,
