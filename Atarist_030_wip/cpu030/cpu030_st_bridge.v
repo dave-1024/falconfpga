@@ -96,6 +96,7 @@ module cpu030_st_bridge #(
 
     output wire        eRWn,
     output wire        ASn,
+    output wire        ASEn,        // F61: address phase (S0) of a cycle, before ASn (TOS flash read start)
     output wire        LDSn,
     output wire        UDSn,
     output reg         E,
@@ -294,12 +295,25 @@ module cpu030_st_bridge #(
     wire rmc_lock = ~rmc_sync[1];
 
     reg  s_seen = 1'b0;
-    wire pending = (req_now != s_seen);
+    // F61: a request is also seen live, on the first clk_32 edge where the
+    // 030's AS is low (the edge that opens c_open), straight from the 030's
+    // AS/address/SIZE/RW/FC/data outputs (related-clock paths, 31.25 ns). An
+    // en1 on that edge starts the ST cycle at once instead of one clk_32
+    // later, so the 030 can follow a cycle that ends at S6 with the next S0.
+    // q_* are the request fields: live on that edge, captured (c_*) after it.
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open;
+    wire pending = live | (req_now != s_seen);
+    wire        q_tag  = live ? ~c_req_t        : c_req_t;
+    wire [23:0] q_adr  = live ? cpu_adr[23:0]   : c_adr;
+    wire [1:0]  q_size = live ? cpu_size        : c_size;
+    wire        q_rwn  = live ? cpu_rwn         : c_rwn;
+    wire [2:0]  q_fc   = live ? cpu_fc          : c_fc;
+    wire [15:0] q_wdata = live ? cpu_dout[31:16] : c_wdata;
     // request fields are stable: they were written together with the toggle
     // TF534 (Stephen J. Leary), rtl/bus_top.v: CPU space (FC=7) with A19:16=F
     // is an interrupt acknowledge; other CPU-space cycles are not passed on.
-    wire req_cpu_space = (c_fc == 3'b111);
-    wire req_iack      = req_cpu_space & (c_adr[19:16] == 4'hF);
+    wire req_cpu_space = (q_fc == 3'b111);
+    wire req_iack      = req_cpu_space & (q_adr[19:16] == 4'hF);
     wire req_bad_space = req_cpu_space & ~req_iack;
 
     // ---- input sampling like a 68000 (DTACK/BERR on en2, VPA/BR/BGACK en1)
@@ -358,19 +372,20 @@ module cpu030_st_bridge #(
     // BG is asserted in GRANT, and also in BUSY when another master already
     // requests again (68000 behaviour for chained masters)
     wire grant_nx = (arb_nx == A_GRANT) | ((arb_nx == A_BUSY) & ~BRi & ~bg_block);
-    wire can_start = pending & ~req_bad_space & bus_avail;
+    wire can_start = pending & ~req_bad_space & bus_avail;   // (CPU space: c_* path above)
     // A23:20 == E is the 256K map. FC/FD/FE is the 192K map.
-    wire req_rom = (c_adr[23:20] == 4'hE) |
-                   (c_adr[23:16] == 8'hFC) | (c_adr[23:16] == 8'hFD) |
-                   (c_adr[23:16] == 8'hFE);
+    wire req_rom = (q_adr[23:20] == 4'hE) |
+                   (q_adr[23:16] == 8'hFC) | (q_adr[23:16] == 8'hFD) |
+                   (q_adr[23:16] == 8'hFE);
 
 
     // UDS/LDS from A0 and SIZE: 16-bit port
     // TF534 (Stephen J. Leary), rtl/bus_top.v: these equations are his.
-    wire req_uds = ~c_adr[0];
-    wire req_lds =  c_adr[0] | (c_size != 2'b01);
+    wire req_uds = ~q_adr[0];
+    wire req_lds =  q_adr[0] | (q_size != 2'b01);
 
     assign ASn  = rAS;
+    assign ASEn = ~(phase == P_S0);
     assign UDSn = rUDS;
     assign LDSn = rLDS;
     assign eRWn = rRWn;
@@ -429,7 +444,7 @@ module cpu030_st_bridge #(
                 BGn <= ~granting;
 
             // ---- CPU-space cycles other than IACK: BERR, no ST cycle ----
-            if (pending & req_bad_space) begin
+            if (pending & ~live & req_bad_space) begin   // captured (c_*) request only
                 s_seen  <= req_now;
                 s_tag   <= req_now;
                 s_dsack <= 1'b0;
@@ -445,11 +460,15 @@ module cpu030_st_bridge #(
             // sample edge (en2 in S4, the edge that also loads rDtack)
             // At 16 MHz the 030 would latch the data 94 ns after en2, before
             // S6 en2, so DSACK is given one phase later (S4 -> S6 en1).
-            if ((CPU_DIV >= 4) ? (enPhi2 & (phase == P_S4) & ~DTACKn)
-                               : (enPhi1 & (phase == P_S4) & ~rDtack)) begin
+            // F61: also at 16 MHz. The read word is taken on the en1 edge
+            // that enters S6 (below), 31.25 ns before the 030's data latch
+            // edge (>= 93.75 ns after this en2).
+            if (enPhi2 & (phase == P_S4) & ~DTACKn) begin
                 s_tag   <= r_tag;
                 s_dsack <= 1'b1;
             end
+            if (enPhi1 & (phase == P_S4) & ~rDtack)
+                s_rdata <= iEdb;
 
             if (enPhi2 & (phase == P_S0))
                 addr_oe <= 1'b1;
@@ -459,7 +478,8 @@ module cpu030_st_bridge #(
                 rAS     <= 1'b1;
                 rUDS    <= 1'b1;
                 rLDS    <= 1'b1;
-                s_rdata <= iEdb;
+                if (r_res != R_DSACK | rDtack)   // VPA/E cycle, IACK vector, BERR
+                    s_rdata <= iEdb;
                 s_tag   <= r_tag;
                 s_dsack <= (r_res == R_DSACK);
                 s_avec  <= (r_res == R_AVEC);
@@ -505,15 +525,15 @@ module cpu030_st_bridge #(
                     if (req_rom) rom_fetch <= 1'b1;
                     // accept the 030 request: 68000 S0
                     phase   <= P_S0;
-                    s_seen  <= req_now;
+                    s_seen  <= q_tag;
                     s_dsack <= 1'b0;
                     s_avec  <= 1'b0;
                     s_berr  <= 1'b0;
-                    r_tag   <= req_now;
-                    r_adr   <= c_adr[23:1];
-                    r_fc    <= c_fc;
-                    r_write <= ~c_rwn;
-                    r_dout  <= c_wdata;
+                    r_tag   <= q_tag;
+                    r_adr   <= q_adr[23:1];
+                    r_fc    <= q_fc;
+                    r_write <= ~q_rwn;
+                    r_dout  <= q_wdata;
                     r_uds   <= req_uds;
                     r_lds   <= req_lds;
                     r_iack  <= req_iack;

@@ -1,7 +1,7 @@
 `timescale 1ps/1ps
 // Whole ST core (atarist.v, CPU_030 + cpu030_st_bridge + WF68K30L netlist)
 // with board-like memory latencies:
-//   RAM: cycle model of tang/mega138kpro/sdram.v (CL2, dout 5 clk32 after RAS, write data/DQM sampled 1.5 clk32 after RAS)
+//   RAM: tang/mega138kpro/sdram.v itself (F63: with the gstmcu early start) and an SDRAM chip model (CL2)
 //   ROM: cycle model of tang/console60k/flash_dspi.v at 100 MHz (async to
 //        clk32, 2-flop cs sync, 25 states, dout filled 2 bits per clock)
 // Checks every bridge read: iEdb at en1 entering S6 (A+375) against iEdb at
@@ -15,12 +15,12 @@ module tb_bus;
     initial begin #(FL_PHASE_PS); forever #5000 flclk = ~flclk; end
     wire clk_cpu_n = ~clk_cpu;
     reg porb = 0, resb = 0;
-    initial begin repeat (20) @(posedge clk32); porb = 1; repeat (200) @(posedge clk32); resb = 1; end
+    initial begin repeat (20) @(posedge clk32); porb = 1; repeat (300) @(posedge clk32); resb = 1; end
 
     wire ras_n, cash_n, casl_n, we_n, refresh, rom_n;
     wire [23:1] ram_a, rom_addr;
     wire [15:0] mdout;
-    reg  [15:0] mdin = 16'h0000, rom_dout = 16'hffff;
+    reg  [15:0] mdin, rom_dout = 16'hffff;
     reg [15:0] rom [0:131071];
     reg [15:0] ram [0:(1<<21)-1];
     integer k; reg [8*128-1:0] romfn;
@@ -29,24 +29,41 @@ module tb_bus;
         $readmemh(romfn, rom);
         for (k = 0; k < (1<<21); k = k + 1) ram[k] = 16'h0000;
     end
-    // ---- sdram.v cycle model ----
-    wire cs = !ras_n && !ram_a[23];
-    reg csD = 0, wr = 0; reg [2:0] st = 0; reg [21:0] la;
-    always @(posedge clk32) begin
-        csD <= cs;
-        if (st == 0) begin
-            if (cs && !csD && !refresh) st <= 1;
-        end else begin
-            st <= (st == 6) ? 0 : st + 1;
-            if (st == 1) begin la = ram_a[22:1]; wr <= !we_n; end
-            if (st == 4 && !wr) mdin <= ram[la];
+    // ---- RAM: tang/mega138kpro/sdram.v (as in misterynano.sv) + SDRAM chip model (CL2) ----
+    wire ram_early; wire sd_ready;
+    wire [31:0] sd_dq; wire [12:0] sd_a; wire [3:0] sd_dqm; wire [1:0] sd_ba;
+    wire sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas;
+    wire [15:0] sd_dout;
+    sdram sdram (.clk(clk32), .reset_n(porb), .ready(sd_ready),
+        .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
+        .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
+        .refresh(refresh), .din(mdout), .dout(sd_dout), .addr(ram_a[22:1]), .ds({cash_n, casl_n}),
+        .cs(!ras_n && !ram_a[23]), .ecs(ram_early_en & ram_early && !ram_a[23]), .we(!we_n));
+    integer early_en = 1; initial if ($value$plusargs("early=%d", early_en)) ;
+    wire ram_early_en = (early_en != 0);
+    always @* mdin = sd_dout;
+    // chip: commands sampled on the sd_clk rising edge (= clk32 falling edge), CL2,
+    // tAC 5.4 ns, tOH 2.7 ns; READ/WRITE with A10 = auto precharge; memory = ram[]
+    reg [12:0] sd_row; reg [1:0] rdq = 0; reg [20:0] ra0, ra1; reg [15:0] dq_o; reg dq_oe = 0;
+    assign sd_dq[15:0] = dq_oe ? dq_o : 16'hzzzz;
+    always @(posedge sd_clk) begin
+        rdq <= {rdq[0], ({sd_ras, sd_cas, sd_we} == 3'b101)};
+        ra1 <= ra0;
+        if ({sd_ras, sd_cas, sd_we} == 3'b011) sd_row <= sd_a;
+        if ({sd_ras, sd_cas, sd_we} == 3'b101) ra0 <= {sd_row[11:0], sd_a[8:0]};
+        if ({sd_ras, sd_cas, sd_we} == 3'b100) begin
+            if (!sd_dqm[1]) ram[{sd_row[11:0], sd_a[8:0]}][15:8] <= sd_dq[15:8];
+            if (!sd_dqm[0]) ram[{sd_row[11:0], sd_a[8:0]}][7:0]  <= sd_dq[7:0];
         end
+        if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= ram[ra1]; dq_oe <= 1; end
+        else if (dq_oe) begin #2700 dq_oe <= 0; end
     end
-    // WRITE command issued at the end of state 1; the SDRAM (sd_clk = ~clk) samples DQ/DQM half a clock later
-    always @(negedge clk32) if (st == 2 && wr) begin
-        if (!cash_n) ram[la][15:8] <= mdout[15:8];
-        if (!casl_n) ram[la][7:0]  <= mdout[7:0];
-    end
+    // early start statistics: ACTIVE commands by origin, CPU half (time0 low) vs video half
+    integer n_early = 0, n_rasrd = 0, n_raswr = 0, n_vid = 0;
+    always @(posedge clk32) if (sd_ready && dut.gstmcu.time0_s == 1'b1 && sdram.ecs && (sdram.state == 0 || sdram.state == 6)) n_early = n_early + 1;
+    reg t_csD = 0; always @(posedge clk32) t_csD <= sdram.cs;
+    always @(posedge clk32) if (sd_ready && sdram.state == 0 && sdram.cs && !t_csD && !refresh && !(sdram.ecs)) begin
+        if (dut.gstmcu.time0_s == 1'b0) begin if (we_n) n_rasrd = n_rasrd + 1; else n_raswr = n_raswr + 1; end else n_vid = n_vid + 1; end
     // ---- flash_dspi.v cycle model ----
     reg fD = 0, fD2 = 0, busy = 0; reg [5:0] fs = 0; reg [15:0] fw;
     always @(posedge flclk) begin
@@ -76,7 +93,7 @@ module tb_bus;
         .parallel_strobe_oe(), .parallel_strobe_in(1'b1), .parallel_strobe_out(), .parallel_data_oe(),
         .parallel_data_in(8'hff), .parallel_data_out(), .parallel_busy(1'b0),
         .ste(1'b1), .enable_extra_ram(1'b0), .blitter_en(1'b1), .floppy_protected(2'b00), .cubase_en(1'b0),
-        .ram_ras_n(ras_n), .ram_cash_n(cash_n), .ram_casl_n(casl_n), .ram_we_n(we_n), .ram_ref(refresh),
+        .ram_early(ram_early), .ram_ras_n(ras_n), .ram_cash_n(cash_n), .ram_casl_n(casl_n), .ram_we_n(we_n), .ram_ref(refresh),
         .ram_addr(ram_a), .ram_data_in(mdout), .ram_data_out(mdin),
         .rom_n(rom_n), .rom_addr(rom_addr), .rom_data_out(rom_dout),
         .leds(), .rom_fetch(), .dbg_cpu_as_n(), .dbg_cpu_halted_n(), .dbg_030(), .dbg_trace(), .dbg_vbase(),
@@ -142,10 +159,29 @@ module tb_bus;
             if (n == MAXC) report;
         end
     end
+    // ---- 030 request -> ST S0 latency and 030 AS-negate -> next 030 AS gap (31.25 ns units) ----
+    integer hlat [0:31]; integer hgap [0:31]; time t_as30 = 0, t_neg30 = 0; reg asn30_q = 1; reg req_open = 0; integer q;
+    initial for (k = 0; k < 32; k = k + 1) begin hlat[k] = 0; hgap[k] = 0; end
+    always @(posedge clk32) begin
+        asn30_q <= dut.cpu030.cpu_asn;
+        if (asn30_q && !dut.cpu030.cpu_asn) begin t_as30 = $time; req_open = 1;
+            if (t_neg30 != 0) begin q = ($time - t_neg30) / 31250; if (q > 31) q = 31; hgap[q] = hgap[q] + 1; end end
+        if (!asn30_q && dut.cpu030.cpu_asn) t_neg30 = $time;
+    end
+    // S0 entry: bridge phase becomes P_S0 (value of the localparam)
+    reg [2:0] ph_q = 0;
+    always @(posedge clk32) begin
+        ph_q <= ph;
+        if (req_open && ph == 3'd1 && ph_q != 3'd1) begin
+            q = ($time - t_as30) / 31250; if (q > 31) q = 31; hlat[q] = hlat[q] + 1; req_open = 0; end
+    end
     task report; begin
         $display("%0d ST cycles at %0t ns", n, $time/1000);
         for (j = 0; j < 3; j = j + 1) $display("%s reads: data valid from A+312:%0d A+344:%0d A+375:%0d A+406:%0d A+437:%0d  (late for A+375: %0d)",
             j == 0 ? "RAM" : j == 1 ? "ROM" : "IO ", cnt[j][0], cnt[j][1], cnt[j][2], cnt[j][3], cnt[j][4], bad375[j]);
+        $display("SDRAM ACTIVE: early (CPU/DMA read) %0d, at RAS in the CPU half: reads %0d writes %0d, video half %0d", n_early, n_rasrd, n_raswr, n_vid);
+        $write("030 AS -> ST S0 (31.25ns units):"); for (k = 0; k < 32; k = k + 1) if (hlat[k]) $write(" %0d:%0d", k, hlat[k]); $display("");
+        $write("030 AS negate -> next 030 AS (31.25ns units):"); for (k = 0; k < 32; k = k + 1) if (hgap[k]) $write(" %0d:%0d", k, hgap[k]); $display("");
         $write("AS->AS spacing (125ns units) all:");  for (k = 2; k < 32; k = k + 1) if (hist[k]) $write(" %0d:%0d", k, hist[k]); $display("");
         $write("AS->AS spacing RAM->RAM:");          for (k = 2; k < 32; k = k + 1) if (hr[k]) $write(" %0d:%0d", k, hr[k]); $display("");
         $fclose(tf); $finish;

@@ -99,6 +99,7 @@ module atarist (
 	output wire		   ram_casl_n,
 	output wire		   ram_we_n,
 	output wire		   ram_ref,
+	output wire		   ram_early,  // FalconFPGA F63: SDRAM early start (gstmcu RAM_EARLY)
 	output wire [23:1] ram_addr,
 	output wire [15:0] ram_data_in,
 	input wire [15:0]  ram_data_out,
@@ -242,6 +243,7 @@ wire        berr_n /* verilator public */;
 wire        ipl0_n, ipl1_n, ipl2_n;
 wire        cpu_fc0, cpu_fc1, cpu_fc2;
 wire        cpu_as_n, cpu_rw, cpu_uds_n, cpu_lds_n, vma_n, vpa_n, cpu_E;
+wire        cpu_ase_n;   // F61: 68030 bridge address phase (S0), 1 with fx68k
 wire        cpu_reset_n_o;
 assign      dbg_cpu_as_n = cpu_as_n;   // FalconFPGA DIAG
 wire [15:0] cpu_din, cpu_dout;
@@ -460,7 +462,9 @@ gstmcu gstmcu (
 	.IACK_N     ( mfpiack_n),
 	.ROM0_N     ( ),           // unused E8xxxx-EBxxxx
 	.ROM1_N     ( ),           // unused E4xxxx-E7xxxx
-	.ROM2_N     ( rom_n ),     // TOS rom E0xxxx/FCxxxx
+	.ROM2_N     ( ),           // TOS rom E0xxxx/FCxxxx (AS only)
+	.ASE_N      ( cpu_ase_n ), // F61: 68030 bridge address phase (1 with fx68k)
+	.ROM2E_N    ( rom_n ),     // F61: TOS rom select from the address phase on (flash read start, data mux)
 	.ROM3_N     ( cart_n ),    // cartridge FBxxxx
 `ifdef ST_HELPER_CART
 	.ROM4_N     ( cart4_n ),   // cartridge FAxxxx: ST_HELPER self-test ROM
@@ -480,6 +484,7 @@ gstmcu gstmcu (
 	.RAM_LDS    ( ),
 	.RAM_UDS    ( ),
 	.REF        ( ram_ref ),
+	.RAM_EARLY  ( ram_early ),  // F63
 	.VPA_N      ( vpa_n ),
 	.MFPCS_N    ( mfpcs_n ),
 	.SNDIR      ( sndir ),
@@ -612,6 +617,7 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 
 	.eRWn       ( cpu_rw    ),
 	.ASn        ( cpu_as_n  ),
+	.ASEn       ( cpu_ase_n ),   // F61
 	.LDSn       ( cpu_lds_n ),
 	.UDSn       ( cpu_uds_n ),
 	.E          ( cpu_E     ),
@@ -643,6 +649,7 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 );
 `else
 assign rom_fetch = 1'b0;
+assign cpu_ase_n = 1'b1;
 assign dbg_030   = 4'b0000;   // FalconFPGA DIAG
 assign dbg_trace = 168'd0;
 fx68k fx68k (

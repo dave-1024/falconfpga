@@ -35,6 +35,6 @@ iverilog -g2012 -DWF030_NETLIST -DST_HELPER -I$K/hd63701 -o bus.vvp -s tb_bus $H
   $J/jt49_noise.v $J/filter/jt49_dcrm.v $J/filter/jt49_dcrm2.v $J/filter/jt49_dly.v $J/filter/jt49_mave.v $K/ikbd.sv \
   $K/hd63701/HD63701.v $K/hd63701/HD63701_ALU.v $K/hd63701/HD63701_CORE.v $K/hd63701/HD63701_EXEC.v $K/hd63701/HD63701_MCROM.v \
   $K/hd63701/HD63701_SEQ.v $K/rom/MCU_BIROM.v $R/tang/mega138kpro/gowin_dpb/fdc_dpram.v stBlitter_sim.sv \
-  $R/cpu030/cpu030_st_bridge.v $NET ${GOWIN_SIMLIB:-/workspace/tools/gowin/IDE/simlib/gw5a}/prim_sim.v 2>&1 | grep -v "warning\|sorry\|: note" || true
-for ph in 15625 46875; do vvp -n bus.vvp +rom=rom.hex +cph=$ph "$@" > run_$ph.log 2>&1 & done; wait
+  $R/cpu030/cpu030_st_bridge.v $R/tang/mega138kpro/sdram.v $NET ${GOWIN_SIMLIB:-/workspace/tools/gowin/IDE/simlib/gw5a}/prim_sim.v 2>&1 | grep -v "warning\|sorry\|: note" || true
+for ph in 15625 46875; do vvp -n bus.vvp +rom=rom.hex +cph=$ph +trace=trace_$ph.txt "$@" > run_$ph.log 2>&1 & done; wait
 grep -hv WARNING run_*.log

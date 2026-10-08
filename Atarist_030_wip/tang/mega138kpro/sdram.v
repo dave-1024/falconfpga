@@ -42,6 +42,7 @@ module sdram (
 	input [21:0]	  addr, // 22 bit word address
 	input [1:0]	  ds, // upper/lower data strobe
 	input		  cs, // cpu/chipset requests read/wrie
+	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
 	input		  we          // cpu/chipset requests write
 );
 
@@ -140,6 +141,19 @@ always @(posedge clk) begin
       csD <= cs;
       
       // normal operation, start on ... 
+      // FalconFPGA F63: RAM early start. The chipset flags (ecs) that a read
+      // RAS starts on the next clock; the row is opened now instead of one
+      // clock after RAS, so dout is valid 2 clocks earlier (4 clocks after
+      // RAS). Taken in the idle state or in the last state of the previous
+      // cycle (ACTIVE to ACTIVE then 7 clocks, the previous READ has
+      // auto-precharged long before). The RAS edge that follows finds the
+      // state machine busy and is ignored, as during any cycle.
+      if(ecs && (state == STATE_IDLE || state == STATE_LAST)) begin
+        sd_cmd <= CMD_ACTIVE;
+        sd_addr <= addr[21:9];
+        sd_ba <= 2'b00;
+        state <= 3'd1;
+      end else
       if(state == STATE_IDLE) begin
         // ... rising edge of cs
         if (cs && !csD) begin

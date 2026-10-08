@@ -235,6 +235,7 @@ wire [15:0] mdout;   // out to ram
 wire [15:0] mdin;    // in from ram
 
 wire ram_ready;
+wire ram_early;   // F63
 wire refresh;
 
 // system_reset[1] indicates whether a coldboot is requested. This
@@ -283,6 +284,7 @@ sdram sdram (
         .addr(ram_a_s),             // 22 bit word address
         .ds( { cash_n, casl_n } ),  // upper/lower data strobe
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
+        .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
         .we( !we_n )                // cpu/chipset requests write
 );
    
@@ -735,6 +737,7 @@ atarist atarist (
 
     // interface to sdram
     .ram_ras_n(ras_n),
+    .ram_early(ram_early),
     .ram_cash_n(cash_n),
     .ram_casl_n(casl_n),
     .ram_ref(refresh),

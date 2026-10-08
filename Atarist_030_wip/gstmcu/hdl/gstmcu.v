@@ -68,6 +68,8 @@ module gstmcu (
     output ROM0_N,
     output ROM1_N,
     output ROM2_N,
+    input  ASE_N,      // FalconFPGA F61: bus master address valid before AS (68030 bridge S0), 1 if unused
+    output ROM2E_N,    // FalconFPGA F61: ROM2_N decoded from ASE_N or AS_N (TOS flash read start)
     output ROM3_N,
     output ROM4_N,
     output ROM5_N,
@@ -83,6 +85,7 @@ module gstmcu (
     output RAM_LDS, // RAM byte selects
     output RAM_UDS, // CAS signals come a bit late for a fast SDRAM controller
     output REF, // indicates a refresh cycle
+    output RAM_EARLY, // FalconFPGA F63: a CPU/DMA RAM read RAS follows on the next clk32 edge (SDRAM early start)
     output VPA_N,
     output MFPCS_N,
     output SNDIR,
@@ -202,6 +205,14 @@ wire romxb = ~(irom0 | irom1 | irom2 | irom3 | irom4 | irom6 | irom6 | romp);
 assign ROM0_N = ~irom0;
 assign ROM1_N = ~irom1;
 assign ROM2_N = ~irom2;
+// FalconFPGA F61: the same TOS ROM decode with the address strobe widened to
+// the bus master's address phase (ASE_N, the 68030 bridge's S0), so the SPI
+// flash read starts when the address is valid, like a ROM's address access
+// time, instead of at AS. DTACK and everything else still use AS.
+wire iase   = ias | (~ixdma & ~ASE_N);
+wire irom2e = (iase & rvec & A[23:16] == 8'h00) |
+              (rom & iase & ((~tos192k & A[23:18] == { 4'hE, 2'b00 }) | (tos192k & A[23:18] == { 4'hF, 2'b11 } & A[19:16] != 4'hF)));
+assign ROM2E_N = ~irom2e;
 assign ROM3_N = ~irom3;
 assign ROM4_N = ~irom4;
 assign ROM5_N = ~irom5;
@@ -704,6 +715,17 @@ wire time4 = turbo ? time4_t : time4_s;
 wire addrselb = turbo ? ~time4_t : ~time5_s;
 wire lcycsel = turbo ? time4_t : time7_s;
 wire cycsel_en = turbo ? (time3_t & ~time4_t) : (time6_s & ~time7_s);
+
+// FalconFPGA F63 (not an original signal): RAM early start for the SDRAM.
+// ramcyc is loaded on the clk32 edge where cycsel_en is high (one clk32
+// before time0 falls); the CPU-half RAS (~rascyc & ~addrselb & ram1a/ram2a &
+// ~ramcycb) then starts on the next edge. RAM_EARLY flags that edge for a read
+// so the SDRAM can open the row one clk32 before RAS instead of one after it
+// (its edge detector), i.e. read data 2 clk32 earlier. ADDR is already the
+// CPU/DMA address here (addrselb low since time5). Writes keep the RAS start.
+wire ramsel_e = (iuds | ilds) & ias & iram;   // mcucontrol ramsel for a read
+assign RAM_EARLY = ~turbo & cycsel_en & ~addrselb & ramsel_e & irwz & (ram1 | ram2);
+
 
 ////////////////// MCU CONTROL /////////////////////////////
 
