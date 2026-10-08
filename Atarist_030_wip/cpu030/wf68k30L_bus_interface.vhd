@@ -69,10 +69,10 @@ use ieee.numeric_std.all;
 
 entity WF68K30L_BUS_INTERFACE is
     generic (
-        -- [F62] 1: opcode prefetch queue. Instruction words are fetched as aligned long
-        -- words (SIZE = 00, two word cycles with dynamic bus sizing on a 16-bit port, as a
-        -- 68030 does) into a three-word queue, ahead of the decoder and back to back on
-        -- the bus. Decoder requests that hit the queue are served in one clock. 0: the
+        -- [F62] 1: opcode prefetch queue. Instruction words are fetched as long words
+        -- (SIZE = 00, two word cycles with dynamic bus sizing on a 16-bit port, as a
+        -- 68030 with the cache off does) into a queue, ahead of the decoder and back to
+        -- back on the bus. Decoder requests that hit the queue are served in one clock. 0: the
         -- original one-word-per-request opcode cycles (used with the caches).
         PREFETCH_Q          : integer := 0);
     port (
@@ -215,12 +215,10 @@ signal Q_ADR                : std_logic_vector(31 downto 1) := (others => '0'); 
 signal Q_FC                 : std_logic_vector(2 downto 0) := "110";
 signal S_VALID              : bit := '0'; -- The queue holds the stream starting at Q_ADR.
 signal S_FAULTED            : bit := '0'; -- A fetch of this stream faulted: no further eager fetches.
-signal F_ADR                : std_logic_vector(31 downto 2) := (others => '0'); -- Next long word to fetch.
-signal DROP1_NEXT           : bit := '0'; -- The next fetch starts the stream on an odd word.
+signal F_ADR                : std_logic_vector(31 downto 1) := (others => '0'); -- Next long word to fetch (word address).
 signal INFL                 : bit := '0'; -- A prefetch is in flight.
 signal INFL_STALE           : bit := '0'; -- ... and its data is to be discarded.
-signal INFL_DROP1           : bit := '0'; -- ... and its first word is to be dropped.
-signal F_CUR                : std_logic_vector(31 downto 2) := (others => '0');
+signal F_CUR                : std_logic_vector(31 downto 1) := (others => '0');
 signal F_FC                 : std_logic_vector(2 downto 0) := "110";
 signal PF_ACC               : bit := '0'; -- The current opcode access is a queue prefetch.
 signal PF_FLT0              : bit := '0';
@@ -610,7 +608,7 @@ begin
         end if;
     end process P_ADR_OFFS;
 
-    ADR_OUT_I <= (F_CUR & "00") + ADR_OFFSET when PF_ACC = '1' else ADR_IN_P + ADR_OFFSET; -- [F62]
+    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_IN_P + ADR_OFFSET; -- [F62]
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -624,11 +622,14 @@ begin
     AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
 
     -- [F62] Opcode prefetch queue. The decoder requests one word at a time (OPC_RD, address
-    -- OPC_ADR = PC_L). The queue fetches the instruction stream as aligned long words in its
-    -- own cycles while the bus is otherwise free (data requests keep priority), so up to
-    -- three words wait ahead of the decoder and the fetches follow each other back to back.
-    -- A request that is not the head of the stream restarts it (branch, exception); a stream
-    -- starting on an odd word drops the first word of its first long. A bus error is kept
+    -- OPC_ADR = PC_L). The queue fetches the instruction stream as long words in its own
+    -- cycles while the bus is otherwise free (data requests keep priority), so up to three
+    -- words wait ahead of the decoder and the fetches follow each other back to back.
+    -- A request that is not the head of the stream restarts it (branch, exception) with a
+    -- long-word fetch at the requested word: a branch target at 4n+2 costs two useful word
+    -- cycles (4n+2, 4n+4) on the 16-bit port, like a misaligned long operand, instead of an
+    -- aligned long whose first word is thrown away (that made the TOS 2.06 vblank sync loop
+    -- at E013F6 too slow to finish in the 60 Hz blank: black screen at boot). A bus error is kept
     -- per word and only reported (OPCODE_VALID = 0) when the decoder takes that word, as on
     -- a 68030 where a prefetch fault is signalled only if the word is used. Odd addresses
     -- still take the ordinary opcode cycle path to raise the address error. A write that
@@ -674,11 +675,9 @@ begin
             if PF_START = '1' then
                 INFL <= '1';
                 INFL_STALE <= '0';
-                INFL_DROP1 <= DROP1_NEXT;
-                DROP1_NEXT <= '0';
                 F_CUR <= F_ADR;
                 F_FC <= Q_FC;
-                F_ADR <= F_ADR + '1';
+                F_ADR <= F_ADR + "10";
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
             end if;
@@ -686,9 +685,7 @@ begin
                 F0 := PF_FLT0 or (To_Bit(BUS_FLT) and not To_Bit(ADR_OFFSET(1)));
                 F1 := F0 or PF_FLT1 or (To_Bit(BUS_FLT) and To_Bit(ADR_OFFSET(1)));
                 if INFL_STALE = '0' then
-                    if INFL_DROP1 = '0' then
-                        W(CNT) := DATA_INMUX(31 downto 16); F(CNT) := F0; CNT := CNT + 1;
-                    end if;
+                    W(CNT) := DATA_INMUX(31 downto 16); F(CNT) := F0; CNT := CNT + 1;
                     W(CNT) := DATA_INMUX(15 downto 0); F(CNT) := F1; CNT := CNT + 1;
                     if F1 = '1' then
                         S_FAULTED <= '1'; -- Words up to the fault are queued; refetch on demand only.
@@ -714,8 +711,7 @@ begin
                 S_FAULTED <= '0';
                 Q_ADR <= OPC_ADR(31 downto 1);
                 Q_FC <= OPC_FC;
-                F_ADR <= OPC_ADR(31 downto 2);
-                DROP1_NEXT <= To_Bit(OPC_ADR(1));
+                F_ADR <= OPC_ADR(31 downto 1);
                 if (INFL = '1' and PF_DONE = '0') or PF_START = '1' then
                     INFL_STALE <= '1';
                 end if;
