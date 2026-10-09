@@ -31,6 +31,9 @@ puts $fh "`define ST_STE"
 # Experimental WF68K30L instruction/data caches (incomplete: no CIIN, burst
 # fill, WA or DMA snoop). Off by default; add the next line to build them in.
 # puts $fh "`define ST_030_CACHES"
+# F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
+# original 68000 phase timing (to measure a CPU-side fix alone).
+puts $fh "`define BRIDGE_EARLY_AS"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

@@ -343,6 +343,7 @@ module cpu030_st_bridge #(
     reg [15:0] r_dout = 16'hffff;
     reg        r_write = 1'b0, r_uds = 1'b0, r_lds = 1'b0, r_iack = 1'b0, r_tag = 1'b0;
     reg        addr_oe = 1'b0;
+    reg        r_ram = 1'b0;     // BRIDGE_EARLY_AS: current cycle is ST RAM
     reg [1:0]  r_res  = R_DSACK;
     reg        iStop  = 1'b0;
     reg [3:0]  eCntr  = 4'd0;
@@ -472,6 +473,20 @@ module cpu030_st_bridge #(
 
             if (enPhi2 & (phase == P_S0))
                 addr_oe <= 1'b1;
+`ifdef BRIDGE_EARLY_AS
+            // F64 BRIDGE_EARLY_AS (busfix/RAM_PATH.md): ST RAM cycles assert AS (and read DS) at the S0 en2,
+            // 62.5 ns after the address (68000 8 MHz minimum 30 ns), so an 030 request that lands on an en1
+            // still catches its GSTMCU 500 ns slot. Write DS stays 125 ns after AS (S2 en2). Termination
+            // (S4/S6) unchanged. Default off = the original 68000 phase timing (AS at S2).
+            if (enPhi2 & (phase == P_S0) & r_ram) begin
+                rAS <= 1'b0;
+                if (r_write) rRWn <= 1'b0;
+                else begin rUDS <= ~r_uds; rLDS <= ~r_lds; end
+            end
+            if (enPhi2 & (phase == P_S2) & r_ram & r_write) begin
+                rUDS <= ~r_uds; rLDS <= ~r_lds;
+            end
+`endif
 
             // ---- S6 en2: negate AS/DS, latch data, answer the 030 ----
             if (enPhi2 & (phase == P_S6)) begin
@@ -537,6 +552,7 @@ module cpu030_st_bridge #(
                     r_uds   <= req_uds;
                     r_lds   <= req_lds;
                     r_iack  <= req_iack;
+                    r_ram   <= ~req_cpu_space & (q_adr[23:22] == 2'b00);
                 end
             end
         end
