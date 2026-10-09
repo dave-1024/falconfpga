@@ -1,5 +1,17 @@
 # ST_HELPER: the AE350 RISC-V helper alongside the 030 ST desktop
 
+> **URGENT / REQUIRED (TODO, wanted, not optional): WF68K30L bus request handoff rework** so the next bus cycle
+> starts straight after S5 like a real 68030 (cycle-correct; also a speedup).
+> - Today a new transfer costs 2 extra clocks: DATA_C1C4 -> IDLE -> START_CYCLE (wf68k30L_bus_interface.vhd:530-568,
+>   back to IDLE at :565-566). Requests are masked while BUS_BSY (wf68k30L_top.vhd:744-764). DATA_RDY is strobed on the
+>   same edge that ends the cycle (bus_interface.vhd:908-923, BUS_CYC_RDY at S5 :1018-1020), so the control unit
+>   only issues the next request after the cycle. START_CYCLE-keyed logic: :455 (SIZE_N), :622 (AERR_I),
+>   :645 (PF_START), :692 (queue write flush).
+> - 030 AS gap between transfers 156 ns vs 31 ns inside a sized long. On the ST the ST AS then misses the 500 ns
+>   GSTMCU slot: RAM-code loops run at 750 ns/word (1.5 slots). Bench (busfix/RAM_PATH.md, code in RAM):
+>   move.l reads 363 us -> 276 (+32%), writes 384 -> 281 (+37%), copy 579 -> 475 (+22%), dbra loop 387 -> 291 (+33%),
+>   ROM code +10-15%. Combined with BRIDGE_EARLY_AS +31-41%.
+
 Build: `gw_sh build_st_helper.tcl` (writes `` `define ST_HELPER `` into
 `tang/console138k/build_sel.vh`). Bitstream: `impl/pnr/st_helper.fs`.
 Firmware: `helper_fw/mailbox/` (`helper_mailbox.bin`, flash at `0x0600000`).
