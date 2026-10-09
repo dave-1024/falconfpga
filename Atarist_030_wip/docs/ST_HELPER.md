@@ -827,3 +827,40 @@ Board build: `st_helper_f63_f484271.fs`.
   - Memory-bound tests are still below an 8 MHz STE. The core leaves 156-281 ns between bus cycles, so many RAM cycles start off-slot and get wait states.
   - The blitter is still reported as disabled.
   - The F62 prefetch queue (branch `f62-prefetch`) has to be debugged before it can help.
+
+## 7k. WF68K30L JSR loses its A7 decrement after an A7 writeback, 9 Oct 2026
+
+- Symptom (found on the F62 prefetch-queue branch, F62c): GEMBENCH 6 froze in its
+  menus, and any program bombed on exit (CHK exception, then vector 6) under
+  TOS 2.06.
+- An in-fabric trace on the board showed the TOS 2.06 AES Pexec wrapper:
+  `RTE` -> `ADDA.W #16,SP` (E21C0C) -> `JSR (d16,PC)` (E21C10). After the RTE,
+  SP = $9B3C. After the ADDA, the JSR wrote its return address at $9B4C instead
+  of $9B48. The wrapper's `RTS` (E21C46) then read $9B50 = $0000B576, the
+  filename pointer, so the CPU executed the string "A:\GB608B31.PRG" and hit
+  CHK.
+- Cause, in the original WF68K30L import: JSR decrements A7 when it leaves
+  START_OP (AR_DEC). In `wf68k30L_address_registers.vhd` the previous
+  instruction's writeback (AR_WR_1) has priority over AR_DEC. BSR waits in
+  START_OP while AR_IN_USE is set, but JSR in modes 101/110/111 ((d16,An),
+  (d8,An,Xn), abs/PC-relative) went straight on. If the ADDA writeback and
+  the JSR decrement land in the same clock, the decrement is lost and SP ends
+  4 too high. On the old fetch path (F63, main) the two never meet in the same
+  clock: `prog_spwb.s` also passes on main without the fix. So the bug is
+  latent there, and the F62 queue exposed it. The fix goes on main anyway, so
+  any faster fetch path is safe.
+- Fix (`wf68k30L_control.vhd`, marked "[JSR A7 fix]" as the OHL asks): JSR
+  waits in START_OP while AR_IN_USE = '1' in every addressing mode, the same
+  as BSR. This is real 68030 behaviour (the push always uses the updated SP)
+  and has no software-specific part.
+- Test: `cpu030/sim/rtl/prog_spwb.s` runs 17 cases of an A7 writeback
+  (ADDA/SUBA/ADDQ/SUBQ/LEA/MOVEA) directly followed by a push (JSR in all
+  modes, BSR, PEA, MOVE -(SP)), also at RTE/RTS/BRA targets. Case 13 is the
+  TOS wrapper. It writes $600DC0DE to $3300 if every SP is right. `run_rtl.sh`
+  runs it at 0/1/3/7 wait states.
+- On the board (F62d, prefetch branch): Pexec + Quit through the wrapper
+  returns to the desktop cleanly (3/3). It bombed every time on F62c.
+- Credits: the WF68K30L core is by Wolfgang Foerster (Inventronik GmbH, CERN
+  OHL v1.2; headers kept). The 030 bridge follows Stephen J. Leary's
+  TerribleFire TF534. Bug found and fixed for falconfpga by dave-1024 with
+  Grok Bot.

@@ -20,4 +20,13 @@ for p in a b; do
     [ "$sr" = "2700" ] && { echo "FAIL prog $p dly $d: level 4 taken with SR mask 7"; fail=1; }
   done
 done
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished"
+# JSR fix: A7 written back by the previous instruction while JSR/BSR/PEA/-(SP) decrements it
+# (prog_spwb.s); $600DC0DE at $3300 = every case saw the right SP.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_spwb.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_spwb.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for ws in 0 1 3 7; do
+  $G -r $O tb030 -gROMFILE=prog_spwb.hex -gWS=$ws -gMAXCLK=60000 2>/dev/null > r.log || true
+  grep -q "A=00003300 FC=5 SIZ=0 W=600DC0DE" r.log || { echo "FAIL prog_spwb WS=$ws: $(grep -o 'A=00003300 FC=5 SIZ=0 W=[0-9A-F]*' r.log | head -1)"; fail=1; }
+done
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, SP writeback/push ok"
