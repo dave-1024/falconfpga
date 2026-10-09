@@ -66,7 +66,7 @@ index d4f4caf..ef1cc22 100644
      ) i_wf68k30l (
  `endif
 diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
-index 2330688..3ab9b3c 100644
+index 2330688..17fa902 100644
 --- a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
 +++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
 @@ -57,6 +57,11 @@
@@ -103,29 +103,29 @@ index 2330688..3ab9b3c 100644
          INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
          OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
          SSW_80              : out std_logic_vector(8 downto 0);
-@@ -231,6 +242,7 @@ signal Q_MATCH              : bit;
+@@ -231,6 +242,8 @@ signal Q_MATCH              : bit;
  signal PF_REQ               : bit;
  signal PF_START             : bit;
  signal PF_DONE              : bit;
-+signal PF_CHAIN             : bit := '0'; -- [F65] Next edge rolls this prefetch into the next long.
++signal PF_CHAIN             : bit := '0'; -- [F65] Armed at S3. Not the S5 decision.
++signal PF_CHAIN_GO          : bit; -- [F65] S5 decision: PF_CHAIN and every cancel the FSM uses.
  signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
  begin
  
-@@ -425,6 +437,8 @@ begin
+@@ -425,6 +438,8 @@ begin
              DSACK_MEM <= "01";
          elsif DSACK_In = "10" then
              DSACK_MEM <= "10";
-+        elsif FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' then
++        elsif PF_CHAIN_GO = '1' then
 +            DSACK_MEM <= "11"; -- [F65] New cycle samples the port width again.
          elsif BUS_CTRL_STATE = IDLE then
              DSACK_MEM <= "11";
          end if;
-@@ -452,6 +466,9 @@ begin
+@@ -452,6 +467,8 @@ begin
          --
          if RESET_CPU_I = '1' then
              SIZE_N <= "000";
-+        elsif FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CTRL_STATE = DATA_C1C4
-+              and BUS_CYC_RDY = '1' and SIZE_N = "000" then
++        elsif PF_CHAIN_GO = '1' then
 +            SIZE_N <= "100"; -- [F65] Next prefetch long, loaded on the S5 edge.
          elsif BUS_CTRL_STATE /= DATA_C1C4 and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
              if RD_REQ = '1' or WR_REQ = '1' then
@@ -135,39 +135,34 @@ index 2330688..3ab9b3c 100644
      BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                            OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
 -                          OPC_LEGACY, PF_REQ)
-+                          OPC_LEGACY, PF_REQ, PF_CHAIN, Q_MISS, OPC_DISMISS, RETRY)
++                          OPC_LEGACY, PF_REQ, PF_CHAIN_GO)
      -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
      -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
      -- for a bus transfer.
-@@ -562,7 +579,17 @@ begin
+@@ -562,7 +579,12 @@ begin
                      NEXT_BUS_CTRL_STATE <= IDLE;
                  end if;
              when DATA_C1C4 =>
 -                if BUS_CYC_RDY = '1' and SIZE_N = "000" then
-+                -- [F65] A pending prefetch long starts on this edge. S5 rolls to S0
-+                -- (SLICE_CNT_P 010 -> 000 while N is still 010), AS high for one
-+                -- half-clock, as between the halves of a sized long. Operand
-+                -- requests, a pipe flush, a miss, HALT and a bus grant still
-+                -- take IDLE.
-+                if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-+                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
-+                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
-+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' then
++                -- [F65] PF_CHAIN_GO is the only chain decision. S5 rolls to S0
++                -- when it is set. Every cancel takes IDLE, and the queue re-arm
++                -- and the SIZE/offset/width/OCS updates use the same signal.
++                if PF_CHAIN_GO = '1' then
 +                    NEXT_BUS_CTRL_STATE <= DATA_C1C4;
 +                elsif BUS_CYC_RDY = '1' and SIZE_N = "000" then
                      NEXT_BUS_CTRL_STATE <= IDLE;
                  else
                      NEXT_BUS_CTRL_STATE <= DATA_C1C4;
-@@ -601,6 +628,8 @@ begin
+@@ -601,6 +623,8 @@ begin
              ADR_OFFSET <= (others => '0');
          elsif RETRY = '1' then
              null; -- Do not update if there is a retry cycle.
-+        elsif FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' then
++        elsif PF_CHAIN_GO = '1' then
 +            ADR_OFFSET <= (others => '0'); -- [F65] New prefetch long starts at F_ADR.
          elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
              ADR_OFFSET <= (others => '0');
          elsif BUS_CYC_RDY = '1' then
-@@ -646,6 +675,52 @@ begin
+@@ -646,6 +670,61 @@ begin
                           RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
      PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
  
@@ -217,20 +212,25 @@ index 2330688..3ab9b3c 100644
 +        end if;
 +    end process P_PF_CHAIN;
 +
++    -- [F65] One S5 decision for the FSM, the queue re-arm, and the SIZE,
++    -- offset, width and OCS updates. RMC and a bus fault can appear after
++    -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
++    -- INFL, so PF_REQ never fires again.
++    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
++                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
++                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
++                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
++
      P_QUEUE: process
      variable W      : QWORDS_T;
      variable F      : bit_vector(0 to 3);
-@@ -709,6 +784,20 @@ begin
+@@ -709,6 +788,16 @@ begin
                      INFL_STALE <= '1';
                  end if;
              end if;
-+            -- [F65] The long just queued was the one F_CUR addressed. F_ADR
-+            -- already points at the next long. Re-arm past PF_DONE's INFL
-+            -- clear so the next S0 is that long. CNT here already includes
-+            -- A's two words: do not start B unless CNT <= 2, or B would write
-+            -- past word 3. A miss on this edge wins (the restart above).
-+            if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and PF_DONE = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
-+               and CNT <= 2 then
++            -- [F65] Same decision as the FSM. A cancel that sends the bus to
++            -- IDLE must not leave INFL set, or PF_REQ never fires again.
++            if PF_CHAIN_GO = '1' and PF_DONE = '1' and CNT <= 2 then
 +                INFL <= '1';
 +                INFL_STALE <= '0';
 +                F_CUR <= F_ADR;
@@ -246,7 +246,7 @@ index 2330688..3ab9b3c 100644
          wait until CLK = '1' and CLK' event;
          --
 -        if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
-+        if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and RETRY = '0' then
++        if PF_CHAIN_GO = '1' then
 +            OCS_INH <= '0'; -- [F65] OCSn pulses again on the chained S0.
 +        elsif BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
              OCS_INH <= '0';
@@ -312,7 +312,7 @@ index 7c6eee5..f985933 100644
              BFLT_ADR            => BFLT_ADR,
 diff --git a/handoff/20261009-1710-fast-handoff.md b/handoff/20261009-1710-fast-handoff.md
 new file mode 100644
-index 0000000..c4377ec
+index 0000000..be2c79f
 --- /dev/null
 +++ b/handoff/20261009-1710-fast-handoff.md
 @@ -0,0 +1,24 @@
@@ -326,7 +326,7 @@ index 0000000..c4377ec
 +WHY: A real 68030 starts the next cycle on the edge after S5 when a request is pending. The first arm (Q_CNT <= 2) was wrong: that count does not yet include the long still on the bus, so a stalled decoder let the chained long write past word 3. Arm is now Q_CNT = 0, and the next long starts only if the count after this long is queued is <= 2.
 +LOOK FOR: Cold boot and warm boot to the GEM desktop, medium resolution. Same desktop as the early-AS image. A black screen, no signal, or a bomb is a fail: reflash st_helper_eas_d43f5fd_p3.fs from C:\Users\dave_\fpga_rollback_20261009\ (check SHA256SUMS.txt first). Do not expect a GEMBENCH change from this patch. Operand gaps are still 156 ns.
 +
-+BOT PATH: apply, review, flash. Token budget is short. Do not run run_rtl.sh, run_bus.sh, or wf030_syn.tcl unless the review finds a concrete fault in the diff. A clean review is enough. The previous review FAIL (queue overflow) is the fix in this file. Check that the arm is Q_CNT = 0 and the re-arm requires CNT <= 2 after the completing long is queued. Do not apply the old patch if you already saved it.
++BOT PATH: apply, review, flash. Token budget is short. Do not run run_rtl.sh, run_bus.sh, or wf030_syn.tcl unless the review finds a concrete fault in the diff. A clean review is enough. The previous review FAIL (queue overflow) is the fix in this file. Check that the arm is Q_CNT = 0, the re-arm requires CNT <= 2 after the completing long is queued, and the re-arm uses the same PF_CHAIN_GO decision as the FSM. A cancel (HALT, bus grant, retry, bus error, RMC, reset) must not leave INFL set. Do not apply the old patch if you already saved it.
 +
 +1. Apply handoff/20261009-1710-fast-handoff.patch onto main (git apply --check first). Pull f65-handoff first: the patch in this commit is the fixed tree. Do not merge anything else.
 +2. Review the diff only. The chain is prefetch-to-prefetch. It must stay off the operand path, and HALT, bus grant, retry, bus error, a queue miss, a pipe flush and RMC must still take IDLE. No combinational loop through BUS_BSY. Queue writes must stay in words 0 to 3.
