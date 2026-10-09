@@ -34,6 +34,10 @@ puts $fh "`define ST_STE"
 # F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
 # original 68000 phase timing (to measure a CPU-side fix alone).
 puts $fh "`define BRIDGE_EARLY_AS"
+# F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L. Off until the RTL bench
+# has been run with the generic set to 1. Delete the comment to build it in.
+# Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
+puts $fh "`define WF030_FAST_HANDOFF"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

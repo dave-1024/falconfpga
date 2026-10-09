@@ -1,0 +1,342 @@
+diff --git a/Atarist_030_wip/build_st_helper.tcl b/Atarist_030_wip/build_st_helper.tcl
+index 901bf21..01fc3b4 100644
+--- a/Atarist_030_wip/build_st_helper.tcl
++++ b/Atarist_030_wip/build_st_helper.tcl
+@@ -34,6 +34,10 @@ puts $fh "`define ST_STE"
+ # F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
+ # original 68000 phase timing (to measure a CPU-side fix alone).
+ puts $fh "`define BRIDGE_EARLY_AS"
++# F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L. Off until the RTL bench
++# has been run with the generic set to 1. Delete the comment to build it in.
++# Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
++# puts $fh "`define WF030_FAST_HANDOFF"
+ close $fh
+ 
+ set_device GW5AST-LV138PG484AC1/I0 -device_version C
+diff --git a/Atarist_030_wip/docs/HISTORY.md b/Atarist_030_wip/docs/HISTORY.md
+index 35d5d8e..4898837 100644
+--- a/Atarist_030_wip/docs/HISTORY.md
++++ b/Atarist_030_wip/docs/HISTORY.md
+@@ -9,6 +9,9 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
+ | F63 (bridge + SDRAM early start) f484271 | 61 / 69 / 37 / 137 / 71 |
+ | F62d (prefetch queue + JSR fix, on reset-sync main) 75bfc8c | 76 / 85 / 72 / 225 / 112 |
+ | BRIDGE_EARLY_AS d43f5fd | 86 / 86 / 74 / 230 / 115 |
++| F65 prefetch handoff (switch off) | not built |
++
++8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
+ 
+ 1. **CHK operand (F60, 87fac46).** Symptom: GEMBENCH 6 "subscript error". Cause: WF68K30L CHK compared against A0
+    (ALU operand 2 taken from address-register port 2) instead of Dn. Fix: CHK reads Dn.
+diff --git a/Atarist_030_wip/docs/TODO.md b/Atarist_030_wip/docs/TODO.md
+index 9e6b7c4..4cccd67 100644
+--- a/Atarist_030_wip/docs/TODO.md
++++ b/Atarist_030_wip/docs/TODO.md
+@@ -3,10 +3,8 @@
+ 1. **URGENT / REQUIRED: WF68K30L bus request handoff rework.** The next bus cycle must start straight after S5 when a
+    request is pending, like a real 68030 (cycle-correct; also a speedup). Wanted, not optional.
+    - Full handover: [`handoff/HANDOVER_2026-10-09_cpu_rework.md`](../../handoff/HANDOVER_2026-10-09_cpu_rework.md); rollback tag `rollback-2026-10-09-eas`.
+-   - Now: DATA_C1C4 -> IDLE -> START_CYCLE, 2 extra clocks per transfer (hdl/cpu030/wf68k30L_bus_interface.vhd:530-568,
+-     back to IDLE at :565-566). Requests are masked while BUS_BSY (wf68k30L_top.vhd:744-764); DATA_RDY is strobed on the
+-     edge that ends the cycle (bus_interface.vhd:908-923, BUS_CYC_RDY at S5 :1018-1020), so the control unit only
+-     issues the next request afterwards. START_CYCLE-keyed logic: :455 SIZE_N, :622 AERR_I, :645 PF_START, :692 queue flush.
++   - Patch 1 (branch `f65-handoff`): prefetch-to-prefetch only. `WF030_FAST_HANDOFF` is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
++   - Now: DATA_C1C4 -> IDLE -> START_CYCLE, 2 extra clocks per transfer (hdl/cpu030/wf68k30L_bus_interface.vhd, DATA_C1C4 returns to IDLE). Requests are masked while BUS_BSY (wf68k30L_top.vhd P_BUSREQ); DATA_RDY is strobed on the edge that ends the cycle, so the control unit only issues the next operand afterwards.
+    - Expected (notes/RAM_PATH.md, RAM code): reads +32%, writes +37%, copy +22%, dbra loop +33%, ROM code +10-15%.
+    - Skipping only IDLE (156 -> 94 ns) gives nothing; the request must reach the bridge within 62.5 ns.
+ 2. **Prefetch queue fetches past taken branches** (2-3 wasted 500 ns words per branch; up to ~35% in tight loops).
+diff --git a/Atarist_030_wip/hdl/cpu030/cpu030_st_bridge.v b/Atarist_030_wip/hdl/cpu030/cpu030_st_bridge.v
+index d4f4caf..ef1cc22 100644
+--- a/Atarist_030_wip/hdl/cpu030/cpu030_st_bridge.v
++++ b/Atarist_030_wip/hdl/cpu030/cpu030_st_bridge.v
+@@ -179,9 +179,14 @@ module cpu030_st_bridge #(
+     WF68K30L_TOP #(
+         .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
+ `ifdef ST_030_CACHES
+-        .CACHES    ( 1             )    // experimental I/D caches (incomplete), CACR EI/ED
++        .CACHES    ( 1             ),    // experimental I/D caches (incomplete), CACR EI/ED
+ `else
+-        .CACHES    ( 0             )    // no caches, as a TF534/TF536 with ST-RAM (default)
++        .CACHES    ( 0             ),    // no caches, as a TF534/TF536 with ST-RAM (default)
++`endif
++`ifdef WF030_FAST_HANDOFF
++        .FAST_HANDOFF ( 1          )     // [F65] prefetch S5 rolls into the next prefetch S0
++`else
++        .FAST_HANDOFF ( 0          )     // [F65] IDLE -> START_CYCLE between prefetches
+ `endif
+     ) i_wf68k30l (
+ `endif
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
+index 2330688..17fa902 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
+@@ -57,6 +57,11 @@
+ --   Opted out START_READ and CHK_RD.
+ --   Fixed the faulty bus arbitration logic.
+ --   Rearranged address error handling.
++-- [F65] FalconFPGA (dave-1024, 2026-10-09): optional prefetch-to-prefetch
++--   handoff. With generic FAST_HANDOFF = 1 a completing queue prefetch whose
++--   stream is still valid rolls S5 straight into S0 of the next long, the
++--   way a 68030 starts the next cycle when a request is pending. Default 0
++--   keeps the IDLE -> START_CYCLE path. Operand cycles are not chained here.
+ -- 
+ 
+ library work;
+@@ -74,7 +79,11 @@ entity WF68K30L_BUS_INTERFACE is
+         -- 68030 with the cache off does) into a queue, ahead of the decoder and back to
+         -- back on the bus. Decoder requests that hit the queue are served in one clock. 0: the
+         -- original one-word-per-request opcode cycles (used with the caches).
+-        PREFETCH_Q          : integer := 0);
++        PREFETCH_Q          : integer := 0;
++        -- [F65] 1: a completing prefetch long rolls into the next prefetch long
++        -- on the S5 edge when the stream is still valid and no operand is
++        -- waiting. 0 (default): DATA_C1C4 -> IDLE -> START_CYCLE.
++        FAST_HANDOFF        : integer := 0);
+     port (
+         -- System control:
+         CLK                 : in std_logic; -- System clock.
+@@ -117,6 +126,8 @@ entity WF68K30L_BUS_INTERFACE is
+         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
+         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
+         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
++        OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
++        OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
+         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
+         SSW_80              : out std_logic_vector(8 downto 0);
+@@ -231,6 +242,8 @@ signal Q_MATCH              : bit;
+ signal PF_REQ               : bit;
+ signal PF_START             : bit;
+ signal PF_DONE              : bit;
++signal PF_CHAIN             : bit := '0'; -- [F65] Armed at S3. Not the S5 decision.
++signal PF_CHAIN_GO          : bit; -- [F65] S5 decision: PF_CHAIN and every cancel the FSM uses.
+ signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
+ begin
+ 
+@@ -425,6 +438,8 @@ begin
+             DSACK_MEM <= "01";
+         elsif DSACK_In = "10" then
+             DSACK_MEM <= "10";
++        elsif PF_CHAIN_GO = '1' then
++            DSACK_MEM <= "11"; -- [F65] New cycle samples the port width again.
+         elsif BUS_CTRL_STATE = IDLE then
+             DSACK_MEM <= "11";
+         end if;
+@@ -452,6 +467,8 @@ begin
+         --
+         if RESET_CPU_I = '1' then
+             SIZE_N <= "000";
++        elsif PF_CHAIN_GO = '1' then
++            SIZE_N <= "100"; -- [F65] Next prefetch long, loaded on the S5 edge.
+         elsif BUS_CTRL_STATE /= DATA_C1C4 and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
+             if RD_REQ = '1' or WR_REQ = '1' then
+                 case OP_SIZE is
+@@ -521,7 +538,7 @@ begin
+ 
+     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
+                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
+-                          OPC_LEGACY, PF_REQ)
++                          OPC_LEGACY, PF_REQ, PF_CHAIN_GO)
+     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
+     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
+     -- for a bus transfer.
+@@ -562,7 +579,12 @@ begin
+                     NEXT_BUS_CTRL_STATE <= IDLE;
+                 end if;
+             when DATA_C1C4 =>
+-                if BUS_CYC_RDY = '1' and SIZE_N = "000" then
++                -- [F65] PF_CHAIN_GO is the only chain decision. S5 rolls to S0
++                -- when it is set. Every cancel takes IDLE, and the queue re-arm
++                -- and the SIZE/offset/width/OCS updates use the same signal.
++                if PF_CHAIN_GO = '1' then
++                    NEXT_BUS_CTRL_STATE <= DATA_C1C4;
++                elsif BUS_CYC_RDY = '1' and SIZE_N = "000" then
+                     NEXT_BUS_CTRL_STATE <= IDLE;
+                 else
+                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
+@@ -601,6 +623,8 @@ begin
+             ADR_OFFSET <= (others => '0');
+         elsif RETRY = '1' then
+             null; -- Do not update if there is a retry cycle.
++        elsif PF_CHAIN_GO = '1' then
++            ADR_OFFSET <= (others => '0'); -- [F65] New prefetch long starts at F_ADR.
+         elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
+             ADR_OFFSET <= (others => '0');
+         elsif BUS_CYC_RDY = '1' then
+@@ -646,6 +670,61 @@ begin
+                          RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
+     PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
+ 
++    -- [F65] Arm the direct handoff one clock before the S5 edge. PF_REQ cannot
++    -- be used here: it is held off while INFL = 1, and INFL clears on this
++    -- cycle's completion edge. Q_CNT does not yet include this long's two
++    -- words. The queue is words 0 to 3 (Q_CNT 0 to 4). Arming at Q_CNT <= 2
++    -- overflowed: A then brought the count to 4 and the chained long wrote
++    -- W(4)/W(5). Arm only at Q_CNT = 0, so A + the chained long is at most 4.
++    -- The re-arm below also refuses to start that long unless the count after
++    -- A is queued is <= 2. Registered, so the decoder does not combinationally
++    -- depend on a signal that depends on BUS_BSY.
++    P_PF_CHAIN: process
++        variable NXT : std_logic_vector(2 downto 0);
++    begin
++        wait until CLK = '1' and CLK' event;
++        NXT := SIZE_N;
++        if BUS_WIDTH = LONG_32 and SIZE_N > x"3" and ADR_OUT_I(1 downto 0) = "01" then
++            NXT := SIZE_N - "11";
++        elsif BUS_WIDTH = LONG_32 and SIZE_N > x"2" and ADR_OUT_I(1 downto 0) = "10" then
++            NXT := SIZE_N - "10";
++        elsif BUS_WIDTH = LONG_32 and SIZE_N > x"1" and ADR_OUT_I(1 downto 0) = "11" then
++            NXT := SIZE_N - '1';
++        elsif BUS_WIDTH = LONG_32 then
++            NXT := "000";
++        elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "11" then
++            NXT := SIZE_N - '1';
++        elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "01" then
++            NXT := SIZE_N - '1';
++        elsif BUS_WIDTH = WORD and SIZE_N = "001" then
++            NXT := SIZE_N - '1';
++        elsif BUS_WIDTH = WORD then
++            NXT := SIZE_N - "10";
++        elsif BUS_WIDTH = BYTE then
++            NXT := SIZE_N - '1';
++        end if;
++        if FAST_HANDOFF /= 0 and PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4
++           and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
++           and PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL_STALE = '0'
++           and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
++           and OP_RD = '0' and OP_WR = '0'
++           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
++           and BUS_FLT = '0' and RETRY = '0' and Q_CNT = 0 then
++            PF_CHAIN <= '1';
++        else
++            PF_CHAIN <= '0';
++        end if;
++    end process P_PF_CHAIN;
++
++    -- [F65] One S5 decision for the FSM, the queue re-arm, and the SIZE,
++    -- offset, width and OCS updates. RMC and a bus fault can appear after
++    -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
++    -- INFL, so PF_REQ never fires again.
++    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
++                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
++                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
++                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
++
+     P_QUEUE: process
+     variable W      : QWORDS_T;
+     variable F      : bit_vector(0 to 3);
+@@ -709,6 +788,16 @@ begin
+                     INFL_STALE <= '1';
+                 end if;
+             end if;
++            -- [F65] Same decision as the FSM. A cancel that sends the bus to
++            -- IDLE must not leave INFL set, or PF_REQ never fires again.
++            if PF_CHAIN_GO = '1' and PF_DONE = '1' and CNT <= 2 then
++                INFL <= '1';
++                INFL_STALE <= '0';
++                F_CUR <= F_ADR;
++                F_ADR <= F_ADR + "10";
++                PF_FLT0 <= '0';
++                PF_FLT1 <= '0';
++            end if;
+             if RESET_CPU_I = '1' then
+                 S_VALID <= '0';
+                 CNT := 0;
+@@ -991,7 +1080,9 @@ begin
+     begin
+         wait until CLK = '1' and CLK' event;
+         --
+-        if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
++        if PF_CHAIN_GO = '1' then
++            OCS_INH <= '0'; -- [F65] OCSn pulses again on the chained S0.
++        elsif BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
+             OCS_INH <= '0';
+         elsif BUS_CYC_RDY = '1' and RETRY = '0' then -- No inhibit if first portion results in a retry cycle.
+             OCS_INH <= '1';
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
+index a718225..0bb1bc8 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
+@@ -218,7 +218,8 @@ component WF68K30L_ALU
+ end component;
+ 
+ component WF68K30L_BUS_INTERFACE
+-    generic (PREFETCH_Q : integer := 0); -- [F62]
++    generic (PREFETCH_Q : integer := 0; -- [F62]
++             FAST_HANDOFF : integer := 0); -- [F65] prefetch S5-to-S0; 0 keeps IDLE
+     port (
+         CLK                 : in std_logic;
+         CLK_F               : in std_logic; -- [F58]
+@@ -248,6 +249,8 @@ component WF68K30L_BUS_INTERFACE
+         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
+         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
+         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
++        OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
++        OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+         INBUFFER            : out std_logic_vector(31 downto 0);
+         OUTBUFFER           : out std_logic_vector(31 downto 0);
+         SSW_80              : out std_logic_vector(8 downto 0);
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
+index 7c6eee5..f985933 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
+@@ -164,7 +164,11 @@ entity WF68K30L_TOP is
+         -- caches, every opcode and data access goes to the bus, exactly as
+         -- with CACR EI = ED = 0. CACR/CAAR stay MOVEC read/write either way.
+         -- The caches are incomplete (no CIIN, burst fill, WA or DMA snoop).
+-        CACHES          : integer := 0);
++        CACHES          : integer := 0;
++        -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
++        -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
++        -- unchanged either way.
++        FAST_HANDOFF    : integer := 0);
+ 
+     port (
+         CLK             : in std_logic;
+@@ -1033,7 +1037,7 @@ begin
+         );
+ 
+     I_BUS_IF: WF68K30L_BUS_INTERFACE
+-        generic map(PREFETCH_Q => PREFETCH_Q_EN) -- [F62]
++        generic map(PREFETCH_Q => PREFETCH_Q_EN, FAST_HANDOFF => FAST_HANDOFF) -- [F62] [F65]
+         port map(
+             CLK                 => CLK,
+             CLK_F               => CLK_F, -- [F58]
+@@ -1069,6 +1073,8 @@ begin
+             OPC_ADR             => PC_L,
+             OPC_FC              => OPC_FC,
+             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
++            OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
++            OP_WR               => DATA_WR, -- [F65]
+             SSW_80              => SSW_80,
+             BFLT_SSW            => BFLT_SSW,
+             BFLT_ADR            => BFLT_ADR,
+diff --git a/handoff/20261009-1710-fast-handoff.md b/handoff/20261009-1710-fast-handoff.md
+new file mode 100644
+index 0000000..be2c79f
+--- /dev/null
++++ b/handoff/20261009-1710-fast-handoff.md
+@@ -0,0 +1,24 @@
++REQUEST_ID: 20261009-1
++ACTION: BUILD_AND_FLASH
++WORKDIR: Atarist_030_wip
++BUILD_CMD: gw_sh build_st_helper.tcl
++TOS: keep
++
++WHAT: Patch 1 of the WF68K30L request handoff (F65), overflow fix. A completing prefetch long can roll S5 straight into S0 of the next prefetch long only when the queue was empty at S3. Operand cycles are unchanged.
++WHY: A real 68030 starts the next cycle on the edge after S5 when a request is pending. The first arm (Q_CNT <= 2) was wrong: that count does not yet include the long still on the bus, so a stalled decoder let the chained long write past word 3. Arm is now Q_CNT = 0, and the next long starts only if the count after this long is queued is <= 2.
++LOOK FOR: Cold boot and warm boot to the GEM desktop, medium resolution. Same desktop as the early-AS image. A black screen, no signal, or a bomb is a fail: reflash st_helper_eas_d43f5fd_p3.fs from C:\Users\dave_\fpga_rollback_20261009\ (check SHA256SUMS.txt first). Do not expect a GEMBENCH change from this patch. Operand gaps are still 156 ns.
++
++BOT PATH: apply, review, flash. Token budget is short. Do not run run_rtl.sh, run_bus.sh, or wf030_syn.tcl unless the review finds a concrete fault in the diff. A clean review is enough. The previous review FAIL (queue overflow) is the fix in this file. Check that the arm is Q_CNT = 0, the re-arm requires CNT <= 2 after the completing long is queued, and the re-arm uses the same PF_CHAIN_GO decision as the FSM. A cancel (HALT, bus grant, retry, bus error, RMC, reset) must not leave INFL set. Do not apply the old patch if you already saved it.
++
++1. Apply handoff/20261009-1710-fast-handoff.patch onto main (git apply --check first). Pull f65-handoff first: the patch in this commit is the fixed tree. Do not merge anything else.
++2. Review the diff only. The chain is prefetch-to-prefetch. It must stay off the operand path, and HALT, bus grant, retry, bus error, a queue miss, a pipe flush and RMC must still take IDLE. No combinational loop through BUS_BSY. Queue writes must stay in words 0 to 3.
++3. Before the build, uncomment `WF030_FAST_HANDOFF` in build_st_helper.tcl. Leave `BRIDGE_EARLY_AS` as it is. A build with the define still commented out does not contain the change, so flashing it tests nothing.
++4. Build. place_option 3. TNS 0 on every row, recovery and removal slack positive, or do not flash.
++5. Flash the new .fs only. programmer_cli --scan, then op 53. Never location 418. Never bulk erase. Never write 0x500000 or 0x600000. Never reflash the BL616.
++6. Write the timing and flash result to BUILD_REPORT.md. Move this note and the patch to handoff/done/ when done.
++
++Switch: `WF030_FAST_HANDOFF`, written by build_st_helper.tcl into build_sel.vh, VHDL generic FAST_HANDOFF (default 0). Uncommenting the define is the review-and-flash step above, not a second patch.
++
++Deviation, honest: the chain starts a prefetch long while the previous one is still in flight, which the queue's own Q_CNT <= 1 refill does not. It only does that when the queue was empty at S3, so the two longs together stay inside words 0 to 3. Operand cycles still take IDLE then START_CYCLE. That is patch 2.
++
++Rollback image: st_helper_eas_d43f5fd_p3.fs, tag rollback-2026-10-09-eas.

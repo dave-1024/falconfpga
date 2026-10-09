@@ -9,6 +9,9 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
 | F63 (bridge + SDRAM early start) f484271 | 61 / 69 / 37 / 137 / 71 |
 | F62d (prefetch queue + JSR fix, on reset-sync main) 75bfc8c | 76 / 85 / 72 / 225 / 112 |
 | BRIDGE_EARLY_AS d43f5fd | 86 / 86 / 74 / 230 / 115 |
+| F65 prefetch handoff (switch off) | not built |
+
+8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
 1. **CHK operand (F60, 87fac46).** Symptom: GEMBENCH 6 "subscript error". Cause: WF68K30L CHK compared against A0
    (ALU operand 2 taken from address-register port 2) instead of Dn. Fix: CHK reads Dn.
