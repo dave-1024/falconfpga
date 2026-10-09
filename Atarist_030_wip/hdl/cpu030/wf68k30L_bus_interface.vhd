@@ -677,13 +677,13 @@ begin
 
     -- [F65] Arm the direct handoff one clock before the S5 edge. PF_REQ cannot
     -- be used here: it is held off while INFL = 1, and INFL clears on this
-    -- cycle's completion edge. A cache-off 68030 already has the next pipe
-    -- fill pending, so the chain fires when this long will complete, the
-    -- stream is still valid, the queue has room for two more words, and no
-    -- operand request is waiting. That is one long earlier than this queue's
-    -- Q_CNT <= 1 refill, which cannot be true on this edge. The words are the
-    -- stream the queue already owns (F_ADR). Registered, so the decoder does
-    -- not combinationally depend on a signal that depends on BUS_BSY.
+    -- cycle's completion edge. Q_CNT does not yet include this long's two
+    -- words. The queue is words 0 to 3 (Q_CNT 0 to 4). Arming at Q_CNT <= 2
+    -- overflowed: A then brought the count to 4 and the chained long wrote
+    -- W(4)/W(5). Arm only at Q_CNT = 0, so A + the chained long is at most 4.
+    -- The re-arm below also refuses to start that long unless the count after
+    -- A is queued is <= 2. Registered, so the decoder does not combinationally
+    -- depend on a signal that depends on BUS_BSY.
     P_PF_CHAIN: process
         variable NXT : std_logic_vector(2 downto 0);
     begin
@@ -714,7 +714,7 @@ begin
            and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
            and OP_RD = '0' and OP_WR = '0'
            and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
-           and BUS_FLT = '0' and RETRY = '0' and Q_CNT <= 2 then
+           and BUS_FLT = '0' and RETRY = '0' and Q_CNT = 0 then
             PF_CHAIN <= '1';
         else
             PF_CHAIN <= '0';
@@ -786,9 +786,11 @@ begin
             end if;
             -- [F65] The long just queued was the one F_CUR addressed. F_ADR
             -- already points at the next long. Re-arm past PF_DONE's INFL
-            -- clear so the next S0 is that long. A miss on this edge wins
-            -- (the restart above); do not re-arm over it.
-            if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and PF_DONE = '1' and Q_MISS = '0' and OPC_DISMISS = '0' then
+            -- clear so the next S0 is that long. CNT here already includes
+            -- A's two words: do not start B unless CNT <= 2, or B would write
+            -- past word 3. A miss on this edge wins (the restart above).
+            if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and PF_DONE = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
+               and CNT <= 2 then
                 INFL <= '1';
                 INFL_STALE <= '0';
                 F_CUR <= F_ADR;

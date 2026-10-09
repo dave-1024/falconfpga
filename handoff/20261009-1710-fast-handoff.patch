@@ -14,7 +14,7 @@ index 901bf21..01fc3b4 100644
  
  set_device GW5AST-LV138PG484AC1/I0 -device_version C
 diff --git a/Atarist_030_wip/docs/HISTORY.md b/Atarist_030_wip/docs/HISTORY.md
-index 35d5d8e..c0f23c4 100644
+index 35d5d8e..4898837 100644
 --- a/Atarist_030_wip/docs/HISTORY.md
 +++ b/Atarist_030_wip/docs/HISTORY.md
 @@ -9,6 +9,9 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
@@ -23,7 +23,7 @@ index 35d5d8e..c0f23c4 100644
  | BRIDGE_EARLY_AS d43f5fd | 86 / 86 / 74 / 230 / 115 |
 +| F65 prefetch handoff (switch off) | not built |
 +
-+8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when the queue has room and no operand request is waiting. Default off: the build define is commented out in `build_st_helper.tcl`, so a normal build is the early-AS image. Deviation: the chain starts one long earlier than this queue's `Q_CNT <= 1` refill, because `PF_REQ` is held off while the current long is in flight. The words are the stream the queue already owns. Operand cycles still take IDLE then START_CYCLE.
++8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
  
  1. **CHK operand (F60, 87fac46).** Symptom: GEMBENCH 6 "subscript error". Cause: WF68K30L CHK compared against A0
     (ALU operand 2 taken from address-register port 2) instead of Dn. Fix: CHK reads Dn.
@@ -66,7 +66,7 @@ index d4f4caf..ef1cc22 100644
      ) i_wf68k30l (
  `endif
 diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
-index 2330688..40b922a 100644
+index 2330688..3ab9b3c 100644
 --- a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
 +++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
 @@ -57,6 +57,11 @@
@@ -173,13 +173,13 @@ index 2330688..40b922a 100644
  
 +    -- [F65] Arm the direct handoff one clock before the S5 edge. PF_REQ cannot
 +    -- be used here: it is held off while INFL = 1, and INFL clears on this
-+    -- cycle's completion edge. A cache-off 68030 already has the next pipe
-+    -- fill pending, so the chain fires when this long will complete, the
-+    -- stream is still valid, the queue has room for two more words, and no
-+    -- operand request is waiting. That is one long earlier than this queue's
-+    -- Q_CNT <= 1 refill, which cannot be true on this edge. The words are the
-+    -- stream the queue already owns (F_ADR). Registered, so the decoder does
-+    -- not combinationally depend on a signal that depends on BUS_BSY.
++    -- cycle's completion edge. Q_CNT does not yet include this long's two
++    -- words. The queue is words 0 to 3 (Q_CNT 0 to 4). Arming at Q_CNT <= 2
++    -- overflowed: A then brought the count to 4 and the chained long wrote
++    -- W(4)/W(5). Arm only at Q_CNT = 0, so A + the chained long is at most 4.
++    -- The re-arm below also refuses to start that long unless the count after
++    -- A is queued is <= 2. Registered, so the decoder does not combinationally
++    -- depend on a signal that depends on BUS_BSY.
 +    P_PF_CHAIN: process
 +        variable NXT : std_logic_vector(2 downto 0);
 +    begin
@@ -210,7 +210,7 @@ index 2330688..40b922a 100644
 +           and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
 +           and OP_RD = '0' and OP_WR = '0'
 +           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
-+           and BUS_FLT = '0' and RETRY = '0' and Q_CNT <= 2 then
++           and BUS_FLT = '0' and RETRY = '0' and Q_CNT = 0 then
 +            PF_CHAIN <= '1';
 +        else
 +            PF_CHAIN <= '0';
@@ -220,15 +220,17 @@ index 2330688..40b922a 100644
      P_QUEUE: process
      variable W      : QWORDS_T;
      variable F      : bit_vector(0 to 3);
-@@ -709,6 +784,18 @@ begin
+@@ -709,6 +784,20 @@ begin
                      INFL_STALE <= '1';
                  end if;
              end if;
 +            -- [F65] The long just queued was the one F_CUR addressed. F_ADR
 +            -- already points at the next long. Re-arm past PF_DONE's INFL
-+            -- clear so the next S0 is that long. A miss on this edge wins
-+            -- (the restart above); do not re-arm over it.
-+            if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and PF_DONE = '1' and Q_MISS = '0' and OPC_DISMISS = '0' then
++            -- clear so the next S0 is that long. CNT here already includes
++            -- A's two words: do not start B unless CNT <= 2, or B would write
++            -- past word 3. A miss on this edge wins (the restart above).
++            if FAST_HANDOFF /= 0 and PF_CHAIN = '1' and PF_DONE = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
++               and CNT <= 2 then
 +                INFL <= '1';
 +                INFL_STALE <= '0';
 +                F_CUR <= F_ADR;
@@ -239,7 +241,7 @@ index 2330688..40b922a 100644
              if RESET_CPU_I = '1' then
                  S_VALID <= '0';
                  CNT := 0;
-@@ -991,7 +1078,9 @@ begin
+@@ -991,7 +1080,9 @@ begin
      begin
          wait until CLK = '1' and CLK' event;
          --
@@ -308,3 +310,33 @@ index 7c6eee5..f985933 100644
              SSW_80              => SSW_80,
              BFLT_SSW            => BFLT_SSW,
              BFLT_ADR            => BFLT_ADR,
+diff --git a/handoff/20261009-1710-fast-handoff.md b/handoff/20261009-1710-fast-handoff.md
+new file mode 100644
+index 0000000..c4377ec
+--- /dev/null
++++ b/handoff/20261009-1710-fast-handoff.md
+@@ -0,0 +1,24 @@
++REQUEST_ID: 20261009-1
++ACTION: BUILD_AND_FLASH
++WORKDIR: Atarist_030_wip
++BUILD_CMD: gw_sh build_st_helper.tcl
++TOS: keep
++
++WHAT: Patch 1 of the WF68K30L request handoff (F65), overflow fix. A completing prefetch long can roll S5 straight into S0 of the next prefetch long only when the queue was empty at S3. Operand cycles are unchanged.
++WHY: A real 68030 starts the next cycle on the edge after S5 when a request is pending. The first arm (Q_CNT <= 2) was wrong: that count does not yet include the long still on the bus, so a stalled decoder let the chained long write past word 3. Arm is now Q_CNT = 0, and the next long starts only if the count after this long is queued is <= 2.
++LOOK FOR: Cold boot and warm boot to the GEM desktop, medium resolution. Same desktop as the early-AS image. A black screen, no signal, or a bomb is a fail: reflash st_helper_eas_d43f5fd_p3.fs from C:\Users\dave_\fpga_rollback_20261009\ (check SHA256SUMS.txt first). Do not expect a GEMBENCH change from this patch. Operand gaps are still 156 ns.
++
++BOT PATH: apply, review, flash. Token budget is short. Do not run run_rtl.sh, run_bus.sh, or wf030_syn.tcl unless the review finds a concrete fault in the diff. A clean review is enough. The previous review FAIL (queue overflow) is the fix in this file. Check that the arm is Q_CNT = 0 and the re-arm requires CNT <= 2 after the completing long is queued. Do not apply the old patch if you already saved it.
++
++1. Apply handoff/20261009-1710-fast-handoff.patch onto main (git apply --check first). Pull f65-handoff first: the patch in this commit is the fixed tree. Do not merge anything else.
++2. Review the diff only. The chain is prefetch-to-prefetch. It must stay off the operand path, and HALT, bus grant, retry, bus error, a queue miss, a pipe flush and RMC must still take IDLE. No combinational loop through BUS_BSY. Queue writes must stay in words 0 to 3.
++3. Before the build, uncomment `WF030_FAST_HANDOFF` in build_st_helper.tcl. Leave `BRIDGE_EARLY_AS` as it is. A build with the define still commented out does not contain the change, so flashing it tests nothing.
++4. Build. place_option 3. TNS 0 on every row, recovery and removal slack positive, or do not flash.
++5. Flash the new .fs only. programmer_cli --scan, then op 53. Never location 418. Never bulk erase. Never write 0x500000 or 0x600000. Never reflash the BL616.
++6. Write the timing and flash result to BUILD_REPORT.md. Move this note and the patch to handoff/done/ when done.
++
++Switch: `WF030_FAST_HANDOFF`, written by build_st_helper.tcl into build_sel.vh, VHDL generic FAST_HANDOFF (default 0). Uncommenting the define is the review-and-flash step above, not a second patch.
++
++Deviation, honest: the chain starts a prefetch long while the previous one is still in flight, which the queue's own Q_CNT <= 1 refill does not. It only does that when the queue was empty at S3, so the two longs together stay inside words 0 to 3. Operand cycles still take IDLE then START_CYCLE. That is patch 2.
++
++Rollback image: st_helper_eas_d43f5fd_p3.fs, tag rollback-2026-10-09-eas.
