@@ -892,3 +892,48 @@ Asynchronous groups and why:
   that make SCK and are stable for >= 2 AHB cycles around each SCK edge.
 - The clk32 dividers vs the HDMI 640 clocks. The only crossing is the existing
   frame-buffer one.
+
+## 7m. Reset synchronisers and a global clk_osc for the pll_init logic, 9 Oct 2026
+
+The detailed timing report (recovery/removal tables, which the per-clock TNS
+summary does not include) showed reset-release violations in every build checked
+(F62d place 1 and 3, main + SDC part 1):
+- por (= !pll_lock, a clk_osc flop in pll_hdmi's pll_init) went straight to
+  async CLEAR/PRESET pins in clk32 and flash_clk (recovery -6 to -8.6 ns,
+  removal down to -1.4 ns). The flops of one FSM could leave reset in
+  different clocks.
+- The DDR3 PHY reset showed -5.4 ns into the OSER8 RESET pins
+  (ddr3_clkin -> ddr3_memory_clk).
+- The pll_init FSMs ran on clk_osc over generic routing (PR1014). With up to
+  0.8 ns skew between neighbouring flops, hold slack was 0.005-0.03 ns, and
+  negative in some placements.
+
+Changes:
+- tang/console138k/reset_sync.v: a 3-flop async-assert / sync-deassert chain.
+  top.sv gives por two in-domain copies:
+  - por32 (clk32) for the ST core (misterynano.por), st_helper_ctrl, the
+    helper phase FSM, the mailbox, the S1 sync, dualshock2 and audio/i2s.
+  - por_flash (flash_clk) for the ST flash controller (new misterynano input)
+    and sth_frel.
+  Raw por stays only on combinational pin logic (jtagseln, spi_dir/spi_irqn,
+  and the bl616 jtagsel stays off por as before). Sequencing is unchanged:
+  rigsdram cold start, helper boot then release. Each copy only leaves reset
+  3 clocks of its own domain after lock.
+- clk_osc for fabric logic (all pll_init FSMs, S0 debounce, SPI-ext detect,
+  DDR3/AE350 reset debounce) goes through a DCE onto the global network
+  (clk_g). PLL CLKIN still comes from the pad. hdmi_testpattern_640 got an
+  init_clk port for this.
+- SDC:
+  - clk_g is a generated clock of clk_osc, in the same groups as clk_osc.
+  - set_false_path only to the PRESET pins of the two sync chains, the one
+    place where por itself arrives.
+  - Gowin's reference exclusive group ddr3_memory_clk / ddr3_clkin. The IP
+    releases its OSER resets with the memory clock stopped (DDR3_STOP gates
+    CLKOUT2).
+
+Result, main place_option 1:
+- TNS 0 on all clocks.
+- Recovery worst +7.2 ns, removal worst +0.25 ns. All rows positive; 400/233
+  paths were listed.
+- clk_g pll_init hold min +0.25 ns.
+- TA1132: none. PR1014 is left only for the pad -> DCE hop.

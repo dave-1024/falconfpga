@@ -174,6 +174,14 @@ assign uart_ext_tx = bl616_tx;   // desktop image
 
 wire clk32;
 wire pll_lock;
+// FalconFPGA 9 Oct 2026: the 50 MHz board clock for FABRIC logic (pll_init
+// FSMs, S0 debounce, DDR3/AE350 reset debounce, SPI-ext detect) goes through
+// a DCE (global clock enable buffer) so it is distributed on the global clock network. Before, the
+// router used generic routing for it (PR1014) and the pll_init hold paths had
+// 0.5-0.8 ns clock skew (hold slack 0.005-0.03 ns, negative in some
+// placements). The PLL CLKIN inputs still take the pad directly.
+wire clk_g;
+DCE u_clk_g ( .CLKIN(clk), .CE(1'b1), .CLKOUT(clk_g) );
 wire flash_clk;
 
 // S0 is AA13, port reset_n, pull-up. A press after lock reloads the ST reset
@@ -182,7 +190,7 @@ wire flash_clk;
 // S1 (user_n) stays unused.
 reg [1:0]  s0_sync = 2'b11;
 reg [15:0] s0_arm  = 16'd0;
-always @(posedge clk) begin
+always @(posedge clk_g) begin
     if (!pll_lock) begin
         s0_sync <= 2'b11;
         s0_arm  <= 16'd0;
@@ -196,7 +204,7 @@ wire s0_reset = (s0_arm == 16'hffff) && !s0_sync[1];
 reg [1:0] s1_sync = 2'b11;
 reg       s1_release = 1'b0;
 always @(posedge clk32) begin
-    if (por) begin
+    if (por32) begin
         s1_sync <= 2'b11;
         s1_release <= 1'b0;
     end else begin
@@ -206,6 +214,15 @@ always @(posedge clk32) begin
     end
 end
 wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
+// FalconFPGA 9 Oct 2026: por (= !pll_lock, a clk_osc flop in pll_hdmi's
+// pll_init) is asynchronous to every fabric clock. Each domain gets its own
+// copy that asserts at once and deasserts synchronously (reset_sync.v), so
+// the release meets recovery/removal in-domain. Sequencing is unchanged: the
+// copies only leave reset 3 clocks of their own domain after lock.
+wire por32;      // clk32 domain (ST core, helper control, MCU link, audio)
+wire por_flash;  // flash_clk domain (ST flash controller, sth_frel)
+reset_sync #(.STAGES(3)) u_por32_sync  ( .clk(clk32),     .arst(por), .rst(por32) );
+reset_sync #(.STAGES(3)) u_porfl_sync  ( .clk(flash_clk), .arst(por), .rst(por_flash) );
 
 reg     spi_ext = 1'b0;       // set when the external SPI interface on PMOD is active
 reg boot_button_detected = 1'b1;
@@ -246,7 +263,7 @@ assign pmod_companion_intn = spi_intn;
 // by default the internal SPI is being used. Once there is
 // a select from the external spi, then the connection is
 // being switched
-always @(posedge clk) begin
+always @(posedge clk_g) begin
     if(!pll_lock)
         spi_ext = 1'b0;
     else begin
@@ -310,7 +327,7 @@ wire [3:0] ds1_buttons;
    
 dualshock2 ds2_p1 (
   .clk          ( clk32     ), // ds2 module actually expects 31.5 Mhz
-  .rst          ( por       ),			   
+  .rst          ( por32     ),			   
   .vsync        ( !lcd_vs   ), // refresh once a screen
 				   
   .ds2_dat      ( ds1_miso  ), // connections to dualshock p1 port
@@ -349,7 +366,7 @@ end
 // count 32 bits
 reg [4:0] audio_bit_cnt;
 always @(posedge clk_audio) begin
-    if(por)
+    if(por32)
         audio_bit_cnt <= 5'd0;
     else 
         audio_bit_cnt <= audio_bit_cnt + 5'd1;
@@ -357,8 +374,8 @@ end
 
 // generate i2s signals
 assign i2s_bclk = clk_audio;
-assign i2s_lrck = por?1'b0:audio_bit_cnt[4];
-assign i2s_din = por?1'b0:audio[i2s_lrck][15-audio_bit_cnt[3:0]];
+assign i2s_lrck = por32?1'b0:audio_bit_cnt[4];
+assign i2s_din = por32?1'b0:audio[i2s_lrck][15-audio_bit_cnt[3:0]];
    
 // FalconFPGA stage 2: raw ST video (clk32 domain) for the 640x480 frame buffer
 wire       st_video_hs_n, st_video_vs_n, st_video_de;
@@ -400,12 +417,12 @@ wire        extm_hreadyout;
 wire [1:0]  extm_hresp;
 
 gowin_pll_ae350 u_gowin_pll_ae350 (
-    .clkin(clk), .init_clk(clk),
+    .clkin(clk), .init_clk(clk_g),
     .clkout0(DDR_CLK), .clkout1(CORE_CLK), .clkout2(AHB_CLK),
     .clkout3(APB_CLK), .clkout4(RTC_CLK)
 );
 gowin_pll_ddr3 u_gowin_pll_ddr3 (
-    .clkin(clk), .init_clk(clk),
+    .clkin(clk), .init_clk(clk_g),
     .enclk0(1'b1), .enclk1(1'b1), .enclk2(DDR3_STOP),
     .clkout0(DDR3_CLK_IN), .clkout1(DDR3_RW_CLK),
     .clkout2(DDR3_MEMORY_CLK), .lock(DDR3_LOCK)
@@ -415,11 +432,11 @@ gowin_pll_ddr3 u_gowin_pll_ddr3 (
 // has been handed to the ST, so a DDR3 reset would kill it for good. DDR3
 // reset is released 20 ms after configuration, independent of S0.
 key_debounce u_key_debounce_ddr3 (
-    .out(ddr3_rstn), .in(1'b1), .clk(clk), .rstn(1'b1)
+    .out(ddr3_rstn), .in(1'b1), .clk(clk_g), .rstn(1'b1)
 );
 `else
 key_debounce u_key_debounce_ddr3 (
-    .out(ddr3_rstn), .in(reset_n), .clk(clk), .rstn(1'b1)
+    .out(ddr3_rstn), .in(reset_n), .clk(clk_g), .rstn(1'b1)
 );
 `endif
 
@@ -440,7 +457,7 @@ wire flash_reinit = 1'b0;
 wire helper_hold = 1'b1;
 wire ae350_rstn_deb;
 key_debounce u_key_debounce_ae350 (
-    .out(ae350_rstn_deb), .in(ddr3_init_sync[1]), .clk(clk), .rstn(1'b1)
+    .out(ae350_rstn_deb), .in(ddr3_init_sync[1]), .clk(clk_g), .rstn(1'b1)
 );
 reg ae350_loan;
 reg ae350_run;
@@ -454,7 +471,7 @@ reg [1:0] banner_st;
 reg [15:0] loan_wait;
 localparam BST_PIN = 0, BST_WAIT = 1, BST_TAIL = 2, BST_LOAN = 3;
 always @(posedge clk32) begin
-    if (por) begin
+    if (por32) begin
         ae350_loan <= 0;
         ae350_run <= 0;
         banner_div <= 0;
@@ -528,7 +545,7 @@ wire       sth_helper_up, sth_helper_fail, sth_fab_tx, sth_ae_rxd;
 wire [7:0] sth_boot_code, sth_gpio;
 st_helper_ctrl u_sth_ctrl (
     .clk         ( clk32               ),
-    .rst         ( por                 ),
+    .rst         ( por32               ),
     .ddr3_init_a ( ddr3_init_completed ),
     .ae_gpio_a   ( ae350_gpio[7:0]     ),
     .ae_csn_a    ( ae350_flash_csn     ),
@@ -547,8 +564,8 @@ wire helper_hold = ~sth_st_release;        // ST (030 + chipset) in reset until 
 // The ST flash controller is held in reset (flash_ready low) until the pads
 // are the ST's; its reset is released synchronously to flash_clk.
 reg [1:0] sth_frel = 2'b00;
-always @(posedge flash_clk or posedge por)
-    if (por) sth_frel <= 2'b00;
+always @(posedge flash_clk or posedge por_flash)
+    if (por_flash) sth_frel <= 2'b00;
     else     sth_frel <= {sth_frel[0], sth_st_release};
 wire flash_reinit = ~sth_frel[1];
 `else
@@ -558,7 +575,7 @@ wire flash_reinit = 1'b0;
 wire helper_hold = 1'b0;
 `endif
 always @(posedge clk32) begin
-    if (por) begin
+    if (por32) begin
         ddr3_init_sync <= 2'b00;
         helper_timer <= 30'd0;
         gpio_s0 <= 8'h00;
@@ -716,7 +733,7 @@ wire [4:1]  ext_io_a;
 wire [15:0] ext_io_wdata, ext_io_rdata;
 st_helper_mailbox u_sth_mailbox (
     .clk         ( clk32           ),
-    .rst         ( por             ),
+    .rst         ( por32           ),
     .cs          ( ext_io_cs       ),
     .uds_n       ( ext_io_uds_n    ),
     .lds_n       ( ext_io_lds_n    ),
@@ -746,7 +763,8 @@ misterynano misterynano (
   .clk_cpu ( clk_cpu030 ),  // 8 Mhz 68030 clock (only used with CPU_030 in atarist.v)
   .clk_cpu_n ( clk_cpu030_n ), // the same at 180 degrees (68030 falling-edge registers)
   .flash_clk ( flash_clk ), // 100 Mhz flash clock
-  .por   ( por ),           // True while not all PLLs locked
+  .por   ( por32 ),         // True while not all PLLs locked (clk32-synchronous release)
+  .por_flash ( por_flash ), // the same, flash_clk-synchronous release
 
   .leds_n ( leds_int_n ),
   .rom_fetch ( rom_fetch ),
@@ -893,7 +911,7 @@ pll_160m pll_hdmi (
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
                .clkin(clk),
-               .init_clk(clk)
+               .init_clk(clk_g)
 	       );
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
@@ -969,7 +987,8 @@ hdmi_testpattern_640 #(
     .DIAG_OVERLAY ( DIAG_EN ),    // set by `define DIAG_OVERLAY above
     .FB_SELFTEST  ( DIAG_ST )     // set by DIAG_FB_SELFTEST above
 ) hdmi_tp (
-    .clk        ( clk        ),   // 50 MHz board clock
+    .clk        ( clk        ),   // 50 MHz board clock (PLL input)
+    .init_clk   ( clk_g      ),   // the same on the global network (pll_init)
     .hdmi_lock  (            ),
 
     // DIAG overlay status (all 0 in the normal build)

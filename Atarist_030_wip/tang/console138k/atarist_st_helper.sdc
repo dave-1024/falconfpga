@@ -43,7 +43,7 @@ create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock 
 // core's inverted CLK was a fabric LUT and those paths were not analysed).
 // Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
 create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
 // F58: explicit reports for the 68030 clock pairs (half-cycle paths between
 // clk_cpu030 and clk_cpu030_n, and the bridge's direct clk32 <-> CPU paths)
 report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_cpu030_n}]
@@ -76,7 +76,7 @@ create_clock -name ddr3_memory_clk -period 5  -waveform {0 2.5} [get_nets {DDR3_
 // flash CS#, UART2_TXD), UART2_RXD (sampled by the UART's own oversampler)
 // and the static, once-switched flash pad mux. Without this group STA would
 // time those crossings as if the 50 MHz and 32 MHz PLL outputs were related.
-set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
 
 // ---------------------------------------------------------------------------
 // Clocks STA found but nobody created (TA1132, 9 Oct 2026). Before this, every
@@ -123,6 +123,29 @@ create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_i
 // mux described above and in the AE350 group line further up; the clk32
 // dividers only meet the HDMI 640 domain through the existing frame-buffer
 // crossing.
-set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
 set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
 set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
+
+// ---------------------------------------------------------------------------
+// clk_g: the 50 MHz board clock after the DCE global buffer in top.sv (fabric
+// loads: pll_init FSMs, debouncers). Same clock as clk_osc, delayed.
+create_generated_clock -name clk_g -source [get_ports {clk}] -master_clock clk_osc -divide_by 1 [get_pins {u_clk_g/CLKOUT}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_g}] -to_clock [get_clocks {clk_g}]
+
+// ---------------------------------------------------------------------------
+// Reset synchronisers (9 Oct 2026, reset_sync.v): por (= !pll_lock, clk_osc)
+// enters each fabric domain only through the async PRESET pins of a 3-flop
+// async-assert / sync-deassert chain. At release those flops hold a constant
+// 1 and the chain absorbs any metastability, so the recovery/removal check
+// from por to the chain itself is not a real path. Everything the chains
+// reset is timed in-domain.
+set_false_path -to [get_pins {u_por32_sync/sync_*_s0/PRESET}]
+set_false_path -to [get_pins {u_porfl_sync/sync_*_s0/PRESET}]
+
+// DDR3 PHY (Gowin IP, encrypted): its reset registers (ddr3_clkin) release
+// the OSER8/IOLOGIC RESET pins in the ddr3_memory_clk domain, which the IP
+// does with the memory clock stopped (DDR3_STOP gates CLKOUT2 of
+// gowin_pll_ddr3). Gowin's own reference SDC (ae350_shared_ddr3.sdc, also
+// Hybrid030 ae350_stage0.sdc) declares the two clocks exclusive for this.
+set_clock_groups -exclusive -group [get_clocks {ddr3_memory_clk}] -group [get_clocks {ddr3_clkin}]

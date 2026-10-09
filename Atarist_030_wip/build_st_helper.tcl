@@ -133,6 +133,7 @@ add_file tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file tang/console138k/gowin_pll/pll_160m.v
 add_file tang/console138k/gowin_pll/pll_160m_mod.v
 add_file tang/console138k/pll_init.v
+add_file tang/console138k/reset_sync.v
 add_file helper/key_debounce.v
 add_file helper/gowin_pll_ae350/gowin_pll_ae350.v
 add_file helper/gowin_pll_ae350/gowin_pll_ae350_mod.v

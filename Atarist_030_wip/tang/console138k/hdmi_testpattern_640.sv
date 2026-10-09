@@ -36,7 +36,8 @@ module hdmi_testpattern_640 #(
     parameter DIAG_OVERLAY   = 0,   // 1 = draw diag_overlay status squares
     parameter FB_SELFTEST    = 0    // 1 = frame buffer fed by diag_fake_st
 ) (
-    input        clk,          // 50 MHz board clock
+    input        clk,          // 50 MHz board clock (PLL CLKIN)
+    input        init_clk,     // the same via a global buffer, for pll_init (FalconFPGA)
 
     // raw ST video from the core (clk32 domain), used if ST_VIDEO = 1
     input        clk32,
@@ -71,7 +72,7 @@ wire pll_lock;
 
 gowin_pll_hdmi pll_hdmi640 (
     .clkin    ( clk          ),
-    .init_clk ( clk          ),
+    .init_clk ( init_clk     ),
     .clkout0  ( clk_pixel_x5 ),   // 126 MHz
     .lock     ( pll_lock     )
 );

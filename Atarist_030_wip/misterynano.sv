@@ -19,7 +19,8 @@ module misterynano #(
   input			clk32,
   input			clk_cpu, // 16 MHz 68030 clock (Atarist_030_wip, CPU_030 in atarist.v)
   input			clk_cpu_n, // clk_cpu at 180 degrees (PLL), the 68030's falling-edge registers
-  input			por, // power on-reset (! all PLL's locked)
+  input			por, // power on-reset (! all PLL's locked), released synchronously to clk32
+  input			por_flash, // the same, released synchronously to flash_clk (FalconFPGA)
   input			flash_reinit, // pulse the SPI flash controller back through init
   output		flash_ready,
 
@@ -201,7 +202,7 @@ wire flash_ready;
 
 flash flash (
     .clk(flash_clk),
-    .resetn(!por && !flash_reinit),
+    .resetn(!por_flash && !flash_reinit),
     .ready(flash_ready),
     .busy(),
 
