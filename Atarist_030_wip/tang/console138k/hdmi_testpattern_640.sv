@@ -57,6 +57,10 @@ module hdmi_testpattern_640 #(
     input [15:0] diag_word,    // first TOS word
     input [191:0] diag_rows,   // diag030c: 6 bit-bar rows a..f, 32 bits each (slow)
     output       diag_fb_we,   // frame buffer write enable (clk32 domain)
+`ifdef WF030_TRACE
+    input          trc_clk,    // diag-trace: clk_cpu030 (ring write clock)
+    input  [353:0] trc,        // diag-trace: wf030_trace_cap write port + status
+`endif
 
     output       tmds_clk_n,
     output       tmds_clk_p,
@@ -218,6 +222,19 @@ end else begin : g_nodiag
     assign o_r = v_r;  assign o_g = v_g;  assign o_b = v_b;
 end endgenerate
 
+// ------------- diag-trace dump (debug only, `define WF030_TRACE) -------------
+wire [7:0] t_r, t_g, t_b;
+`ifdef WF030_TRACE
+wf030_trace_view trace_view (
+    .wclk ( trc_clk ), .trc ( trc ),
+    .clk  ( clk_pixel ), .cx ( v_cx ), .cy ( v_cy ),
+    .r_in ( o_r ), .g_in ( o_g ), .b_in ( o_b ),
+    .r    ( t_r ), .g    ( t_g ), .b    ( t_b )
+);
+`else
+assign t_r = o_r;  assign t_g = o_g;  assign t_b = o_b;
+`endif
+
 // ------------------------------ audio -------------------------------
 // 48 kHz audio clock: 25.2 MHz / 525 = 48000 Hz exactly
 reg [9:0] aclk_cnt = 10'd0;
@@ -271,7 +288,7 @@ hdmi_640 #(
     .cy                ( v_cy         ),
     .hsync             ( v_hsync_n    ),
     .vsync             ( v_vsync_n    ),
-    .rgb               ( { o_r, o_g, o_b } ),
+    .rgb               ( { t_r, t_g, t_b } ),
     .audio_sample_word ( audio_word   ),
     .tmds              ( tmds         ),
     .tmds_clock        ( tmds_clock   )

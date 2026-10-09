@@ -274,7 +274,8 @@ component WF68K30L_BUS_INTERFACE
         HALTn               : in std_logic;
         BERRn               : in std_logic;
         AERR                : out bit;
-        BUS_BSY             : out bit
+        BUS_BSY             : out bit;
+        DBG_Q               : out std_logic_vector(15 downto 0) -- [TRACE]
     );
 end component;
 

@@ -152,7 +152,10 @@ entity WF68K30L_BUS_INTERFACE is
         BERRn               : in std_logic; -- Bus error (top level entity).
         AERR                : buffer bit; -- Core internal address error.
 
-        BUS_BSY             : out bit -- Bus is busy when '1'.
+        BUS_BSY             : out bit; -- Bus is busy when '1'.
+        -- [TRACE] observation only (diag-trace branch, unconnected in normal builds):
+        -- 9 PF_ACC, 8 OPC_RD, 7 Q_DUMMY, 6 Q_MISS, 5 Q_HIT, 4 Q_DISMISS, 3 OPCODE_RDY_I, 2..0 Q_CNT.
+        DBG_Q               : out std_logic_vector(15 downto 0)
     );
 end entity WF68K30L_BUS_INTERFACE;
     
@@ -722,6 +725,17 @@ begin
     -- [F62c] The decoder's own dismissal flag, not a registered copy of its logic: one flip-flop decides
     -- whether the next opcode ready is a dummy, so the decoder and the queue cannot disagree.
     Q_DISMISS <= OPC_DISMISS;
+
+    -- [TRACE] observation only.
+    DBG_Q(15 downto 10) <= (others => '0');
+    DBG_Q(9) <= to_stdulogic(PF_ACC);
+    DBG_Q(8) <= to_stdulogic(OPC_RD);
+    DBG_Q(7) <= to_stdulogic(Q_DUMMY);
+    DBG_Q(6) <= to_stdulogic(Q_MISS);
+    DBG_Q(5) <= to_stdulogic(Q_HIT);
+    DBG_Q(4) <= to_stdulogic(Q_DISMISS);
+    DBG_Q(3) <= to_stdulogic(OPCODE_RDY_I);
+    DBG_Q(2 downto 0) <= std_logic_vector(to_unsigned(Q_CNT, 3));
 
     FC_OUT <= F_FC when PF_ACC = '1' else FC_IN; -- [F62]
 

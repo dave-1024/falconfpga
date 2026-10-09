@@ -133,6 +133,12 @@ module cpu030_st_bridge #(
     // [63:32]   row e: bridge 68000-side state machine (clk_32)
     // [31:0]    row f: {start count 7:0, live last program fetch A23:0} (clk_cpu)
     output wire [167:0] dbg_trace
+`ifdef WF030_TRACE
+    ,
+    // diag-trace (debug only): ring/watch write port + status to wf030_trace_view
+    // {we, waddr[11:0], wdata[143:0], wwe, wwaddr[3:0], wwdata[143:0], status[47:0]}
+    output wire [353:0] dbg_trc
+`endif
 );
 
     // =====================================================================
@@ -170,6 +176,9 @@ module cpu030_st_bridge #(
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
+`ifdef WF030_TRACE
+    wire [79:0] cpu_dbg;           // diag-trace: WF68K30L_TOP DBG port
+`endif
 
 `ifdef WF030_NETLIST
     // gate-level simulation (sim/run_unit.sh): the netlist from
@@ -216,6 +225,10 @@ module cpu030_st_bridge #(
         .BRn       ( 1'b1          ),   // arbitration is done on the ST side
         .BGn       (               ),
         .BGACKn    ( 1'b1          )
+`ifdef WF030_TRACE
+        ,
+        .DBG       ( cpu_dbg       )    // diag-trace: observation only (netlist: needs a DBG-port netlist)
+`endif
     );
 
     // ---- front end: request capture (clk_32) -------------------------------
@@ -635,6 +648,39 @@ module cpu030_st_bridge #(
         r_res, BRi, BgackI                            // G8
     };
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
+
+`ifdef WF030_TRACE
+    // ---- diag-trace (debug only): bus cycle + prefetch queue event ring ----
+    wire         t_we, t_wwe;
+    wire [11:0]  t_waddr;
+    wire [3:0]   t_wwaddr;
+    wire [143:0] t_wdata, t_wwdata;
+    wire [47:0]  t_status;
+    wf030_trace_cap u_trace_cap (
+        .clk           ( clk_cpu        ),
+        .rst_n         ( cpu_rst_n      ),
+        .cpu_adr       ( cpu_adr        ),
+        .cpu_fc        ( cpu_fc         ),
+        .cpu_rwn       ( cpu_rwn        ),
+        .cpu_size      ( cpu_size       ),
+        .cpu_asn       ( cpu_asn        ),
+        .cpu_dsackn    ( cpu_dsackn     ),
+        .cpu_berrn     ( cpu_berrn      ),
+        .cpu_din       ( cpu_din[31:16] ),
+        .cpu_dout      ( cpu_dout[31:16]),
+        .cpu_halt_outn ( cpu_halt_outn  ),
+        .ipl_n         ( ipl_r          ),
+        .dbg           ( cpu_dbg        ),
+        .we            ( t_we           ),
+        .waddr         ( t_waddr        ),
+        .wdata         ( t_wdata        ),
+        .wwe           ( t_wwe          ),
+        .wwaddr        ( t_wwaddr       ),
+        .wwdata        ( t_wwdata       ),
+        .status        ( t_status       )
+    );
+    assign dbg_trc = {t_we, t_waddr, t_wdata, t_wwe, t_wwaddr, t_wwdata, t_status};
+`endif
 
 endmodule
 

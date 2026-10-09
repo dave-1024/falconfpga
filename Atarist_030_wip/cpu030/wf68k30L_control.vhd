@@ -1754,12 +1754,21 @@ begin
                                     else
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
                                     end if;
-                                when "101" => 
-                                    NEXT_FETCH_STATE <= FETCH_DISPL;
-                                when "110" =>
-                                    NEXT_FETCH_STATE <= FETCH_EXWORD_1;
-                                when others => -- "111" 
-                                    if BIW_0(2 downto 0) = "000" then
+                                when others => -- "101", "110", "111"
+                                    -- [F62d] JSR decrements A7 when it leaves START_OP (AR_DEC), for every
+                                    -- addressing mode, and AR_SEL_RD_1 is A7 here. Wait until a pending A7
+                                    -- writeback of the previous instruction is done, as BSR does. With the
+                                    -- prefetch queue "ADDA.W #16,SP; JSR (d16,PC)" (TOS 2.06 AES Pexec wrapper
+                                    -- at E21C0C) got here while the ADDA result was written back in the same
+                                    -- clock: the write won, the decrement was lost, SP ended 4 too high and the
+                                    -- wrapper's RTS took the filename pointer as return address.
+                                    if OP = JSR and AR_IN_USE = '1' then
+                                        NEXT_FETCH_STATE <= START_OP; -- Wait, ADH.
+                                    elsif BIW_0(5 downto 3) = "101" then
+                                        NEXT_FETCH_STATE <= FETCH_DISPL;
+                                    elsif BIW_0(5 downto 3) = "110" then
+                                        NEXT_FETCH_STATE <= FETCH_EXWORD_1;
+                                    elsif BIW_0(2 downto 0) = "000" then
                                         NEXT_FETCH_STATE <= FETCH_ABS_LO;
                                     elsif BIW_0(2 downto 0) = "001" then
                                         NEXT_FETCH_STATE <= FETCH_ABS_HI;

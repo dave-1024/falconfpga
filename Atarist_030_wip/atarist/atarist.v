@@ -119,6 +119,10 @@ module atarist (
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
 	output wire [23:0] dbg_vbase          // diag030w: {boot-path flags[7:0], last word read from cmdload $482}
+`ifdef WF030_TRACE
+	,
+	output wire [353:0] dbg_trc           // diag-trace ring write port (cpu030_st_bridge)
+`endif
 `ifdef ST_HELPER
 	,
 	// FalconFPGA ST_HELPER (build_st_helper.tcl only): one extra I/O device,
@@ -646,6 +650,10 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
 	.dbg_trace  ( dbg_trace  )
+`ifdef WF030_TRACE
+	,
+	.dbg_trc    ( dbg_trc    )
+`endif
 );
 `else
 assign rom_fetch = 1'b0;

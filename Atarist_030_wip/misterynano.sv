@@ -33,6 +33,9 @@ module misterynano #(
   output [3:0]  diag_030,     // 030 bridge {berr, dsack, req, run}
   output [167:0] diag_trace,  // diag030c: bridge first-BERR / bus-cycle watch
   output [23:0] diag_vbase,   // diag030w: {boot-path flags, cmdload word}
+`ifdef WF030_TRACE
+  output [353:0] diag_trc,    // diag-trace ring write port
+`endif
   output		ws2812,
   output		jtagsel,
 
@@ -755,6 +758,10 @@ atarist atarist (
     .dbg_030(diag_030),
     .dbg_trace(diag_trace),
     .dbg_vbase(diag_vbase)
+`ifdef WF030_TRACE
+    ,
+    .dbg_trc(diag_trc)
+`endif
 `ifdef ST_HELPER
     ,
     .ext_io_cs(ext_io_cs),

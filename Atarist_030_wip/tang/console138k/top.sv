@@ -369,6 +369,9 @@ wire [15:0] diag_rom_data;
 wire [3:0]  diag_030;
 wire [167:0] diag_trace;
 wire [23:0] diag_vbase;
+`ifdef WF030_TRACE
+wire [353:0] diag_trc;     // diag-trace ring write port (clk_cpu030 domain)
+`endif
 
 // Helper bring-up. DDR3 trains, then the AE350 is released and owns MSPI
 // until it drives GPIO 0xA5, or 20 seconds pass. The ready bit is latched,
@@ -844,6 +847,9 @@ misterynano misterynano (
   .diag_030      ( diag_030      ),
   .diag_trace    ( diag_trace    ),
   .diag_vbase    ( diag_vbase    ),
+`ifdef WF030_TRACE
+  .diag_trc      ( diag_trc      ),
+`endif
 
   // digital 16 bit audio output
   .audio ( audio )
@@ -980,6 +986,10 @@ hdmi_testpattern_640 #(
     .diag_word     ( diag_word     ),
     .diag_rows     ( diag_rows     ),
     .diag_fb_we    ( diag_fb_we    ),
+`ifdef WF030_TRACE
+    .trc_clk       ( clk_cpu030    ),
+    .trc           ( diag_trc      ),
+`endif
 
     // raw ST video from the core (stage 2)
     .clk32      ( clk32         ),

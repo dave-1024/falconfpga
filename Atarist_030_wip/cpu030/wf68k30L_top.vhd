@@ -213,7 +213,12 @@ entity WF68K30L_TOP is
         -- Bus arbitration control:
         BRn             : in std_logic;
         BGn             : out std_logic;
-        BGACKn          : in std_logic
+        BGACKn          : in std_logic;
+
+        -- [TRACE] observation only (diag-trace branch; leave open in normal builds):
+        -- 75..66 DBG_Q(9..0) of the bus interface, 65 EXH_REQ, 64 BUSY_EXH, 63 IPIPE_FLUSH,
+        -- 62..39 PC(23..0), 38..16 PC_L(23..1) (requested opcode address), 15..0 OPCODE_TO_CORE.
+        DBG             : out std_logic_vector(79 downto 0)
     );
 end entity WF68K30L_TOP;
     
@@ -347,6 +352,7 @@ signal IRQ_PEND                 : std_logic_vector(2 downto 0);
 signal IPIPE_FILL               : bit;
 signal IPIPE_FLUSH              : bit;
 signal OPC_DISMISS              : bit; -- [F62c]
+signal DBG_Q                    : std_logic_vector(15 downto 0); -- [TRACE]
 signal IPIPE_FLUSH_EXH          : bit;
 signal IPIPE_FLUSH_MAIN         : bit;
 signal IPIPE_OFFESET            : std_logic_vector(2 downto 0);
@@ -1101,8 +1107,19 @@ begin
             BERRn               => BERRn,
             AERR                => AERR,
 
-            BUS_BSY             => BUS_BSY
+            BUS_BSY             => BUS_BSY,
+            DBG_Q               => DBG_Q -- [TRACE]
         );
+
+    -- [TRACE] observation only.
+    DBG(79 downto 76) <= (others => '0');
+    DBG(75 downto 66) <= DBG_Q(9 downto 0);
+    DBG(65) <= to_stdulogic(EXH_REQ);
+    DBG(64) <= to_stdulogic(BUSY_EXH);
+    DBG(63) <= to_stdulogic(IPIPE_FLUSH);
+    DBG(62 downto 39) <= PC(23 downto 0);
+    DBG(38 downto 16) <= PC_L(23 downto 1);
+    DBG(15 downto 0) <= OPCODE_TO_CORE;
 
     I_CONTROL: WF68K30L_CONTROL
         generic map(NO_PIPELINE     => NO_PIPELINE)
