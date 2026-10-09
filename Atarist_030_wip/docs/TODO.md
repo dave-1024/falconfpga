@@ -2,6 +2,7 @@
 
 1. **URGENT / REQUIRED: WF68K30L bus request handoff rework.** The next bus cycle must start straight after S5 when a
    request is pending, like a real 68030 (cycle-correct; also a speedup). Wanted, not optional.
+   - Full handover: [`handoff/HANDOVER_2026-10-09_cpu_rework.md`](../../handoff/HANDOVER_2026-10-09_cpu_rework.md); rollback tag `rollback-2026-10-09-eas`.
    - Now: DATA_C1C4 -> IDLE -> START_CYCLE, 2 extra clocks per transfer (hdl/cpu030/wf68k30L_bus_interface.vhd:530-568,
      back to IDLE at :565-566). Requests are masked while BUS_BSY (wf68k30L_top.vhd:744-764); DATA_RDY is strobed on the
      edge that ends the cycle (bus_interface.vhd:908-923, BUS_CYC_RDY at S5 :1018-1020), so the control unit only

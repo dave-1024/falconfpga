@@ -13,6 +13,8 @@ All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmwa
 
 ## Status (9 Oct 2026, main = BRIDGE_EARLY_AS build)
 
+**Next task / handover for the CPU rework (Grok chat):** [`handoff/HANDOVER_2026-10-09_cpu_rework.md`](../handoff/HANDOVER_2026-10-09_cpu_rework.md). Rollback point: tag `rollback-2026-10-09-eas`.
+
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 
 | build | RAM | ROM | Display | CPU | Average |
