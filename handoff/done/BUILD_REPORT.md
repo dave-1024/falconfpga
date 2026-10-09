@@ -16,3 +16,5 @@ Flash: op 53, location 289 (cable scan: 289/290). Result: FAIL - cold and warm b
 Restored st_helper_eas_d43f5fd_p3.fs (cb7a9632...14eb). NOTE: the restored image also stayed on the same
 screen after a reflash (60 s+), so the F65 fail is not conclusive; board/boot environment needs a power cycle
 and a re-check by David before F65 is judged.
+
+Correction 2026-10-09 21:34 (David): the no-desktop stop was an SD card fault, now corrected. The restored early-AS image failing the same way fits that. Do not treat the flash as an F65 fail.
