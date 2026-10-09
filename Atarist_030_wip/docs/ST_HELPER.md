@@ -864,3 +864,31 @@ Board build: `st_helper_f63_f484271.fs`.
   OHL v1.2; headers kept). The 030 bridge follows Stephen J. Leary's
   TerribleFire TF534. Bug found and fixed for falconfpga by dave-1024 with
   Grok Bot.
+
+## 7l. SDC: clocks that were found but never created, 9 Oct 2026
+
+Gowin's timer warned (TA1132) that five nets are clocks nobody created. Paths
+on them were untimed or timed against a default guess, and the AE350 helper's
+boot depended on place_option (F62d: option 1 = helper never boots, option 3 =
+boots). atarist_st_helper.sdc now creates them. Only clock definitions and
+groups are added. The flash pad I/O delays are not constrained: the boot SCK
+period of the encrypted SoC is unknown, and with the reference's 20 ns the MISO
+path cannot meet a 7 ns tCLQV through the pad mux (analysis in
+st_helper_out/fetchfix/SPI_SDC.md).
+
+| clock | what it is | why this constraint |
+|---|---|---|
+| ae350_flash_clk, 20 ns | SoC flash SCK (a LUT in the encrypted core, also the clock of its MISO capture flops) | as Gowin's AE350 reference (flash_sysclk 20 ns); exclusive to AHB/APB/DDR as there |
+| st_flash_clk | ST flash controller clock (pll_hdmi CLKOUT3, 100 MHz) | exclusive to ae350_flash_clk: the balls are switched once, never shared |
+| spi_io_clk, 120 ns | st_helper_mculink re-registered SCK (AHB flop, AE350 bit-bang) clocking mcu_spi.v | a level passes after two equal AHB samples -> half period >= 60 ns |
+| ddr3_sysclk, 20 ns | DDR3 PHY fclkdiv output | as Gowin's reference, with its two async groups |
+| i2s_bclk_d, ds2_clk_spi | clk32 / 20 and clk32 / 252 fabric dividers | generated clocks, so paths to/from clk32 are timed with the true relation |
+
+Asynchronous groups and why:
+- AE350-side clocks (flash SCK, spi_io_clk, ddr3_sysclk) vs the fabric. They
+  only meet through the mcu_spi toggle + 2-flop synchroniser into clk32, the
+  UART oversampler and the static, once-switched flash pad mux.
+- spi_io_clk vs the AE350 clocks. MOSI/SS# come from the same retiming flops
+  that make SCK and are stable for >= 2 AHB cycles around each SCK edge.
+- The clk32 dividers vs the HDMI 640 clocks. The only crossing is the existing
+  frame-buffer one.

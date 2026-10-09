@@ -77,3 +77,52 @@ create_clock -name ddr3_memory_clk -period 5  -waveform {0 2.5} [get_nets {DDR3_
 // and the static, once-switched flash pad mux. Without this group STA would
 // time those crossings as if the 50 MHz and 32 MHz PLL outputs were related.
 set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+
+// ---------------------------------------------------------------------------
+// Clocks STA found but nobody created (TA1132, 9 Oct 2026). Before this, every
+// path in or out of these nets was untimed or timed against a default guess.
+// Docs: docs/ST_HELPER.md 7l. Only clock definitions and clock groups; the
+// AE350 flash pad I/O delays are not constrained (SCK period not yet known).
+
+// (1) AE350 flash SPI SCLK: FLASH_SPI_CLK = a LUT in the encrypted SoC
+// (u_gwspiflash/u_spi_spiif/n250_s0), also the clock of the SoC's MISO capture
+// flops. 20 ns and exclusive to the SoC's AHB/APB/DDR clocks, as in Gowin's
+// own AE350 reference SDC (flash_sysclk).
+create_clock -name ae350_flash_clk -period 20 -waveform {0 10} [get_nets {ae350_flash_clk}]
+set_clock_groups -exclusive -group [get_clocks {ae350_flash_clk}] -group [get_clocks {ae350_ahb_clk}] -group [get_clocks {ae350_apb_clk}] -group [get_clocks {ae350_ddr_clk}]
+// The ST flash controller (flash_clk = pll_hdmi CLKOUT3, 100 MHz) owns the same
+// balls only after the one-time sth_flash_to_st switch: never both at once.
+create_generated_clock -name st_flash_clk -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT3}]
+set_clock_groups -exclusive -group [get_clocks {st_flash_clk}] -group [get_clocks {ae350_flash_clk}]
+
+// (2) spi_io_clk: st_helper_mculink's re-registered SCK (an AHB_CLK flop; the
+// AE350 bit-bangs it, a level passes after two equal AHB samples, so a half
+// period is >= 3 x 20 ns -> 120 ns minimum period) clocks misc/mcu_spi.v.
+// Asynchronous to the fabric (mcu_spi -> clk32: toggle flag + 2-flop
+// synchroniser) and to the AE350 clocks (MOSI/SS# come from the same retiming
+// flops and are stable >= 2 AHB cycles around each SCK edge). The internal
+// mcu_spi shift-register paths are timed at 120 ns.
+create_clock -name spi_io_clk -period 120 -waveform {0 60} [get_nets {spi_io_clk}]
+
+// (3) DDR3 PHY divider (fclkdiv CLKOUT): ddr3_sysclk 20 ns with the relations
+// of Gowin's reference (ae350_shared_ddr3.sdc): asynchronous to ddr3_clkin and
+// to ddr3_memory_clk (the PHY's own CDC handles those crossings).
+create_clock -name ddr3_sysclk -period 20 -waveform {0 10} [get_pins {u_RiscV_AE350_SOC_Top/u_RiscV_AE350_SOC/u_riscv_ae350_ddr3_top/u_ddr3_memory_ahb_top/u_ddr3/gw3_top/u_ddr_phy_top/fclkdiv/CLKOUT}]
+set_clock_groups -asynchronous -group [get_clocks {ddr3_clkin}] -group [get_clocks {ddr3_sysclk}]
+set_clock_groups -asynchronous -group [get_clocks {ddr3_sysclk}] -group [get_clocks {ddr3_memory_clk}]
+
+// (4) Fabric dividers of clk32 (MiSTeryNano upstream): i2s bit clock
+// (clk32 / 20) and DualShock2 SPI clock (clk32 / 252). Generated from
+// clk32_core so the paths into and out of them are timed with the true
+// relation instead of as unrelated clocks.
+create_generated_clock -name i2s_bclk_d -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}] -master_clock clk32_core -divide_by 20 [get_nets {i2s_bclk_d}]
+create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}] -master_clock clk32_core -divide_by 252 [get_nets {ds2_p1/clk_spi}]
+
+// Groups for the new clocks. The AE350-side clocks (flash SCK, spi_io_clk,
+// ddr3_sysclk) only meet the fabric through the synchronisers / static pad
+// mux described above and in the AE350 group line further up; the clk32
+// dividers only meet the HDMI 640 domain through the existing frame-buffer
+// crossing.
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
+set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
