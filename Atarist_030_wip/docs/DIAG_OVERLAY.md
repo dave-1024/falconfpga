@@ -6,7 +6,7 @@ monitor (or an HDMI capture stick). It was used to find the F58 bridge timing
 problem and the F59 loop-mode deadlock.
 
 **It is OFF by default.** To enable it, uncomment `` `define DIAG_OVERLAY `` near
-the top of `tang/console138k/top.sv` and rebuild. It needs `HDMI_TESTPATTERN`
+the top of `hdl/tang/console138k/top.sv` and rebuild. It needs `HDMI_TESTPATTERN`
 and `ST_VIDEO = 1` (both are the defaults). With the define commented out the
 debug wiring has no load and synthesis removes it, so the normal build is
 unaffected.

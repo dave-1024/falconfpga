@@ -13,7 +13,7 @@
 >   ROM code +10-15%. Combined with BRIDGE_EARLY_AS +31-41%.
 
 Build: `gw_sh build_st_helper.tcl` (writes `` `define ST_HELPER `` into
-`tang/console138k/build_sel.vh`). Bitstream: `impl/pnr/st_helper.fs`.
+`hdl/tang/console138k/build_sel.vh`). Bitstream: `impl/pnr/st_helper.fs`.
 Firmware: `helper_fw/mailbox/` (`helper_mailbox.bin`, flash at `0x0600000`).
 The desktop build `build_tc138k.tcl` is unchanged: every ST_HELPER change is
 inside `` `ifdef ST_HELPER ``. With the define off, synthesis removes it.
@@ -60,7 +60,7 @@ controller had left open is abandoned. `C` now only means "0xA5 went away".
 
 **Why this is safe when the 988c846 runtime mux was not.** 988c846 muxed the
 flash between ST and AE350 at run time and left an always-driven assign on
-`mspi_do` (IO1). The ST flash controller (`tang/console60k/flash_dspi.v`)
+`mspi_do` (IO1). The ST flash controller (`hdl/tang/console60k/flash_dspi.v`)
 reads in dual-I/O mode (0xBB, 100 MHz), so IO0/IO1 must turn around; the
 assign fought the flash on every read and TOS never loaded. Here:
 
@@ -80,7 +80,7 @@ pads (this also clears any read mode the AE350 boot loader left behind).
 
 ## 2. AE350 = the companion MCU (replaces the BL616)
 
-The stock core talks to its helper MCU through `misc/mcu_spi.v`: an SPI slave
+The stock core talks to its helper MCU through `hdl/misc/mcu_spi.v`: an SPI slave
 (MODE1: SCK idle low, data sampled on the falling edge), plus an active-low
 interrupt line from `sysctrl.v`. On the Tang Console the BL616 drives it on
 the JTAG dual-purpose pins. In ST_HELPER:
@@ -171,7 +171,7 @@ U15 is the FPGA-to-BL616 UART line; the stock BL616 bridges it to its USB
 serial port (115200 8N1). In ST_HELPER, U15 carries the fabric boot letters
 while the AE350 is in reset and the AE350's UART2 afterwards, as in the
 serial proof. `spi_irqn` moves to C22 (held high, see above). Only the pin
-file differs from the desktop: `tang/console138k/atarist_st_helper.cst`.
+file differs from the desktop: `hdl/tang/console138k/atarist_st_helper.cst`.
 
 The other direction, PC -> BL616 -> FPGA, is ball V14 (`uart_rx` in the CST
 comments; in this design the input is called `bl616_jtagsel` and idles high
@@ -223,7 +223,7 @@ A cartridge ROM loaded from SPI flash was considered and not chosen: it would
 change the TOS ROM read path in `flash_dspi.v`, which is the part of this
 build that must not break. A tiny floppy image served by the AE350 from
 SPI flash was also considered: in this core the floppy and ACSI sector data
-always comes from the SD card through `misc/sd_card.v` (the companion only
+always comes from the SD card through `hdl/misc/sd_card.v` (the companion only
 translates the sector numbers), so serving it from flash would need new
 HDL. The SD card route (item 3) needs no HDL change.
 
@@ -352,7 +352,7 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
    `sys_status_is_valid` already works (the link test). Then the SYS target:
    core id, DIP/config bits, reset control.
 3. **SD card, floppy and ACSI.** No new HDL or driver. The SD card is wired
-   to the core (`misc/sd_card.v`, pins V15/Y16/AA15...). FPGA-Companion's
+   to the core (`hdl/misc/sd_card.v`, pins V15/Y16/AA15...). FPGA-Companion's
    `sdc.c` + FatFs read the card through the SDC target (the core has a
    512-byte MCU buffer). On a core request (`sdc_int` -> IRQ) the companion
    translates the image sector to an SD sector, and the core reads it
@@ -380,7 +380,7 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
      report from the registers and hands it to the existing `hid.c`
      (`kbd_parse`/`mouse_parse`). That code
      diffs the reports into key make/break codes and mouse movement and
-     sends them on the HID target, which `misc/hid.v` turns into IKBD events
+     sends them on the HID target, which `hdl/misc/hid.v` turns into IKBD events
      (keyboard command 1, mouse 2, joystick 3). The OSD hotkey and menu work
      because the MCU sees every key.
    - **4b. Fabric-only shortcut (no firmware).** A `hid_inject.v` diffs the
@@ -393,7 +393,7 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
      (long-wire) route, or a clock net must be freed. Check this first.
      Joysticks: `usb_hid_host` also decodes gamepads (`typ` = 3).
 5. **OSD.** The core build has `osd_data_out = 8'h55` (no OSD in the 030
-   core yet). MiSTeryNano's `misc/osd_u8g2.v` is already in the tree but not
+   core yet). MiSTeryNano's `hdl/misc/osd_u8g2.v` is already in the tree but not
    instantiated; wire it into the video path, or keep the menu on the
    helper's UART console at first. FPGA-Companion's menu code (`menu.c`,
    u8g2) is portable.
@@ -440,7 +440,7 @@ core is `build_st_helper.tcl` at `e2297e8`, with TNS 0 on every clock.
   (or direct mapping for contiguous files), and `sd_card.v` reads the card
   itself.
 - **SD card.** An 8 GB FAT32 card (SDHCv2) in the Console's TF slot works
-  through `misc/sd_card.v` (status 8c). On the card are `blank.st` (720 KB)
+  through `hdl/misc/sd_card.v` (status 8c). On the card are `blank.st` (720 KB)
   and `atarist.ini`, which `save` writes. Images go in the root or in
   folders. Floppies are raw `.st`; MSA is not supported by FPGA-Companion
   either, so convert it first (e.g. Hatari `hmsa`). ACSI hard disks are
@@ -483,14 +483,14 @@ overnight.
   every D- edge and samples mid-bit, so the jitter is well inside what
   low-speed devices accept. There is no new PLL output and no clock domain
   crossing (the reports are in the `mcu_spi` domain).
-- **Fabric (`tang/console138k/st_helper_usb.v`, behind ``ST_HELPER_USB`` in
+- **Fabric (`hdl/tang/console138k/st_helper_usb.v`, behind ``ST_HELPER_USB`` in
   `build_st_helper.tcl` only).** Two cores, one per USB-A port: usb1 is
   H13/G13 and usb2 is M15/M16. The pins and settings come from nand2mario's
   NESTang `src/boards/console.cst`, where "usb1 is on the left". Each port
   latches the device type, a report counter, the keyboard modifiers and
   keys 1-4, and the mouse buttons with dx/dy summed since the last read.
   Reading clears the sum. The AE350 reads this on the existing companion
-  link with HID command 0x40 (frame in the file header). `misterynano.sv`
+  link with HID command 0x40 (frame in the file header). `hdl/misterynano.sv`
   muxes it onto `hid_data_out` only for that command; `hid.v` is unchanged.
   Commit `6942ad4`. Timing: TNS 0 on every clock. 29% logic, BSRAM 163/340.
 - **Firmware (`src/ae350/usb.c`).** The main loop reads both ports every
@@ -517,7 +517,7 @@ overnight.
   desktop dialog (File > New Folder) and move the pointer. If a port stays
   `none`, the device is probably full-speed; try another one.
 - **Step 5 (OSD) findings.** `osd_u8g2` is already instantiated in
-  `tang/nano20k/video.v`, but only on the LCD path. HDMI shows the raw ST
+  `hdl/tang/nano20k/video.v`, but only on the LCD path. HDMI shows the raw ST
   video through `hdmi_tp`'s frame buffer (top.sv: "raw ST video (no OSD)").
   The OSD therefore needs `osd_u8g2` in front of that frame buffer (or on
   its output), with `osd_data_out` wired. The firmware side needs
@@ -528,7 +528,7 @@ overnight.
 ## 7c. Colour monitor (`ST_COLOUR_MONITOR`), 7 Oct 2026
 
 - Commit 869d445 forced ST High by tying `mono_detect` low. With
-  `ST_COLOUR_MONITOR` (set in `build_st_helper.tcl` only), `misterynano.sv`
+  `ST_COLOUR_MONITOR` (set in `build_st_helper.tcl` only), `hdl/misterynano.sv`
   ties it high instead, so the ST sees a colour monitor. The setting is fixed
   at build time. It does not follow `system_video` or the ini `var`
   settings, because the helper does not apply those to the core yet.
@@ -549,7 +549,7 @@ overnight.
 
 What runs:
 
-- **Core:** `tang/console138k/st_helper_osd.v` is built from `misc/osd_u8g2.v`. It
+- **Core:** `hdl/tang/console138k/st_helper_osd.v` is built from `hdl/misc/osd_u8g2.v`. It
   takes the same OSD-target SPI commands (1 = show/hide, 2 = tile data) and
   has a 1 KB buffer. It sits on the raw ST video (clk32) in front of
   `st_framebuffer`, so it shows on HDMI. Each frame it measures the DE
@@ -604,7 +604,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
 - Boot handoff and AE350 wiring follow the working AE350 bring-up in
   `Hybrid030` / 168ktest (DDR3 reset timing, flash ball map, boot loader).
 - MiSTeryNano and FPGA-Companion: Till Harbaum and the MiSTle-Dev
-  contributors. The link protocol, `misc/mcu_spi.v` and `misc/sysctrl.v` are
+  contributors. The link protocol, `hdl/misc/mcu_spi.v` and `hdl/misc/sysctrl.v` are
   theirs (FPGA-Companion is Apache-2.0, `helper_fw/fpga-companion/LICENSE`;
   the HDL files carry their own headers).
 - `usb_hid_host.v` (port plan, step 4; not in this build): nand2mario,
@@ -615,7 +615,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
 
 ## 7f. STE chipset (`ST_STE`), 7 Oct 2026
 
-- `misterynano.sv`: under `ST_STE` the core uses `core_chipset = 2` for
+- `hdl/misterynano.sv`: under `ST_STE` the core uses `core_chipset = 2` for
   `.ste` and `.blitter_en` (OSD chipset ignored) and `rom_ste_bit = 0`, so TOS
   is still read from the ST slot (flash 0x500000, TOS 2.06 UK). Without the
   define nothing changes. Extra RAM is still `system_memory` (OSD), not `ste`.
@@ -677,7 +677,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   "000" for CHK. So every CHK compared A0.W, not Dn, with the bound. In the
   runtime A0 is a pointer into the program's data (e.g. $0002CDA4 in Hatari),
   so A0.W is negative and the very first array access traps.
-- GHDL proof (`cpu030/sim/rtl/prog_chk.s`, tb030 ST=1): with A0 = $0002CDA4
+- GHDL proof (`hdl/cpu030/sim/rtl/prog_chk.s`, tb030 ST=1): with A0 = $0002CDA4
   the old core trapped on all five CHK.W cases, including 0 <= 5 and 5 <= 5;
   with A0 = 0 it trapped on none, including 6 > 5, -1 and CHK.L 0x12345 >
   0x12344. Trap counts after each case, expected 0 0 1 2 2 2 3 3 4 5: old core
@@ -719,7 +719,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
 ## 7i. Bus bridge (F61) and long-word instruction fetch (F62/F62b): both not adopted, 8 Oct 2026
 
 Main stays on the F60 CPU and bridge (board build `st_helper_chkfix_6c706f0.fs`).
-The new whole-ST bus bench (`cpu030/sim/st`, Gowin netlist of the CPU via `cpu030/sim/wf030_syn.tcl`) is kept.
+The new whole-ST bus bench (`hdl/cpu030/sim/st`, Gowin netlist of the CPU via `hdl/cpu030/sim/wf030_syn.tcl`) is kept.
 
 ### Stage A: ST bus bridge F61 (0104f1b, reverted in 6611246)
 - Goal: start the ST cycle from the live 030 request and give DSACK early (S4), so back-to-back 030 cycles use consecutive 500 ns ST slots.
@@ -788,7 +788,7 @@ Board build: `st_helper_f63_f484271.fs`.
   `~turbo & cycsel_en & ~addrselb & ramsel(read) & irwz & (ram1 | ram2)`.
   - It means: a CPU/DMA RAM read RAS starts on the next clk32 edge.
   - `ADDR` already carries the CPU/DMA address at that point (addrselb has been low since A+156).
-- Fix [F63], SDRAM side: `sdram.v` gets a new input `ecs` (`ram_early && !ram_a[23]` in `misterynano.sv`).
+- Fix [F63], SDRAM side: `sdram.v` gets a new input `ecs` (`ram_early && !ram_a[23]` in `hdl/misterynano.sv`).
   - When `ecs` is set, the controller opens the row at A+219, either from idle or from the last state of the video cycle.
     The video cycle's ACTIVE (or refresh) was at A+31, and its READ auto-precharges.
   - READ then goes out at A+250 and `dout` is valid at A+344, 2 clk32 earlier than before.
@@ -798,7 +798,7 @@ Board build: `st_helper_f63_f484271.fs`.
   - The ST cycle starts from the live 030 request.
   - DSACK comes at S4 en2, and RAM/ROM/IO read data is taken at en1 entering S6 (A+375).
   - The TOS flash read starts at the address phase (gstmcu `ROM2E_N`).
-- Whole-ST bus bench (`cpu030/sim/st`):
+- Whole-ST bus bench (`hdl/cpu030/sim/st`):
   - The bench now runs the real `sdram.v` with an SDRAM chip model (CL2). Run on the F60 CPU netlist, both CPU clock phases.
   - Bus test results are the same as with the old bridge, apart from the blitter poll count, which depends on timing.
   - Read data was valid at the capture edge (A+375) for every read: RAM 2211 of 2211, ROM 5981 of 5981, I/O 78 of 78.
@@ -865,7 +865,7 @@ Board build: `st_helper_f63_f484271.fs`.
   waits in START_OP while AR_IN_USE = '1' in every addressing mode, the same
   as BSR. This is real 68030 behaviour (the push always uses the updated SP)
   and has no software-specific part.
-- Test: `cpu030/sim/rtl/prog_spwb.s` runs 17 cases of an A7 writeback
+- Test: `hdl/cpu030/sim/rtl/prog_spwb.s` runs 17 cases of an A7 writeback
   (ADDA/SUBA/ADDQ/SUBQ/LEA/MOVEA) directly followed by a push (JSR in all
   modes, BSR, PEA, MOVE -(SP)), also at RTE/RTS/BRA targets. Case 13 is the
   TOS wrapper. It writes $600DC0DE to $3300 if every SP is right. `run_rtl.sh`
@@ -921,7 +921,7 @@ summary does not include) showed reset-release violations in every build checked
   negative in some placements.
 
 Changes:
-- tang/console138k/reset_sync.v: a 3-flop async-assert / sync-deassert chain.
+- hdl/tang/console138k/reset_sync.v: a 3-flop async-assert / sync-deassert chain.
   top.sv gives por two in-domain copies:
   - por32 (clk32) for the ST core (misterynano.por), st_helper_ctrl, the
     helper phase FSM, the mailbox, the S1 sync, dualshock2 and audio/i2s.

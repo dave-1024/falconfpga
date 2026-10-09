@@ -1,8 +1,40 @@
 # Atarist_030_wip: a 68030 Atari ST, as a test bed for the Falcon
 
+**In one paragraph:** an Atari ST/STE (MiSTeryNano core) whose 68000 is replaced by a 68030 (Wolfgang Foerster's
+WF68K30L) behind a TerribleFire-style bus bridge, on a Sipeed Tang Console 138K, with a Gowin AE350 RISC-V helper for
+SD card, disks, keyboard/mouse and OSD. It should behave like a real 68030/TF board on an ST bus (no compatibility hacks,
+no posted writes). TOS 2.06 boots to the desktop; GEMBENCH 6 runs.
+
+**Start here:** [docs/BUILD.md](docs/BUILD.md) (build switches and why, timing checks, flashing),
+[docs/HISTORY.md](docs/HISTORY.md) (every fix, symptom/cause/commit), [docs/TODO.md](docs/TODO.md) (open work, the
+URGENT core item first), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed lab sections),
+[docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
+All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
+
+## Status (9 Oct 2026, main = BRIDGE_EARLY_AS build)
+
+GEMBENCH 6.31, ST Medium, ratio to a stock STE:
+
+| build | RAM | ROM | Display | CPU | Average |
+|---|---|---|---|---|---|
+| F60 (CHK fix) | 48 | 60 | 31 | 120 | 61 |
+| F63 (bridge + SDRAM early start) | 61 | 69 | 37 | 137 | 71 |
+| F62d (prefetch queue + JSR fix) | 76 | 85 | 72 | 225 | 112 |
+| BRIDGE_EARLY_AS (current) | 86 | 86 | 74 | 230 | 115 |
+
+Works: cold and warm boot, 4 MB memory test, desktop in low/medium res, menus, GEMBENCH All Tests, SD floppy images
+through the helper, program load and quit.
+
+Known issues (details in docs/TODO.md):
+- Dialog OK/Cancel buttons ignore mouse clicks (radio buttons work; Return works).
+- The blitter shows as disabled under TOS 2.06.
+- Helper SD writes time out.
+- Placement sensitivity: try place_option 3, then 1; always check TNS and recovery/removal before flashing.
+- Speed: the 030 core leaves 2 idle clocks between bus transfers (URGENT TODO item 1); no working caches yet.
+
 ## Credits and thanks: Stephen J. Leary (TerribleFire)
 
-The 68030-to-ST bus bridge in this build (`cpu030/cpu030_st_bridge.v`) is
+The 68030-to-ST bus bridge in this build (`hdl/cpu030/cpu030_st_bridge.v`) is
 modelled on **Stephen J. Leary's TerribleFire TF534** accelerator, in
 particular the bus timing, arbitration and 6800-cycle logic from its Atari
 build (`bus_top.v`, `arb.v`, `m6800.v`, `bus_delay.v`). The TF534 design is
@@ -24,7 +56,7 @@ goes through an on-chip frame buffer and out as a standard **640x480 at 60 Hz**
 signal. There is a switch for the type of signal, and it matters for your
 display.
 
-**The switch** is in `tang/console138k/top.sv`, on the `hdmi_testpattern_640`
+**The switch** is in `hdl/tang/console138k/top.sv`, on the `hdmi_testpattern_640`
 instance (`hdmi_tp`):
 
 ```
@@ -79,7 +111,7 @@ straight onto the HDMI/DVI picture: three rows of coloured status squares
 type, the CPU pins, the bus bridge state, and the last program fetch address).
 With it, a frozen CPU can be diagnosed from a photo or capture of the screen.
 
-- **How to enable:** in `tang/console138k/top.sv`, uncomment
+- **How to enable:** in `hdl/tang/console138k/top.sv`, uncomment
   `` `define DIAG_OVERLAY `` (near the top) and rebuild. Comment it out again
   for the normal build.
 - **Why it is off by default:** it costs fabric and some timing margin and it
@@ -172,10 +204,10 @@ to the Falcon hardware. It is not meant to be the fastest or most compatible ST.
   bus bridge change.
 - **The CPU core must stay portable.** Anything that belongs to the 68030
   itself (instruction and data caches, CACR) goes **inside** the WF68K30L core
-  in `cpu030/`, so the same core can move to the Falcon unchanged. Anything
-  specific to the ST bus belongs in the bridge (`cpu030/cpu030_st_bridge.v`).
+  in `hdl/cpu030/`, so the same core can move to the Falcon unchanged. Anything
+  specific to the ST bus belongs in the bridge (`hdl/cpu030/cpu030_st_bridge.v`).
 - **The 68000 stays available.** Comment out `` `define CPU_030 `` at the top
-  of `atarist/atarist.v` to build the original fx68k 68000 instead.
+  of `hdl/atarist/atarist.v` to build the original fx68k 68000 instead.
 
 ## Where it came from
 
@@ -199,15 +231,15 @@ Known limits of the core today: no MMU, no FPU, no caches yet, and no
 address error on odd word accesses, so it is not yet a complete 68030. TOS 3
 and 4 won't boot, because they need PMOVE (MMU). Use EmuTOS or TOS 1.04.
 
-See `cpu030/README.md` for how the bridge works, and `BUILD_REPORT.md` at the
+See `hdl/cpu030/README.md` for how the bridge works, and `BUILD_REPORT.md` at the
 top of the repository for each build's results.
 
 ## Board
 
 - Device: `GW5AST-LV138PG484AC1/I0` **Version C**
-- Top: `tang/console138k/top.sv` (`module top`)
+- Top: `hdl/tang/console138k/top.sv` (`module top`)
 - Output name: `atarist_tc138k`
-- **Tang SDRAM module required**, in J9 / SDRAM0 (`tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
+- **Tang SDRAM module required**, in J9 / SDRAM0 (`hdl/tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
 - `Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `rigsdram/`, and the 030 splice.
 - TOS in SPI flash: **0x500000** (STE TOS at 0x540000), as in `misterynano_tc138k`. Only the bitstream changes between builds. Don't use Gowin Programmer's "SRAM Erase".
 
