@@ -164,7 +164,11 @@ entity WF68K30L_TOP is
         -- caches, every opcode and data access goes to the bus, exactly as
         -- with CACR EI = ED = 0. CACR/CAAR stay MOVEC read/write either way.
         -- The caches are incomplete (no CIIN, burst fill, WA or DMA snoop).
-        CACHES          : integer := 0);
+        CACHES          : integer := 0;
+        -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
+        -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
+        -- unchanged either way.
+        FAST_HANDOFF    : integer := 0);
 
     port (
         CLK             : in std_logic;
@@ -1033,7 +1037,7 @@ begin
         );
 
     I_BUS_IF: WF68K30L_BUS_INTERFACE
-        generic map(PREFETCH_Q => PREFETCH_Q_EN) -- [F62]
+        generic map(PREFETCH_Q => PREFETCH_Q_EN, FAST_HANDOFF => FAST_HANDOFF) -- [F62] [F65]
         port map(
             CLK                 => CLK,
             CLK_F               => CLK_F, -- [F58]
@@ -1069,6 +1073,8 @@ begin
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
+            OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
+            OP_WR               => DATA_WR, -- [F65]
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,
