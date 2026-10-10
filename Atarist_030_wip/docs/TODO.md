@@ -13,6 +13,13 @@
 4. **Blitter** shows as disabled under TOS 2.06.
 5. **Dialog exit-button click loss:** OK/Cancel ignore mouse clicks inside form_do (radio buttons work, Return works).
    Present on F63 too: helper mouse/button injection or IKBD path.
-6. **Helper SD write timeout** ("SDC: write timeout", core sd_card state 13); `ST_SD_WRITE_FIX` does not cure it.
+6. **Helper SD write timeout, and the floppy errors that follow it.** A write ends with
+   "SDC: write timeout" and `hdl/misc/sd_card.v` sticks in state 13. Only a core reload clears it.
+   `ST_SD_WRITE_FIX` does not cure it. Under TOS 2.06 the next floppy read then fails: that is the
+   read error after a write, not a separate floppy bug and not the ROM. TOS error #35 (GEMDOS -35,
+   no free file handle) on launching GEMBENCH is the same family: it happens on a runtime mount, or
+   after a write has jammed the card. It does not happen when the image is mounted from `atarist.ini`
+   on an FPGA power cycle. Seen again on EmuTOS 256K, 2026-10-10; first EmuTOS boot since the JSR
+   SP fix. Not the JSR bug (that crashed or executed the filename; this is a clean GEMDOS alert).
 7. **Async reset / PR1014 leftovers:** PR1014 still reported for the clk_osc pad -> DCE hop.
 8. **AE350 flash MISO pad constraint (SPI_SDC part 2):** MISO at 20 ns fails in every placement; not in the TNS table.
