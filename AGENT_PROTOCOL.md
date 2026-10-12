@@ -26,6 +26,15 @@ Bot and chat **never** push:
 The former ownership and `NO_BUILD` rules above are retained for history only; the Patch handoff
 below is the current workflow.
 
+## Handback 2026-10-12
+
+`handoff/HANDOFF_2026-10-12_fnop_format.md` is the handback from Grok chat to
+Grok Bot. F65 (the prefetch handoff) is done and on `main` (`bb9baa2`), both
+switches on. The open fault is the FNOP frame: on the board `FNOP` takes a bus
+error whose format word is not `A` or `B`, so `RTE` takes exception 14. The
+core is correct in simulation. Read that file before touching the exception
+handler. The bot does not poll; David says when to start.
+
 ## Patch handoff (from 2026-10-02)
 
 The fast way for Grok chat to hand code changes to Grok Bot, instead of editing files on GitHub one

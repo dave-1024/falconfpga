@@ -1,6 +1,11 @@
 # TODO (in priority order)
 
-1. **URGENT / REQUIRED: WF68K30L bus request handoff rework.** The next bus cycle must start straight after S5 when a
+1. **URGENT / REQUIRED: WF68K30L bus request handoff rework.** Patch 1 (F65) is done and on
+   `main` (`bb9baa2`): prefetch-to-prefetch S5-to-S0, `WF030_FAST_HANDOFF` on. The open fault is the
+   FNOP frame, handed back in [`handoff/HANDOFF_2026-10-12_fnop_format.md`](../../handoff/HANDOFF_2026-10-12_fnop_format.md).
+   On the board `FNOP` takes a bus error whose format word is not `A` or `B`, so `RTE` takes exception 14.
+   The core is correct in simulation. Operand cycles still take IDLE.
+ The next bus cycle must start straight after S5 when a
    request is pending, like a real 68030 (cycle-correct; also a speedup). Wanted, not optional.
    - Full handover: [`handoff/HANDOVER_2026-10-09_cpu_rework.md`](../../handoff/HANDOVER_2026-10-09_cpu_rework.md); rollback tag `rollback-2026-10-09-eas`.
    - Patch 1 (branch `f65-handoff`): prefetch-to-prefetch only. `WF030_FAST_HANDOFF` is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
