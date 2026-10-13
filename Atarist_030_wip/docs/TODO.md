@@ -23,7 +23,9 @@
    is still high (card busy starting 2 clocks after the CRC token) or after 62 ms busy, then issues the next
    CMD24 to a card that is still programming. The card ignores it and sd_rw waits in CMD24 (card state 13)
    forever. Not a regression: uploads failed like this since 7 Oct. Fix (`ST_SD_WRITE_FIX`, now on): no
-   CMD17/CMD24 while DAT0 is low, 1 s busy, CMD24 retried 15 times, then the sector is reported done.
+   CMD17/CMD24 while DAT0 is low, 1 s busy, CMD24 retried 15 times, then the sector is reported done. Board 13 Oct: st_helper_sdw_p3.fs (SHA 579946a8...ca96,
+   place 3, TNS 0) booted to the desktop; new 1 KB SDW1.BIN uploaded, crc read back ef129d5b = sent, card state 8.
+   Large uploads not yet re-tested.
    OLD TEXT: **Helper SD write timeout, and the floppy errors that follow it.** A write ends with
    "SDC: write timeout" and `hdl/misc/sd_card.v` sticks in state 13. Only a core reload clears it.
    `ST_SD_WRITE_FIX` does not cure it. Under TOS 2.06 the next floppy read then fails: that is the
