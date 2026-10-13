@@ -38,6 +38,10 @@ puts $fh "`define BRIDGE_EARLY_AS"
 # has been run with the generic set to 1. Delete the comment to build it in.
 # Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
 puts $fh "`define WF030_FAST_HANDOFF"
+# SD write recovery (hdl/misc/sd_rw.v WRITE_FIX): wait for DAT0 not busy before
+# CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
+# done instead of jamming sd_card in state 13. Delete for upstream behaviour.
+puts $fh "`define ST_SD_WRITE_FIX"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

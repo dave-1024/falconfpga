@@ -40,7 +40,7 @@ Rule of the project: options are `define switches, off unless they are needed; n
 | `ST_STE` | on | STE chipset (TOS in the ST ROM slot) | TOS 2.06 + STE features |
 | `BRIDGE_EARLY_AS` | on | 030 bridge asserts AS for ST RAM cycles 62.5 ns after the address instead of 125 ns (still a legal 68000 cycle) | an 030 request lands just after the 8 MHz edge; without this every new transfer misses its 500 ns GSTMCU slot (notes/RAM_PATH.md). Delete the line to get the original 68000 timing, e.g. to measure a CPU-side fix alone |
 | `ST_030_CACHES` | off | experimental 030 I/D caches | incomplete (no CIIN, burst, DMA snoop), see TODO.md |
-| `ST_SD_WRITE_FIX` | off | helper SD write busy-wait/retry | SD writes still time out, see TODO.md |
+| `ST_SD_WRITE_FIX` | on | helper SD write: wait for DAT0, 1 s busy, bounded CMD24 retry | see TODO.md 6 |
 | `DIAG_OVERLAY` | off | on-screen diagnostic overlay (DIAG_OVERLAY.md) | debugging only; never commit it switched on |
 | `WF030_TRACE` | off (branch `diag-trace`, `build_trace.tcl`) | in-fabric bus trace, dumped over HDMI | how the JSR bug was found |
 | `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out | resource/debug |

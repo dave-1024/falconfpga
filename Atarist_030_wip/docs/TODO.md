@@ -18,7 +18,13 @@
 4. **Blitter** shows as disabled under TOS 2.06.
 5. **Dialog exit-button click loss:** OK/Cancel ignore mouse clicks inside form_do (radio buttons work, Return works).
    Present on F63 too: helper mouse/button injection or IKBD path.
-6. **Helper SD write timeout, and the floppy errors that follow it.** A write ends with
+6. **Helper SD write timeout (fix on branch fix-sdwrite, 13 Oct 2026).** Cause, shown in
+   `hdl/misc/sim/tb_sd_rw_write.v` (Icarus, SD card model with busy): upstream sd_rw.v leaves WWAIT when DAT0
+   is still high (card busy starting 2 clocks after the CRC token) or after 62 ms busy, then issues the next
+   CMD24 to a card that is still programming. The card ignores it and sd_rw waits in CMD24 (card state 13)
+   forever. Not a regression: uploads failed like this since 7 Oct. Fix (`ST_SD_WRITE_FIX`, now on): no
+   CMD17/CMD24 while DAT0 is low, 1 s busy, CMD24 retried 15 times, then the sector is reported done.
+   OLD TEXT: **Helper SD write timeout, and the floppy errors that follow it.** A write ends with
    "SDC: write timeout" and `hdl/misc/sd_card.v` sticks in state 13. Only a core reload clears it.
    `ST_SD_WRITE_FIX` does not cure it. Under TOS 2.06 the next floppy read then fails: that is the
    read error after a write, not a separate floppy bug and not the ROM. TOS error #35 (GEMDOS -35,
