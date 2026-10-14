@@ -5,8 +5,11 @@
 // FalconFPGA Atarist_030_wip: CPU selection.
 // CPU_030 defined: WF68K30L (68030) through cpu030/cpu030_st_bridge.v,
 //                  clocked by clk_cpu (16 MHz, locked to clk_32).
-// CPU_030 not defined (comment the line out): the original fx68k 68000.
+// CPU_030 not defined: the original fx68k 68000 (8 MHz). Select it with
+// `define ST_CPU_68000 in build_sel.vh (build_st_68000.tcl).
+`ifndef ST_CPU_68000
 `define CPU_030
+`endif
 
 module atarist (
 	// System clocks / reset / settings
