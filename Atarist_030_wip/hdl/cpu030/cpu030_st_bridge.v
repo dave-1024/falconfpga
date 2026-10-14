@@ -656,26 +656,29 @@ module cpu030_st_bridge #(
         r_res, BRi, BgackI                            // G8
     };
 `ifdef DIAG_HIWATCH
-    // ---- FalconFPGA DIAG hiwatch (float panic): freeze on the first user-mode 030 cycle that
+    // ---- FalconFPGA DIAG hiwatch (float panic): freeze on the first 030 cycle that
     // starts in $400000-$DFFFFF (FC != 7) or on the first BERR, whichever comes first,
     // and keep the last 2 terminated cycles before it. Observation only.
     // Entry = {FC2:0, RWn, A23:0, D15:0 (read: DATA_IN 31:16, write: DATA_OUT 31:16)}.
     // [167:128] = diag030b first BERR (rows a/b as before); row c..f = [127:0] =
     // {frz, why(1 = address trigger, 0 = BERR), 2'b0, trig {FC,RW,A23:0}, h0, h1, 8'h00}.
-    // User-mode cycles only (FC2 = 0): TOS RAM sizing probes above 4 MB in supervisor mode.
-    wire h_trig = x_start & ~cpu_fc[2] &
+    // Armed by the first user-mode cycle (FC2 = 0): TOS RAM sizing probes above 4 MB at boot
+    // run before that, in supervisor mode. After arming any FC != 7 cycle or BERR freezes.
+    reg  h_arm = 1'b0;
+    wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
     reg        h_frz = 1'b0, h_why = 1'b0;
     reg [27:0] h_t   = 28'd0;
     reg [43:0] h0 = 44'd0, h1 = 44'd0;
     always @(posedge clk) begin
         if (extReset | pwrUp) begin
-            h_frz <= 1'b0;
+            h_frz <= 1'b0;  h_arm <= 1'b0;
         end else if (!h_frz) begin
+            if (x_start & ~cpu_fc[2]) h_arm <= 1'b1;
             if (h_trig) begin
                 h_frz <= 1'b1;  h_why <= 1'b1;
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
-            end else if (d_berr_now & ~c_fc[2]) begin
+            end else if (h_arm & d_berr_now) begin
                 h_frz <= 1'b1;  h_why <= 1'b0;
                 h_t   <= {c_fc, c_rwn, c_adr[23:0]};
             end else if (!x_done & x_term) begin
