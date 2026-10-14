@@ -12,7 +12,7 @@
 #   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
 # Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
 # includes it); build_tc138k.tcl writes "// desktop" there again.
-# Output: impl/pnr/st_helper.fs (excwatch debug: last 16 exceptions). See README "Build option: ST_HELPER".
+# Output: impl/pnr/st_helper.fs (excwatch V2 debug: last 16 exceptions + opcode, last 8 fetches, $55D18 snoop). See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the

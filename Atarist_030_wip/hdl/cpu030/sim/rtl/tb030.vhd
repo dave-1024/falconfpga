@@ -29,6 +29,7 @@ architecture sim of tb030 is
   signal siz, dsackn : std_logic_vector(1 downto 0) := "11";
   signal asn, rwn, dsn, berrn, avecn : std_logic := '1';
   signal ipl : std_logic_vector(2 downto 0) := "111";
+  signal dbgx : std_logic_vector(104 downto 0);
   signal halto, reso, ipendn : std_logic;
   type mem_t is array (0 to 131071) of std_logic_vector(15 downto 0);  -- 256K ROM
   type ram_t is array (0 to 2097151) of integer range 0 to 65535;      -- 4MB RAM
@@ -53,7 +54,7 @@ begin
   dut : entity work.WF68K30L_TOP port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
-    FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
+    DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
     ASn => asn, RWn => rwn, RMCn => open, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
     BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1');
 
@@ -153,5 +154,17 @@ begin
         dsackn <= "11"; berrn <= '1'; avecn <= '1';
       end if;
     end loop;
+  end process;
+  -- FalconFPGA DIAG: log the core's exception report (DBG_EXC) on its rising strobe
+  exmon: process
+    variable l : line; variable d : std_logic := '0';
+  begin
+    wait until rising_edge(clk);
+    if dbgx(104) = '1' and d = '0' then
+      write(l, string'("EXC vec=")); write(l, to_integer(unsigned(dbgx(103 downto 96))));
+      write(l, string'(" SR=")); hwrite(l, dbgx(95 downto 80)); write(l, string'(" PC=")); hwrite(l, dbgx(79 downto 48));
+      write(l, string'(" BIW0=")); hwrite(l, dbgx(15 downto 0)); writeline(output, l);
+    end if;
+    d := dbgx(104);
   end process;
 end;

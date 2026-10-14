@@ -176,7 +176,7 @@ entity WF68K30L_TOP is
         
         -- Address and data:
         ADR_OUT         : out std_logic_vector(31 downto 0);
-        DBG_EXC         : out std_logic_vector(88 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5}
+        DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
@@ -848,7 +848,7 @@ begin
     -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
     -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
-    DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I;
+    DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
     ADR_P <= ADR_LATCH when BUS_BSY = '1' else
              ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L;
