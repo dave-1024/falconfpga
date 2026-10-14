@@ -673,7 +673,8 @@ module cpu030_st_bridge #(
     // One page per ~0.13 s; rows c..f = {frz, page3:0, 1, exceptions seen mod 64 (6),
     //   entry[page] {vector 8, SR 16, PC 23:0, BIW_0 16, 8'b0}, 44 bits:
     //   page 0-7: {f_frz, 3'b0, fetch[page] A23:0 D15:0} (0 = newest), page 8-15: snoop
-    //   {last write data 16, last fetch data 16, write count 4, fetch count 4, 3'b0, f_frz}}.
+    //   {last write data 16, last fetch data 16, write count 4, fetch count 4, 3'b0, f_frz}} on page 8,
+    //   pages 9-15: V3 program-fetch jumps j[page-9] {from A21:0, to A21:0} (0 = newest), frozen with fetches.
     localparam [23:0] EW_SNOOP = 24'h055D18;
     reg        e_arm = 1'b0, e_frz = 1'b0, f_frz = 1'b0;
     reg [71:0] e_h [0:15];
@@ -683,6 +684,8 @@ module cpu030_st_bridge #(
     reg [15:0] s_wd = 16'd0, s_fd = 16'd0, s_rd = 16'd0, e_wd = 16'd0;
     reg        e_wds = 1'b0;
     reg [3:0]  s_wn = 4'd0, s_fn = 4'd0;
+    reg [43:0] j_h [0:6];               // V3: last 7 program-fetch discontinuities {from A21:0, to A21:0}
+    reg [23:0] j_last = 24'd0;
     integer    ei;
     reg        e_stb_d = 1'b0;          // clk_cpu strobe seen in clk_32: use its rising edge
     wire       e_stb = cpu_dbg_exc[104] & ~e_stb_d;
@@ -712,6 +715,11 @@ module cpu030_st_bridge #(
             if (e_cyc & ~f_frz & e_cod & x_rwn) begin
                 for (ei = 7; ei > 0; ei = ei - 1) f_h[ei] <= f_h[ei-1];
                 f_h[0] <= {x_adr[23:0], cpu_din[31:16]};
+                j_last <= x_adr[23:0];
+                if (x_adr[23:0] != j_last && x_adr[23:0] != j_last + 24'd2) begin
+                    for (ei = 6; ei > 0; ei = ei - 1) j_h[ei] <= j_h[ei-1];
+                    j_h[0] <= {j_last[21:0], x_adr[21:0]};
+                end
             end
             if (e_cyc & e_hit & ~f_frz) begin
                 if (!x_rwn) begin s_wd <= e_wds ? e_wd : cpu_dout[31:16]; if (s_wn != 4'hF) s_wn <= s_wn + 4'd1; end
@@ -721,7 +729,8 @@ module cpu030_st_bridge #(
         end
     end
     wire [3:0] e_pg = e_tmr[24:21];
-    wire [43:0] e_x = e_pg[3] ? {s_wd, s_fd, s_wn, s_fn, 3'd0, f_frz} : {f_frz, 3'd0, f_h[e_pg[2:0]]};
+    wire [43:0] e_x = (e_pg == 4'd8) ? {s_wd, s_fd, s_wn, s_fn, 3'd0, f_frz} :
+                      e_pg[3] ? j_h[e_pg[2:0] - 3'd1] : {f_frz, 3'd0, f_h[e_pg[2:0]]};
     assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, 1'b1, e_cnt, e_h[e_pg], e_x};
 `elsif DIAG_HIWATCH
     // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
