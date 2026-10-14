@@ -314,3 +314,34 @@ SR field = SR_CPY (the core's copy from the last exception), NOT the live SR - i
   (GEMBENCH using memory outside its Mshrink'd TPA/Malloc vs EmuTOS Pexec). Next: compare _FPU/_CPU cookies and
   the Malloc/Mshrink/Pexec calls (GEMDOS trace) board vs Hatari.
 - Board restored to st_helper_sdw_p3.fs (RC=0), cold boot desktop OK (fpdbg/fin2.png).
+
+## 14 Oct 13:1x FPU theory and Hatari memory map
+- Sim (tb030, ST=0/1): FNOP ($F280 0000) and FSAVE -(sp) with no FPU -> Line-F, vector 11, format 0 frame,
+  stacked PC = the F-line instruction ($FC0012), vector word $002C. The core traps at decode without a CPU-space
+  cycle (a real 68030 runs the FC=7 coprocessor cycle, gets BERR, then takes Line-F); the outcome as software sees it is
+  identical. SFP004 $FFFA40 BERRs on the board (seen earlier). Board panic regs D3=0 = AUTOFPU chose its software path.
+  => no false FPU detection; FNOP/FC=7 theory ruled out. No core change.
+- GEMBENCH ALWAYS needs AUTOFPU.BIN for Float Math (its string: "The file AUTOFPU.BIN was not found. Unable to
+  perform float math test"), so Hatari runs it too (the .sav has an AUTOFPU header copy in a host-side file buffer).
+- Hatari cookie jar ($74E0): _CPU $1E, _VDO $10000, _FPU 0, _MCH $10000 (STE), _SWI, _SND 3, _AKP, _IDT, _FDC, XHDI, SCSI.
+- Hatari GEMDOS memory descriptors (owner GEMBENCH PD $132F0): ... $55298+$480, and **$55718 len $3A28E8 (to $3F8000)**.
+  So in Hatari GEMBENCH owns all memory from $55718 (its bitmap lives there). On the board AUTOFPU's basepage/A5 is
+  $55718: that block was FREE at the board's Pexec. Next: trace the board's GEMDOS calls (Malloc/Mfree/Mshrink/Pexec).
+- Building DIAG_GDTRACE (a46bc8f, build_st_helper_gdt.tcl, b_gdt.log).
+
+## 14 Oct 13:xx cookie read on the board, BERR writeback bug, Hatari STE/cartridge runs
+- COOKIEFP.TOS (gb/cj/cj.s) on st_helper_sdw_p3: jar $74E0/20 slots, _CPU $1E, _FPU 0, _MCH $10000, _VDO $10000,
+  _SND 3, _SWI $FF (same as the Hatari STE dump). FNOP and FMOVE.L FPCR,D0 -> Line-F (vec 11), D0 untouched. No false FPU.
+- **CORE BUG (minor, not the panic):** `moveq #0,d0; move.w $FFFA40,d0` -> bus error (vec 2, correct) but D0 = $0000FFFF
+  afterwards. A real 68030 does not write the destination of a read that bus-errors (Hatari: D0 stays 0). The core
+  writes the bus value (open bus $FFFF) to Dn on a BERR'd read. Fix later: suppress the register writeback when the
+  operand read cycle ends in BERR. (AUTOFPU's own probe only checks for the exception, D3=0 seen, so no effect here.)
+- Hatari 2.5 STE, EmuTOS 256uk 1.4, 030/16 MHz/4 MB/no FPU, ST medium, gb403.st, GEMDOS trace: Float Math PASSES (4.725 s).
+  AUTOFPU IS Pexec'd in Hatari too, at the SAME place: GEMBENCH Mfree($55718) then Pexec(0,"A:\BIN\AUTOFPU.BIN"),
+  AUTOFPU Mshrink($5571A,$4C92), ... Pterm(4725) (the return code = the time), then GEMBENCH Malloc($109A0)/Mfree($55718).
+  So the overlap with the bitmap block is normal (GEMBENCH frees its buffer for the child); AUTOFPU does no VDI calls.
+  On the board the VDI writes ($E1DD02) into AUTOFPU's text must therefore come from something running DURING AUTOFPU
+  (interrupt-level drawing, e.g. the VBL mouse cursor if the logical screen points into that block, or a pending redraw),
+  or the floppy DMA load of AUTOFPU into $55Cxx not landing (DMA writes are invisible to the write watch, so the
+  "VDI wrote there" data may be the OLD bitmap that the load failed to overwrite). Next: watch DMA writes into $55C96-$55D20.
+- Same Hatari run with the ST_HELPER cartridge (MBXCART.BIN, --cartridge): passes too. Mouse moved during the test: passes.
