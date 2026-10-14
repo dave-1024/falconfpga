@@ -666,7 +666,8 @@ module cpu030_st_bridge #(
     // Entry (76) = {FC2:0, RWn, A23:0, D15:0, ADR_LATCH[23:16] at termination,
     //               ADR_P[23:16], PC_L[23:16], ADR_L[23:16] at start}.
     // One entry per overlay page (~0.13 s): rows c..f = {frz, page3:0, 1, trig{FC,RW,A23:0},
-    // entry[page] (0 = newest), 18'b0}.
+    // entry[page] (0 = newest), last vector number 7:0 (excl. IRQ 24-31,
+    // TRAP 32-47, MFP 64-79), cycles since it 3:0 (15 = 15 or more), 6'b0}.
     reg  h_arm = 1'b0;
     wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
@@ -677,6 +678,8 @@ module cpu030_st_bridge #(
     reg        h_wds = 1'b0;
     reg [23:0] h_st = 24'd0;           // ADR_P, PC_L, ADR_L 23:16 at the start
     reg [24:0] h_tmr = 25'd0;
+    reg [7:0]  h_vec = 8'd0;            // last exception vector read (FC5, $008-$3FC), not IRQ/TRAP
+    reg [3:0]  h_vcnt = 4'd0;           // cycles since that vector read (saturates at 15)
     integer    hi;
     always @(posedge clk) begin
         h_tmr <= h_tmr + 25'd1;
@@ -686,6 +689,10 @@ module cpu030_st_bridge #(
             h_frz <= 1'b0;  h_arm <= 1'b0;
         end else if (!h_frz) begin
             if (x_start & ~cpu_fc[2]) h_arm <= 1'b1;
+            if (x_start & (cpu_fc == 3'b101) & cpu_rwn & (cpu_adr[23:10] == 14'd0) & (cpu_adr[9:2] != 8'd0) &
+                (cpu_adr[9:2] != 8'd1) & ~((cpu_adr[9:2] >= 8'd24) & (cpu_adr[9:2] <= 8'd47)) & ~(cpu_adr[9:6] == 4'h4)) begin
+                h_vec <= cpu_adr[9:2];  h_vcnt <= 4'd0;
+            end else if (x_start & (h_vcnt != 4'hF)) h_vcnt <= h_vcnt + 4'd1;
             if (h_trig) begin
                 h_frz <= 1'b1;
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
@@ -697,7 +704,7 @@ module cpu030_st_bridge #(
         end
     end
     wire [3:0] h_pg = h_tmr[24:21];
-    assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], 18'd0};
+    assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], h_vec, h_vcnt, 6'd0};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
 `endif
