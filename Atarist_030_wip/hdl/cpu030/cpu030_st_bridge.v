@@ -656,36 +656,44 @@ module cpu030_st_bridge #(
         r_res, BRi, BgackI                            // G8
     };
 `ifdef DIAG_HIWATCH
-    // ---- FalconFPGA DIAG hiwatch (float panic): freeze on the first 030 cycle that
-    // starts in $400000-$DFFFFF (FC != 7) or on the first BERR, whichever comes first,
-    // and keep the last 2 terminated cycles before it. Observation only.
-    // Entry = {FC2:0, RWn, A23:0, D15:0 (read: DATA_IN 31:16, write: DATA_OUT 31:16)}.
-    // [167:128] = diag030b first BERR (rows a/b as before); row c..f = [127:0] =
-    // {frz, why(1 = address trigger, 0 = BERR), 2'b0, trig {FC,RW,A23:0}, h0, h1, 8'h00}.
+    // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
     // Armed by the first user-mode cycle (FC2 = 0): TOS RAM sizing probes above 4 MB at boot
-    // run before that, in supervisor mode. After arming any FC != 7 cycle there freezes (no BERR
-    // trigger: GEMBENCH's SFP004 probe at $FFFA40 BERRs on purpose).
+    // run before that, in supervisor mode. After arming, the first 030 cycle (FC != 7) that
+    // starts in $400000-$DFFFFF freezes a 16-entry history of terminated cycles.
+    // Entry = {FC2:0, RWn, A23:0, D15:0}; D = DATA_IN 31:16 at termination (read) or
+    // DATA_OUT 31:16 at the first DS low clock (write). The overlay pages through the history
+    // (2 entries per page, ~0.5 s per page): rows c..f = {frz, 1, page3:0, trig{FC,RW,A23:0},
+    // entry[2*page] (newest = 0), entry[2*page+1], 6'b0}.
     reg  h_arm = 1'b0;
     wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
-    reg        h_frz = 1'b0, h_why = 1'b0;
+    reg        h_frz = 1'b0;
     reg [27:0] h_t   = 28'd0;
-    reg [43:0] h0 = 44'd0, h1 = 44'd0;
+    reg [43:0] h_e [0:15];
+    reg [15:0] h_wd = 16'd0;
+    reg        h_wds = 1'b0;
+    reg [24:0] h_tmr = 25'd0;
+    integer    hi;
     always @(posedge clk) begin
+        h_tmr <= h_tmr + 25'd1;
+        if (x_start) h_wds <= 1'b0;
+        else if (!x_done & ~cpu_dsn & ~h_wds) begin h_wds <= 1'b1; h_wd <= cpu_dout[31:16]; end
         if (extReset | pwrUp) begin
             h_frz <= 1'b0;  h_arm <= 1'b0;
         end else if (!h_frz) begin
             if (x_start & ~cpu_fc[2]) h_arm <= 1'b1;
             if (h_trig) begin
-                h_frz <= 1'b1;  h_why <= 1'b1;
+                h_frz <= 1'b1;
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
             end else if (!x_done & x_term) begin
-                h1 <= h0;
-                h0 <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : cpu_dout[31:16]};
+                for (hi = 15; hi > 0; hi = hi - 1) h_e[hi] <= h_e[hi-1];
+                h_e[0] <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : (h_wds ? h_wd : cpu_dout[31:16])};
             end
         end
     end
-    assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_why, 2'b00, h_t, h0, h1, 8'h00};
+    wire [2:0] h_pg = h_tmr[24:22];
+    wire [3:0] h_pi = {h_pg, 1'b0};
+    assign dbg_trace = {d_got, d_info, d_badr, h_frz, 1'b1, 1'b0, h_pg, h_t, h_e[h_pi], h_e[h_pi | 4'd1], 6'd0};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
 `endif
