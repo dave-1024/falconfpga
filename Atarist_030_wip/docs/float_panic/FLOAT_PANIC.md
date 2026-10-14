@@ -176,3 +176,13 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   No diverging instruction found. Remaining differences vs the board: real EmuTOS GEMDOS/BIOS + IRQ handlers
   (MFP timer C 200 Hz, VBL, IKBD ACIA), Pexec/Pterm return into the HiSoft parent (A5 hypothesis), ST bus bridge,
   real FPU probe (BERR at $FFFA40). Harness: docs/float_panic/diff/{mk,mu,cmp}.py.
+- 07:0x Pexec/Pterm A5 test (docs/float_panic/pexec/t.s): parent sets D3-D7/A3-A6 to magic, Pexec(5)+Pexec(4) a child
+  that trashes them (A5=$55718, A4=$58D78) and Pterm()s. Hatari (STE, 68030 16 MHz, 4 MB, EmuTOS 256 1.4 - Hatari
+  forces EmuTOS 192 to 68000): $600DC0DE. RTL core in tb030 from the Hatari RAM snapshot (EmuTOS 256 ROM, caches on,
+  trap #1 vector restored from Hatari's cartridge hook to $E12D1C): $600DC0DE; variant t2 (child does Super(0)/Super(old)
+  like AUTOFPU) also $600DC0DE. => The parent's A5 survives the child exit on the core. A5 hypothesis NOT confirmed
+  (no IRQs: tb030 IRQ runs hang in EmuTOS's VBL path at E03C2x without a real MFP/video, so inconclusive with IRQs).
+- 07:1x David's Hatari .sav (Hatari 2.2.0, gzip, EmuTOS 256uk): RAM base in the file is $19ED (memvalid $420 at $1E0D),
+  not $19EB. AUTOFPU's relocated code is NOT in RAM (only the unrelocated file buffer copies at file $6237FE/$627272, outside
+  RAM), so the $5581A board base was an inference. HiSoft runtime is at $30000 in RAM. CPU register block of the 2.2 format
+  not located reliably by pattern search (needs Hatari 2.2 to load it, or the 2.2 module sizes); not used.
