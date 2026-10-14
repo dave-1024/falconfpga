@@ -176,6 +176,7 @@ entity WF68K30L_TOP is
         
         -- Address and data:
         ADR_OUT         : out std_logic_vector(31 downto 0);
+        DBG_EXC         : out std_logic_vector(88 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
@@ -399,6 +400,8 @@ signal PC_LOAD                  : bit;
 signal PC_LOAD_EXH              : bit;
 signal PC_LOAD_MAIN             : bit;
 signal PC_OFFSET                : std_logic_vector(7 downto 0);
+signal DBG_A5_I                 : std_logic_vector(31 downto 0);
+signal DBG_EXC_STB              : std_logic;
 signal PC_OFFSET_OPD            : std_logic_vector(7 downto 0);
 signal PC_RESTORE_EXH           : bit;
 signal RB                       : std_logic;
@@ -842,6 +845,10 @@ begin
              x"FFFFFFF" & IRQ_PEND & '1' when CPU_SPACE_EXH = '1' else
              ADR_EFF_WB when DATA_WR_MAIN = '1' else ADR_EFF; -- Exception handler uses ADR_EFF for read and write access.
 
+    -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
+    -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
+    DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
+    DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I;
     DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
     ADR_P <= ADR_LATCH when BUS_BSY = '1' else
              ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L;
@@ -997,7 +1004,8 @@ begin
             PC_INC                  => PC_INC,
             PC_LOAD                 => PC_LOAD,
             PC_RESTORE              => PC_RESTORE_EXH,
-            PC_OFFSET               => PC_OFFSET
+            PC_OFFSET               => PC_OFFSET,
+            DBG_A5                  => DBG_A5_I
         );
 
     I_ALU: WF68K30L_ALU

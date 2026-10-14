@@ -169,6 +169,7 @@ module cpu030_st_bridge #(
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;
+    wire [88:0] cpu_dbg_exc;           // FalconFPGA DIAG {taken, vector, SR, PC, A5} (RTL only)
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
@@ -219,6 +220,7 @@ module cpu030_st_bridge #(
         .STERMn    ( 1'b1          ),
 `ifndef WF030_NETLIST
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
+        .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
@@ -659,7 +661,43 @@ module cpu030_st_bridge #(
         arb, BGn, can_start,                          // G7
         r_res, BRi, BgackI                            // G8
     };
-`ifdef DIAG_HIWATCH
+`ifdef DIAG_EXCWATCH
+    // ---- FalconFPGA DIAG excwatch (float panic). Observation only.
+    // The core reports every exception it takes (DBG_EXC strobe = handler address load) with the
+    // vector number, the stacked SR, the stacked PC and A5. The last 16 are kept; armed by the first
+    // user-mode cycle, frozen by a bus/address error (vector 2/3) whose stacked PC is outside RAM and
+    // ROM ($400000-$DFFFFF), i.e. the EmuTOS panic. One entry per overlay page (~0.13 s):
+    // rows c..f = {frz, page3:0, 1, exceptions seen mod 64 (6), vector (8), SR (16), PC 23:0, A5 23:0, 44'b0}
+    // entry[page], 0 = newest.
+    reg        e_arm = 1'b0, e_frz = 1'b0;
+    reg [71:0] e_h [0:15];
+    reg [5:0]  e_cnt = 6'd0;
+    reg [24:0] e_tmr = 25'd0;
+    integer    ei;
+    reg        e_stb_d = 1'b0;          // clk_cpu strobe seen in clk_32: use its rising edge
+    wire       e_stb = cpu_dbg_exc[88] & ~e_stb_d;
+    wire [7:0] e_vec = cpu_dbg_exc[87:80];
+    wire [23:0] e_pc = cpu_dbg_exc[55:32];
+    wire       e_bad = (e_vec == 8'd2 || e_vec == 8'd3) &&
+                       ((e_pc[23] ^ e_pc[22]) | (e_pc[23] & e_pc[22] & ~e_pc[21]));
+    always @(posedge clk) begin
+        e_tmr <= e_tmr + 25'd1;
+        e_stb_d <= cpu_dbg_exc[88];
+        if (extReset | pwrUp) begin
+            e_arm <= 1'b0;  e_frz <= 1'b0;  e_cnt <= 6'd0;
+        end else if (!e_frz) begin
+            if (x_start & ~cpu_fc[2]) e_arm <= 1'b1;
+            if (e_arm & e_stb) begin
+                for (ei = 15; ei > 0; ei = ei - 1) e_h[ei] <= e_h[ei-1];
+                e_h[0] <= {e_vec, cpu_dbg_exc[79:64], e_pc, cpu_dbg_exc[23:0]};
+                e_cnt  <= e_cnt + 6'd1;
+                if (e_bad) e_frz <= 1'b1;
+            end
+        end
+    end
+    wire [3:0] e_pg = e_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, 1'b1, e_cnt, e_h[e_pg], 44'd0};
+`elsif DIAG_HIWATCH
     // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
     // Armed by the first user-mode cycle (FC2 = 0); after that the first 030 cycle (FC != 7)
     // starting in $400000-$DFFFFF freezes a 16-entry history of terminated cycles.
