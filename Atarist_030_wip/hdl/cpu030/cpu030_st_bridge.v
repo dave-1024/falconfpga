@@ -730,7 +730,7 @@ module cpu030_st_bridge #(
     end
 `ifdef DIAG_GDTRACE
     // V5 GEMDOS trace: for every TRAP #1 (vector 33) the stacked PC and the first 5 user-data (FC1) read words
-    // after it (EmuTOS reads the function number and the arguments from the caller's stack). Last 16 calls,
+    // after it (EmuTOS reads the function number and the arguments from the caller's stack). Last 16 complete calls,
     // frozen at the first vector 6. Entry (116) = {PC 23:0, w0 (function), w1, w2, w3, w4, 12'b0}.
     reg [115:0] g_h [0:15];
     reg [115:0] g_e;
@@ -741,10 +741,6 @@ module cpu030_st_bridge #(
         if (extReset | pwrUp) begin g_k <= 3'd5; g_n <= 6'd0; end
         else if (!f_frz & e_arm) begin
             if (e_stb & (e_vec == 8'd33) & ~cpu_dbg_exc[93]) begin   // from user mode (stacked SR S=0)
-                if (g_k != 3'd5) begin
-                    for (gi = 15; gi > 0; gi = gi - 1) g_h[gi] <= g_h[gi-1];
-                    g_h[0] <= g_e;
-                end
                 g_e <= {e_pc, 92'd0};  g_k <= 3'd0;
                 if (g_n != 6'd63) g_n <= g_n + 6'd1;
             end else if (e_cyc & x_rwn & (x_fc == 3'b001) & (g_k != 3'd5)) begin
