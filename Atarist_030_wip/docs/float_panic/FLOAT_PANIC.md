@@ -249,3 +249,44 @@ Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
   IACK/RTE vs branch flush: no fault found in sim. No fix made (not reproduced).
 - Next: extend excwatch to latch BIW_0 (the opcode word of the excepting instruction) plus the bus data of the last
   prefetches, and read RAM at $55D18 after the freeze (helper/monitor), to split "bus delivered a bad word" from "RAM bad".
+
+## 14 Oct 10:5x excwatch V2 (459cc48), building on linserver ~/bldh (b_excw2.log)
+- DBG_EXC now 105 bits, + BIW_0. tb030 logs it (exmon): `chk.w $6000,d0` -> vec 6, PC = NEXT instruction, BIW0=41B8,
+  so BIW_0 at the handler load is the excepting opcode and the stacked PC is the address after it.
+  => on the board the CHK instruction ENDS at $55D18 (fm +2 mapping: fm $55D1A = beq-taken target; the instruction
+  ending there is the `bras` word at board $55D16, or the 4-byte `lea 36(a4)` at board $55D14 if the mapping is 0).
+- Entry {vec, SR, PC, BIW_0, 0}; pages 0-7 add fetch[p] {A23:0, D15:0} (last 8 program reads, data as delivered to
+  the core, frozen at the first vector 6); pages 8-15 add the $55D18 word snoop (last CPU write data, last fetch data,
+  counts). No helper-side RAM read exists (helper fw has no peek), so "RAM" = CPU writes to $55D18 seen on the bus;
+  DMA (floppy load) writes are not seen. Decoder docs/float_panic/pages_ex2.py.
+
+## 14 Oct 11:3x excwatch V2 result (st_helper_excw2_459cc48.fs, TNS 0 all clocks, fpdbg/x*.png)
+- Exceptions (new first): BERR vec 2 PC $416528 (panic); **vec 6 SR $0318 PC $055D18 IRD $4320** (= chk.l -(a0),d1);
+  vec 28 PC $05680A; vec 69 $0578C6 ... (pages 4,6,10,14 not grabbed).
+- Last code fetches before the CHK (data as delivered to the core): $55D12=4E73, ($55D14 n/a), $55D16=48E7,
+  ($55D18 n/a here, snoop: fetched once = 4320), $55D1A=0008, $55D1C=2030, $55D1E=0000, $55D20=413A. A linear run.
+- Snoop $55D18: 4 CPU writes before the freeze, last write data $0000; 1 fetch, data $4320.
+- These words are NOT the AUTOFPU file's code at that address (expected 41EC 0024 6004 41EC 002A..), and the byte
+  run 4320 0008 2030 0000 413A occurs in none of AUTOFPU.BIN / IEEE.BIN (packed or unpacked) / GEMBENCH.PRG /
+  EmuTOS 256 / the Hatari RAM image. $00082030 / $0000413A look like pointer longs: $55D1x holds DATA (written at
+  run time by the CPU), and the core executed it -> the CHK opcode $4320 is genuine data, decoded correctly
+  (IRD = bus data at $55D18). So: not a fetch/bus corruption and not a decode error. The real fault is the
+  jump INTO $55D1x (control flow), earlier than the 8-fetch window. Caveat: the 4 snooped writes may include the
+  CHK frame stacking (snoop runs until the handler load), so "last write 0000 vs fetch 4320" is not yet a RAM/bus
+  contradiction. Also the board-text-base $5581A mapping is in doubt (the region holds data).
+- V3 (20ae59c) adds the last 7 program-fetch jumps {from, to}; building (b_excw3.log).
+
+## 14 Oct 11:5x excwatch V3 result (st_helper_excw3_20ae59c.fs, TNS 0 all clocks, fpdbg/z*.png)
+- Same panic, same words (deterministic): fetches $55D14=3037 $55D16=48E7 $55D18=4320 $55D1A=0008 $55D1C=2030
+  $55D1E=0000 $55D20=413A; vec 6 IRD $4320 (chk.l -(a0),d1). Snoop $55D18 again 4 CPU writes, last $0000, 1 fetch $4320.
+- Program-fetch jumps (newest first): $55FF6->$55C96, $577D6->$55FD8, $57794->$577D0, $57780->$5778E,
+  $55BF8->$57776, ?, $56290->$562DA.
+  The newest is the AUTOFPU `bsr.w 55c98` (fm $55FEA; recorded "from" = prefetch address). After it the core
+  fetched LINEARLY from $55C96 to $55D20 with NO jump, though the AUTOFPU function there (fm $55C98: link,
+  movem, ..., jsr at fm $55CAC) branches after 0x14 bytes. So RAM at $55C96..$55D20 no longer holds AUTOFPU code:
+  the text was OVERWRITTEN with data, and the core executed that data until the $4320 word gave a (correct) CHK trap.
+- Conclusion: decode and fetch are fine (IRD = bus data, linear fetches). The primary fault is a memory overwrite of
+  AUTOFPU's text around $55D18 (4 CPU writes to that word were seen before the CHK). Hatari does not do this, so
+  either a CPU write goes to a wrong address/with wrong data, or an earlier divergence makes the program write there.
+- Next probe: record the PC (core PC of the writing instruction), data, size and FC of the FIRST CPU writes into
+  $55C96-$55D20 (+ cycle stamp), freeze at vector 6. Board restored to st_helper_sdw_p3.fs.
