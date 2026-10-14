@@ -728,10 +728,42 @@ module cpu030_st_bridge #(
             end
         end
     end
+`ifdef DIAG_WRWATCH
+    // V4 write-watch: CPU writes into $55C96-$55D21 (any FC but IACK). Entry (116) =
+    // {PC 23:0 (core PC at the cycle start = the writing instruction, for BSR/JSR pushes already the target),
+    //  A23:0, D15:0 (data at DS), SIZ1:0, FC2:0, SR 15:0, A5 23:0, 3'b0}. Slots 0-7 = FIRST 8 writes after
+    // arming, 8-15 = LAST 8 (15 = newest), all frozen by the first vector 6. w_n = total (saturates at 63).
+    // Only the 030 is visible here: DMA/shifter/blitter/helper RAM writes do not pass the bridge.
+    reg [115:0] w_h [0:15];
+    reg [5:0]   w_n = 6'd0;
+    reg         w_pend = 1'b0;
+    reg [115:0] w_e;
+    integer     wi;
+    wire        w_hit = (x_adr[23:0] >= 24'h055C96) && (x_adr[23:0] <= 24'h055D21) && (x_fc != 3'b111);
+    always @(posedge clk) begin
+        if (extReset | pwrUp) begin w_n <= 6'd0; w_pend <= 1'b0; end
+        else if (!f_frz & e_arm) begin
+            if (x_start) w_e <= {cpu_dbg_exc[71:48], 92'd0};          // PC at the start of the cycle
+            if (e_cyc & ~x_rwn & w_hit) begin
+                if (w_n < 6'd8) w_h[w_n[2:0]] <= {w_e[115:92], x_adr[23:0], e_wds ? e_wd : cpu_dout[31:16],
+                                                  x_size, x_fc, cpu_dbg_exc[95:80], cpu_dbg_exc[39:16], 3'd0};
+                else begin
+                    for (wi = 8; wi < 15; wi = wi + 1) w_h[wi] <= w_h[wi+1];
+                    w_h[15] <= {w_e[115:92], x_adr[23:0], e_wds ? e_wd : cpu_dout[31:16],
+                                x_size, x_fc, cpu_dbg_exc[95:80], cpu_dbg_exc[39:16], 3'd0};
+                end
+                if (w_n != 6'd63) w_n <= w_n + 6'd1;
+            end
+        end
+    end
+    wire [3:0] e_pg = e_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, f_frz, w_n, w_h[e_pg]};
+`else
     wire [3:0] e_pg = e_tmr[24:21];
     wire [43:0] e_x = (e_pg == 4'd8) ? {s_wd, s_fd, s_wn, s_fn, 3'd0, f_frz} :
                       e_pg[3] ? j_h[e_pg[2:0] - 3'd1] : {f_frz, 3'd0, f_h[e_pg[2:0]]};
     assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, 1'b1, e_cnt, e_h[e_pg], e_x};
+`endif
 `elsif DIAG_HIWATCH
     // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
     // Armed by the first user-mode cycle (FC2 = 0); after that the first 030 cycle (FC != 7)

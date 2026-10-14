@@ -157,7 +157,7 @@ begin
   end process;
   -- FalconFPGA DIAG: log the core's exception report (DBG_EXC) on its rising strobe
   exmon: process
-    variable l : line; variable d : std_logic := '0';
+    variable l : line; variable d : std_logic := '0'; variable wd : std_logic := '0';
   begin
     wait until rising_edge(clk);
     if dbgx(104) = '1' and d = '0' then
@@ -165,6 +165,10 @@ begin
       write(l, string'(" SR=")); hwrite(l, dbgx(95 downto 80)); write(l, string'(" PC=")); hwrite(l, dbgx(79 downto 48));
       write(l, string'(" BIW0=")); hwrite(l, dbgx(15 downto 0)); writeline(output, l);
     end if;
+    if asn = '0' and rwn = '0' and wd = '0' then
+      write(l, string'("WPC PC=")); hwrite(l, dbgx(79 downto 48)); write(l, string'(" A=")); hwrite(l, adr); writeline(output, l);
+    end if;
+    wd := not asn and not rwn;
     d := dbgx(104);
   end process;
 end;
