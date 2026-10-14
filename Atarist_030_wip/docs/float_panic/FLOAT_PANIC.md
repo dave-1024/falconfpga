@@ -220,3 +220,17 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   no comparison possible with this build. A clean MiSTeryNano 68000 + AE350 helper build is needed.
 - 09:4x Board back on st_helper_sdw_p3.fs: first cold boot showed "System halted!" after the mailbox test,
   second cold boot -> desktop OK (p3back2.png).
+- 09:3x DIAG_EXCWATCH (abde04d): core DBG_EXC (vector, stacked SR, PC, A5 at handler-address load; checked in tb030 on prog_chk: vec 06, PC = next instr), last 16 exceptions, freeze on BERR/AERR with PC in $400000-$DFFFFF. Build running (build_st_helper_excw.tcl).
+
+## 10:xx excwatch result (st_helper_excw_abde04d.fs, TNS 0)
+History (newest first; page 0 = the BERR itself, and pages 3/4/9 were not captured):
+- p1: vec 6 (CHK), SR $0318, stacked PC $055D18, A5 $055718
+- p2: vec 28 (VBL), SR $0304, PC $05680A, A5 $055718
+- p5-15: vec 69 (MFP timer C) / 28, PC $567AA-$57772, A5 $055718
+A5 is AUTOFPU's own A5 throughout. NOT in the GEMBENCH $2F34C-$2F3F0 window.
+Mapping (fm.dis = board+2): board $55D18 -> fm $55D1A `lea a4@(42),a0`, preceded by
+$55D12 beq.s 55d1a / $55D14 lea a4@(36),a0 / $55D18 bra.s 55d1e. No CHK opcode there,
+yet the core took vector 6 -> the core decoded a wrong opcode word (prefetch/fetch divergence).
+I-cache ruled out: CACHES=0 (ST_030_CACHES undefined) in every build. Next suspect: the
+prefetch pipeline around the taken bcc/bra (FAST_HANDOFF / [F65] path) or the IRQ arriving mid-branch.
+Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
