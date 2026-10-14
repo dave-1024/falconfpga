@@ -176,6 +176,7 @@ entity WF68K30L_TOP is
         
         -- Address and data:
         ADR_OUT         : out std_logic_vector(31 downto 0);
+        DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
         DATA_EN         : out std_logic; -- Enables the data port.
@@ -841,6 +842,7 @@ begin
              x"FFFFFFF" & IRQ_PEND & '1' when CPU_SPACE_EXH = '1' else
              ADR_EFF_WB when DATA_WR_MAIN = '1' else ADR_EFF; -- Exception handler uses ADR_EFF for read and write access.
 
+    DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
     ADR_P <= ADR_LATCH when BUS_BSY = '1' else
              ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L;
 

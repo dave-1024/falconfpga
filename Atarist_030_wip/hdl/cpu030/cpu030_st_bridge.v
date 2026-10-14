@@ -168,7 +168,8 @@ module cpu030_st_bridge #(
     wire        cpu_asn, cpu_rwn, cpu_rmcn, cpu_dsn;
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
-    wire        cpu_ipendn, cpu_statusn;   // FalconFPGA DIAG
+    wire        cpu_ipendn, cpu_statusn;
+    wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
 `ifdef WF030_NETLIST
@@ -216,6 +217,9 @@ module cpu030_st_bridge #(
         .DBENn     (               ),
         .BUS_EN    (               ),
         .STERMn    ( 1'b1          ),
+`ifndef WF030_NETLIST
+        .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
+`endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
         .BRn       ( 1'b1          ),   // arbitration is done on the ST side
@@ -657,26 +661,26 @@ module cpu030_st_bridge #(
     };
 `ifdef DIAG_HIWATCH
     // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
-    // Armed by the first user-mode cycle (FC2 = 0): TOS RAM sizing probes above 4 MB at boot
-    // run before that, in supervisor mode. After arming, the first 030 cycle (FC != 7) that
-    // starts in $400000-$DFFFFF freezes a 16-entry history of terminated cycles.
-    // Entry = {FC2:0, RWn, A23:0, D15:0}; D = DATA_IN 31:16 at termination (read) or
-    // DATA_OUT 31:16 at the first DS low clock (write). The overlay pages through the history
-    // (2 entries per page, ~0.5 s per page): rows c..f = {frz, 1, page3:0, trig{FC,RW,A23:0},
-    // entry[2*page] (newest = 0), entry[2*page+1], 6'b0}.
+    // Armed by the first user-mode cycle (FC2 = 0); after that the first 030 cycle (FC != 7)
+    // starting in $400000-$DFFFFF freezes a 16-entry history of terminated cycles.
+    // Entry (76) = {FC2:0, RWn, A23:0, D15:0, ADR_LATCH[23:16] at termination,
+    //               ADR_P[23:16], PC_L[23:16], ADR_L[23:16] at start}.
+    // One entry per overlay page (~0.13 s): rows c..f = {frz, page3:0, 1, trig{FC,RW,A23:0},
+    // entry[page] (0 = newest), 18'b0}.
     reg  h_arm = 1'b0;
     wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
     reg        h_frz = 1'b0;
     reg [27:0] h_t   = 28'd0;
-    reg [43:0] h_e [0:15];
+    reg [75:0] h_e [0:15];
     reg [15:0] h_wd = 16'd0;
     reg        h_wds = 1'b0;
+    reg [23:0] h_st = 24'd0;           // ADR_P, PC_L, ADR_L 23:16 at the start
     reg [24:0] h_tmr = 25'd0;
     integer    hi;
     always @(posedge clk) begin
         h_tmr <= h_tmr + 25'd1;
-        if (x_start) h_wds <= 1'b0;
+        if (x_start) begin h_wds <= 1'b0; h_st <= cpu_dbg_adr[23:0]; end
         else if (!x_done & ~cpu_dsn & ~h_wds) begin h_wds <= 1'b1; h_wd <= cpu_dout[31:16]; end
         if (extReset | pwrUp) begin
             h_frz <= 1'b0;  h_arm <= 1'b0;
@@ -687,13 +691,13 @@ module cpu030_st_bridge #(
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
             end else if (!x_done & x_term) begin
                 for (hi = 15; hi > 0; hi = hi - 1) h_e[hi] <= h_e[hi-1];
-                h_e[0] <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : (h_wds ? h_wd : cpu_dout[31:16])};
+                h_e[0] <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : (h_wds ? h_wd : cpu_dout[31:16]),
+                           cpu_dbg_adr[31:24], h_st};
             end
         end
     end
-    wire [2:0] h_pg = h_tmr[24:22];
-    wire [3:0] h_pi = {h_pg, 1'b0};
-    assign dbg_trace = {d_got, d_info, d_badr, h_frz, 1'b1, 1'b0, h_pg, h_t, h_e[h_pi], h_e[h_pi | 4'd1], 6'd0};
+    wire [3:0] h_pg = h_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], 18'd0};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
 `endif
