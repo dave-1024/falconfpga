@@ -234,3 +234,18 @@ yet the core took vector 6 -> the core decoded a wrong opcode word (prefetch/fet
 I-cache ruled out: CACHES=0 (ST_030_CACHES undefined) in every build. Next suspect: the
 prefetch pipeline around the taken bcc/bra (FAST_HANDOFF / [F65] path) or the IRQ arriving mid-branch.
 Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
+
+## 14 Oct 10:1x-11:0x tb030 sweep of the AUTOFPU branch (no repro)
+- prog_fpbr.s: AUTOFPU bytes board $55D0C-$55D20 (bles/tst.l d7/beq.s/lea 36(a4)/bra.s/lea 42(a4)/moveq/pushes)
+  at the board's 4n/4n+2 alignment, user mode, A0 checked. tb030 gets TRIG6 (IPL_MODE=2 single shot at level 6, VEC6=69).
+- Per-clock sweep: beq taken + not taken x level 4 (AVEC) / level 6 (vector 69) x WS 0/1/3 x WSRND 0/2 x IRQ_DLY 0..300
+  (window covers the branch at every WS) = 7224 runs: all DONE, IACK taken in all, A0 right, NO vector 6, no wrong opcode.
+  Periodic mode (IRQ4/IRQ6 together, 48 runs) also clean. Result is deterministic, same as Musashi/68030 semantics.
+- prog_chkstale.s: in-range CHK then nop/jmp/bsr/rts/trap+rte/movem/pea+rts/link/unlk with D0 out of range and
+  IRQs (stale ALU OP=CHK re-acked?): clean, WS 0/3.
+- Review: decoder (opcode_decoder.vhd ~1045) only gives CHK for 4xxx with D(6)=0 (opmode 100/110); $41EC (lea 42(a4),a0)
+  cannot decode as CHK. TRAP_CHK needs ALU OP=CHK/CHK2, latched only on ALU_INIT. So on the board the core must have
+  SEEN a different word at the beq target (e.g. $41AC = chk.w 42(a4),d0, one bit D6 different) or the RAM held one.
+  IACK/RTE vs branch flush: no fault found in sim. No fix made (not reproduced).
+- Next: extend excwatch to latch BIW_0 (the opcode word of the excepting instruction) plus the bus data of the last
+  prefetches, and read RAM at $55D18 after the freeze (helper/monitor), to split "bus delivered a bad word" from "RAM bad".

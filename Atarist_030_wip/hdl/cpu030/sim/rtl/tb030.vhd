@@ -18,6 +18,7 @@ entity tb030 is
            RSSP     : integer := 0;       -- nonzero: reset SSP/PC read at 0..7 instead of the ROM vectors
            RPC      : integer := 0;
            VEC6     : integer := 0;
+           TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
            WSRND    : integer := 0);      -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
 end;
 architecture sim of tb030 is
@@ -65,7 +66,8 @@ begin
     elsif IPL_MODE = 3 then
       if IRQ_PER > 0 and clkn mod IRQ_PER = IRQ_DLY mod IRQ_PER then irq4 <= '1'; end if;
       if IRQ_PER6 > 0 and clkn mod IRQ_PER6 = (IRQ_DLY * 7) mod IRQ_PER6 then irq6 <= '1'; end if;
-    elsif trig_at >= 0 and clkn >= trig_at and not fired then irq4 <= '1'; fired := true; end if;
+    elsif trig_at >= 0 and clkn >= trig_at and not fired then
+      if TRIG6 /= 0 then irq6 <= '1'; else irq4 <= '1'; end if; fired := true; end if;
   end process;
   ipl <= "101" when IPL_MODE = 1 else "001" when irq6 = '1' else "011" when irq4 = '1' else "111";
 
