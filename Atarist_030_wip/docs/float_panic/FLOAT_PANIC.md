@@ -186,3 +186,19 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   not $19EB. AUTOFPU's relocated code is NOT in RAM (only the unrelocated file buffer copies at file $6237FE/$627272, outside
   RAM), so the $5581A board base was an inference. HiSoft runtime is at $30000 in RAM. CPU register block of the 2.2 format
   not located reliably by pattern search (needs Hatari 2.2 to load it, or the 2.2 module sizes); not used.
+- 07:1x Hatari .sav process list (EmuTOS p_run $649C): act_pd $132F0 = GEMBENCH itself (tbase $133F0, tlen $256F2,
+  bbase $38AE2, blen 0); no child. Float Math runs INSIDE GEMBENCH (HiSoft BASIC float), not AUTOFPU. GEMBENCH start:
+  A3=$35F68 (runtime base), A5 = bbase+blen = $38AE2 (globals). Board panic A5=$55718 is in the heap (Hatari: $5555 fill),
+  so A5 was a temporary: HiSoft runtime routine $2F34C-$2F3F0 (heap sort/GC) saves A5 and uses it as a heap pointer.
+  New hypothesis: an INTERRUPT arriving in that window is dispatched to vector 6 instead of its own (e.g. MFP ACIA $46 with
+  data bit 6 lost on IACK -> $06; matches the bit-6 signature), so HiSoft's CHK handler runs with the heap A5 -> panic.
+  The V6 probe history will show whether an IACK cycle precedes the $18 fetch.
+- 07:0x V6 build started on linserver (build_st_helper_hiv6.tcl, DIAG_HIWATCH_V6 + overlay row-d mask fix, 86882a8).
+- 07:3x IEEE.BIN (PFX 1.13P lz5 self-extractor) differential, docs/float_panic/diff/mk2.py: relocated at $5581C,
+  caches on (CACR $3111). The stub copies itself to hitpa-1024, depacks (MOVEP, MOVEM -(An) BSS clear), patches
+  its own `jmp $DEADFACE` operand and jumps into the unpacked code. Musashi vs tb030 (4M clocks, WS=1 / WSRND=3 /
+  WS=0): 113910 / 106358 / 131830 bytes of writes IDENTICAL, all runs reach the unpacked IEEE code ($56xxx), no
+  exception. Depacker self-modifying code + prefetch/cache path is correct on the core (no IRQs).
+  Note: mk.py had a 2-byte image shift above $2206 (both sims used the same image, so the AUTOFPU result stands).
+- 07:3x First V6 build attempt failed (gw_sh not in PATH under nohup; the copied .fs was the OLD build - deleted).
+  Restarted with /opt/gowin/IDE/bin/gw_sh.
