@@ -669,14 +669,6 @@ module cpu030_st_bridge #(
     // entry[page] (0 = newest), last vector number 7:0 (excl. IRQ 24-31,
     // TRAP 32-47, MFP 64-79), cycles since it 3:0 (15 = 15 or more), 6'b0}.
     reg  h_arm = 1'b0;
-`ifdef DIAG_HIWATCH_V6
-    // Variant: freeze on the CHK vector fetch (FC5 read of $000018). The history then holds the
-    // format 2 frame writes (SR, PC, $2018, instruction address) and the cycles before them.
-    wire h_trig = h_arm & x_start & (cpu_fc == 3'b101) & cpu_rwn & (cpu_adr[23:0] == 24'h000018);
-`else
-    wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
-                  ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
-`endif
     reg        h_frz = 1'b0;
     reg [27:0] h_t   = 28'd0;
     reg [75:0] h_e [0:15];
@@ -686,23 +678,47 @@ module cpu030_st_bridge #(
     reg [24:0] h_tmr = 25'd0;
     reg [7:0]  h_vec = 8'd0;            // last exception vector read (FC5, $008-$3FC), not IRQ/TRAP
     reg [3:0]  h_vcnt = 4'd0;           // cycles since that vector read (saturates at 15)
+    reg        h_pend = 1'b0;           // V6: trigger seen, post-trigger cycles running
+    reg [3:0]  h_post = 4'd0;
     integer    hi;
+`ifdef DIAG_HIWATCH_V6
+    // Variant: freeze on the CHK vector fetch (FC5 read of $000018). The history then holds the
+    // format 2 frame writes (SR, PC, $2018, instruction address) and the cycles before them.
+    // A FC5 read of $018 is also done by Setexc(), so trigger on the stacked format/vector word
+    // $2018 (format 2, CHK/CHK2) instead and keep recording 8 more cycles (frame + vector fetch).
+    wire [15:0] h_wdat = h_wds ? h_wd : cpu_dout[31:16];
+    wire h_trig = h_arm & ~x_done & x_term & ~x_rwn & (x_fc == 3'b101) & (h_wdat == 16'h2018);
+`else
+    wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
+                  ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
+`endif
     always @(posedge clk) begin
         h_tmr <= h_tmr + 25'd1;
         if (x_start) begin h_wds <= 1'b0; h_st <= cpu_dbg_adr[23:0]; end
         else if (!x_done & ~cpu_dsn & ~h_wds) begin h_wds <= 1'b1; h_wd <= cpu_dout[31:16]; end
         if (extReset | pwrUp) begin
-            h_frz <= 1'b0;  h_arm <= 1'b0;
+            h_frz <= 1'b0;  h_arm <= 1'b0;  h_pend <= 1'b0;
         end else if (!h_frz) begin
             if (x_start & ~cpu_fc[2]) h_arm <= 1'b1;
             if (x_start & (cpu_fc == 3'b101) & cpu_rwn & (cpu_adr[23:10] == 14'd0) & (cpu_adr[9:2] != 8'd0) &
                 (cpu_adr[9:2] != 8'd1) & ~((cpu_adr[9:2] >= 8'd24) & (cpu_adr[9:2] <= 8'd47)) & ~(cpu_adr[9:6] == 4'h4)) begin
                 h_vec <= cpu_adr[9:2];  h_vcnt <= 4'd0;
             end else if (x_start & (h_vcnt != 4'hF)) h_vcnt <= h_vcnt + 4'd1;
+`ifdef DIAG_HIWATCH_V6
+            if (h_trig & ~h_pend) begin
+                h_pend <= 1'b1;  h_post <= 4'd8;
+                h_t    <= {x_fc, x_rwn, x_adr[23:0]};
+            end
+            if (h_pend & !x_done & x_term) begin
+                if (h_post == 4'd0) h_frz <= 1'b1; else h_post <= h_post - 4'd1;
+            end
+            if (!x_done & x_term) begin
+`else
             if (h_trig) begin
                 h_frz <= 1'b1;
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
             end else if (!x_done & x_term) begin
+`endif
                 for (hi = 15; hi > 0; hi = hi - 1) h_e[hi] <= h_e[hi-1];
                 h_e[0] <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : (h_wds ? h_wd : cpu_dout[31:16]),
                            cpu_dbg_adr[31:24], h_st};

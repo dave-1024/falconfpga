@@ -202,3 +202,11 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   Note: mk.py had a 2-byte image shift above $2206 (both sims used the same image, so the AUTOFPU result stands).
 - 07:3x First V6 build attempt failed (gw_sh not in PATH under nohup; the copied .fs was the OLD build - deleted).
   Restarted with /opt/gowin/IDE/bin/gw_sh.
+- 07:5x V6 build (TNS 0 all clocks) flashed op 53 loc 4225, run_fm.sh: panic again (w0.png). Frozen history (w*.png):
+  trigger = FC5 read of $000018 inside EmuTOS 1.4 ROM $E00EDC = Setexc() (`move.w 8(sp),a0; add a0,a0 x2;
+  move.l (a0),d0`), args from the stack: vector 6, new address $000307F0 = GEMBENCH installing its CHK handler.
+  => The FC5 $018 read is NOT an exception. The earlier "last vector = 6" probe (0412dd7) could not tell Setexc
+  data reads from exception vector fetches either, so the "unexpected CHK exception" conclusion is UNPROVEN.
+  Board EmuTOS = 256k 1.4 (ROM words at $E00EDE match etos256uk.img), same as Hatari.
+  Decoder note: the read data in the history entries look one cycle late in places (to check).
+  Next: V6b trigger on the stacked format/vector word $2018 (real CHK frame), 8 cycles post-trigger.
