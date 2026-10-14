@@ -669,8 +669,14 @@ module cpu030_st_bridge #(
     // entry[page] (0 = newest), last vector number 7:0 (excl. IRQ 24-31,
     // TRAP 32-47, MFP 64-79), cycles since it 3:0 (15 = 15 or more), 6'b0}.
     reg  h_arm = 1'b0;
+`ifdef DIAG_HIWATCH_V6
+    // Variant: freeze on the CHK vector fetch (FC5 read of $000018). The history then holds the
+    // format 2 frame writes (SR, PC, $2018, instruction address) and the cycles before them.
+    wire h_trig = h_arm & x_start & (cpu_fc == 3'b101) & cpu_rwn & (cpu_adr[23:0] == 24'h000018);
+`else
     wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
+`endif
     reg        h_frz = 1'b0;
     reg [27:0] h_t   = 28'd0;
     reg [75:0] h_e [0:15];

@@ -390,7 +390,7 @@ always @(*) begin
         3'd0: begin rvec = t2[191:160]; rmask = 32'hffffffff; rlab = 24'hff0000; end // a red
         3'd1: begin rvec = t2[159:128]; rmask = 32'hffffffc0; rlab = 24'hff00ff; end // b magenta
         3'd2: begin rvec = t2[127:96];  rmask = 32'hffffffff; rlab = 24'h00ffff; end // c cyan
-        3'd3: begin rvec = t2[95:64];   rmask = 32'hffefffff; rlab = 24'h00ff00; end // d green
+        3'd3: begin rvec = t2[95:64];   rmask = 32'hffffffff; rlab = 24'h00ff00; end // d green
         3'd4: begin rvec = t2[63:32];   rmask = 32'hffffffff; rlab = 24'hff8000; end // e orange
         default: begin rvec = t2[31:0]; rmask = 32'hffffffff; rlab = 24'h3070ff; end // f blue
     endcase
