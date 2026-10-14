@@ -135,4 +135,27 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   identified yet. Next: probe ADR_LATCH vs live ADR_P vs ADR_L upper byte at BUS_BSY rise (needs core ports),
   and check the clk_cpu030_n -> clk_cpu030 half-cycle paths into ADR_L/ADR_LATCH in the timing report.
 - 04:3x: reflashing st_helper_sdw_p3.fs (fallback, no verified fix).
-- Board left on st_helper_sdw_p3.fs, desktop OK (fpdbg/final.png).
+- 04:1x timing check: setup slack on the 030 paths ~25 ns (st_helper.timing_paths), not a timing failure -> logic. Probe build (DBG_ADR: ADR_LATCH/ADR_P/PC_L/ADR_L 23:16 per cycle) started.
+- 05:0x probe build c195f92 done, flashing + run_fm.sh
+- 05:1x c195f92 flashed, run done, panic frozen (q0.png). Collecting pages q*.png (pages2.py).
+- 05:2x c195f92 pages (pages2.py): core-internal ADR_LATCH/ADR_P = $05 on the stack writes while the overlay
+  bus field read $01 -> the A23:16 "corruption" in bus rows was a DECODER bar misread (bit 18), not real. The push
+  of the return address $000331C4 to $5A208 is correct. Real chain: code at $0331B6-$0331C6 (RAM, not GEMBENCH
+  text) reads a long from $055912 (ADR_L = $05, core-computed EA) = GEMBENCH code bytes $0041 6528, then
+  jsr (a0) at $331C2 -> PC_L = $41 -> $416528. So the bad thing is the EA/pointer used at $331Bx.
+- 05:40 Hatari RAM image (.sav, base 0x19eb) has the same RAM code at $30000-$33400: a resident module with
+  exception stubs (`bsr 30512; dc.b vec` for vectors $51,$0B (Line-F),$06,$09) and a string printer at $331B0
+  that calls a hook at 504(a5) (default if 0). It uses A5 as its globals base WITHOUT loading it. On the board A5 =
+  GEMBENCH's $5571A, so 504(a5) = $55912 -> code bytes $00416528 -> jsr -> BERR -> EmuTOS panic.
+  => The panic is SECONDARY. The primary event is an exception taken during Float Math that Hatari does not take
+  (likely Line-F / coprocessor, or BERR from the SFP004 path at $FFFA40). Next probe: record the last
+  exception vector fetched before the trigger.
+- 06:1x 0412dd7 (last-vector probe) built; flashing + run_fm.sh in background on linserver.
+- 06:3x 0412dd7 run (fpdbg/v*.png): last exception vector before the trigger = 6 (CHK/CHK2/TRAPcc... vector $018), >=15 cycles before. The resident module's vector-6 stub then crashes (A5). PRIMARY = an unexpected CHK exception.
+- 06:4x HiSoft runtime (resident at $30000) bounds-checks with CHK.W (a1)+,Dn; vector 6 = 'subscript out of range' handler, which then crashes. CHK itself was fixed in F60. Hypothesis: a wrong integer/float-emulation result upstream gives an out-of-range index (CHK trap is then correct). Next: check ADDX/SUBX/NEGX Z-flag, ROXL/ROXR, ASL V-flag etc. in wf68k30L_alu.vhd.
+- ALU check (wf68k30L_alu.vhd): ADDX/SUBX/NEGX Z sticky handling and CHK compare look correct by inspection.
+  Root instruction not found tonight. Plan: differential test - run GEMBENCH's HiSoft float routines (from the
+  Hatari RAM image, $30000-$34000 runtime + Float Math code) in the GHDL RTL bench and in a reference 68k emulator
+  (Musashi), compare register state per instruction; first divergence = the core bug.
+- 06:5x reflashing st_helper_sdw_p3.fs (no verified fix).
+- 07:0x board on st_helper_sdw_p3.fs, desktop OK (fpdbg/final2.png).
