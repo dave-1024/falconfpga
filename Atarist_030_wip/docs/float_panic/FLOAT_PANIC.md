@@ -210,3 +210,13 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   Board EmuTOS = 256k 1.4 (ROM words at $E00EDE match etos256uk.img), same as Hatari.
   Decoder note: the read data in the history entries look one cycle late in places (to check).
   Next: V6b trigger on the stacked format/vector word $2018 (real CHK frame), 8 cycles post-trigger.
+- 07:5x Board on st_helper_sdw_p3.fs (flashed after the V6 run). V6b build running (routing).
+- 08:2x V6b run: FALSE trigger - EmuTOS 200 Hz timer write $00002018 to _hz_200 ($4BA) matched the $2018 data compare. Needs an SSP-relative/frame-sequence qualifier; parked per David (68000-core comparison first).
+- 08:3x Board back on st_helper_sdw_p3.fs. 68000 comparison build (fx68k, CPU_030 commented, place 3, same helper config) running in ~/bld68k.
+- 09:3x 68000 comparison build st_helper_68000_cmp.fs (~/bld68k = current tree, `define CPU_030 commented in
+  hdl/atarist/atarist.v, build_st_helper.tcl, place 3, TNS 0) flashed op 53/4225, run_fm.sh: does NOT boot -
+  EmuTOS 1.4 panic "Exception number 33" (TRAP #1) sr=2300 pc=$E0A8B8, SSP $2326, USP 0 (m68a.png), twice. This is
+  an early-boot failure of the fx68k path in this tree (helper/cart glue built for the 030), not Float Math:
+  no comparison possible with this build. A clean MiSTeryNano 68000 + AE350 helper build is needed.
+- 09:4x Board back on st_helper_sdw_p3.fs: first cold boot showed "System halted!" after the mailbox test,
+  second cold boot -> desktop OK (p3back2.png).
