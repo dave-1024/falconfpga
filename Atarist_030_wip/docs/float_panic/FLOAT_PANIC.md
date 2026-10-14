@@ -159,3 +159,20 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   (Musashi), compare register state per instruction; first divergence = the core bug.
 - 06:5x reflashing st_helper_sdw_p3.fs (no verified fix).
 - 07:0x board on st_helper_sdw_p3.fs, desktop OK (fpdbg/final2.png).
+- 06:2x Disk: GEMBENCH (HiSoft BASIC, runtime at $30000) Pexecs BIN/AUTOFPU.BIN (Lattice, the $5581A program) for Float Math. Panic A5 = $55718 ~ child basepage: hypothesis = parent's A5 not restored after the child (Pexec/Pterm path, exception frame/MOVEM), parent then runs with a bad globals pointer -> CHK trap -> handler crash.
+- 06:3x sim: prog_fpuprobe.s (AUTOFPU probe replica, SSP before/after) for tb030.
+- 06:4x sim prog_fpuprobe.s: probe OK on the core (BERR frame format B $B008, handler converts, D3=0, SSP unchanged). Not the probe. New hypothesis: vector 6 is global, so the CHILD (AUTOFPU, A5=$55718) raising vector 6 runs the parent's HiSoft handler with the child's A5 -> exactly the crash. Find what in the child the core treats as CHK/CHK2.
+- 06:5x Prior F62c bug (RESULT_OVERNIGHT): lost A7 predecrement when an AR writeback and AR_DEC hit the same clock (JSR fix F62d). Same hazard class likely here: a lost/raced An update -> stray RTS/jump -> executing data words like $41xx = CHK.L -> vector 6. Checking which ops in control.vhd START_OP do not wait for AR_IN_USE.
+- 07:3x LINK/UNLK-after-An-writeback RTL test (sim/rtl/prog_link.s, 10 cases x4, WS 0/1/3/7): PASS. Not LINK.
+- 07:4x Differential bench /tmp/dt: AUTOFPU.BIN relocated at $5581C (basepage $5571C, A4=$58D78), FPU probe
+  patched to software float (clr.l 476(a4)), GEMDOS/BIOS/XBIOS traps -> moveq #0,d0;rte, other vectors -> $BAD0vvvv
+  at $3300. Musashi (machine68k 0.4.1, 68030) vs tb030 ST=1 (3M clocks, WS=1, no IRQ): 74736 bytes of writes
+  (outside the SSP area, normalised per long) IDENTICAL, no exception. Clean core runs the float code correctly.
+  Now: same with periodic level 4/6 IRQs + random wait states (gh_a/b/c).
+- 08:0x Differential runs, all 3M clocks, all IDENTICAL to Musashi, no exception vector taken:
+  a WS=1 IRQ4/997; b WSRND=3 IRQ4/613+IRQ6/1543; c WS=3 IRQ4/211; d CACR=$3111 (I+D cache, WA) no IRQ;
+  e cache+WSRND=3+IRQ4/613; f cache+WS=1+IRQ4/997. (61176/39232/5940/74736/47656/61168 bytes compared.)
+  => The core executes AUTOFPU's software-float path correctly in the RTL bench, also with IRQs/caches/wait states.
+  No diverging instruction found. Remaining differences vs the board: real EmuTOS GEMDOS/BIOS + IRQ handlers
+  (MFP timer C 200 Hz, VBL, IKBD ACIA), Pexec/Pterm return into the HiSoft parent (A5 hypothesis), ST bus bridge,
+  real FPU probe (BERR at $FFFA40). Harness: docs/float_panic/diff/{mk,mu,cmp}.py.
