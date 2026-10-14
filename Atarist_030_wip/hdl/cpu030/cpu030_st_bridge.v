@@ -663,7 +663,8 @@ module cpu030_st_bridge #(
     // [167:128] = diag030b first BERR (rows a/b as before); row c..f = [127:0] =
     // {frz, why(1 = address trigger, 0 = BERR), 2'b0, trig {FC,RW,A23:0}, h0, h1, 8'h00}.
     // Armed by the first user-mode cycle (FC2 = 0): TOS RAM sizing probes above 4 MB at boot
-    // run before that, in supervisor mode. After arming any FC != 7 cycle or BERR freezes.
+    // run before that, in supervisor mode. After arming any FC != 7 cycle there freezes (no BERR
+    // trigger: GEMBENCH's SFP004 probe at $FFFA40 BERRs on purpose).
     reg  h_arm = 1'b0;
     wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
                   ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
@@ -678,9 +679,6 @@ module cpu030_st_bridge #(
             if (h_trig) begin
                 h_frz <= 1'b1;  h_why <= 1'b1;
                 h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
-            end else if (h_arm & d_berr_now) begin
-                h_frz <= 1'b1;  h_why <= 1'b0;
-                h_t   <= {c_fc, c_rwn, c_adr[23:0]};
             end else if (!x_done & x_term) begin
                 h1 <= h0;
                 h0 <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : cpu_dout[31:16]};
