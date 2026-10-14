@@ -728,7 +728,44 @@ module cpu030_st_bridge #(
             end
         end
     end
-`ifdef DIAG_WRWATCH
+`ifdef DIAG_GDTRACE
+    // V5 GEMDOS trace: for every TRAP #1 (vector 33) the stacked PC and the first 5 user-data (FC1) read words
+    // after it (EmuTOS reads the function number and the arguments from the caller's stack). Last 16 calls,
+    // frozen at the first vector 6. Entry (116) = {PC 23:0, w0 (function), w1, w2, w3, w4, 12'b0}.
+    reg [115:0] g_h [0:15];
+    reg [115:0] g_e;
+    reg [2:0]   g_k = 3'd5;
+    reg [5:0]   g_n = 6'd0;
+    integer     gi;
+    always @(posedge clk) begin
+        if (extReset | pwrUp) begin g_k <= 3'd5; g_n <= 6'd0; end
+        else if (!f_frz & e_arm) begin
+            if (e_stb & (e_vec == 8'd33) & ~cpu_dbg_exc[93]) begin   // from user mode (stacked SR S=0)
+                if (g_k != 3'd5) begin
+                    for (gi = 15; gi > 0; gi = gi - 1) g_h[gi] <= g_h[gi-1];
+                    g_h[0] <= g_e;
+                end
+                g_e <= {e_pc, 92'd0};  g_k <= 3'd0;
+                if (g_n != 6'd63) g_n <= g_n + 6'd1;
+            end else if (e_cyc & x_rwn & (x_fc == 3'b001) & (g_k != 3'd5)) begin
+                case (g_k)
+                    3'd0: g_e[91:76] <= cpu_din[31:16];
+                    3'd1: g_e[75:60] <= cpu_din[31:16];
+                    3'd2: g_e[59:44] <= cpu_din[31:16];
+                    3'd3: g_e[43:28] <= cpu_din[31:16];
+                    default: g_e[27:12] <= cpu_din[31:16];
+                endcase
+                if (g_k == 3'd4) begin
+                    for (gi = 15; gi > 0; gi = gi - 1) g_h[gi] <= g_h[gi-1];
+                    g_h[0] <= {g_e[115:28], cpu_din[31:16], 12'd0};
+                end
+                g_k <= g_k + 3'd1;
+            end
+        end
+    end
+    wire [3:0] e_pg = e_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, f_frz, g_n, g_h[e_pg]};
+`elsif DIAG_WRWATCH
     // V4 write-watch: CPU writes into $55C96-$55D21 (any FC but IACK). Entry (116) =
     // {PC 23:0 (core PC at the cycle start = the writing instruction, for BSR/JSR pushes already the target),
     //  A23:0, D15:0 (data at DS), SIZ1:0, FC2:0, SR 15:0, A5 23:0, 3'b0}. Slots 0-7 = FIRST 8 writes after
