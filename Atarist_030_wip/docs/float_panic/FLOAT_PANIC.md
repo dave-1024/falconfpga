@@ -290,3 +290,27 @@ Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
   either a CPU write goes to a wrong address/with wrong data, or an earlier divergence makes the program write there.
 - Next probe: record the PC (core PC of the writing instruction), data, size and FC of the FIRST CPU writes into
   $55C96-$55D20 (+ cycle stamp), freeze at vector 6. Board restored to st_helper_sdw_p3.fs.
+
+## 14 Oct 12:1x write-watch probe (769a1eb, DIAG_WRWATCH, build_st_helper_wrw.tcl, b_wrw.log)
+- tb030 check: the core PC at the start of a write cycle = the writing instruction (move.l #x,abs -> its own PC);
+  for BSR/JSR pushes it is already the target. Entry {PC, A, D, SIZ, FC, SR, A5}; first 8 + last 8 writes into
+  $55C96-$55D21, frozen at vector 6. Decoder docs/float_panic/pages_wr.py. DMA/shifter/blitter/helper writes don't
+  pass the 030 bridge, so they are not visible here.
+
+## 14 Oct 13:0x write-watch result (st_helper_wrw_769a1eb.fs, TNS 0, fpdbg/w*.png)
+Decoder note: the entry sits 4 bits later than planned (pages_wr.py uses b[16:]; last 4 bits = A5 low nibble lost).
+SR field = SR_CPY (the core's copy from the last exception), NOT the live SR - ignore it. >=63 writes into the range.
+- FIRST 8: PC $02FFB2 (HiSoft runtime clear loop `move.l d0,(a1)+` at $2FFB0 / dbf at $2FFB2), FC1 user, A5 $38AE2
+  (= GEMBENCH), D=0000, $55C96, $55C98, ... ascending: GEMBENCH clears a block that starts at/below $55C96.
+- LAST 8 (just before the CHK): PC $E1DD02 (EmuTOS ROM VDI raster-op writer `move.w d0,(a1); jmp (a3)`), FC5,
+  A5 $38AE2, D = 5555 / 5400 / AAAA into $55D02..$55D1E (every 4th byte = plane 1 of an interleaved 2-plane bitmap).
+- Hatari .sav at the same addresses: $55C90-$55D2F = 0000 AAAA ... 0000 A800 0000 5555 ... 0000 5400 0000 AAAA,
+  i.e. the SAME medium-res bitmap data. In Hatari this range is GEMBENCH's off-screen (MFDB) bitmap, and no AUTOFPU
+  is in RAM there.
+- => NOT a CPU/bus fault: the board writes are correct (right writer, right EA, right data). The CHK came from
+  AUTOFPU's code being Pexec'd INTO GEMBENCH's bitmap buffer ($5571A text vs the buffer around $55Cxx) and the VDI
+  then drawing over it. Open: why the board runs AUTOFPU at all (Hatari's snapshot has no child), i.e. GEMBENCH's
+  FPU/CPU detection path (_CPU/_FPU cookies, the $FFFA40 SFP004 probe), and whose memory accounting is wrong
+  (GEMBENCH using memory outside its Mshrink'd TPA/Malloc vs EmuTOS Pexec). Next: compare _FPU/_CPU cookies and
+  the Malloc/Mshrink/Pexec calls (GEMDOS trace) board vs Hatari.
+- Board restored to st_helper_sdw_p3.fs (RC=0), cold boot desktop OK (fpdbg/fin2.png).
