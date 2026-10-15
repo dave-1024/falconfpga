@@ -62,6 +62,16 @@
 --   stream is still valid rolls S5 straight into S0 of the next long, the
 --   way a 68030 starts the next cycle when a request is pending. Default 0
 --   keeps the IDLE -> START_CYCLE path. Operand cycles are not chained here.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F1/F13/F14/F15: bus fault SSW and address latched at the faulting cycle.
+--   2026-09-30 F2: SSW SIZE field uses the MC68030 Table 7-4 encoding.
+--   2026-09-30 F5/F6: bus-errored IACK is spurious; AVEC ends CPU-space IACK only.
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
+--   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
+--   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 -- 
 
 library work;

@@ -142,6 +142,21 @@
 --   Bus interface, Exception handler, Opcode decoder, Top: Rearranged address error handling.
 --   Top, Address registers: Removed ADR_ATN. Not required any more.
 --   Control: Introdeced a new state CALC_AEFF which results in no need of ADR_ATN and a twice highre fmax.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F1/F13/F14/F15: bus fault SSW and address latched at the faulting cycle.
+--   2026-09-30 F11: CACR/CAAR via MOVEC.
+--   2026-09-30 F18: MOVES read uses SFC.
+--   2026-09-30 F21-F25: bit field byte count, register wrap, BFINS pattern, width, BFSET typo.
+--   2026-09-30 F28: SSW RB bit for address errors (checked on MC68030).
+--   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
+--   2026-10-07 F59: CACHES generic (default 0) around icache/dcache.
+--   2026-10-07 F60: CHK compares Dn, not A0.
+--   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
+--   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
 --
 
 library work;

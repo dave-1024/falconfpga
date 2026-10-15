@@ -14,7 +14,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright ï¿½ 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+---- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
 ----                                                                ----
 ---- This documentation describes Open Hardware and is licensed     ----
 ---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
@@ -43,6 +43,13 @@
 --   MOVEM-Fix: the effective address in memory to register is stored (STORE_AEFF) not to be overwritten in case the addressing register is also loaded.
 -- Revision 2K19A 2019## WF
 --   Removed ADR_ATN. We do not need this any more.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F8: master stack decrement when building frames with M=1.
+--   2026-09-30 F16/F17/F19/F20: full-format EA base/index suppress (An and PC).
+--   2026-09-30 COLD: MSBIT reset; single ISP write chain.
+--   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
 -- 
 
 use work.WF68K30L_PKG.all;

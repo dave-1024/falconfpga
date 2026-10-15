@@ -145,6 +145,16 @@
 --   Fixed several pipelinig issues (hazards).
 -- Revision 2K19A 20190419 WF
 --   Introdeced a new state CALC_AEFF which results in no need of ADR_ATN and a twice highre fmax.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F11: CACR/CAAR via MOVEC.
+--   2026-09-30 F21-F25: bit field byte count, register wrap, BFINS pattern, width, BFSET typo.
+--   2026-09-30 COLD: MSBIT reset; single ISP write chain.
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
+--   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --
 
 use work.WF68K30L_PKG.all;

@@ -22,7 +22,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright ï¿½ 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+---- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
 ----                                                                ----
 ---- This documentation describes Open Hardware and is licensed     ----
 ---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
@@ -53,6 +53,16 @@
 --   Fixed the condition code calculation for NEG and NEGX.
 -- Revision 2K19A 20190620 WF
 --   Fixed a bug in MULU.W (input operands are now 16 bit wide).
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F21-F25: bit field byte count, register wrap, BFINS pattern, width, BFSET typo.
+--   2026-09-30 F26: VHDL-93 IMAX/IMIN instead of VHDL-2008 MINIMUM/MAXIMUM.
+--   2026-09-30 F27: DIVS remainder takes the sign of the dividend.
+--   2026-09-30 F29: CHK2/CMP2 signed bounds, full 32-bit An compare.
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-10-04 F57: explicit power-up values for set-type flops.
 -- 
 
 library work;

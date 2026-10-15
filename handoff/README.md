@@ -1,5 +1,7 @@
 # handoff/
 
+**Agents: read [`CONTEXT.md`](CONTEXT.md) first** (goals, rules, access, board state, build, next fixes). Update it at each milestone.
+
 Grok chat drops code changes here for Grok Bot. Full rules: `AGENT_PROTOCOL.md`, section
 "Patch handoff (from 2026-10-02)".
 

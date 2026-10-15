@@ -73,6 +73,16 @@
 --   External interrupts are postponed if any system controllers are in initialize operation status.
 --   RTE now loads the address offset correctly when entering the handler.
 --   Rearranged address error handling.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F3/F4/F9: format $A RTE, version word x"1904", RTE reads last frame word.
+--   2026-09-30 F5/F6: bus-errored IACK is spurious; AVEC ends CPU-space IACK only.
+--   2026-09-30 F12: RTE abandoned by a fault is not retried.
+--   2026-09-30 F28: SSW RB bit for address errors (checked on MC68030).
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-03 F55: interrupt not taken when the new SR mask covers it.
+--   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 -- 
 
 library work;

@@ -29,6 +29,10 @@
 -- 
 -- Revision 2K14B 20141201 WF
 --   Initial Release.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
 -- 
 
 library work;

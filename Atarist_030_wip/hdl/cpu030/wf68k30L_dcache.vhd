@@ -1,4 +1,12 @@
 --------------------------------------------
+-- WF68K30L_DCACHE: FalconFPGA addition to the WF68K30L core (Wolfgang Foerster).
+-- Copyright (c) 2026 David Dunne (dave-1024), first added 2026-10-04.
+-- Licensed under the CERN OHL v1.2, like the WF68K30L core
+-- (license/cern_ohl_v_1_2.txt, http://ohwr.org/cernohl). This source is distributed
+-- WITHOUT ANY EXPRESS OR IMPLIED WARRANTY, INCLUDING OF MERCHANTABILITY,
+-- SATISFACTORY QUALITY AND FITNESS FOR A PARTICULAR PURPOSE.
+-- Please see the CERN OHL v1.2 for applicable conditions.
+--------------------------------------------
 -- 68030 data cache, MC68030UM 6.1.2. Write-through.
 -- 16 lines of four long words. A valid bit per long word. Only an aligned
 -- long-word read can hit or fill. A byte, a word, or a misaligned read is

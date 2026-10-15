@@ -59,6 +59,13 @@
 --   Implemented the 68K10 loop mechanism.
 --   Removed CAHR, we have no cache.
 --   Rearranged address error handling.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-04 F57: explicit power-up values for set-type flops.
+--   2026-10-04 F59: pipe flush sets OP to NOP (loop-mode interrupt deadlock).
+--   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 -- 
 
 library work;
