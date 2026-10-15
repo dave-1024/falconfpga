@@ -26,7 +26,9 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   Gowin V1.9.12.03 `/opt/gowin`, programmer `/opt/gowin/Programmer/bin/programmer_cli` (root), repo `~/falconfpga`,
   bitstreams `~/fpga_bitstreams` (SHA256SUMS), tools `~/fpga_tools` (README, `grab.sh` = HDMI frame grab, gbref/gbsnap .st),
   flash scripts `~/flash_core.sh`, `~/flash_both.sh`. The FT2232 helper serial is ttyUSB1 (unbound while programming; `modprobe ftdi_sio`).
-- **David's laptop** (Windows): Gowin + programmer_cli as alternative; `hc.sh` helper-console script (not in ~/fpga_tools; ask David where it lives).
+- **David's laptop** (Windows): Gowin + programmer_cli as alternative.
+- **hc.sh** (helper console): `/workspace/gb/hc.sh` on the box, copy in repo `tools/hc.sh`. Usage `hc.sh "cmd1" "cmd2" ...` (`sleep N` allowed);
+  sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
 ## Board state (2026-10-15)
