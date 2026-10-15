@@ -38,7 +38,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 
 ## Branches
 `main` is the truth (all done work merged). Open: `berr-nowb` (F66 core fix, no switch, sim PASS, bitstream
-`st_helper_hdn_berr_<hash>_p3.fs` built, awaiting David's OK to flash; linserver worktree `~/bldberr`). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff ...) are merged or parked.
+`st_helper_hdn_berr_7e3660e_p3.fs` built (TNS 0, clk_cpu030 16.21 MHz), awaiting David's OK to flash; linserver worktree `~/bldberr`). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;
