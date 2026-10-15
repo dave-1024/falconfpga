@@ -38,7 +38,6 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
---   2026-10-15 F66: BERR_NOWB generic: a bus-errored operand read ends the instruction, no register writeback.
 -- 
 
 library ieee;
@@ -295,8 +294,7 @@ component WF68K30L_BUS_INTERFACE
 end component;
 
 component WF68K30L_CONTROL
-    generic(NO_PIPELINE     : boolean := false; -- If true the controller work in scalar mode.
-            BERR_NOWB       : integer := 0); -- [F66]
+    generic(NO_PIPELINE     : boolean := false); -- If true the controller work in scalar mode.
     port(
         CLK                 : in std_logic;
         RESET_CPU           : in bit;

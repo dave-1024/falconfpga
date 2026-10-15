@@ -43,7 +43,7 @@ print(' '.join(s))")
   done
 done
 # F66: reads that bus-error ($FFFA40) must leave Dn/An/MOVEM destinations unchanged
-# (prog_berrwb.s, expect_berrwb.txt); BERR_NOWB=0 must still show the upstream $FFFF writeback.
+# (prog_berrwb.s, expect_berrwb.txt).
 m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_berrwb.s -o p.o
 m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
 python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_berrwb.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
@@ -60,8 +60,6 @@ for ws in 0 1 3 7; do
   $G -r $O tb030 -gROMFILE=prog_berrwb.hex -gWS=$ws -gMAXCLK=20000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_berrwb.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_berrwb WS=$ws: $(bwres)"; fail=1; }
 done
-$G -r $O tb030 -gROMFILE=prog_berrwb.hex -gBERR_NOWB=0 -gMAXCLK=20000 2>/dev/null > r.log || true
-bwres | grep -q "5000:1234 5002:FFFF" || { echo "FAIL prog_berrwb BERR_NOWB=0: upstream writeback not seen"; fail=1; }
 # F62d: A7 written back by the previous instruction while JSR/BSR/PEA/-(SP) decrements it
 # (prog_spwb.s); $600DC0DE at $3300 = every case saw the right SP.
 m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_spwb.s -o p.o
