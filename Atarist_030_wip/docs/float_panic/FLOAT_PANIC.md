@@ -375,3 +375,34 @@ Tools: docs/float_panic/memsnap/ (memsnap.s AUTO hook, memsave.s writer+compare,
   (a misdirected sector write, text-like data, sector-aligned), not a core bug. With a clean image the board passes.
   The SD write path (sd_rw/sd_card write, helper uploads, floppy writes) is the suspect for how the sector got there.
   Board left on st_68000_plainst_18a64fb.fs with A: = gbref.st (clean). MEMSNAP RAM diff not needed for the verdict.
+
+## 15 Oct 2026 (06:30-07:30 BST): p3 + clean image, SD write-path review
+
+### p3 Float Math on clean image: PASS
+- p3 (`st_helper_sdw_p3.fs`, flashed op 53, 125.68 s), cold boot `c`, A: = `/sd/gbref.st` (clean, CRC 791ee820), medium res.
+- GEMBENCH 6: Integer Division 2.705 s (665%), **Float Math 13.075 s (102%)**, no panic. The 68000 build gave 13.325 s on the same image.
+- An earlier p3 run the same morning showed a fresh desktop 40 s after the click. Frames weren't captured fast enough to classify it. It wasn't reproduced in this run, which had burst grabs every ~2.5 s.
+- gbref.st CRC was still 791ee820 after both runs.
+- **Conclusion:** the Float Math panic on p3 was the corrupt `gb403.st` (AUTOFPU.BIN), not the 030 core.
+- Frames: `board_p3_fm_clean2_running.png`, `board_p3_fm_clean3_pass.png`.
+
+### SD write corruption: what the bad bytes are
+- `"#a000000\r\n#b000000\r\n#c…"` is the start of a TOS/EmuTOS **desktop INF file** (DESKTOP.INF/EMUDESK.INF).
+- So the payload is a legitimate ST GEMDOS file write that landed in AUTOFPU.BIN's sectors.
+- The bad region starts at file offset $400, which is cluster-aligned (720K images use 2-sector clusters).
+- The length is $314 (788 bytes), a typical INF size.
+- So either:
+  - (a) the core's FDC write went to the wrong card LBA, or
+  - (b) GEMDOS reused AUTOFPU's cluster because of a stale or lost FAT write.
+- The helper upload path (`put`/`h`) and `save` (atarist.ini: `var x=`/`option` lines) can't produce this text, so they are ruled out.
+
+### Code review findings (read-only)
+1. **The core raises an IRQ only on a rising edge of `start_any`** (`sd_card.v`). If `wstart` asserts while `rstart` is still high (or a request arrives before the previous one drops), no new edge means no IRQ. The request is then either missed or served on the next poll.
+2. **The helper reads `request` and `rsector` in one status transfer**, then picks the first drive bit (`sdc_handle_event`). The status doesn't include read/write direction or a sequence tag. So a write can be paired with a stale `rsector` latched for an earlier read, and the helper can't tell.
+3. **On `SDC_CORE_RW_TIMEOUT_MS` the helper gives up while the core may still have `core_request` pending.** The next `SPI_SDC_CORE_RW` (for a later request) then executes the old pending write at the new sector, or the reverse. This matches the "SD write jam" seen before.
+4. `lsector` is latched correctly from `core_sector`/`mcu_sector` only when `!busy_int && !done_int`. The core's own latching looks fine; the risk is in the pairing between the helper and the core (items 1–3).
+
+### Proposed fix (not implemented, not flashed)
+- **Core:** latch `{dir, drive, rsector}` at request time into a status register with a 4-bit sequence number. `SPI_SDC_CORE_RW` must echo the sequence number, and the core ignores a mismatch. Raise the IRQ as a level (pending && not acknowledged), not on an edge.
+- **Helper:** read the status, translate, send CORE_RW with the sequence number, and re-read the status afterwards. On timeout, send an explicit abort that clears `core_request` before unlocking. Log every write as `W drv lba->dsector` (debug on) to confirm.
+- **Workaround meanwhile:** avoid saving the desktop (and anything else that writes) on test images, and keep A: write-protected (if the helper or core supports a WP bit).
