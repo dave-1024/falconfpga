@@ -28,6 +28,32 @@
 
 static const char *drive_name[4] = { "A:", "B:", "ACSI 0", "ACSI 1" };
 
+
+/* SD_WRITE_DEBUG core ring (sd_card.v SDC cmd 9): last n card writes */
+static int sdw_read(unsigned idx, uint8_t *b) {
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(9);
+  mcu_hw_spi_tx_u08(idx & 63);
+  for(int i = 0; i < 15; i++) b[i] = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  return (b[0] << 8) | b[1];
+}
+static void sdwlog(int n) {
+  uint8_t b[15];
+  unsigned wc = sdw_read(0, b), rc = (b[2] << 8) | b[3];
+  printf("sdwlog: %u writes, %u reads (16-bit counters)\r\n", wc, rc);
+  if(n > 64) n = 64;
+  if((unsigned)n > wc) n = wc;
+  for(int i = n; i > 0; i--) {
+    sdw_read((wc - i) & 63, b);
+    unsigned long img = ((unsigned long)b[7] << 24) | (b[8] << 16) | (b[9] << 8) | b[10];
+    unsigned long crd = ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14];
+    printf("W #%u %s%s drv %d img %lu -> card %lu\r\n", (b[4] << 8) | b[5],
+           (b[6] & 0x80) ? "MCU" : "core", (b[6] & 0x40) ? " direct" : "", b[6] & 7, img, crd);
+  }
+}
+
 static void help(void) {
   printf("commands (end each with Enter):\r\n"
          "  osd <ev> ... OSD menu as the keyboard would drive it (F12 opens it):\r\n"
@@ -41,6 +67,7 @@ static void help(void) {
          "  mount <d> <file>  insert an image: d = a, b (floppy .st), h0, h1 (ACSI .hd/.img)\r\n"
          "  eject <d>    remove the image from drive d\r\n"
          "  sdlog on|off log every core SD request: SDLOG #n R/W drv img-lba -> card-lba, timeouts\r\n"
+         "  sdwlog [n]   last n card writes from the core's SD_WRITE_DEBUG ring\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
          "  spd [n]      bit-bang delay per half SCK period (default 2)\r\n"
@@ -393,6 +420,7 @@ static void run_line(const char *line) {
   int link = ae350_link_up();
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
+  if(!strcmp(c, "sdwlog")) { sdwlog(argc > 1 ? atoi(argv[1]) : 64); return; }
   if(!strcmp(c, "sdlog")) {
     if(argc > 1) sdc_log = !strcmp(argv[1], "on");
     printf("sdlog %s\r\n", sdc_log ? "on" : "off");
