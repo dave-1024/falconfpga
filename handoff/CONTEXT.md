@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-15 (F66 BERR no-writeback on branch berr-nowb, built, not flashed). Owner: David Dunne (dave-1024).
+Last update: 2026-10-15 (F66 BERR no-writeback merged and on the board). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -32,13 +32,13 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
 ## Board state (2026-10-15)
-- Core: `st_helper_hdn_917668c_p3.fs` (main switches + SD_WRITE_DEBUG, place 3), TOS 2.06. GEMBENCH ref A: CRC 791ee820.
+- Core: `st_helper_hdn_berr_7e3660e_p3.fs` (main switches + SD_WRITE_DEBUG + F66, place 3), TOS 2.06. GEMBENCH 123% all tests,
+  Float Math 13.080 s. gbref.st CRC 791ee820. Scratch image BERRT.ST (= gb/sysinfo.st: COOKIEFP.TOS, SYSI834, NOFPU) on the SD card.
 - Helper: `helper_companion_sdwlog_3ec6e20.bin` (at 0x600000).
-- Rollbacks: previous `.fs` in `~/fpga_bitstreams`; helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`; `/workspace/fpga_rollback_20261009.zip` on the box.
+- Rollbacks: `st_helper_hdn_917668c_p3.fs` (previous board build), other `.fs` in `~/fpga_bitstreams`; helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`; `/workspace/fpga_rollback_20261009.zip` on the box.
 
 ## Branches
-`main` is the truth (all done work merged). Open: `berr-nowb` (F66 core fix, no switch, sim PASS, bitstream
-`st_helper_hdn_berr_7e3660e_p3.fs` built (TNS 0, clk_cpu030 16.21 MHz), awaiting David's OK to flash; linserver worktree `~/bldberr`). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff ...) are merged or parked.
+`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;
@@ -54,9 +54,8 @@ docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOT
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
 ## Next-fix order (docs/TODO.md, set 2026-10-15)
-1. $FFFF bus-error writeback: F66 on `berr-nowb`, sim PASS, board test pending.
-2. Warm-reset halt ($482, "System halted!" after `w`).
-3. EmuTOS blitter greyed out.
-4. Helper port (AE350 companion).
-5. CPU rework phase 2 (operand cycles without IDLE).
+1. Warm-reset halt ($482, "System halted!" after `w`).
+2. EmuTOS blitter greyed out.
+3. Helper port (AE350 companion).
+4. CPU rework phase 2 (operand cycles without IDLE).
 Pinned, final stage: remove the ST/STE switch, STE only.
