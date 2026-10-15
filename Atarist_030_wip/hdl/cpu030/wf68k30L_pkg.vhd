@@ -174,7 +174,8 @@ component WF68K30L_ADDRESS_REGISTERS
         PC_INC              : in bit;
         PC_LOAD             : in bit;
         PC_RESTORE          : in bit;
-        PC_OFFSET           : in std_logic_vector(7 downto 0)
+        PC_OFFSET           : in std_logic_vector(7 downto 0);
+        DBG_A5              : out std_logic_vector(31 downto 0)
     );
 end component;
 

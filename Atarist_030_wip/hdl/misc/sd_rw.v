@@ -11,7 +11,10 @@ module sd_rw # (
     parameter       SIMULATE = 0,
     // FalconFPGA ST_HELPER: 1 = wait up to ~1 s for the card's write busy
     // (SD spec allows 250/500 ms; 62 ms was hit by sustained MCU writes) and
-    // retry a CMD24 that got no response instead of hanging in state 13
+    // retry a CMD24 that got no response instead of hanging in state 13;
+    // only start CMD17/CMD24 when DAT0 is high (card not programming, SD
+    // spec 4.3.4/4.12.3), give up a sector after 16 failed CMD24s or a
+    // WERR and report it done, so the request clears without a reload
     parameter       WRITE_FIX = 0
 ) (
     // rstn active-low, 1:working, 0:reset
@@ -124,7 +127,10 @@ reg [3:0] wack;
    
    
 assign     rbusy  = (sdcmd_stat != READY) ;
-assign     rdone  = ((sdcmd_stat == READING) || (sdcmd_stat == WRITING)) && (sddat_stat==DONE);
+reg        wfail  = 1'b0;   // WRITE_FIX: CMD24 abandoned, complete the request
+reg  [3:0] wretry = 4'd0;
+assign     rdone  = (((sdcmd_stat == READING) || (sdcmd_stat == WRITING)) && (sddat_stat==DONE)) ||
+                    (WRITE_FIX && ((sdcmd_stat == WRITING) && (sddat_stat==WERR))) || wfail;
 
 assign card_stat = sdcmd_stat;
 
@@ -186,8 +192,11 @@ always @ (posedge clk or negedge rstn)
         card_type   <= UNKNOWN;
         sdcmd_stat  <= CMD0;
         cmd8_cnt    <= 0;
+        wfail       <= 1'b0;
+        wretry      <= 4'd0;
     end else begin
         set_cmd(0,0,0,0);
+        wfail <= 1'b0;
         if(sdcmd_stat == READING || sdcmd_stat == WRITING) begin
 	    // the question is: Do we also want to retry a failed
 	    // write? If this happens repeatedly it may wear out the
@@ -211,10 +220,11 @@ always @ (posedge clk or negedge rstn)
                 CMD55_6 :   set_cmd(1,                 256 , 55, {rca,16'h0});
                 ACMD6   :   set_cmd(1,                 256 ,  6,  'h00000002);
                 CMD16   :   set_cmd(1, (SIMULATE?512:64000), 16,  'h00000200);
-                READY   :   if(rstart || wstart) begin 
+                READY   :   if((rstart || wstart) && !wfail && (!WRITE_FIX || sddatin[0])) begin 
                                 set_cmd(1, 96, rstart?17:24, (card_type==SDHCv2) ? sector : (sector<<9) );
                                 sectoraddr <= (card_type==SDHCv2) ? sector : (sector<<9);
                                 sdcmd_stat <= rstart?CMD17:CMD24;
+                                wretry <= 4'd0;
 		            end
             endcase
         end else if(done) begin
@@ -257,8 +267,14 @@ always @ (posedge clk or negedge rstn)
                                 sdcmd_stat <= READY;
                 CMD24   :   if(~timeout && ~syntaxe)
                                 sdcmd_stat <= WRITING;
-                            else if(WRITE_FIX)
-                                set_cmd(1, 128, 24, sectoraddr);   // card still programming: retry
+                            else if(WRITE_FIX) begin
+                                wretry <= wretry + 4'd1;
+                                if(wretry == 4'd15) begin       // give up: report done, back to READY
+                                    wfail <= 1'b1;
+                                    sdcmd_stat <= READY;
+                                end else
+                                    set_cmd(1, 128, 24, sectoraddr);   // retry
+                            end
                 CMD17   :   if(~timeout && ~syntaxe)
                                 sdcmd_stat <= READING;
                             else
