@@ -46,6 +46,9 @@ puts $fh "`define ST_SD_WRITE_FIX"
 # image insert so TOS notices a runtime swap. Without it TOS writes the previous disk's
 # FAT/directory into the new image (docs/SD_WRITE_DEBUG.md). Delete for upstream behaviour.
 puts $fh "`define ST_FLOPPY_MEDIACH"
+# SD hardening (hdl/misc/sd_rw.v, sd_card.v ST_SD_HARDEN): token check, re-init + retry, bounded read
+# retries, sector latched at request; a give-up reaches the FDC as a CRC error (docs/SD_WRITE_DEBUG.md).
+puts $fh "`define ST_SD_HARDEN"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

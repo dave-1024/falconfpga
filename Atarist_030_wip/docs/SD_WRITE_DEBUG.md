@@ -2,7 +2,9 @@
 
 Builds (place_option 3, sdw_p3 config = 7e3d5dd, which includes F65 bb9baa2):
 - `st_helper_sdlog_d94dde4_p3.fs` (sd-core-log, SD_WRITE_DEBUG): debug build (superseded by mch).
-- `st_helper_mch_7df7f29_p3.fs` (sd-mediach, + ST_FLOPPY_MEDIACH): flashed 15 Oct, swap retest PASSED, on the board.
+- `st_helper_mch_7df7f29_p3.fs` (sd-mediach, + ST_FLOPPY_MEDIACH): flashed 15 Oct, swap retest PASSED.
+- `st_helper_hdn_054b0b6_p3.fs` (+ ST_SD_HARDEN): board test PASSED.
+- `st_helper_hdn_917668c_p3.fs` (+ give-up -> FDC CRC status): on the board.
 - helper `helper_companion_sdwlog_3ec6e20.bin` (sd-write-log): sdwlog / sdstate / sdrw / scrc / get.
 
 ## Root cause of the misdirected writes (gb403): runtime image swap, no media change
@@ -46,7 +48,7 @@ entries plus EMUDESK.INF (cluster 242, 640 bytes); sector 494 holds the INF text
 gbref.st showed gbref's directory (7 items) and GEMBENCH.PRG loaded with its RSC: no -35, no "not
 readable". gbref.st CRC still 791ee820.
 
-## ST_SD_HARDEN (branch sd-harden, test variant, not flashed)
+## ST_SD_HARDEN (on main since 15 Oct 2026)
 Implements the 4 items above in sd_rw.v / sd_card.v behind `HARDEN`. Fault-injection bench
 `hdl/misc/sim/tb_sd_harden.v`:
 
@@ -59,4 +61,13 @@ Implements the 4 items above in sd_rw.v / sd_card.v behind `HARDEN`. Fault-injec
 | 40 dead reads | done after the budget, card usable after |
 | HARDEN=0 + rejected token | upstream: block silently counted as written |
 
-Limit: on give-up the FDC still gets a plain done. Passing the error to the FDC status is the next step.
+FDC error status (`917668c`): a give-up raises `sd_err` (sd_card.v, a level cleared by the next request), which
+goes to fdc1772 as status bit 3 (CRC error) and stops multi-sector commands. Bench
+`hdl/fdc1772/sim/run_sim.sh`: clean read/write gives status 80; a give-up gives 88 with busy cleared and an
+IRQ; the next command clears it; a multi-sector read stops after the failing sector.
+
+Board, 15 Oct 2026: `st_helper_hdn_054b0b6_p3.fs`. Runtime mounts, gbsnap/tools2 swaps with desktop saves (each
+image changed only in its own root sector 7), a 737 KB upload with 3 injected desktop saves (CRC ec90e609 ok),
+and Float Math 13.080 s from gbref. sdrw: 0 WERR / give-ups / read timeouts / bad tokens, max 580 clocks in CMD24.
+CRCs: gbref 791ee820, fnop/blank/gb403 unchanged. Then `st_helper_hdn_917668c_p3.fs` (+FDC error): timing TNS 0,
+swap + save + cold boot OK, gbref 791ee820, counters 0. It is on the board now.
