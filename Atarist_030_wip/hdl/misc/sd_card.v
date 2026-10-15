@@ -13,7 +13,8 @@
 module sd_card # (
     parameter [2:0] CLK_DIV = 3'd2,
     parameter       SIMULATE = 0,
-    parameter       WRITE_FIX = 0     // see sd_rw.v (FalconFPGA ST_HELPER)
+    parameter       WRITE_FIX = 0,    // see sd_rw.v (FalconFPGA ST_HELPER)
+    parameter       DEBUG_LOG = 0     // FalconFPGA SD_WRITE_DEBUG: ring of card writes, SDC cmd 9
 ) (
     // rstn active-low, 1:working, 0:reset
     input			  rstn,
@@ -143,6 +144,10 @@ wire [2:0] drive =
 // write from and to the sd card without and further interaction
 // with the Companion.
 reg [31:0] direct_start [8];   
+// SD_WRITE_DEBUG event strobe from the MCU command decoder (1 clock)
+reg [1:0]  dbg_ev;        // 2 = direct base set (cmd 6), 3 = image inserted (cmd 4/7)
+reg [2:0]  dbg_ev_drv;
+reg [31:0] dbg_ev_a, dbg_ev_b;
 wire	   direct_enable = direct_start[drive] != 32'd0;   
    
 wire [7:0] doutb;
@@ -230,6 +235,7 @@ always @(posedge clk) begin
 	  core_request <= CORE_REQ_IDLE;	  
    end else begin
       image_mounted <= 8'b00000000;
+      dbg_ev <= 2'd0;
 
 	  // handle MCU/core requests
 	  if(!busy_int && !done_int) begin
@@ -428,6 +434,8 @@ always @(posedge clk) begin
 					 $display("sd_card.v: MCU inserted image %0d with %0d bytes", image_target, { image_size[63:8], data_in } );
 					 direct_start[image_target] <= 32'd0;
 					 image_mounted[image_target] <= 1'b1;
+					 dbg_ev <= 2'd3; dbg_ev_drv <= image_target[2:0];
+					 dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { image_size[31:8], data_in };
 				  end
 			   end
 			end
@@ -469,9 +477,71 @@ always @(posedge clk) begin
                if(byte_cnt == 4'd3) ds[ 7: 0] <= data_in;
                if(byte_cnt == 4'd4) begin
 				  direct_start[image_target] <= { ds, data_in };
+				  dbg_ev <= 2'd2; dbg_ev_drv <= image_target[2:0];
+				  dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { ds, data_in };
 				  $display("sd_card.v: MCU direct start %0d with offset %0d(%8x)", image_target, { ds, data_in }, { ds, data_in });
 			   end
 			end
+
+            // SDC CMD 9: SD write debug log readout (DEBUG_LOG=1 only).
+            // MCU sends the ring index in the first byte, then reads
+            // wcnt[15:0], rcnt[15:0] and the 11 byte entry
+            // { seq16, flags8, image sector32, card sector32 }, flags =
+            // { mcu, direct, 3'b0, drive[2:0] }.
+            if(DEBUG_LOG && command == 8'd9) begin
+               if(byte_cnt == 4'd0) begin dbg_idx <= data_in[5:0]; data_out <= dbg_wcnt[15:8]; end
+               if(byte_cnt == 4'd1) data_out <= dbg_wcnt[7:0];
+               if(byte_cnt == 4'd2) data_out <= dbg_rcnt[15:8];
+               if(byte_cnt == 4'd3) data_out <= dbg_rcnt[7:0];
+               if(byte_cnt >= 4'd4 && byte_cnt <= 4'd14) data_out <= dbg_q[8'd87 - 8'd8*(byte_cnt-4'd4) -: 8];
+            end
+
+            // SDC CMD 10: SD_WRITE_DEBUG state: direct_start[0], [1] (8 bytes),
+            // core_request, mcu_request, rstart|wstart, rsector (4 bytes)
+            if(DEBUG_LOG && command == 8'd10) begin
+               case(byte_cnt)
+                 4'd0: data_out <= direct_start[0][31:24];
+                 4'd1: data_out <= direct_start[0][23:16];
+                 4'd2: data_out <= direct_start[0][15:8];
+                 4'd3: data_out <= direct_start[0][7:0];
+                 4'd4: data_out <= direct_start[1][31:24];
+                 4'd5: data_out <= direct_start[1][23:16];
+                 4'd6: data_out <= direct_start[1][15:8];
+                 4'd7: data_out <= direct_start[1][7:0];
+                 4'd8: data_out <= { 5'd0, core_request };
+                 4'd9: data_out <= { 5'd0, mcu_request };
+                 4'd10: data_out <= rstart | wstart;
+                 4'd11: data_out <= rsector[31:24];
+                 4'd12: data_out <= rsector[23:16];
+                 4'd13: data_out <= rsector[15:8];
+                 4'd14: data_out <= rsector[7:0];
+                 default: ;
+               endcase
+            end
+
+            // SDC CMD 11: SD_WRITE_DEBUG sd_rw.v state: {sdcmd,sddat}, {wack,wretry},
+            // {wfail,7'b0}, sectoraddr (4), max clocks in CMD24 (4), counts of
+            // WERR, CMD24 give-ups, read timeouts, bad data tokens (1 each)
+            if(DEBUG_LOG && command == 8'd11) begin
+               case(byte_cnt)
+                 4'd0: data_out <= rw_dbg[51:44];
+                 4'd1: data_out <= rw_dbg[43:36];
+                 4'd2: data_out <= { rw_dbg[55], 7'd0 };
+                 4'd3: data_out <= rw_dbg[31:24];
+                 4'd4: data_out <= rw_dbg[23:16];
+                 4'd5: data_out <= rw_dbg[15:8];
+                 4'd6: data_out <= rw_dbg[7:0];
+                 4'd7: data_out <= rw_t13max[31:24];
+                 4'd8: data_out <= rw_t13max[23:16];
+                 4'd9: data_out <= rw_t13max[15:8];
+                 4'd10: data_out <= rw_t13max[7:0];
+                 4'd11: data_out <= rw_nwerr;
+                 4'd12: data_out <= rw_nwfail;
+                 4'd13: data_out <= rw_nrto;
+                 4'd14: data_out <= rw_nbtok;
+                 default: ;
+               endcase
+            end
 
             // SDC CMD 7: LARGE FILE INSERTED, usually used for HDD images > 4GB
             if(command == 8'd7) begin
@@ -490,6 +560,8 @@ always @(posedge clk) begin
 					 $display("sd_card.v: MCU inserted large image %0d with %0d bytes", image_target, { image_size[63:8], data_in } );
 					 direct_start[image_target] <= 32'd0;
                      image_mounted[image_target] <= 1'b1;
+					 dbg_ev <= 2'd3; dbg_ev_drv <= image_target[2:0];
+					 dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { image_size[31:8], data_in };
 				  end
                end
             end
@@ -500,6 +572,102 @@ always @(posedge clk) begin
    end
 end
    
+// ===== FalconFPGA SD_WRITE_DEBUG: ring of the last 64 card writes =====
+// Taps the single clock in which a pending write is handed to sd_rw (the
+// same condition as the request arbiter above), so it adds no logic to the
+// data path. Reads are only counted.
+reg  [5:0]  dbg_idx;
+reg  [5:0]  dbg_wp;
+reg  [15:0] dbg_wcnt, dbg_rcnt;
+reg  [87:0] dbg_q;
+reg  [87:0] dbg_ring [0:63];
+wire        dbg_idle  = !busy_int && !done_int;
+wire        dbg_cw    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_WRITE;
+wire        dbg_cr    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_READ;
+wire        dbg_mw    = DEBUG_LOG && dbg_idle && !dbg_cw && !dbg_cr && mcu_request == MCU_READY2WRITE;
+// flags byte: [7:6] type (0 core write, 1 MCU write, 2 direct base set,
+// 3 image inserted), [5] direct_enable (core write), [2:0] drive.
+// Types 2/3: image field = old base, card field = new base / image size.
+reg         dbg_pv;          // pending base/insert event
+reg  [1:0]  dbg_pt;
+reg  [2:0]  dbg_pd;
+reg  [31:0] dbg_pa, dbg_pb;
+// sd_rw.v state ({ wfail, 3'b0, sdcmd_stat, sddat_stat, wack, wretry, 4'b0, sectoraddr }): [51:48] sdcmd, [47:44] sddat, [43:40] wack, [39:36] wretry
+wire [55:0] rw_dbg;
+reg  [55:0] rw_prev;
+wire [3:0]  rw_cmd   = rw_dbg[51:48], rw_dat = rw_dbg[47:44], rw_pcmd = rw_prev[51:48], rw_pdat = rw_prev[47:44];
+// sd_rw events, type 1 with subtype in flags[5:3]: 1 WERR (no token / busy
+// timeout), 2 CMD24 given up (WRITE_FIX wfail), 3 read timeout, 4 data
+// response token not "accepted" (wack != 4'b1010).
+// image field = { sdcmd, sddat (before), wack, wretry, clocks in CMD24 [23:8] },
+// card field = sd_rw sectoraddr.
+wire        rw_werr  = DEBUG_LOG && rw_dat == 4'd11 && rw_pdat != 4'd11;
+wire        rw_wfail = DEBUG_LOG && rw_dbg[55] && !rw_prev[55];
+wire        rw_rto   = DEBUG_LOG && rw_dat == 4'd5 && rw_pdat != 4'd5;
+wire        rw_btok  = DEBUG_LOG && rw_pdat == 4'd9 && rw_dat == 4'd10 && rw_dbg[43:40] != 4'b1010;
+wire        rw_ev    = rw_werr || rw_wfail || rw_rto || rw_btok;
+wire [2:0]  rw_sub   = rw_werr ? 3'd1 : rw_wfail ? 3'd2 : rw_rto ? 3'd3 : 3'd4;
+reg  [31:0] rw_t13, rw_t13max;   // clocks in CMD24 (card state 13), current and max
+reg  [7:0]  rw_nwerr, rw_nwfail, rw_nrto, rw_nbtok;
+reg         rw_pv;               // pending sd_rw event
+reg  [2:0]  rw_psub;
+reg  [31:0] rw_pa, rw_pb;
+wire        dbg_rw    = DEBUG_LOG && rw_pv && !dbg_cw && !dbg_mw;
+wire        dbg_ew    = DEBUG_LOG && dbg_pv && !dbg_cw && !dbg_mw && !dbg_rw;
+wire        dbg_we    = dbg_cw || dbg_mw || dbg_rw || dbg_ew;
+// rsector as it was when the request was raised (rising edge of start_any).
+// flags[4] = 1 when it differs from rsector at the moment the write is handed
+// to sd_rw, i.e. the image sector moved while the request was waiting.
+reg         dbg_sa;
+reg  [31:0] dbg_rs_edge;
+always @(posedge clk) begin
+   dbg_sa <= start_any;
+   if(start_any && !dbg_sa) dbg_rs_edge <= rsector;
+end
+wire        dbg_moved = dbg_rs_edge != rsector;
+wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 2'b00, direct_enable, dbg_moved, 1'b0, drive, rsector, core_sector }
+                      : dbg_mw ? { dbg_wcnt, 2'b01, 3'b000, 3'b000, 32'd0, mcu_sector }
+                      : dbg_rw ? { dbg_wcnt, 2'b01, rw_psub, 3'b000, rw_pa, rw_pb }
+                      :          { dbg_wcnt, dbg_pt, 3'b000, dbg_pd, dbg_pa, dbg_pb };
+always @(posedge clk) begin
+   rw_prev <= rw_dbg;
+   if(!rstn) begin
+      rw_t13 <= 32'd0; rw_t13max <= 32'd0; rw_pv <= 1'b0;
+      rw_nwerr <= 8'd0; rw_nwfail <= 8'd0; rw_nrto <= 8'd0; rw_nbtok <= 8'd0;
+   end else if(DEBUG_LOG) begin
+      if(rw_cmd == 4'd13) begin
+         if(rw_t13 != 32'hffffffff) rw_t13 <= rw_t13 + 32'd1;
+         if(rw_t13 > rw_t13max) rw_t13max <= rw_t13;
+      end else rw_t13 <= 32'd0;
+      if(rw_werr)  rw_nwerr  <= rw_nwerr  + 8'd1;
+      if(rw_wfail) rw_nwfail <= rw_nwfail + 8'd1;
+      if(rw_rto)   rw_nrto   <= rw_nrto   + 8'd1;
+      if(rw_btok)  rw_nbtok  <= rw_nbtok  + 8'd1;
+      if(dbg_rw) rw_pv <= 1'b0;
+      if(rw_ev) begin
+         rw_pv <= 1'b1; rw_psub <= rw_sub;
+         rw_pa <= { rw_pcmd, rw_pdat, rw_dbg[43:36], rw_t13[23:8] };
+         rw_pb <= rw_dbg[31:0];
+      end
+   end
+end
+always @(posedge clk) begin
+   if(dbg_we) dbg_ring[dbg_wp] <= dbg_wd;
+   dbg_q <= dbg_ring[dbg_idx];
+end
+always @(posedge clk) begin
+   if(!rstn) begin
+      dbg_wp <= 6'd0; dbg_wcnt <= 16'd0; dbg_rcnt <= 16'd0; dbg_pv <= 1'b0;
+   end else begin
+      if(dbg_we) begin dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1; end
+      if(dbg_cr) dbg_rcnt <= dbg_rcnt + 16'd1;
+      if(dbg_ew) dbg_pv <= 1'b0;
+      if(DEBUG_LOG && dbg_ev != 2'd0) begin
+         dbg_pv <= 1'b1; dbg_pt <= dbg_ev; dbg_pd <= dbg_ev_drv; dbg_pa <= dbg_ev_a; dbg_pb <= dbg_ev_b;
+      end
+   end
+end
+
 sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
    // rstn active-low, 1:working, 0:reset
    .rstn(rstn),
@@ -515,6 +683,7 @@ sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
 							       
    .card_stat(card_stat),
    .card_type(card_type),
+   .dbg_state(rw_dbg),
 
    // lsector is the translated rsector into the file on the FAT fs
    .rstart( rstart_int ), 

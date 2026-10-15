@@ -601,6 +601,26 @@ wire	    sd_rd_byte_strobe;
 wire	    sd_busy, sd_done;
 wire [63:0] sd_img_size;
 wire [3:0]  sd_img_mounted;
+
+// FalconFPGA ST_FLOPPY_MEDIACH: TOS notices a disk change by the write-protect
+// line changing (real drives block the WP sensor while a disk goes in). The
+// helper swaps images instantly, so without this TOS keeps the old disk's
+// FAT/directory cache and writes it into the new image (gb403 corruption,
+// GEMDOS -35 after runtime mounts). Hold WP for ~0.75 s after each floppy
+// insert/eject (sd_img_mounted pulse, clk32 domain).
+reg  [24:0] fd_mchg_cnt [0:1];
+wire [1:0]  floppy_wprot_eff;
+`ifdef ST_FLOPPY_MEDIACH
+always @(posedge clk32) begin : fd_mchg
+   integer i;
+   for(i = 0; i < 2; i = i + 1)
+      if(sd_img_mounted[i])      fd_mchg_cnt[i] <= 25'd24_000_000;
+      else if(fd_mchg_cnt[i] != 0) fd_mchg_cnt[i] <= fd_mchg_cnt[i] - 25'd1;
+end
+assign floppy_wprot_eff = system_floppy_wprot | { fd_mchg_cnt[1] != 0, fd_mchg_cnt[0] != 0 };
+`else
+assign floppy_wprot_eff = system_floppy_wprot;
+`endif
 reg         sd_ready;
 
 `ifndef DISABLE_ACSI
@@ -733,7 +753,7 @@ atarist atarist (
     .blitter_en(core_chipset >= 2'd1),    // MegaST (1) or STE (2)
     .ste(core_chipset >= 2'd2),           // STE (2)
     .enable_extra_ram(system_memory),       // enable extra ram
-    .floppy_protected(system_floppy_wprot), // floppy write protection
+    .floppy_protected(floppy_wprot_eff),    // floppy write protection (+ media-change pulse)
     .cubase_en(system_cubase_en),           // enable cubase dongles
 
     // interface to sdram
@@ -893,6 +913,9 @@ end
 sd_card #(
 `ifdef ST_SD_WRITE_FIX
     .WRITE_FIX(1),                         // FalconFPGA: helper bulk writes (sd_rw.v)
+`endif
+`ifdef SD_WRITE_DEBUG
+    .DEBUG_LOG(1),                         // FalconFPGA: SD write ring, SDC cmd 9
 `endif
     .CLK_DIV(SD_CLK_DIV)                   // for 32 Mhz clock -> sd card clock = 16Mhz
 ) sd_card (
