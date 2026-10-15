@@ -13,7 +13,8 @@
 module sd_card # (
     parameter [2:0] CLK_DIV = 3'd2,
     parameter       SIMULATE = 0,
-    parameter       WRITE_FIX = 0     // see sd_rw.v (FalconFPGA ST_HELPER)
+    parameter       WRITE_FIX = 0,    // see sd_rw.v (FalconFPGA ST_HELPER)
+    parameter       DEBUG_LOG = 0     // FalconFPGA SD_WRITE_DEBUG: ring of card writes, SDC cmd 9
 ) (
     // rstn active-low, 1:working, 0:reset
     input			  rstn,
@@ -473,6 +474,19 @@ always @(posedge clk) begin
 			   end
 			end
 
+            // SDC CMD 9: SD write debug log readout (DEBUG_LOG=1 only).
+            // MCU sends the ring index in the first byte, then reads
+            // wcnt[15:0], rcnt[15:0] and the 11 byte entry
+            // { seq16, flags8, image sector32, card sector32 }, flags =
+            // { mcu, direct, 3'b0, drive[2:0] }.
+            if(DEBUG_LOG && command == 8'd9) begin
+               if(byte_cnt == 4'd0) begin dbg_idx <= data_in[5:0]; data_out <= dbg_wcnt[15:8]; end
+               if(byte_cnt == 4'd1) data_out <= dbg_wcnt[7:0];
+               if(byte_cnt == 4'd2) data_out <= dbg_rcnt[15:8];
+               if(byte_cnt == 4'd3) data_out <= dbg_rcnt[7:0];
+               if(byte_cnt >= 4'd4 && byte_cnt <= 4'd14) data_out <= dbg_q[8'd87 - 8'd8*(byte_cnt-4'd4) -: 8];
+            end
+
             // SDC CMD 7: LARGE FILE INSERTED, usually used for HDD images > 4GB
             if(command == 8'd7) begin
                // MCU reports that some large image has been inserted.
@@ -500,6 +514,34 @@ always @(posedge clk) begin
    end
 end
    
+// ===== FalconFPGA SD_WRITE_DEBUG: ring of the last 64 card writes =====
+// Taps the single clock in which a pending write is handed to sd_rw (the
+// same condition as the request arbiter above), so it adds no logic to the
+// data path. Reads are only counted.
+reg  [5:0]  dbg_idx;
+reg  [5:0]  dbg_wp;
+reg  [15:0] dbg_wcnt, dbg_rcnt;
+reg  [87:0] dbg_q;
+reg  [87:0] dbg_ring [0:63];
+wire        dbg_idle  = !busy_int && !done_int;
+wire        dbg_cw    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_WRITE;
+wire        dbg_cr    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_READ;
+wire        dbg_mw    = DEBUG_LOG && dbg_idle && !dbg_cw && !dbg_cr && mcu_request == MCU_READY2WRITE;
+wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 1'b0, direct_enable, 3'b000, drive, rsector, core_sector }
+                               : { dbg_wcnt, 1'b1, 1'b0, 3'b000, 3'b000, 32'd0, mcu_sector };
+always @(posedge clk) begin
+   if(dbg_cw || dbg_mw) dbg_ring[dbg_wp] <= dbg_wd;
+   dbg_q <= dbg_ring[dbg_idx];
+end
+always @(posedge clk) begin
+   if(!rstn) begin
+      dbg_wp <= 6'd0; dbg_wcnt <= 16'd0; dbg_rcnt <= 16'd0;
+   end else begin
+      if(dbg_cw || dbg_mw) begin dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1; end
+      if(dbg_cr) dbg_rcnt <= dbg_rcnt + 16'd1;
+   end
+end
+
 sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
    // rstn active-low, 1:working, 0:reset
    .rstn(rstn),
