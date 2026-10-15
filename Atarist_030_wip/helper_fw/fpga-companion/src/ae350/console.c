@@ -28,6 +28,71 @@
 
 static const char *drive_name[4] = { "A:", "B:", "ACSI 0", "ACSI 1" };
 
+
+/* SD_WRITE_DEBUG core ring (sd_card.v SDC cmd 9): last n card writes */
+static int sdw_read(unsigned idx, uint8_t *b) {
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(9);
+  mcu_hw_spi_tx_u08(idx & 63);
+  for(int i = 0; i < 15; i++) b[i] = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  return (b[0] << 8) | b[1];
+}
+static void sdwlog(int n) {
+  uint8_t b[15];
+  unsigned wc = sdw_read(0, b), rc = (b[2] << 8) | b[3];
+  printf("sdwlog: %u events, %u reads (16-bit counters)\r\n", wc, rc);
+  if(n > 64) n = 64;
+  if((unsigned)n > wc) n = wc;
+  for(int i = n; i > 0; i--) {
+    sdw_read((wc - i) & 63, b);
+    unsigned long img = ((unsigned long)b[7] << 24) | (b[8] << 16) | (b[9] << 8) | b[10];
+    unsigned long crd = ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14];
+    unsigned seq = (b[4] << 8) | b[5], t = b[6] >> 6, d = b[6] & 7;
+    if(t == 0)      printf("#%u W core%s drv %u img %lu -> card %lu%s\r\n", seq, (b[6] & 0x20) ? " direct" : " mcu-map", d, img, crd,
+                           (b[6] & 0x10) ? "  MOVED: image sector changed while the request waited" : "");
+    else if(t == 1) {
+      unsigned sub = (b[6] >> 3) & 7;
+      static const char *sn[] = { "W MCU", "WERR (no token / busy timeout)", "CMD24 GIVE-UP", "READ TIMEOUT", "BAD DATA TOKEN", "?", "?", "?" };
+      if(sub == 0) printf("#%u W MCU card %lu\r\n", seq, crd);
+      else printf("#%u %s: sdcmd %lu sddat %lu wack %lx wretry %lu t24 %lu*256clk, sectoraddr %lu\r\n", seq, sn[sub],
+                  img >> 28, (img >> 24) & 15, (img >> 20) & 15, (img >> 16) & 15, img & 0xffff, crd);
+    }
+    else if(t == 2) printf("#%u BASE drv %u old %lu -> new %lu\r\n", seq, d, img, crd);
+    else            printf("#%u INSERT drv %u size %lu (old base %lu, now 0)\r\n", seq, d, crd, img);
+  }
+}
+
+static void sdstate(void) {
+  uint8_t b[15];
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(10);
+  unsigned st = mcu_hw_spi_tx_u08(0);   /* first byte back is the card status */
+  for(int i = 0; i < 15; i++) b[i] = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  printf("sdstate: card status %02X, base A: %lu, base B: %lu, core_request %u, mcu_request %u, start bits %02X, rsector %lu\r\n",
+         st, ((unsigned long)b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3],
+         ((unsigned long)b[4] << 24) | (b[5] << 16) | (b[6] << 8) | b[7], b[8], b[9], b[10],
+         ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14]);
+}
+
+static void sdrw(void) {
+  uint8_t b[15];
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(11);
+  unsigned st = mcu_hw_spi_tx_u08(0);
+  for(int i = 0; i < 15; i++) b[i] = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  printf("sdrw: card status %02X, sdcmd_stat %u, sddat_stat %u, wack %X, wretry %u, wfail %u, sectoraddr %lu\r\n",
+         st, b[0] >> 4, b[0] & 15, b[1] >> 4, b[1] & 15, b[2] >> 7,
+         ((unsigned long)b[3] << 24) | (b[4] << 16) | (b[5] << 8) | b[6]);
+  printf("sdrw: max clocks in CMD24 %lu, WERR %u, CMD24 give-ups %u, read timeouts %u, bad tokens %u\r\n",
+         ((unsigned long)b[7] << 24) | (b[8] << 16) | (b[9] << 8) | b[10], b[11], b[12], b[13], b[14]);
+}
+
 static void help(void) {
   printf("commands (end each with Enter):\r\n"
          "  osd <ev> ... OSD menu as the keyboard would drive it (F12 opens it):\r\n"
@@ -40,6 +105,12 @@ static void help(void) {
          "  ls [dir]     list an SD directory (default /sd)\r\n"
          "  mount <d> <file>  insert an image: d = a, b (floppy .st), h0, h1 (ACSI .hd/.img)\r\n"
          "  eject <d>    remove the image from drive d\r\n"
+         "  sdlog on|off log every core SD request: SDLOG #n R/W drv img-lba -> card-lba, timeouts\r\n"
+         "  scrc <f>     CRC32 of every 512 byte sector of /sd/<f> (read-only)\r\n"
+         "  get <f> [off] [len]  hex dump of /sd/<f> (read-only, default 512 bytes)\r\n"
+         "  sdwlog [n]   last n card writes / direct-map base sets / inserts (SD_WRITE_DEBUG core)\r\n"
+         "  sdrw         sd_rw.v state, CMD24 time, WERR/give-up/timeout/bad-token counts (SD_WRITE_DEBUG core)\r\n"
+         "  sdstate      core SD state: direct-map bases A/B, request states (SD_WRITE_DEBUG core)\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
          "  spd [n]      bit-bang delay per half SCK period (default 2)\r\n"
@@ -358,6 +429,34 @@ static void up_end(void) {
   printf("done %lu bytes crc32 %08lx\r\n", (unsigned long)up_len, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
 }
 
+
+/* read-only image inspection: per-sector CRC32 list and hex dump */
+static void up_scrc(const char *name) {
+  char path[96]; static uint8_t b[512]; UINT r; FIL f; unsigned long s = 0;
+  if(!sd_ready() || !name) return;
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&f, path, FA_READ) != FR_OK) { printf("e open\r\n"); return; }
+  while(f_read(&f, b, sizeof(b), &r) == FR_OK && r) {
+    up_crc = 0xFFFFFFFFu; up_crc_add(b, r);
+    printf("s %lu %08lx\r\n", s++, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
+  }
+  f_close(&f);
+  printf("done %lu sectors\r\n", s);
+}
+static void up_get(const char *name, unsigned long off, unsigned long len) {
+  char path[96]; uint8_t b[32]; UINT r; FIL f;
+  if(!sd_ready() || !name) return;
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&f, path, FA_READ) != FR_OK) { printf("e open\r\n"); return; }
+  if(f_lseek(&f, off) != FR_OK) { f_close(&f); printf("e seek\r\n"); return; }
+  while(len && f_read(&f, b, len > 32 ? 32 : len, &r) == FR_OK && r) {
+    printf("g %06lx ", off);
+    for(UINT i = 0; i < r; i++) printf("%02x", b[i]);
+    printf("\r\n"); off += r; len -= r;
+  }
+  f_close(&f);
+  printf("done\r\n");
+}
 static void up_crcfile(const char *name) {
   char path[96]; static uint8_t b[512]; UINT r; FIL f;
   if(!sd_ready() || !name) return;
@@ -386,12 +485,22 @@ static void run_line(const char *line) {
   if(!argc) return;
   const char *c = argv[0];
   if(!strcmp(c, "h")) { up_hex(argc > 1 ? argv[1] : ""); return; }
-  if(!strcmp(c, "put")) { up_put(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "put")) { sdc_log = 0; up_put(argc > 1 ? argv[1] : NULL); return; }
   if(!strcmp(c, "pend")) { up_end(); return; }
+  if(!strcmp(c, "scrc")) { up_scrc(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "get")) { up_get(argc > 1 ? argv[1] : NULL, argc > 2 ? strtoul(argv[2], 0, 0) : 0, argc > 3 ? strtoul(argv[3], 0, 0) : 512); return; }
   if(!strcmp(c, "crc")) { up_crcfile(argc > 1 ? argv[1] : NULL); return; }
   int link = ae350_link_up();
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
+  if(!strcmp(c, "sdstate")) { sdstate(); return; }
+  if(!strcmp(c, "sdrw")) { sdrw(); return; }
+  if(!strcmp(c, "sdwlog")) { sdwlog(argc > 1 ? atoi(argv[1]) : 64); return; }
+  if(!strcmp(c, "sdlog")) {
+    if(argc > 1) sdc_log = !strcmp(argv[1], "on");
+    printf("sdlog %s\r\n", sdc_log ? "on" : "off");
+    return;
+  }
   if(!strcmp(c, "spd")) {
     if(argc > 1) ae350_spi_set_div((unsigned)atoi(argv[1]));
     printf("bit-bang delay %u MSR reads per half period\r\n", ae350_spi_div());
