@@ -51,7 +51,13 @@ static void sdwlog(int n) {
     unsigned long crd = ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14];
     unsigned seq = (b[4] << 8) | b[5], t = b[6] >> 6, d = b[6] & 7;
     if(t == 0)      printf("#%u W core%s drv %u img %lu -> card %lu\r\n", seq, (b[6] & 0x20) ? " direct" : " mcu-map", d, img, crd);
-    else if(t == 1) printf("#%u W MCU card %lu\r\n", seq, crd);
+    else if(t == 1) {
+      unsigned sub = (b[6] >> 3) & 7;
+      static const char *sn[] = { "W MCU", "WERR (no token / busy timeout)", "CMD24 GIVE-UP", "READ TIMEOUT", "BAD DATA TOKEN", "?", "?", "?" };
+      if(sub == 0) printf("#%u W MCU card %lu\r\n", seq, crd);
+      else printf("#%u %s: sdcmd %lu sddat %lu wack %lx wretry %lu t24 %lu*256clk, sectoraddr %lu\r\n", seq, sn[sub],
+                  img >> 28, (img >> 24) & 15, (img >> 20) & 15, (img >> 16) & 15, img & 0xffff, crd);
+    }
     else if(t == 2) printf("#%u BASE drv %u old %lu -> new %lu\r\n", seq, d, img, crd);
     else            printf("#%u INSERT drv %u size %lu (old base %lu, now 0)\r\n", seq, d, crd, img);
   }
@@ -71,6 +77,21 @@ static void sdstate(void) {
          ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14]);
 }
 
+static void sdrw(void) {
+  uint8_t b[15];
+  mcu_hw_spi_begin();
+  mcu_hw_spi_tx_u08(SPI_TARGET_SDC);
+  mcu_hw_spi_tx_u08(11);
+  unsigned st = mcu_hw_spi_tx_u08(0);
+  for(int i = 0; i < 15; i++) b[i] = mcu_hw_spi_tx_u08(0);
+  mcu_hw_spi_end();
+  printf("sdrw: card status %02X, sdcmd_stat %u, sddat_stat %u, wack %X, wretry %u, wfail %u, sectoraddr %lu\r\n",
+         st, b[0] >> 4, b[0] & 15, b[1] >> 4, b[1] & 15, b[2] >> 7,
+         ((unsigned long)b[3] << 24) | (b[4] << 16) | (b[5] << 8) | b[6]);
+  printf("sdrw: max clocks in CMD24 %lu, WERR %u, CMD24 give-ups %u, read timeouts %u, bad tokens %u\r\n",
+         ((unsigned long)b[7] << 24) | (b[8] << 16) | (b[9] << 8) | b[10], b[11], b[12], b[13], b[14]);
+}
+
 static void help(void) {
   printf("commands (end each with Enter):\r\n"
          "  osd <ev> ... OSD menu as the keyboard would drive it (F12 opens it):\r\n"
@@ -87,6 +108,7 @@ static void help(void) {
          "  scrc <f>     CRC32 of every 512 byte sector of /sd/<f> (read-only)\r\n"
          "  get <f> [off] [len]  hex dump of /sd/<f> (read-only, default 512 bytes)\r\n"
          "  sdwlog [n]   last n card writes / direct-map base sets / inserts (SD_WRITE_DEBUG core)\r\n"
+         "  sdrw         sd_rw.v state, CMD24 time, WERR/give-up/timeout/bad-token counts (SD_WRITE_DEBUG core)\r\n"
          "  sdstate      core SD state: direct-map bases A/B, request states (SD_WRITE_DEBUG core)\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
@@ -471,6 +493,7 @@ static void run_line(const char *line) {
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
   if(!strcmp(c, "sdstate")) { sdstate(); return; }
+  if(!strcmp(c, "sdrw")) { sdrw(); return; }
   if(!strcmp(c, "sdwlog")) { sdwlog(argc > 1 ? atoi(argv[1]) : 64); return; }
   if(!strcmp(c, "sdlog")) {
     if(argc > 1) sdc_log = !strcmp(argv[1], "on");
