@@ -406,3 +406,28 @@ Tools: docs/float_panic/memsnap/ (memsnap.s AUTO hook, memsave.s writer+compare,
 - **Core:** latch `{dir, drive, rsector}` at request time into a status register with a 4-bit sequence number. `SPI_SDC_CORE_RW` must echo the sequence number, and the core ignores a mismatch. Raise the IRQ as a level (pending && not acknowledged), not on an edge.
 - **Helper:** read the status, translate, send CORE_RW with the sequence number, and re-read the status afterwards. On timeout, send an explicit abort that clears `core_request` before unlocking. Log every write as `W drv lba->dsector` (debug on) to confirm.
 - **Workaround meanwhile:** avoid saving the desktop (and anything else that writes) on test images, and keep A: write-protected (if the helper or core supports a WP bit).
+
+### p3 full GEMBENCH 6 (15 Oct 2026, ~07:30 BST), clean gbref.st, medium res, ref STE
+| Test | Time | Ratio |
+|---|---|---|
+| GEM Dialog Box | 11.160 | 70% |
+| VDI Text | 15.675 | 89% |
+| VDI Text Effects | 28.720 | 84% |
+| VDI Small Text | 15.620 | 87% |
+| VDI Graphics | 28.055 | 67% |
+| GEM Window | 4.530 | 72% |
+| Integer Division | 2.705 | 665% |
+| Float Math | 13.075 | 102% |
+| RAM Access | 6.390 | 98% |
+| ROM Access | 6.380 | 98% |
+| Blitting | 10.190 | 86% |
+| VDI Scroll | 15.235 | 88% |
+| Justified Text | 15.660 | 87% |
+| VDI Enquire | 3.130 | 84% |
+| New Dialogs | 13.200 | 72% |
+
+- **Summary:** RAM 98 / ROM 98 / Display 80 / CPU 240 / Average **123%**. F62d was 76 / 85 / 72 / 225 / 112.
+- **Caveat:** VDI Text, VDI Small Text, VDI Scroll, Integer Division and Float Math had already run before "All Tests" (delayed mouse commands). Their figures may come from those earlier runs.
+- **Image:** gbref.st CRC was still 791ee820 after the run.
+- **Frames:** /workspace/gb/board_p3_full1.png (results), board_p3_full3_desktop.png.
+- **Next:** SD write logging is on branch `sd-write-log` (helper `sdlog on`). It isn't flashed yet.
