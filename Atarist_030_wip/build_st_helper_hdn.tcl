@@ -43,6 +43,9 @@ puts $fh "`define WF030_FAST_HANDOFF"
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.
 puts $fh "`define ST_SD_WRITE_FIX"
 puts $fh "`define SD_WRITE_DEBUG"
+# Double cold-start reset with the second pulse inside the 030's reset hold (atarist.v DR_GAP,
+# RESET_PATHS.md). On for the F67/F68 warm-reset test build; delete for the rigsdram timing.
+puts $fh "`define ST_DR_PRECPU"
 puts $fh "`define ST_FLOPPY_MEDIACH"
 puts $fh "`define ST_SD_HARDEN"
 close $fh

@@ -153,7 +153,16 @@ wire        ext_reset = !resb;
 // first ST reset has ended, let the CPU run DR_GAP clk_32 cycles, then reload
 // reset_cnt once (= one ST reset-button press). Re-armed only by porb.
 // 1536 = 512 (bridge RESET_HOLD, 128 clk_cpu) + 1024 (~256 clk_cpu free run).
+// ST_DR_PRECPU (2026-10-15, warm-reset F67/F68 test): the second pulse comes 64 clk_32
+// after the first release, inside the bridge's CPU hold (2 sync + RESET_HOLD 128 clk_cpu
+// = ~260 clk_32), so the chipset/GSTMCU/SDRAM path is still reset twice but the 030 is
+// released only once and never sees a reset in the middle of EmuTOS's start-up (with F67
+// it would honour it; see docs/RESET_PATHS.md). Undefined: the original rigsdram timing.
+`ifdef ST_DR_PRECPU
+localparam [10:0] DR_GAP = 11'd64;
+`else
 localparam [10:0] DR_GAP = 11'd1536;
+`endif
 reg   [1:0] dr_st  = 2'd0;   // 0 = wait first release, 1 = free run, 2 = done
 reg  [10:0] dr_cnt = 11'd0;
 
