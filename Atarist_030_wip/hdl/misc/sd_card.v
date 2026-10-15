@@ -519,6 +519,30 @@ always @(posedge clk) begin
                endcase
             end
 
+            // SDC CMD 11: SD_WRITE_DEBUG sd_rw.v state: {sdcmd,sddat}, {wack,wretry},
+            // {wfail,7'b0}, sectoraddr (4), max clocks in CMD24 (4), counts of
+            // WERR, CMD24 give-ups, read timeouts, bad data tokens (1 each)
+            if(DEBUG_LOG && command == 8'd11) begin
+               case(byte_cnt)
+                 4'd0: data_out <= rw_dbg[51:44];
+                 4'd1: data_out <= rw_dbg[43:36];
+                 4'd2: data_out <= { rw_dbg[55], 7'd0 };
+                 4'd3: data_out <= rw_dbg[31:24];
+                 4'd4: data_out <= rw_dbg[23:16];
+                 4'd5: data_out <= rw_dbg[15:8];
+                 4'd6: data_out <= rw_dbg[7:0];
+                 4'd7: data_out <= rw_t13max[31:24];
+                 4'd8: data_out <= rw_t13max[23:16];
+                 4'd9: data_out <= rw_t13max[15:8];
+                 4'd10: data_out <= rw_t13max[7:0];
+                 4'd11: data_out <= rw_nwerr;
+                 4'd12: data_out <= rw_nwfail;
+                 4'd13: data_out <= rw_nrto;
+                 4'd14: data_out <= rw_nbtok;
+                 default: ;
+               endcase
+            end
+
             // SDC CMD 7: LARGE FILE INSERTED, usually used for HDD images > 4GB
             if(command == 8'd7) begin
                // MCU reports that some large image has been inserted.
@@ -568,11 +592,55 @@ reg         dbg_pv;          // pending base/insert event
 reg  [1:0]  dbg_pt;
 reg  [2:0]  dbg_pd;
 reg  [31:0] dbg_pa, dbg_pb;
-wire        dbg_ew    = DEBUG_LOG && dbg_pv && !dbg_cw && !dbg_mw;
-wire        dbg_we    = dbg_cw || dbg_mw || dbg_ew;
+// sd_rw.v state ({ wfail, 3'b0, sdcmd_stat, sddat_stat, wack, wretry, sectoraddr })
+wire [55:0] rw_dbg;
+reg  [55:0] rw_prev;
+wire [3:0]  rw_cmd   = rw_dbg[51:48], rw_dat = rw_dbg[47:44], rw_pcmd = rw_prev[51:48], rw_pdat = rw_prev[47:44];
+// sd_rw events, type 1 with subtype in flags[5:3]: 1 WERR (no token / busy
+// timeout), 2 CMD24 given up (WRITE_FIX wfail), 3 read timeout, 4 data
+// response token not "accepted" (wack != 4'b1010).
+// image field = { sdcmd, sddat (before), wack, wretry, clocks in CMD24 [23:8] },
+// card field = sd_rw sectoraddr.
+wire        rw_werr  = DEBUG_LOG && rw_dat == 4'd11 && rw_pdat != 4'd11;
+wire        rw_wfail = DEBUG_LOG && rw_dbg[55] && !rw_prev[55];
+wire        rw_rto   = DEBUG_LOG && rw_dat == 4'd5 && rw_pdat != 4'd5;
+wire        rw_btok  = DEBUG_LOG && rw_pdat == 4'd9 && rw_dat == 4'd10 && rw_dbg[43:40] != 4'b1010;
+wire        rw_ev    = rw_werr || rw_wfail || rw_rto || rw_btok;
+wire [2:0]  rw_sub   = rw_werr ? 3'd1 : rw_wfail ? 3'd2 : rw_rto ? 3'd3 : 3'd4;
+reg  [31:0] rw_t13, rw_t13max;   // clocks in CMD24 (card state 13), current and max
+reg  [7:0]  rw_nwerr, rw_nwfail, rw_nrto, rw_nbtok;
+reg         rw_pv;               // pending sd_rw event
+reg  [2:0]  rw_psub;
+reg  [31:0] rw_pa, rw_pb;
+wire        dbg_rw    = DEBUG_LOG && rw_pv && !dbg_cw && !dbg_mw;
+wire        dbg_ew    = DEBUG_LOG && dbg_pv && !dbg_cw && !dbg_mw && !dbg_rw;
+wire        dbg_we    = dbg_cw || dbg_mw || dbg_rw || dbg_ew;
 wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 2'b00, direct_enable, 2'b00, drive, rsector, core_sector }
                       : dbg_mw ? { dbg_wcnt, 2'b01, 3'b000, 3'b000, 32'd0, mcu_sector }
+                      : dbg_rw ? { dbg_wcnt, 2'b01, rw_psub, 3'b000, rw_pa, rw_pb }
                       :          { dbg_wcnt, dbg_pt, 3'b000, dbg_pd, dbg_pa, dbg_pb };
+always @(posedge clk) begin
+   rw_prev <= rw_dbg;
+   if(!rstn) begin
+      rw_t13 <= 32'd0; rw_t13max <= 32'd0; rw_pv <= 1'b0;
+      rw_nwerr <= 8'd0; rw_nwfail <= 8'd0; rw_nrto <= 8'd0; rw_nbtok <= 8'd0;
+   end else if(DEBUG_LOG) begin
+      if(rw_cmd == 4'd13) begin
+         if(rw_t13 != 32'hffffffff) rw_t13 <= rw_t13 + 32'd1;
+         if(rw_t13 > rw_t13max) rw_t13max <= rw_t13;
+      end else rw_t13 <= 32'd0;
+      if(rw_werr)  rw_nwerr  <= rw_nwerr  + 8'd1;
+      if(rw_wfail) rw_nwfail <= rw_nwfail + 8'd1;
+      if(rw_rto)   rw_nrto   <= rw_nrto   + 8'd1;
+      if(rw_btok)  rw_nbtok  <= rw_nbtok  + 8'd1;
+      if(dbg_rw) rw_pv <= 1'b0;
+      if(rw_ev) begin
+         rw_pv <= 1'b1; rw_psub <= rw_sub;
+         rw_pa <= { rw_pcmd, rw_pdat, rw_dbg[43:36], rw_t13[23:8] };
+         rw_pb <= rw_dbg[31:0];
+      end
+   end
+end
 always @(posedge clk) begin
    if(dbg_we) dbg_ring[dbg_wp] <= dbg_wd;
    dbg_q <= dbg_ring[dbg_idx];
@@ -605,6 +673,7 @@ sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
 							       
    .card_stat(card_stat),
    .card_type(card_type),
+   .dbg_state(rw_dbg),
 
    // lsector is the translated rsector into the file on the FAT fs
    .rstart( rstart_int ), 

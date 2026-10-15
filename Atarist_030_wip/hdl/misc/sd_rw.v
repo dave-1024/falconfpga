@@ -35,6 +35,7 @@ module sd_rw # (
    
     // show card status
     output wire [ 3:0] card_stat, // show the sdcard initialize status
+    output wire [55:0] dbg_state, // FalconFPGA SD_WRITE_DEBUG: { wfail, 3'b0, sdcmd_stat, sddat_stat, wack, wretry, sectoraddr }
     output reg [ 1:0]  card_type, // 0=UNKNOWN    , 1=SDv1    , 2=SDv2  , 3=SDHCv2
     // user read sector command interface (sync with clk)
     input wire	       rstart, 
@@ -133,6 +134,7 @@ assign     rdone  = (((sdcmd_stat == READING) || (sdcmd_stat == WRITING)) && (sd
                     (WRITE_FIX && ((sdcmd_stat == WRITING) && (sddat_stat==WERR))) || wfail;
 
 assign card_stat = sdcmd_stat;
+assign dbg_state = { wfail, 3'b000, sdcmd_stat, sddat_stat, wack, wretry, sectoraddr };
 
 function  [15:0] CalcCrc16;
     input [15:0] crc;
