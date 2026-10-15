@@ -60,9 +60,10 @@ for ws in 0 1 3 7; do
   $G -r $O tb030 -gROMFILE=prog_berrwb.hex -gWS=$ws -gMAXCLK=20000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_berrwb.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_berrwb WS=$ws: $(bwres)"; fail=1; }
 done
-# F67: warm reset (RESET+HALT low 128 clocks, prog_wreset.s) after VBR/CACR/MSP/T1/M were set:
+# F67+F68: warm reset (RESET+HALT low 128 clocks, prog_wreset.s) after VBR/CACR/MSP/T1/M were set:
 # SSP/PC from $0/$4, SR $2704 (S, IPL7, T/M clear; Z from the boot check), VBR 0, CACR 0, SP $8000.
 # RSTI=1: the reset arrives while the RESET instruction drives RESET_OUT (EmuTOS start-up).
+# F68: when RSTI=1, RESET_OUT must drop during the hold (RESET_TIMER cleared by RESET_CPU).
 for r in 0 1; do
   m68k-linux-gnu-as -m68030 --register-prefix-optional --defsym RSTI=$r $H/prog_wreset.s -o p.o
   m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
@@ -72,6 +73,10 @@ for r in 0 1; do
     t=$([ $r = 0 ] && [ $dly = 300 ] && echo 0001 || echo 0000)
     w=$(grep -oE "WR   A=000050[0-9A-F]{2} FC=5 SIZ=0 W=[0-9A-F]+" r.log | awk -F'W=' '{print substr($2,1,8)}' | tr '\n' ' ')
     [ "$w" = "00002704 00000000 00000000 00008000 0000$t 00000002 " ] && grep -q DONE r.log || { echo "FAIL prog_wreset RSTI=$r DLY=$dly: $w"; fail=1; }
+    if [ $r = 1 ]; then
+      grep -q "WARM RESET asserted, RESET_OUT='1'" r.log || { echo "FAIL prog_wreset RSTI=1 DLY=$dly: RESET_OUT not high at assert"; fail=1; }
+      grep -q "saw_RESET_OUT_low=true" r.log || { echo "FAIL prog_wreset F68 RSTI=1 DLY=$dly: RESET_OUT did not drop during hold"; fail=1; }
+    fi
   done
 done
 # F62d: A7 written back by the previous instruction while JSR/BSR/PEA/-(SP) decrements it

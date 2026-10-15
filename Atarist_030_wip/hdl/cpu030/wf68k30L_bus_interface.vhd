@@ -73,6 +73,7 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-15 F67: external RESET+HALT is honoured while the RESET instruction drives RESET_OUT.
+--   2026-10-15 F68: RESET_TIMER aborts on RESET_CPU (MC68030: an external reset ends the RESET instruction).
 -- 
 
 library work;
@@ -1212,16 +1213,21 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         --
+        -- [F68] An external reset (RESET_CPU) ends the RESET instruction, as on the MC68030
+        -- (and on a real STE / TF534, where the CPU sits on the open-drain RESET line). Without
+        -- this, RESET_OUT kept running after F67 honoured a mid-RESET ST pulse (e.g. DR_GAP) and
+        -- held peripheral_reset into the next boot. See docs/RESET_PATHS.md.
+        if RESET_CPU_I = '1' then
+            TMP := "000000000";
+        elsif RESET_STRB = '1' then
+            TMP := "111111111"; -- 512 initial value.
+        elsif TMP > "000000000" then
+            TMP := TMP - '1';
+        end if;
         if RESET_STRB = '1' or TMP > "000000000" then
             RESET_OUT_I <= '1';
         else
             RESET_OUT_I <= '0';
-        end if;
-        --
-        if RESET_STRB = '1' then
-            TMP := "111111111"; -- 512 initial value.
-        elsif TMP > "000000000" then
-            TMP := TMP - '1';
         end if;
     end process RESET_TIMER;
 

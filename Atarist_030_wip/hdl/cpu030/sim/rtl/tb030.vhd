@@ -58,12 +58,22 @@ begin
   -- warm reset: RESET_INn and HALT_INn low together, as the ST bridge does (cpu_rst_n)
   wrst: process
     variable l : line;
+    variable saw_low : boolean;
+    variable first_out : std_logic;
   begin
     wait on wrst_trig;
     for k in 1 to WRST_DLY loop wait until rising_edge(clk); end loop;
     write(l, string'("WARM RESET asserted, RESET_OUT=")); write(l, std_logic'image(reso)); writeline(output, l);
     wrstn <= '0';
-    for k in 1 to WRST_LEN loop wait until rising_edge(clk); end loop;
+    saw_low := false; first_out := reso;
+    for k in 1 to WRST_LEN loop
+      wait until rising_edge(clk);
+      if reso = '0' then saw_low := true; end if;
+    end loop;
+    write(l, string'("WARM RESET mid: first_RESET_OUT=")); write(l, std_logic'image(first_out));
+    write(l, string'(" saw_RESET_OUT_low=")); write(l, boolean'image(saw_low));
+    write(l, string'(" last_RESET_OUT=")); write(l, std_logic'image(reso));
+    writeline(output, l);
     wrstn <= '1';
     write(l, string'("WARM RESET released")); writeline(output, l);
   end process;
