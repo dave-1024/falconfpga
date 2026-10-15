@@ -50,7 +50,8 @@ static void sdwlog(int n) {
     unsigned long img = ((unsigned long)b[7] << 24) | (b[8] << 16) | (b[9] << 8) | b[10];
     unsigned long crd = ((unsigned long)b[11] << 24) | (b[12] << 16) | (b[13] << 8) | b[14];
     unsigned seq = (b[4] << 8) | b[5], t = b[6] >> 6, d = b[6] & 7;
-    if(t == 0)      printf("#%u W core%s drv %u img %lu -> card %lu\r\n", seq, (b[6] & 0x20) ? " direct" : " mcu-map", d, img, crd);
+    if(t == 0)      printf("#%u W core%s drv %u img %lu -> card %lu%s\r\n", seq, (b[6] & 0x20) ? " direct" : " mcu-map", d, img, crd,
+                           (b[6] & 0x10) ? "  MOVED: image sector changed while the request waited" : "");
     else if(t == 1) {
       unsigned sub = (b[6] >> 3) & 7;
       static const char *sn[] = { "W MCU", "WERR (no token / busy timeout)", "CMD24 GIVE-UP", "READ TIMEOUT", "BAD DATA TOKEN", "?", "?", "?" };
