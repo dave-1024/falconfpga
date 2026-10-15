@@ -122,7 +122,7 @@ module atarist (
 	output wire        dbg_cpu_halted_n,  // CPU not halted (double bus fault)
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
-	output wire [23:0] dbg_vbase          // diag030w: {boot-path flags[7:0], last word read from cmdload $482}
+	output wire [55:0] dbg_vbase          // diag030w: {$420 word, $43A word, boot-path flags[7:0], last word read from cmdload $482}
 `ifdef ST_HELPER
 	,
 	// FalconFPGA ST_HELPER (build_st_helper.tcl only): one extra I/O device,
@@ -411,7 +411,18 @@ always @(posedge clk_32) begin
 		end
 	end
 end
-assign dbg_vbase = {dbg_bf, dbg_cmd};
+// diag030m (2026-10-15, RESET_PATHS.md): last words read at memvalid $420 (hi word, $7520 when
+// valid) and memval2 $43A (hi word, $2376), cleared by the ST reset like the flags above.
+reg [15:0] dbg_mv1 = 16'd0, dbg_mv2 = 16'd0;
+always @(posedge clk_32) begin
+	if (reset) begin
+		dbg_mv1 <= 16'd0; dbg_mv2 <= 16'd0;
+	end else if (!as_n && rw) begin
+		if (mbus_a == 23'h000210) dbg_mv1 <= cpu_din;   // $420
+		if (mbus_a == 23'h00021d) dbg_mv2 <= cpu_din;   // $43A
+	end
+end
+assign dbg_vbase = {dbg_mv1, dbg_mv2, dbg_bf, dbg_cmd};
 
 /* ------------------------------------------------------------------------------ */
 /* ------------------------------ GSTMCU + Shifter ------------------------------ */

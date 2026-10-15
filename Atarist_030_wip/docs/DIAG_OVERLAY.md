@@ -37,7 +37,7 @@ Each row: coloured label square (x 16-35), then up to 32 bars, 12 px wide, MSB l
 
 | row | label | bars y (640x480) | content |
 |---|---|---|---|
-| a | RED | 102-121 | first BERR address A31:0 (unchanged from diag030b) |
+| a | RED | 102-121 | first BERR address A31:0 (diag030b); in the diag030m build: bits 31-16 last word read at memvalid $420 ($7520 = valid), bits 15-0 last word read at memval2 $43A ($2376 = valid) |
 | b | MAGENTA | 134-153 | bits 31-24: got FC2 FC1 FC0, RW SIZ1 SIZ0 BAD; bits 23-8: last word read from cmdload $482; bits 7-0: EmuTOS boot-path flags (diag030w, see below) |
 | c | CYAN | 166-185 | A31:0 of the LAST bus cycle STARTED by the 030 (raw WF68K30L ADR_OUT on the clk_cpu edge where AS is first seen low) |
 | d | GREEN | 198-217 | see below |

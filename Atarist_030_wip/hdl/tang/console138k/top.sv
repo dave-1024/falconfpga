@@ -385,7 +385,7 @@ wire [16:0] diag_rom_idx;
 wire [15:0] diag_rom_data;
 wire [3:0]  diag_030;
 wire [167:0] diag_trace;
-wire [23:0] diag_vbase;
+wire [55:0] diag_vbase;
 
 // Helper bring-up. DDR3 trains, then the AE350 is released and owns MSPI
 // until it drives GPIO 0xA5, or 20 seconds pass. The ready bit is latched,
@@ -962,7 +962,8 @@ localparam DIAG_ST = `DIAG_FB_SELFTEST;
 //   d: last-start FC/RW/SIZE, in-progress/hung, termination, IACK, CPU pins
 //   e: bridge 68000-side state
 //   f: {bus cycles started mod 256, live last program fetch A23:0}
-assign diag_rows = { diag_trace[159:128],
+// row a: diag030m {$420 word, $43A word} instead of the first-BERR address (RESET_PATHS.md)
+assign diag_rows = { diag_vbase[55:24],
                      diag_trace[167:160], diag_vbase[15:0], diag_vbase[23:16],
                      diag_trace[127:0] };
 `else
