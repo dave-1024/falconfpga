@@ -5,7 +5,8 @@
 Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS.md) (SD hardening + FDC error status,
 FNOP probe, disk-change corruption, Float Math/gb403: all closed 15 Oct 2026).
 
-1. **$FFFF bus-error writeback bug** (BERR Dn writeback, see `docs/float_panic/FLOAT_PANIC.md`).
+1. **$FFFF bus-error writeback bug** (BERR Dn writeback, see `docs/float_panic/FLOAT_PANIC.md`). Fixed in sim as F66
+   (core fix, no switch; branch `berr-nowb`, RTL bench `prog_berrwb.s` PASS); board test pending, then merge and move to Bugs found.
 2. **Warm-reset halt** (`$482`): after `w` the 030 build stops at "System halted!"; `c` works.
 3. **EmuTOS blitter greyed out** (works under TOS 2.06; HDL path inspected and correct).
 4. **Helper port** (AE350 companion firmware port).
