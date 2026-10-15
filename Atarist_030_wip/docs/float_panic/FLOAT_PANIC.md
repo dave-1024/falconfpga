@@ -345,3 +345,33 @@ SR field = SR_CPY (the core's copy from the last exception), NOT the live SR - i
   or the floppy DMA load of AUTOFPU into $55Cxx not landing (DMA writes are invisible to the write watch, so the
   "VDI wrote there" data may be the OLD bitmap that the load failed to overwrite). Next: watch DMA writes into $55C96-$55D20.
 - Same Hatari run with the ST_HELPER cartridge (MBXCART.BIN, --cartridge): passes too. Mouse moved during the test: passes.
+
+## 14 Oct 18:09 (proactive): DMAWATCH ready, flash blocked
+- Bitstream ready: `~/fpga_bitstreams/st_helper_dmaw_1e5c473.fs` (DIAG_DMAWATCH, last 16 RAM writes any master into $55C96-$55D21; decoder `pages_dma.py`). Nocart sibling also built.
+- Board left earlier on `st_helper_sdw_p3.fs`. Next probe (DMA vs leftover bitmap) not run.
+- Blocker: Gowin FT2232 not on linserver (lsusb shows only Hagibis capture `345f:2130`; no `/dev/ttyUSB*`; programmer_cli: no JTAG target). Last FTDI in syslog was 13 Oct evening; afternoon flashes today used loc 4225, so cable was removed after that session.
+- Also built later: `st_68000_nobridge_nocart_5985aeb.fs` (ST_CPU_68000 switch). Not flashed.
+- When FTDI is back: flash dmaw, run_fm.sh, decode overlay with pages_dma.py, restore sdw_p3.
+
+## 15 Oct 03:0x-03:5x MEMSNAP/MEMSAVE (floppy-only RAM snapshot) - KEY RESULT
+Tools: docs/float_panic/memsnap/ (memsnap.s AUTO hook, memsave.s writer+compare, testcr.s, cmpf.s, mk.sh, hrun*.sh).
+- MEMSNAP: lowers phystop to $3E0000 (one software warm reset, kept by EmuTOS), hook code at $3E0400, header $3E0000.
+  LD snapshot $55600+$5000 -> $3E1000 at the child's first trap after Pexec(0,"..AUTOFPU.."); CR snapshot -> $3E6000
+  at the first vec 2/3/4/6 after LD. MEMSAVE writes A:\SNAP_HD/LD/CR.BIN and compares text+data with
+  A:\BIN\AUTOFPU.BIN relocated to LD a2+$100. Hatari STE 030: LD trap 14, basepage $5571A (same as board),
+  LD vs file 0 diffs; CR path (vec 4 test), warm reset keeps the buffers, files written OK.
+- Board (68000 plain-ST build st_68000_plainst_18a64fb.fs), image gbsnap.st (= CLEAN gb403.st from the box,
+  crc 791ee820, + AUTO\MEMSNAP + MEMSAVE): Float Math PASSES twice (13.325 s / 13.330 s, 100% of ST).
+- Board, gbref.st = clean gb403.st unchanged (no AUTO, uploaded 03:3x): Float Math PASSES (13.325 s), Integer 17.910 s.
+- The failing runs all used the SD card's /sd/gb403.st, which is NOT the clean image: crc32 2a92e120 vs 791ee820,
+  and it has an extra FNOP3.PRG. => the failure follows the floppy image, not the core/CPU/chipset.
+- Next: CMPF.PRG on tools.st (A: = clean copies in \REF, B: = /sd/gb403.st) to find which file differs.
+- 15 Oct 04:1x CMPF on the board (A: tools2.st with clean copies, B: /sd/gb403.st): GEMBENCH.PRG, GEMBENCH.RSC,
+  IEEE.BIN identical; **B:\BIN\AUTOFPU.BIN differs in $314 bytes starting at file offset $400** (first bytes
+  clean FF DC 24 3C 3F A9 99 99 26 3C 99 99 vs card 23 61 30 30 30 30 30 30 0D 0A 23 62 = ASCII "#a000000\r\n#b").
+  File offset $400 = text+$3E4 = $55BFE when loaded at $5581A, so $55BFE..$55F11 is garbage on load; both crash PCs
+  ($55CD4 = text+$4BA on the 68000, and the earlier $4320/CHK path on the 030) lie in or run through that block.
+  => ROOT CAUSE of the Float Math panic on the board: corrupted AUTOFPU.BIN inside the SD card's gb403.st
+  (a misdirected sector write, text-like data, sector-aligned), not a core bug. With a clean image the board passes.
+  The SD write path (sd_rw/sd_card write, helper uploads, floppy writes) is the suspect for how the sector got there.
+  Board left on st_68000_plainst_18a64fb.fs with A: = gbref.st (clean). MEMSNAP RAM diff not needed for the verdict.
