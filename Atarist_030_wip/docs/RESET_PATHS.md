@@ -130,3 +130,24 @@ booting under a freshly reset chipset (the MMU/memconf, MFP and so on reset mid-
   - Build with DIAG_OVERLAY to read the diag030w flags and the cmdload word on a halt.
   - Check the DR_GAP pulse itself: with F67 the CPU now really reboots 48 us into EmuTOS, so DR_GAP may no longer be wanted, or it should be applied before the CPU is released.
 - **Frame classifier:** correlation of a blurred, normalised frame with a reference desktop (> 0.6 = desktop, > 85 % white = halt screen). It copes with capture noise. In the F67 run, r1/r7/r9 were noisy halt screens, not desktops.
+
+## 8. ST_DR_PRECPU test (15 Oct 2026, d063810, st_helper_hdn_wrst_d063810_p3, F66+F67+F68+ST_DR_PRECPU)
+
+- **Rework:** the DR_GAP second pulse comes 64 clk_32 after the first release, inside the bridge's 030 hold (~260 clk_32). The chipset gets two resets; the CPU is released once.
+- **Sim:** `hdl/atarist/sim/run_dr_gap.sh` (iverilog, the atarist.v reset block + bridge hold): rigsdram timing = 2 CPU releases (it runs 40 us, then is reset again); PRECPU = 1. PASS.
+- **Build:** p3, timing clean (all TNS 0; clk32_core 32.04 MHz, clk_cpu030 16.31 MHz).
+- Flash op 53 rc 0; stress with the reference-frame check, every helper reply checked.
+
+| Build | c (first) | Reloads (op 1) | w | c |
+|---|---|---|---|---|
+| F67 (39a1868), old check, unreliable | - | r1, r7, r9 noisy halts; the rest halted | 10/10 halted (helper replies not checked) | 2/2 halted |
+| F67+F68 (ec5503a) | desktop | r1-r7 desktop, **r8 r9 r10 halted** | 3/3 halted (sticky) | not run |
+| F67+F68+DR_PRECPU (d063810) | desktop | r1-r9 desktop, **r10 halted** | w1 halted (sticky), stopped | not run |
+| **F66 baseline (7e3660e)**, same check | desktop | **10/10 desktop** | (earlier: w desktop) | c9 desktop |
+
+- **Frames:** `/workspace/gb/{f68,drp,f66base}/` on the box (`*_prev.png`; `drp/m.png` = c0, r9, r10b, w1b).
+- **Desktop differs:** the F67-family desktops also score corr 0.98 with 25.8 % white pixels against F66's 1.0 / 32.3 %, so the desktop picture itself differs slightly (to compare).
+- **Conclusion:** moving DR_GAP before the CPU release lowers the rate (1/10 instead of 3/10), but F67 still causes intermittent reload halts that F66 does not have. So the halt is not only the mid-EmuTOS second reset.
+  - With F67, an ST reset with HALT now always resets the 030. The remaining suspects are the first power-up reset sequence itself (por/pwrUp vs `reset`), and the F67 filter seeing a short RESET+HALT that the old gate masked.
+  - Next step: a DIAG_OVERLAY build of F67+F68 to read the diag030w flags and the cmdload word on a halt.
+- Board left on F66 at the desktop.
