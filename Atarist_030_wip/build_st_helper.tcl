@@ -42,6 +42,10 @@ puts $fh "`define WF030_FAST_HANDOFF"
 # CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.
 puts $fh "`define ST_SD_WRITE_FIX"
+# Floppy media change (hdl/misterynano.sv ST_FLOPPY_MEDIACH): hold WP ~0.75 s after each
+# image insert so TOS notices a runtime swap. Without it TOS writes the previous disk's
+# FAT/directory into the new image (docs/SD_WRITE_DEBUG.md). Delete for upstream behaviour.
+puts $fh "`define ST_FLOPPY_MEDIACH"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

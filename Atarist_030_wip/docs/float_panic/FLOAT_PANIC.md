@@ -1,0 +1,433 @@
+# FLOAT_PANIC (GEMBENCH Float Math, EmuTOS 192, F65 + early AS) - 12 Oct 2026, read-only analysis
+
+Source: Hatari .sav (uncompressed RAM image). The program header `601a`, tlen $355C, dlen $178, blen $110 sits at
+snapshot offset $6237E0, apparently a file buffer copy. Its TEXT, disassembled at the board base $5581A
+(objdump m68k:68030; relocation table not in the buffer, so absolute refs are unrelocated), matches the panic:
+data $58D76 = A4, bss $58EEE. This is the Float Math binary (Lattice C, the AUTOFPU code).
+
+## The bad addresses are real code addresses with the upper word corrupted
+- panic pc $00416528 = $00056528 XOR $00440000. $56528 is `subi.l #1022,d2` INSIDE `frexp()` (entry $564F8,
+  exponent extraction; D2 = $3FF00000 = 1.0 high word fits). It is not a call target, so this is no bad jump table or
+  function pointer: the PC itself came back with a bad upper word.
+- fault addr $00416722 = $00056722 XOR $00440000. $56722 is the return address after `bsr $56DF4` at $5671E
+  (a float routine that saves d2-d7/a1 with MOVEM). It is a value that lives on the (user) stack.
+- Same mask on both: high word $0005 read back as $0041 (data bits 2 and 6 of the high word). Two different
+  stack-borne PCs (a return address, and very likely the PC restored by an RTE after an interrupt/exception taken
+  in frexp) carry the same corruption.
+- D0 = A0 = pc is probably the panic handler's own use of D0/A0, not a program `jmp (a0)`. The only indirect call
+  in the binary is the atexit loop at $58088 (`movea.l 4(a3),a0; jsr (a0)`), which is not involved.
+
+## The FPU probe itself is correct for a real 68030
+$579A0-$57A56: Setexc(11) -> FNOP; Line-F handler at $57A64 (`moveq #-1,d3; move.l a2,2(sp); rte`) on a
+format 0 frame. Then Setexc(2) and an SFP004 probe at $FFFA40. The BERR handler at $57A6C checks `_longframe`
+($59E) and converts a format A frame (lea 24) or anything else as B (lea 84) to a format 0 frame with PC = A2.
+So the program handles A and B frames correctly. A non-A/B format from the core would make it lea 84 the wrong
+size: that matches the earlier "two bombs" on TOS 2.06, but this panic is later (in the float math itself, D3=0 =
+software path chosen).
+
+## Suspects (ranked)
+1. **Bus data corruption of the first (high) word of a long on the ST bus**: a write of a long return address /
+   exception frame word, or the read back by RTS/RTE/MOVEM. Board-only, so the new timing is the likely cause:
+   BRIDGE_EARLY_AS (write DS at S2 en2, read DS at S0 en2) or F65 (chained prefetch next to an operand cycle). The
+   pattern (fixed bits, high word only, stack values) fits sampling the wrong data or stale data, not ISA logic.
+2. Exception stacking/RTE of the PC high word (`DATA_EXH` STACK_POS=2: `SR_CPY & PC(31:16)`) if an interrupt is
+   taken inside frexp. Less likely: the same mask also hits a plain BSR return address.
+3. ISA paths (bitfield, PC-relative indexed, 030 modes): none are used in this code path. frexp and its callers use
+   plain MOVEM, LINK/UNLK, BSR/RTS and ASR/AND/SUBI.
+
+## Cheapest confirmation (no build)
+1. Flash the existing images and run Float Math on EmuTOS 192 (atarist.ini mount, power cycle):
+   `st_helper_eas_d43f5fd_p3.fs` (early AS only) and `st_helper_f62d_rb_75bfc8c_p3.fs` (neither switch).
+   Panic only with F65 -> F65; also with EAS-only -> early AS; neither -> core.
+2. On TOS 2.06, note the bomb PC/address: the same XOR $440000 signature points at the same fault.
+3. A tiny stack-stress PRG (deep BSR/RTS + MOVEM + RTE under timer/VBL interrupts, checking every popped long)
+   would reproduce the fault outside GEMBENCH.
+
+## Board A/B, 12 Oct 2026 (EmuTOS 192, GEMBENCH 4.03 Test > CPU, ST Medium)
+| Image | Switches | Result |
+|---|---|---|
+| st_helper_f65_5394948_p3.fs (David's run) | F65 + early AS | Panic: Bus Error fw=a008 ssr=2005 addr=00416722 pc=00416528, D7=2 |
+| st_helper_eas_d43f5fd_p3.fs | early AS only | identical panic (same pc/addr/fw/ssr/regs, only D7=3) - ui/fp_eas_panic.png |
+| st_helper_f62d_rb_75bfc8c_p3.fs | neither | identical panic, D7=2 - ui/fp_f62d_panic.png |
+
+XOR $440000 holds on all three. **Neither F65 nor BRIDGE_EARLY_AS is the cause**: the fault predates both
+(F62d core/bridge or older). Deterministic (same addresses every run), so a data/timing race is less likely than a
+logic fault on a specific path. Re-rank: suspect 2 (exception frame / RTE PC high word, or an interrupt taken in
+frexp) and pre-F64 bus/bridge paths move up; a stack-stress PRG and sim of the frexp sequence with interrupts are next.
+
+## 12 Oct 20:10: STKTEST and notes
+- STKTEST.PRG (Atarist_030_wip/hdl/cpu030/tests/stktest/, branch fix-hiword): recursion with $0005xxxx patterns and
+  return-address checks, MOVEM all regs, LINK/UNLK, TRAP #3/RTE, frexp mirror. Hatari STE/68030/EmuTOS 256: >1,050,000
+  passes, no fail. Floppy /workspace/gb/gb_stk.st (gb403.st + STKTEST.PRG, 737280 bytes). Upload path exists:
+  helper_fw/tools/sd_upload.ps1 (put/h/pend over COM4). Not run: laptop offline since ~20:04.
+- Re-read of the panic: ssr=$2005 has RC=1, DF=0 = an instruction-stream (stage C) fault, not a data fault. So the CPU
+  really fetched near $416722 and the stacked PC $416528 means it had been EXECUTING at $4165xx, i.e. reads above 4 MB
+  did not bus-error at first (check the gstmcu/bridge decode of $400000-$DFFFFF with 4 MB: real ST GLUE gives BERR).
+- The offset is also exactly additive: +$3C0000 to two genuine code addresses. Candidates: a PC-relative / displacement
+  calculation (PC_I + DISPLACEMENT, address_registers.vhd:553) or a return address altered on the stack. Not found yet;
+  no fix made (no evidence for one).
+
+## 12 Oct 20:25: whole-ST bench, board config (netlist FAST_HANDOFF=1, -DBRIDGE_EARLY_AS)
+Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases (15625/46875 ps), ~12 ms ST time:
+- >4 MB decode is right (enable_extra_ram=0): `tst.w $416528` -> BERR format B (vector 8); `jmp $416528` -> BERR
+  format A, PC $416528, fault addr $416536. Reads of $4165xx go to the ST bus and time out like a real 4 MB ST.
+  (Board: check atarist.ini/companion "M" = 4 MB; with extra RAM on, $400000+ is RAM and would not fault.)
+- 30 loops of recursion/MOVEM/LINK/TRAP-RTE/frexp mirror with HBL (level 2, ~190 interrupts) and VBL enabled: PASS,
+  no stack long corrupted, no $0041 high word anywhere.
+- So the +$3C0000 shift does not reproduce from the instruction mix plus interrupts in sim. Remaining: the real
+  GEMBENCH code path (the value is computed, A0 = D0 = target: look for the Lattice FP library code that builds an
+  address from data, e.g. a table index with a stale upper word), or a board-only effect not in the bench (SDRAM
+  timing, DMA/blitter, helper). No fix proposed (no sim evidence).
+
+## 13 Oct 07:15: board STKTEST attempt - BLOCKED by the SD write fault
+- Helper memory option: XML default "M"=0 (4MB); the current atarist.ini value cannot be read over COM4 (no cat).
+- sd_upload.ps1 gb_stk.st: `put` ok, first `h` block -> "e write" x5, then "SDC: write timeout on sector 39744";
+  `pend` closed the file with 512 bytes. After that `ls` shows "0 entries" and "write timeout on sector 4738":
+  the known sd_card.v state-13 jam (TODO item 6). Only a core reload clears it (power cycle). A 512-byte gb_stk.st
+  stub may now exist on the SD; check FAT on a PC. STKTEST not run on the board.
+
+## 13 Oct 08:2x-08:45 STKTEST attempt (build st_helper_sdw_p3.fs)
+- gbstk2.st (= /workspace/gb/gb_stk.st, 737280 B) uploaded as NEW file in 222 s with no SD error (old core jammed on uploads); crc e0b550d9 read back. gb_stk.st 0-byte stub left in place.
+- Mounted on A (session only, no save), then a cold boot. All grabs after that were pure black (8695 B): stk_g1..g6, including after remounting gb403 and running c/w. Helper link OK, ST sends hello. An earlier sdw_desk3.png (08:1x, gb403, after c) showed the desktop, so video/capture is intermittent and not disk-related.
+- STKTEST and GEMBENCH Float NOT run (can't drive the GUI without frames). No mismatch values.
+
+## 13 Oct ~20:15 STKTEST on board (st_helper_sdw_p3.fs, cables now at 417/418)
+- gbstk2.st on A (session only). STKTEST "stack long check" ran ~2.5 min: passes 2710..13880 hex (80000), NO mismatch lines (grabs sdwrite/stk_b6..b8.png).
+- GEMBENCH.PRG from the same disk: "does not run in this resolution, needs 640x200" (gb_f8.png), so Float Math was not run (machine boots in ST low). Quit; gb403 remounted.
+
+## 14 Oct 01:5x: memory setting checked on the board (linserver, helper UART /dev/ttyUSB1)
+- Helper boot log: atarist.ini `M = 0` (4 MB), so enable_extra_ram=0 and $400000+ must BERR (matches sim). The
+  "program loaded into alt/extra RAM at $41xxxx" theory is ruled out by config. Opening the port reset the helper
+  (boot log replayed); link OK afterwards (`s` -> 5C 42 link OK).
+- Open puzzle: ssr RC=1 fault at $416722 with stacked PC $416528 implies the CPU fetched ~$1FA bytes beyond the
+  bad PC, i.e. it ran code at $4165xx. With 4 MB that needs a mirror or a wrong PC formed late (e.g. by RTS/RTE).
+  Next: run Float Math in medium res on the board with a bus-trace (SignalTap/GAO on A[23:16] != 0 trigger).
+
+## 14 Oct 02:3x: overnight run (linserver)
+- Licence: gw_sh builds on linserver (QT_QPA_PLATFORM=offscreen), "license expires in 10 days".
+- GAO not needed: DIAG_HIWATCH (branch fix-float-hiword, 7de1ce6) reuses the DIAG_OVERLAY bit rows.
+  Rows c..f = {frz, why(1=addr,0=BERR), 00, trig{FC,RW,A23:0}, h0{FC,RW,A,D16}, h1, 00}; armed after first user cycle.
+  Decoder: st_helper_out/fpdbg/dec.py (ref frame h1.png). First version (no arming) froze at boot on BERR $FF8C80 (TOS probe).
+- Panic reproduced on st_helper_sdw_p3 driving via helper link (fpdbg/m16.png): same pc/addr, sr=0310, D0=A0=$416528.
+- Driving recipe: mouse to corner, Options ^R -> Yes (medium), alt+a, fuller, double-click GEMBENCH.PRG, Test>CPU.
+- Board now: st_helper_hiwatch_7de1ce6.fs (debug).
+- 02:5x run on 7de1ce6: froze on the BERR at $FFFA40 FC5 read (GEMBENCH SFP004 probe, expected). Panic still
+  followed. h0 = $FFFA40-area. Rebuilding with address trigger only (commit after 7de1ce6). Cold boot ("c") needed
+  after flash: the first boot sat on the cartridge self-test screen.
+- 03:4x run on c39328c (fpdbg/k3.png): FROZE on the address trigger: user program fetch (FC2) at $416528.
+  The 2 cycles before it: h1 = user data WRITE $0003 @ $05A208 (USP area), h0 = user data WRITE $31C2 @ $04A20A
+  ($05A20A with bit 16 wrong), then the fetch @ $416528 ($056528 with bits 22,18 wrong).
+  => the 030 drives wrong A23:16 on consecutive cycles (address output, not stack data). Upper bits only = long
+  carry/mux path -> suspect a timing (setup) failure in the WF68K30L address path, or a wrong ADR source select.
+- Analysis of k3: the core's own FAULT_ADR/PC also hold $4165xx (EmuTOS frame), so the wrong address is inside
+  the WF68K30L (PC_L / ADR_LATCH), not a bridge sampling artefact. ADR_OFFSET is 6 bits, so the +$3C0000 is
+  not an offset. Write 2nd half $04A20A = ADR_LATCH+2 with ADR_LATCH != the live address of the 1st half.
+  Timing: clk32_core Fmax 32.03 MHz (31.25 ns needed), clk_cpu030 17.2 MHz: met but ~0.03 ns margin on clk32.
+  Hatari: 57290 (`move.l d0,-(sp); or.l d1,(sp)+`) is an RMW-postinc candidate; 566a4 dispatch (tst.l 476(a4)):
+  0 -> software 5671a (movem/bsr 56df4).
+- fd98991: 16-entry history, paged (2 per page, ~0.13 s), write data at DS. Building.
+- 03:23: fd98991 build still running on linserver (synth tech-mapping, ~50 min in). Board = st_helper_hiwatch_c39328c.fs (debug).
+- 04:2x fd98991 run: 16-entry history decoded (fpdbg/pg*.png, pages.py). Sequence before the trigger: data reads $55910 (41FA) / $?5912 (0041), code $..31BE-31C6 = jsr (a0) dispatcher, push of return addr (2nd half again with wrong A23:16: $01A20A), then fetch $416528 => A0 came out as $416528.
+- Hatari text: $55910 = `0C00 0041 6528` (cmpi.b #'A',d0; bcs). So the bad A0 long $00416528 is the BYTES at
+  $55912 of GEMBENCH's own code: the pointer was read from the wrong address (A23:16 wrong again), then jsr (a0).
+  Every bad cycle seen: A15:0 correct, A23:16 wrong ($05->$01/$04/$41), mostly on the 2nd word of a split long
+  (ADR_LATCH + ADR_OFFSET path, wf68k30L_top.vhd ADR_P/ADR_LATCH, bus_interface ADR_OUT_I). Root cause line NOT
+  identified yet. Next: probe ADR_LATCH vs live ADR_P vs ADR_L upper byte at BUS_BSY rise (needs core ports),
+  and check the clk_cpu030_n -> clk_cpu030 half-cycle paths into ADR_L/ADR_LATCH in the timing report.
+- 04:3x: reflashing st_helper_sdw_p3.fs (fallback, no verified fix).
+- 04:1x timing check: setup slack on the 030 paths ~25 ns (st_helper.timing_paths), not a timing failure -> logic. Probe build (DBG_ADR: ADR_LATCH/ADR_P/PC_L/ADR_L 23:16 per cycle) started.
+- 05:0x probe build c195f92 done, flashing + run_fm.sh
+- 05:1x c195f92 flashed, run done, panic frozen (q0.png). Collecting pages q*.png (pages2.py).
+- 05:2x c195f92 pages (pages2.py): core-internal ADR_LATCH/ADR_P = $05 on the stack writes while the overlay
+  bus field read $01 -> the A23:16 "corruption" in bus rows was a DECODER bar misread (bit 18), not real. The push
+  of the return address $000331C4 to $5A208 is correct. Real chain: code at $0331B6-$0331C6 (RAM, not GEMBENCH
+  text) reads a long from $055912 (ADR_L = $05, core-computed EA) = GEMBENCH code bytes $0041 6528, then
+  jsr (a0) at $331C2 -> PC_L = $41 -> $416528. So the bad thing is the EA/pointer used at $331Bx.
+- 05:40 Hatari RAM image (.sav, base 0x19eb) has the same RAM code at $30000-$33400: a resident module with
+  exception stubs (`bsr 30512; dc.b vec` for vectors $51,$0B (Line-F),$06,$09) and a string printer at $331B0
+  that calls a hook at 504(a5) (default if 0). It uses A5 as its globals base WITHOUT loading it. On the board A5 =
+  GEMBENCH's $5571A, so 504(a5) = $55912 -> code bytes $00416528 -> jsr -> BERR -> EmuTOS panic.
+  => The panic is SECONDARY. The primary event is an exception taken during Float Math that Hatari does not take
+  (likely Line-F / coprocessor, or BERR from the SFP004 path at $FFFA40). Next probe: record the last
+  exception vector fetched before the trigger.
+- 06:1x 0412dd7 (last-vector probe) built; flashing + run_fm.sh in background on linserver.
+- 06:3x 0412dd7 run (fpdbg/v*.png): last exception vector before the trigger = 6 (CHK/CHK2/TRAPcc... vector $018), >=15 cycles before. The resident module's vector-6 stub then crashes (A5). PRIMARY = an unexpected CHK exception.
+- 06:4x HiSoft runtime (resident at $30000) bounds-checks with CHK.W (a1)+,Dn; vector 6 = 'subscript out of range' handler, which then crashes. CHK itself was fixed in F60. Hypothesis: a wrong integer/float-emulation result upstream gives an out-of-range index (CHK trap is then correct). Next: check ADDX/SUBX/NEGX Z-flag, ROXL/ROXR, ASL V-flag etc. in wf68k30L_alu.vhd.
+- ALU check (wf68k30L_alu.vhd): ADDX/SUBX/NEGX Z sticky handling and CHK compare look correct by inspection.
+  Root instruction not found tonight. Plan: differential test - run GEMBENCH's HiSoft float routines (from the
+  Hatari RAM image, $30000-$34000 runtime + Float Math code) in the GHDL RTL bench and in a reference 68k emulator
+  (Musashi), compare register state per instruction; first divergence = the core bug.
+- 06:5x reflashing st_helper_sdw_p3.fs (no verified fix).
+- 07:0x board on st_helper_sdw_p3.fs, desktop OK (fpdbg/final2.png).
+- 06:2x Disk: GEMBENCH (HiSoft BASIC, runtime at $30000) Pexecs BIN/AUTOFPU.BIN (Lattice, the $5581A program) for Float Math. Panic A5 = $55718 ~ child basepage: hypothesis = parent's A5 not restored after the child (Pexec/Pterm path, exception frame/MOVEM), parent then runs with a bad globals pointer -> CHK trap -> handler crash.
+- 06:3x sim: prog_fpuprobe.s (AUTOFPU probe replica, SSP before/after) for tb030.
+- 06:4x sim prog_fpuprobe.s: probe OK on the core (BERR frame format B $B008, handler converts, D3=0, SSP unchanged). Not the probe. New hypothesis: vector 6 is global, so the CHILD (AUTOFPU, A5=$55718) raising vector 6 runs the parent's HiSoft handler with the child's A5 -> exactly the crash. Find what in the child the core treats as CHK/CHK2.
+- 06:5x Prior F62c bug (RESULT_OVERNIGHT): lost A7 predecrement when an AR writeback and AR_DEC hit the same clock (JSR fix F62d). Same hazard class likely here: a lost/raced An update -> stray RTS/jump -> executing data words like $41xx = CHK.L -> vector 6. Checking which ops in control.vhd START_OP do not wait for AR_IN_USE.
+- 07:3x LINK/UNLK-after-An-writeback RTL test (sim/rtl/prog_link.s, 10 cases x4, WS 0/1/3/7): PASS. Not LINK.
+- 07:4x Differential bench /tmp/dt: AUTOFPU.BIN relocated at $5581C (basepage $5571C, A4=$58D78), FPU probe
+  patched to software float (clr.l 476(a4)), GEMDOS/BIOS/XBIOS traps -> moveq #0,d0;rte, other vectors -> $BAD0vvvv
+  at $3300. Musashi (machine68k 0.4.1, 68030) vs tb030 ST=1 (3M clocks, WS=1, no IRQ): 74736 bytes of writes
+  (outside the SSP area, normalised per long) IDENTICAL, no exception. Clean core runs the float code correctly.
+  Now: same with periodic level 4/6 IRQs + random wait states (gh_a/b/c).
+- 08:0x Differential runs, all 3M clocks, all IDENTICAL to Musashi, no exception vector taken:
+  a WS=1 IRQ4/997; b WSRND=3 IRQ4/613+IRQ6/1543; c WS=3 IRQ4/211; d CACR=$3111 (I+D cache, WA) no IRQ;
+  e cache+WSRND=3+IRQ4/613; f cache+WS=1+IRQ4/997. (61176/39232/5940/74736/47656/61168 bytes compared.)
+  => The core executes AUTOFPU's software-float path correctly in the RTL bench, also with IRQs/caches/wait states.
+  No diverging instruction found. Remaining differences vs the board: real EmuTOS GEMDOS/BIOS + IRQ handlers
+  (MFP timer C 200 Hz, VBL, IKBD ACIA), Pexec/Pterm return into the HiSoft parent (A5 hypothesis), ST bus bridge,
+  real FPU probe (BERR at $FFFA40). Harness: docs/float_panic/diff/{mk,mu,cmp}.py.
+- 07:0x Pexec/Pterm A5 test (docs/float_panic/pexec/t.s): parent sets D3-D7/A3-A6 to magic, Pexec(5)+Pexec(4) a child
+  that trashes them (A5=$55718, A4=$58D78) and Pterm()s. Hatari (STE, 68030 16 MHz, 4 MB, EmuTOS 256 1.4 - Hatari
+  forces EmuTOS 192 to 68000): $600DC0DE. RTL core in tb030 from the Hatari RAM snapshot (EmuTOS 256 ROM, caches on,
+  trap #1 vector restored from Hatari's cartridge hook to $E12D1C): $600DC0DE; variant t2 (child does Super(0)/Super(old)
+  like AUTOFPU) also $600DC0DE. => The parent's A5 survives the child exit on the core. A5 hypothesis NOT confirmed
+  (no IRQs: tb030 IRQ runs hang in EmuTOS's VBL path at E03C2x without a real MFP/video, so inconclusive with IRQs).
+- 07:1x David's Hatari .sav (Hatari 2.2.0, gzip, EmuTOS 256uk): RAM base in the file is $19ED (memvalid $420 at $1E0D),
+  not $19EB. AUTOFPU's relocated code is NOT in RAM (only the unrelocated file buffer copies at file $6237FE/$627272, outside
+  RAM), so the $5581A board base was an inference. HiSoft runtime is at $30000 in RAM. CPU register block of the 2.2 format
+  not located reliably by pattern search (needs Hatari 2.2 to load it, or the 2.2 module sizes); not used.
+- 07:1x Hatari .sav process list (EmuTOS p_run $649C): act_pd $132F0 = GEMBENCH itself (tbase $133F0, tlen $256F2,
+  bbase $38AE2, blen 0); no child. Float Math runs INSIDE GEMBENCH (HiSoft BASIC float), not AUTOFPU. GEMBENCH start:
+  A3=$35F68 (runtime base), A5 = bbase+blen = $38AE2 (globals). Board panic A5=$55718 is in the heap (Hatari: $5555 fill),
+  so A5 was a temporary: HiSoft runtime routine $2F34C-$2F3F0 (heap sort/GC) saves A5 and uses it as a heap pointer.
+  New hypothesis: an INTERRUPT arriving in that window is dispatched to vector 6 instead of its own (e.g. MFP ACIA $46 with
+  data bit 6 lost on IACK -> $06; matches the bit-6 signature), so HiSoft's CHK handler runs with the heap A5 -> panic.
+  The V6 probe history will show whether an IACK cycle precedes the $18 fetch.
+- 07:0x V6 build started on linserver (build_st_helper_hiv6.tcl, DIAG_HIWATCH_V6 + overlay row-d mask fix, 86882a8).
+- 07:3x IEEE.BIN (PFX 1.13P lz5 self-extractor) differential, docs/float_panic/diff/mk2.py: relocated at $5581C,
+  caches on (CACR $3111). The stub copies itself to hitpa-1024, depacks (MOVEP, MOVEM -(An) BSS clear), patches
+  its own `jmp $DEADFACE` operand and jumps into the unpacked code. Musashi vs tb030 (4M clocks, WS=1 / WSRND=3 /
+  WS=0): 113910 / 106358 / 131830 bytes of writes IDENTICAL, all runs reach the unpacked IEEE code ($56xxx), no
+  exception. Depacker self-modifying code + prefetch/cache path is correct on the core (no IRQs).
+  Note: mk.py had a 2-byte image shift above $2206 (both sims used the same image, so the AUTOFPU result stands).
+- 07:3x First V6 build attempt failed (gw_sh not in PATH under nohup; the copied .fs was the OLD build - deleted).
+  Restarted with /opt/gowin/IDE/bin/gw_sh.
+- 07:5x V6 build (TNS 0 all clocks) flashed op 53 loc 4225, run_fm.sh: panic again (w0.png). Frozen history (w*.png):
+  trigger = FC5 read of $000018 inside EmuTOS 1.4 ROM $E00EDC = Setexc() (`move.w 8(sp),a0; add a0,a0 x2;
+  move.l (a0),d0`), args from the stack: vector 6, new address $000307F0 = GEMBENCH installing its CHK handler.
+  => The FC5 $018 read is NOT an exception. The earlier "last vector = 6" probe (0412dd7) could not tell Setexc
+  data reads from exception vector fetches either, so the "unexpected CHK exception" conclusion is UNPROVEN.
+  Board EmuTOS = 256k 1.4 (ROM words at $E00EDE match etos256uk.img), same as Hatari.
+  Decoder note: the read data in the history entries look one cycle late in places (to check).
+  Next: V6b trigger on the stacked format/vector word $2018 (real CHK frame), 8 cycles post-trigger.
+- 07:5x Board on st_helper_sdw_p3.fs (flashed after the V6 run). V6b build running (routing).
+- 08:2x V6b run: FALSE trigger - EmuTOS 200 Hz timer write $00002018 to _hz_200 ($4BA) matched the $2018 data compare. Needs an SSP-relative/frame-sequence qualifier; parked per David (68000-core comparison first).
+- 08:3x Board back on st_helper_sdw_p3.fs. 68000 comparison build (fx68k, CPU_030 commented, place 3, same helper config) running in ~/bld68k.
+- 09:3x 68000 comparison build st_helper_68000_cmp.fs (~/bld68k = current tree, `define CPU_030 commented in
+  hdl/atarist/atarist.v, build_st_helper.tcl, place 3, TNS 0) flashed op 53/4225, run_fm.sh: does NOT boot -
+  EmuTOS 1.4 panic "Exception number 33" (TRAP #1) sr=2300 pc=$E0A8B8, SSP $2326, USP 0 (m68a.png), twice. This is
+  an early-boot failure of the fx68k path in this tree (helper/cart glue built for the 030), not Float Math:
+  no comparison possible with this build. A clean MiSTeryNano 68000 + AE350 helper build is needed.
+- 09:4x Board back on st_helper_sdw_p3.fs: first cold boot showed "System halted!" after the mailbox test,
+  second cold boot -> desktop OK (p3back2.png).
+- 09:3x DIAG_EXCWATCH (abde04d): core DBG_EXC (vector, stacked SR, PC, A5 at handler-address load; checked in tb030 on prog_chk: vec 06, PC = next instr), last 16 exceptions, freeze on BERR/AERR with PC in $400000-$DFFFFF. Build running (build_st_helper_excw.tcl).
+
+## 10:xx excwatch result (st_helper_excw_abde04d.fs, TNS 0)
+History (newest first; page 0 = the BERR itself, and pages 3/4/9 were not captured):
+- p1: vec 6 (CHK), SR $0318, stacked PC $055D18, A5 $055718
+- p2: vec 28 (VBL), SR $0304, PC $05680A, A5 $055718
+- p5-15: vec 69 (MFP timer C) / 28, PC $567AA-$57772, A5 $055718
+A5 is AUTOFPU's own A5 throughout. NOT in the GEMBENCH $2F34C-$2F3F0 window.
+Mapping (fm.dis = board+2): board $55D18 -> fm $55D1A `lea a4@(42),a0`, preceded by
+$55D12 beq.s 55d1a / $55D14 lea a4@(36),a0 / $55D18 bra.s 55d1e. No CHK opcode there,
+yet the core took vector 6 -> the core decoded a wrong opcode word (prefetch/fetch divergence).
+I-cache ruled out: CACHES=0 (ST_030_CACHES undefined) in every build. Next suspect: the
+prefetch pipeline around the taken bcc/bra (FAST_HANDOFF / [F65] path) or the IRQ arriving mid-branch.
+Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
+
+## 14 Oct 10:1x-11:0x tb030 sweep of the AUTOFPU branch (no repro)
+- prog_fpbr.s: AUTOFPU bytes board $55D0C-$55D20 (bles/tst.l d7/beq.s/lea 36(a4)/bra.s/lea 42(a4)/moveq/pushes)
+  at the board's 4n/4n+2 alignment, user mode, A0 checked. tb030 gets TRIG6 (IPL_MODE=2 single shot at level 6, VEC6=69).
+- Per-clock sweep: beq taken + not taken x level 4 (AVEC) / level 6 (vector 69) x WS 0/1/3 x WSRND 0/2 x IRQ_DLY 0..300
+  (window covers the branch at every WS) = 7224 runs: all DONE, IACK taken in all, A0 right, NO vector 6, no wrong opcode.
+  Periodic mode (IRQ4/IRQ6 together, 48 runs) also clean. Result is deterministic, same as Musashi/68030 semantics.
+- prog_chkstale.s: in-range CHK then nop/jmp/bsr/rts/trap+rte/movem/pea+rts/link/unlk with D0 out of range and
+  IRQs (stale ALU OP=CHK re-acked?): clean, WS 0/3.
+- Review: decoder (opcode_decoder.vhd ~1045) only gives CHK for 4xxx with D(6)=0 (opmode 100/110); $41EC (lea 42(a4),a0)
+  cannot decode as CHK. TRAP_CHK needs ALU OP=CHK/CHK2, latched only on ALU_INIT. So on the board the core must have
+  SEEN a different word at the beq target (e.g. $41AC = chk.w 42(a4),d0, one bit D6 different) or the RAM held one.
+  IACK/RTE vs branch flush: no fault found in sim. No fix made (not reproduced).
+- Next: extend excwatch to latch BIW_0 (the opcode word of the excepting instruction) plus the bus data of the last
+  prefetches, and read RAM at $55D18 after the freeze (helper/monitor), to split "bus delivered a bad word" from "RAM bad".
+
+## 14 Oct 10:5x excwatch V2 (459cc48), building on linserver ~/bldh (b_excw2.log)
+- DBG_EXC now 105 bits, + BIW_0. tb030 logs it (exmon): `chk.w $6000,d0` -> vec 6, PC = NEXT instruction, BIW0=41B8,
+  so BIW_0 at the handler load is the excepting opcode and the stacked PC is the address after it.
+  => on the board the CHK instruction ENDS at $55D18 (fm +2 mapping: fm $55D1A = beq-taken target; the instruction
+  ending there is the `bras` word at board $55D16, or the 4-byte `lea 36(a4)` at board $55D14 if the mapping is 0).
+- Entry {vec, SR, PC, BIW_0, 0}; pages 0-7 add fetch[p] {A23:0, D15:0} (last 8 program reads, data as delivered to
+  the core, frozen at the first vector 6); pages 8-15 add the $55D18 word snoop (last CPU write data, last fetch data,
+  counts). No helper-side RAM read exists (helper fw has no peek), so "RAM" = CPU writes to $55D18 seen on the bus;
+  DMA (floppy load) writes are not seen. Decoder docs/float_panic/pages_ex2.py.
+
+## 14 Oct 11:3x excwatch V2 result (st_helper_excw2_459cc48.fs, TNS 0 all clocks, fpdbg/x*.png)
+- Exceptions (new first): BERR vec 2 PC $416528 (panic); **vec 6 SR $0318 PC $055D18 IRD $4320** (= chk.l -(a0),d1);
+  vec 28 PC $05680A; vec 69 $0578C6 ... (pages 4,6,10,14 not grabbed).
+- Last code fetches before the CHK (data as delivered to the core): $55D12=4E73, ($55D14 n/a), $55D16=48E7,
+  ($55D18 n/a here, snoop: fetched once = 4320), $55D1A=0008, $55D1C=2030, $55D1E=0000, $55D20=413A. A linear run.
+- Snoop $55D18: 4 CPU writes before the freeze, last write data $0000; 1 fetch, data $4320.
+- These words are NOT the AUTOFPU file's code at that address (expected 41EC 0024 6004 41EC 002A..), and the byte
+  run 4320 0008 2030 0000 413A occurs in none of AUTOFPU.BIN / IEEE.BIN (packed or unpacked) / GEMBENCH.PRG /
+  EmuTOS 256 / the Hatari RAM image. $00082030 / $0000413A look like pointer longs: $55D1x holds DATA (written at
+  run time by the CPU), and the core executed it -> the CHK opcode $4320 is genuine data, decoded correctly
+  (IRD = bus data at $55D18). So: not a fetch/bus corruption and not a decode error. The real fault is the
+  jump INTO $55D1x (control flow), earlier than the 8-fetch window. Caveat: the 4 snooped writes may include the
+  CHK frame stacking (snoop runs until the handler load), so "last write 0000 vs fetch 4320" is not yet a RAM/bus
+  contradiction. Also the board-text-base $5581A mapping is in doubt (the region holds data).
+- V3 (20ae59c) adds the last 7 program-fetch jumps {from, to}; building (b_excw3.log).
+
+## 14 Oct 11:5x excwatch V3 result (st_helper_excw3_20ae59c.fs, TNS 0 all clocks, fpdbg/z*.png)
+- Same panic, same words (deterministic): fetches $55D14=3037 $55D16=48E7 $55D18=4320 $55D1A=0008 $55D1C=2030
+  $55D1E=0000 $55D20=413A; vec 6 IRD $4320 (chk.l -(a0),d1). Snoop $55D18 again 4 CPU writes, last $0000, 1 fetch $4320.
+- Program-fetch jumps (newest first): $55FF6->$55C96, $577D6->$55FD8, $57794->$577D0, $57780->$5778E,
+  $55BF8->$57776, ?, $56290->$562DA.
+  The newest is the AUTOFPU `bsr.w 55c98` (fm $55FEA; recorded "from" = prefetch address). After it the core
+  fetched LINEARLY from $55C96 to $55D20 with NO jump, though the AUTOFPU function there (fm $55C98: link,
+  movem, ..., jsr at fm $55CAC) branches after 0x14 bytes. So RAM at $55C96..$55D20 no longer holds AUTOFPU code:
+  the text was OVERWRITTEN with data, and the core executed that data until the $4320 word gave a (correct) CHK trap.
+- Conclusion: decode and fetch are fine (IRD = bus data, linear fetches). The primary fault is a memory overwrite of
+  AUTOFPU's text around $55D18 (4 CPU writes to that word were seen before the CHK). Hatari does not do this, so
+  either a CPU write goes to a wrong address/with wrong data, or an earlier divergence makes the program write there.
+- Next probe: record the PC (core PC of the writing instruction), data, size and FC of the FIRST CPU writes into
+  $55C96-$55D20 (+ cycle stamp), freeze at vector 6. Board restored to st_helper_sdw_p3.fs.
+
+## 14 Oct 12:1x write-watch probe (769a1eb, DIAG_WRWATCH, build_st_helper_wrw.tcl, b_wrw.log)
+- tb030 check: the core PC at the start of a write cycle = the writing instruction (move.l #x,abs -> its own PC);
+  for BSR/JSR pushes it is already the target. Entry {PC, A, D, SIZ, FC, SR, A5}; first 8 + last 8 writes into
+  $55C96-$55D21, frozen at vector 6. Decoder docs/float_panic/pages_wr.py. DMA/shifter/blitter/helper writes don't
+  pass the 030 bridge, so they are not visible here.
+
+## 14 Oct 13:0x write-watch result (st_helper_wrw_769a1eb.fs, TNS 0, fpdbg/w*.png)
+Decoder note: the entry sits 4 bits later than planned (pages_wr.py uses b[16:]; last 4 bits = A5 low nibble lost).
+SR field = SR_CPY (the core's copy from the last exception), NOT the live SR - ignore it. >=63 writes into the range.
+- FIRST 8: PC $02FFB2 (HiSoft runtime clear loop `move.l d0,(a1)+` at $2FFB0 / dbf at $2FFB2), FC1 user, A5 $38AE2
+  (= GEMBENCH), D=0000, $55C96, $55C98, ... ascending: GEMBENCH clears a block that starts at/below $55C96.
+- LAST 8 (just before the CHK): PC $E1DD02 (EmuTOS ROM VDI raster-op writer `move.w d0,(a1); jmp (a3)`), FC5,
+  A5 $38AE2, D = 5555 / 5400 / AAAA into $55D02..$55D1E (every 4th byte = plane 1 of an interleaved 2-plane bitmap).
+- Hatari .sav at the same addresses: $55C90-$55D2F = 0000 AAAA ... 0000 A800 0000 5555 ... 0000 5400 0000 AAAA,
+  i.e. the SAME medium-res bitmap data. In Hatari this range is GEMBENCH's off-screen (MFDB) bitmap, and no AUTOFPU
+  is in RAM there.
+- => NOT a CPU/bus fault: the board writes are correct (right writer, right EA, right data). The CHK came from
+  AUTOFPU's code being Pexec'd INTO GEMBENCH's bitmap buffer ($5571A text vs the buffer around $55Cxx) and the VDI
+  then drawing over it. Open: why the board runs AUTOFPU at all (Hatari's snapshot has no child), i.e. GEMBENCH's
+  FPU/CPU detection path (_CPU/_FPU cookies, the $FFFA40 SFP004 probe), and whose memory accounting is wrong
+  (GEMBENCH using memory outside its Mshrink'd TPA/Malloc vs EmuTOS Pexec). Next: compare _FPU/_CPU cookies and
+  the Malloc/Mshrink/Pexec calls (GEMDOS trace) board vs Hatari.
+- Board restored to st_helper_sdw_p3.fs (RC=0), cold boot desktop OK (fpdbg/fin2.png).
+
+## 14 Oct 13:1x FPU theory and Hatari memory map
+- Sim (tb030, ST=0/1): FNOP ($F280 0000) and FSAVE -(sp) with no FPU -> Line-F, vector 11, format 0 frame,
+  stacked PC = the F-line instruction ($FC0012), vector word $002C. The core traps at decode without a CPU-space
+  cycle (a real 68030 runs the FC=7 coprocessor cycle, gets BERR, then takes Line-F); the outcome as software sees it is
+  identical. SFP004 $FFFA40 BERRs on the board (seen earlier). Board panic regs D3=0 = AUTOFPU chose its software path.
+  => no false FPU detection; FNOP/FC=7 theory ruled out. No core change.
+- GEMBENCH ALWAYS needs AUTOFPU.BIN for Float Math (its string: "The file AUTOFPU.BIN was not found. Unable to
+  perform float math test"), so Hatari runs it too (the .sav has an AUTOFPU header copy in a host-side file buffer).
+- Hatari cookie jar ($74E0): _CPU $1E, _VDO $10000, _FPU 0, _MCH $10000 (STE), _SWI, _SND 3, _AKP, _IDT, _FDC, XHDI, SCSI.
+- Hatari GEMDOS memory descriptors (owner GEMBENCH PD $132F0): ... $55298+$480, and **$55718 len $3A28E8 (to $3F8000)**.
+  So in Hatari GEMBENCH owns all memory from $55718 (its bitmap lives there). On the board AUTOFPU's basepage/A5 is
+  $55718: that block was FREE at the board's Pexec. Next: trace the board's GEMDOS calls (Malloc/Mfree/Mshrink/Pexec).
+- Building DIAG_GDTRACE (a46bc8f, build_st_helper_gdt.tcl, b_gdt.log).
+
+## 14 Oct 13:xx cookie read on the board, BERR writeback bug, Hatari STE/cartridge runs
+- COOKIEFP.TOS (gb/cj/cj.s) on st_helper_sdw_p3: jar $74E0/20 slots, _CPU $1E, _FPU 0, _MCH $10000, _VDO $10000,
+  _SND 3, _SWI $FF (same as the Hatari STE dump). FNOP and FMOVE.L FPCR,D0 -> Line-F (vec 11), D0 untouched. No false FPU.
+- **CORE BUG (minor, not the panic):** `moveq #0,d0; move.w $FFFA40,d0` -> bus error (vec 2, correct) but D0 = $0000FFFF
+  afterwards. A real 68030 does not write the destination of a read that bus-errors (Hatari: D0 stays 0). The core
+  writes the bus value (open bus $FFFF) to Dn on a BERR'd read. Fix later: suppress the register writeback when the
+  operand read cycle ends in BERR. (AUTOFPU's own probe only checks for the exception, D3=0 seen, so no effect here.)
+- Hatari 2.5 STE, EmuTOS 256uk 1.4, 030/16 MHz/4 MB/no FPU, ST medium, gb403.st, GEMDOS trace: Float Math PASSES (4.725 s).
+  AUTOFPU IS Pexec'd in Hatari too, at the SAME place: GEMBENCH Mfree($55718) then Pexec(0,"A:\BIN\AUTOFPU.BIN"),
+  AUTOFPU Mshrink($5571A,$4C92), ... Pterm(4725) (the return code = the time), then GEMBENCH Malloc($109A0)/Mfree($55718).
+  So the overlap with the bitmap block is normal (GEMBENCH frees its buffer for the child); AUTOFPU does no VDI calls.
+  On the board the VDI writes ($E1DD02) into AUTOFPU's text must therefore come from something running DURING AUTOFPU
+  (interrupt-level drawing, e.g. the VBL mouse cursor if the logical screen points into that block, or a pending redraw),
+  or the floppy DMA load of AUTOFPU into $55Cxx not landing (DMA writes are invisible to the write watch, so the
+  "VDI wrote there" data may be the OLD bitmap that the load failed to overwrite). Next: watch DMA writes into $55C96-$55D20.
+- Same Hatari run with the ST_HELPER cartridge (MBXCART.BIN, --cartridge): passes too. Mouse moved during the test: passes.
+
+## 14 Oct 18:09 (proactive): DMAWATCH ready, flash blocked
+- Bitstream ready: `~/fpga_bitstreams/st_helper_dmaw_1e5c473.fs` (DIAG_DMAWATCH, last 16 RAM writes any master into $55C96-$55D21; decoder `pages_dma.py`). Nocart sibling also built.
+- Board left earlier on `st_helper_sdw_p3.fs`. Next probe (DMA vs leftover bitmap) not run.
+- Blocker: Gowin FT2232 not on linserver (lsusb shows only Hagibis capture `345f:2130`; no `/dev/ttyUSB*`; programmer_cli: no JTAG target). Last FTDI in syslog was 13 Oct evening; afternoon flashes today used loc 4225, so cable was removed after that session.
+- Also built later: `st_68000_nobridge_nocart_5985aeb.fs` (ST_CPU_68000 switch). Not flashed.
+- When FTDI is back: flash dmaw, run_fm.sh, decode overlay with pages_dma.py, restore sdw_p3.
+
+## 15 Oct 03:0x-03:5x MEMSNAP/MEMSAVE (floppy-only RAM snapshot) - KEY RESULT
+Tools: docs/float_panic/memsnap/ (memsnap.s AUTO hook, memsave.s writer+compare, testcr.s, cmpf.s, mk.sh, hrun*.sh).
+- MEMSNAP: lowers phystop to $3E0000 (one software warm reset, kept by EmuTOS), hook code at $3E0400, header $3E0000.
+  LD snapshot $55600+$5000 -> $3E1000 at the child's first trap after Pexec(0,"..AUTOFPU.."); CR snapshot -> $3E6000
+  at the first vec 2/3/4/6 after LD. MEMSAVE writes A:\SNAP_HD/LD/CR.BIN and compares text+data with
+  A:\BIN\AUTOFPU.BIN relocated to LD a2+$100. Hatari STE 030: LD trap 14, basepage $5571A (same as board),
+  LD vs file 0 diffs; CR path (vec 4 test), warm reset keeps the buffers, files written OK.
+- Board (68000 plain-ST build st_68000_plainst_18a64fb.fs), image gbsnap.st (= CLEAN gb403.st from the box,
+  crc 791ee820, + AUTO\MEMSNAP + MEMSAVE): Float Math PASSES twice (13.325 s / 13.330 s, 100% of ST).
+- Board, gbref.st = clean gb403.st unchanged (no AUTO, uploaded 03:3x): Float Math PASSES (13.325 s), Integer 17.910 s.
+- The failing runs all used the SD card's /sd/gb403.st, which is NOT the clean image: crc32 2a92e120 vs 791ee820,
+  and it has an extra FNOP3.PRG. => the failure follows the floppy image, not the core/CPU/chipset.
+- Next: CMPF.PRG on tools.st (A: = clean copies in \REF, B: = /sd/gb403.st) to find which file differs.
+- 15 Oct 04:1x CMPF on the board (A: tools2.st with clean copies, B: /sd/gb403.st): GEMBENCH.PRG, GEMBENCH.RSC,
+  IEEE.BIN identical; **B:\BIN\AUTOFPU.BIN differs in $314 bytes starting at file offset $400** (first bytes
+  clean FF DC 24 3C 3F A9 99 99 26 3C 99 99 vs card 23 61 30 30 30 30 30 30 0D 0A 23 62 = ASCII "#a000000\r\n#b").
+  File offset $400 = text+$3E4 = $55BFE when loaded at $5581A, so $55BFE..$55F11 is garbage on load; both crash PCs
+  ($55CD4 = text+$4BA on the 68000, and the earlier $4320/CHK path on the 030) lie in or run through that block.
+  => ROOT CAUSE of the Float Math panic on the board: corrupted AUTOFPU.BIN inside the SD card's gb403.st
+  (a misdirected sector write, text-like data, sector-aligned), not a core bug. With a clean image the board passes.
+  The SD write path (sd_rw/sd_card write, helper uploads, floppy writes) is the suspect for how the sector got there.
+  Board left on st_68000_plainst_18a64fb.fs with A: = gbref.st (clean). MEMSNAP RAM diff not needed for the verdict.
+
+## 15 Oct 2026 (06:30-07:30 BST): p3 + clean image, SD write-path review
+
+### p3 Float Math on clean image: PASS
+- p3 (`st_helper_sdw_p3.fs`, flashed op 53, 125.68 s), cold boot `c`, A: = `/sd/gbref.st` (clean, CRC 791ee820), medium res.
+- GEMBENCH 6: Integer Division 2.705 s (665%), **Float Math 13.075 s (102%)**, no panic. The 68000 build gave 13.325 s on the same image.
+- An earlier p3 run the same morning showed a fresh desktop 40 s after the click. Frames weren't captured fast enough to classify it. It wasn't reproduced in this run, which had burst grabs every ~2.5 s.
+- gbref.st CRC was still 791ee820 after both runs.
+- **Conclusion:** the Float Math panic on p3 was the corrupt `gb403.st` (AUTOFPU.BIN), not the 030 core.
+- Frames: `board_p3_fm_clean2_running.png`, `board_p3_fm_clean3_pass.png`.
+
+### SD write corruption: what the bad bytes are
+- `"#a000000\r\n#b000000\r\n#c…"` is the start of a TOS/EmuTOS **desktop INF file** (DESKTOP.INF/EMUDESK.INF).
+- So the payload is a legitimate ST GEMDOS file write that landed in AUTOFPU.BIN's sectors.
+- The bad region starts at file offset $400, which is cluster-aligned (720K images use 2-sector clusters).
+- The length is $314 (788 bytes), a typical INF size.
+- So either:
+  - (a) the core's FDC write went to the wrong card LBA, or
+  - (b) GEMDOS reused AUTOFPU's cluster because of a stale or lost FAT write.
+- The helper upload path (`put`/`h`) and `save` (atarist.ini: `var x=`/`option` lines) can't produce this text, so they are ruled out.
+
+### Code review findings (read-only)
+1. **The core raises an IRQ only on a rising edge of `start_any`** (`sd_card.v`). If `wstart` asserts while `rstart` is still high (or a request arrives before the previous one drops), no new edge means no IRQ. The request is then either missed or served on the next poll.
+2. **The helper reads `request` and `rsector` in one status transfer**, then picks the first drive bit (`sdc_handle_event`). The status doesn't include read/write direction or a sequence tag. So a write can be paired with a stale `rsector` latched for an earlier read, and the helper can't tell.
+3. **On `SDC_CORE_RW_TIMEOUT_MS` the helper gives up while the core may still have `core_request` pending.** The next `SPI_SDC_CORE_RW` (for a later request) then executes the old pending write at the new sector, or the reverse. This matches the "SD write jam" seen before.
+4. `lsector` is latched correctly from `core_sector`/`mcu_sector` only when `!busy_int && !done_int`. The core's own latching looks fine; the risk is in the pairing between the helper and the core (items 1–3).
+
+### Proposed fix (not implemented, not flashed)
+- **Core:** latch `{dir, drive, rsector}` at request time into a status register with a 4-bit sequence number. `SPI_SDC_CORE_RW` must echo the sequence number, and the core ignores a mismatch. Raise the IRQ as a level (pending && not acknowledged), not on an edge.
+- **Helper:** read the status, translate, send CORE_RW with the sequence number, and re-read the status afterwards. On timeout, send an explicit abort that clears `core_request` before unlocking. Log every write as `W drv lba->dsector` (debug on) to confirm.
+- **Workaround meanwhile:** avoid saving the desktop (and anything else that writes) on test images, and keep A: write-protected (if the helper or core supports a WP bit).
+
+### p3 full GEMBENCH 6 (15 Oct 2026, ~07:30 BST), clean gbref.st, medium res, ref STE
+| Test | Time | Ratio |
+|---|---|---|
+| GEM Dialog Box | 11.160 | 70% |
+| VDI Text | 15.675 | 89% |
+| VDI Text Effects | 28.720 | 84% |
+| VDI Small Text | 15.620 | 87% |
+| VDI Graphics | 28.055 | 67% |
+| GEM Window | 4.530 | 72% |
+| Integer Division | 2.705 | 665% |
+| Float Math | 13.075 | 102% |
+| RAM Access | 6.390 | 98% |
+| ROM Access | 6.380 | 98% |
+| Blitting | 10.190 | 86% |
+| VDI Scroll | 15.235 | 88% |
+| Justified Text | 15.660 | 87% |
+| VDI Enquire | 3.130 | 84% |
+| New Dialogs | 13.200 | 72% |
+
+- **Summary:** RAM 98 / ROM 98 / Display 80 / CPU 240 / Average **123%**. F62d was 76 / 85 / 72 / 225 / 112.
+- **Caveat:** VDI Text, VDI Small Text, VDI Scroll, Integer Division and Float Math had already run before "All Tests" (delayed mouse commands). Their figures may come from those earlier runs.
+- **Image:** gbref.st CRC was still 791ee820 after the run.
+- **Frames:** /workspace/gb/board_p3_full1.png (results), board_p3_full3_desktop.png.
+- **Next:** SD write logging is on branch `sd-write-log` (helper `sdlog on`). It isn't flashed yet.

@@ -5,8 +5,11 @@
 // FalconFPGA Atarist_030_wip: CPU selection.
 // CPU_030 defined: WF68K30L (68030) through cpu030/cpu030_st_bridge.v,
 //                  clocked by clk_cpu (16 MHz, locked to clk_32).
-// CPU_030 not defined (comment the line out): the original fx68k 68000.
+// CPU_030 not defined: the original fx68k 68000 (8 MHz). Select it with
+// `define ST_CPU_68000 in build_sel.vh (build_st_68000.tcl).
+`ifndef ST_CPU_68000
 `define CPU_030
+`endif
 
 module atarist (
 	// System clocks / reset / settings
@@ -231,6 +234,7 @@ wire        mcu_oe_l, mcu_oe_h;
 assign      ram_ras_n = ras0_n & ras1_n;
 wire        button_n, joywe_n, joyrl_n, joywl, joyrh_n;
 
+wire [167:0] dbg_trace_cpu;   // FalconFPGA DIAG
 // dma
 wire        rdy_o, rdy_i, mcu_bg_n, mcu_br_n, mcu_bgack_n;
 
@@ -645,8 +649,36 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_req    ( dbg_030[1] ),
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
-	.dbg_trace  ( dbg_trace  )
+	.dbg_trace  ( dbg_trace_cpu )
 );
+`ifdef DIAG_DMAWATCH
+// FalconFPGA DIAG dmawatch (float panic): ALL ST RAM writes (CPU via bridge, floppy/HD DMA, blitter)
+// into $55C96-$55D21, seen at the gstmcu RAM port. 16-entry history, page 0 = newest, frozen together
+// with the bridge's write-watch freeze (first vector 6, dbg_trace_cpu[122]). Entry (116) =
+// {src 3:0 = {DMA (~rdy_i), blitter_has_bus, ~mcu_bgack_n, 1}, A23:1+0, D15:0, UDS-CAS, LDS-CAS, t 31:0 (clk_32/64), 38'b0}.
+reg  [115:0] m_h [0:15];
+reg  [5:0]   m_n = 6'd0;
+reg          m_wr_d = 1'b0;
+reg  [37:0]  m_t = 38'd0;
+integer      mi;
+wire         m_wr  = ~ram_we_n & (~ram_cash_n | ~ram_casl_n);
+wire [23:0]  m_a   = {ram_addr, 1'b0};
+wire         m_hit = (m_a >= 24'h055C96) && (m_a <= 24'h055D21);
+always @(posedge clk_32) begin
+	m_t <= m_t + 38'd1;
+	m_wr_d <= m_wr;
+	if (!porb) m_n <= 6'd0;
+	else if (!dbg_trace_cpu[122] && m_wr && !m_wr_d && m_hit) begin
+		for (mi = 15; mi > 0; mi = mi - 1) m_h[mi] <= m_h[mi-1];
+		m_h[0] <= {~rdy_i, blitter_has_bus, ~mcu_bgack_n, 1'b1, m_a, ram_data_in,
+		           ~ram_cash_n, ~ram_casl_n, m_t[37:6], 38'd0};
+		if (m_n != 6'd63) m_n <= m_n + 6'd1;
+	end
+end
+assign dbg_trace = {dbg_trace_cpu[167:122], m_n, m_h[dbg_trace_cpu[126:123]]};
+`else
+assign dbg_trace = dbg_trace_cpu;
+`endif
 `else
 assign rom_fetch = 1'b0;
 assign cpu_ase_n = 1'b1;

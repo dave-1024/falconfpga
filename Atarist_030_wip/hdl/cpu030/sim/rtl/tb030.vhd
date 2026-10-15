@@ -18,6 +18,7 @@ entity tb030 is
            RSSP     : integer := 0;       -- nonzero: reset SSP/PC read at 0..7 instead of the ROM vectors
            RPC      : integer := 0;
            VEC6     : integer := 0;
+           TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
            WSRND    : integer := 0);      -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
 end;
 architecture sim of tb030 is
@@ -28,6 +29,7 @@ architecture sim of tb030 is
   signal siz, dsackn : std_logic_vector(1 downto 0) := "11";
   signal asn, rwn, dsn, berrn, avecn : std_logic := '1';
   signal ipl : std_logic_vector(2 downto 0) := "111";
+  signal dbgx : std_logic_vector(104 downto 0);
   signal halto, reso, ipendn : std_logic;
   type mem_t is array (0 to 131071) of std_logic_vector(15 downto 0);  -- 256K ROM
   type ram_t is array (0 to 2097151) of integer range 0 to 65535;      -- 4MB RAM
@@ -52,7 +54,7 @@ begin
   dut : entity work.WF68K30L_TOP port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
-    FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
+    DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
     ASn => asn, RWn => rwn, RMCn => open, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
     BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1');
 
@@ -65,7 +67,8 @@ begin
     elsif IPL_MODE = 3 then
       if IRQ_PER > 0 and clkn mod IRQ_PER = IRQ_DLY mod IRQ_PER then irq4 <= '1'; end if;
       if IRQ_PER6 > 0 and clkn mod IRQ_PER6 = (IRQ_DLY * 7) mod IRQ_PER6 then irq6 <= '1'; end if;
-    elsif trig_at >= 0 and clkn >= trig_at and not fired then irq4 <= '1'; fired := true; end if;
+    elsif trig_at >= 0 and clkn >= trig_at and not fired then
+      if TRIG6 /= 0 then irq6 <= '1'; else irq4 <= '1'; end if; fired := true; end if;
   end process;
   ipl <= "101" when IPL_MODE = 1 else "001" when irq6 = '1' else "011" when irq4 = '1' else "111";
 
@@ -151,5 +154,21 @@ begin
         dsackn <= "11"; berrn <= '1'; avecn <= '1';
       end if;
     end loop;
+  end process;
+  -- FalconFPGA DIAG: log the core's exception report (DBG_EXC) on its rising strobe
+  exmon: process
+    variable l : line; variable d : std_logic := '0'; variable wd : std_logic := '0';
+  begin
+    wait until rising_edge(clk);
+    if dbgx(104) = '1' and d = '0' then
+      write(l, string'("EXC vec=")); write(l, to_integer(unsigned(dbgx(103 downto 96))));
+      write(l, string'(" SR=")); hwrite(l, dbgx(95 downto 80)); write(l, string'(" PC=")); hwrite(l, dbgx(79 downto 48));
+      write(l, string'(" BIW0=")); hwrite(l, dbgx(15 downto 0)); writeline(output, l);
+    end if;
+    if asn = '0' and rwn = '0' and wd = '0' then
+      write(l, string'("WPC PC=")); hwrite(l, dbgx(79 downto 48)); write(l, string'(" A=")); hwrite(l, adr); writeline(output, l);
+    end if;
+    wd := not asn and not rwn;
+    d := dbgx(104);
   end process;
 end;

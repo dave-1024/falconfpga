@@ -168,7 +168,9 @@ module cpu030_st_bridge #(
     wire        cpu_asn, cpu_rwn, cpu_rmcn, cpu_dsn;
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
-    wire        cpu_ipendn, cpu_statusn;   // FalconFPGA DIAG
+    wire        cpu_ipendn, cpu_statusn;
+    wire [104:0] cpu_dbg_exc;          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
+    wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
 `ifdef WF030_NETLIST
@@ -216,6 +218,10 @@ module cpu030_st_bridge #(
         .DBENn     (               ),
         .BUS_EN    (               ),
         .STERMn    ( 1'b1          ),
+`ifndef WF030_NETLIST
+        .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
+        .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
+`endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
         .BRn       ( 1'b1          ),   // arbitration is done on the ST side
@@ -655,7 +661,213 @@ module cpu030_st_bridge #(
         arb, BGn, can_start,                          // G7
         r_res, BRi, BgackI                            // G8
     };
+`ifdef DIAG_EXCWATCH
+    // ---- FalconFPGA DIAG excwatch (float panic). Observation only.
+    // The core reports every exception it takes (DBG_EXC strobe = handler address load) with the
+    // vector number, the stacked SR, the stacked PC, A5 and BIW_0 (opcode word in the decoder).
+    // The last 16 are kept; armed by the first user-mode cycle, frozen by a bus/address error
+    // (vector 2/3) whose stacked PC is outside RAM and ROM ($400000-$DFFFFF), i.e. the EmuTOS panic.
+    // V2: the last 8 code fetches {A23:0, D15:0} (data as delivered to the core) are frozen by the
+    // first vector 6 (CHK) after arming, and CPU accesses to the word at EW_SNOOP ($055D18) are snooped:
+    // last write data, last data read, last code fetch data, write/fetch counts (saturating at 15).
+    // One page per ~0.13 s; rows c..f = {frz, page3:0, 1, exceptions seen mod 64 (6),
+    //   entry[page] {vector 8, SR 16, PC 23:0, BIW_0 16, 8'b0}, 44 bits:
+    //   page 0-7: {f_frz, 3'b0, fetch[page] A23:0 D15:0} (0 = newest), page 8-15: snoop
+    //   {last write data 16, last fetch data 16, write count 4, fetch count 4, 3'b0, f_frz}} on page 8,
+    //   pages 9-15: V3 program-fetch jumps j[page-9] {from A21:0, to A21:0} (0 = newest), frozen with fetches.
+    localparam [23:0] EW_SNOOP = 24'h055D18;
+    reg        e_arm = 1'b0, e_frz = 1'b0, f_frz = 1'b0;
+    reg [71:0] e_h [0:15];
+    reg [39:0] f_h [0:7];
+    reg [5:0]  e_cnt = 6'd0;
+    reg [24:0] e_tmr = 25'd0;
+    reg [15:0] s_wd = 16'd0, s_fd = 16'd0, s_rd = 16'd0, e_wd = 16'd0;
+    reg        e_wds = 1'b0;
+    reg [3:0]  s_wn = 4'd0, s_fn = 4'd0;
+    reg [43:0] j_h [0:6];               // V3: last 7 program-fetch discontinuities {from A21:0, to A21:0}
+    reg [23:0] j_last = 24'd0;
+    integer    ei;
+    reg        e_stb_d = 1'b0;          // clk_cpu strobe seen in clk_32: use its rising edge
+    wire       e_stb = cpu_dbg_exc[104] & ~e_stb_d;
+    wire [7:0] e_vec = cpu_dbg_exc[103:96];
+    wire [23:0] e_pc = cpu_dbg_exc[71:48];
+    wire       e_bad = (e_vec == 8'd2 || e_vec == 8'd3) &&
+                       ((e_pc[23] ^ e_pc[22]) | (e_pc[23] & e_pc[22] & ~e_pc[21]));
+    wire       e_cyc = !x_done & x_term;             // a cycle terminates (as the hiwatch history)
+    wire       e_cod = x_fc[1:0] == 2'b10;           // program space
+    wire       e_hit = x_adr[23:1] == EW_SNOOP[23:1] && x_fc != 3'b111;
+    always @(posedge clk) begin
+        e_tmr <= e_tmr + 25'd1;
+        e_stb_d <= cpu_dbg_exc[104];
+        if (x_start) e_wds <= 1'b0;
+        else if (!x_done & ~cpu_dsn & ~e_wds) begin e_wds <= 1'b1; e_wd <= cpu_dout[31:16]; end
+        if (extReset | pwrUp) begin
+            e_arm <= 1'b0;  e_frz <= 1'b0;  f_frz <= 1'b0;  e_cnt <= 6'd0;  s_wn <= 4'd0;  s_fn <= 4'd0;
+        end else if (!e_frz) begin
+            if (x_start & ~cpu_fc[2]) e_arm <= 1'b1;
+            if (e_arm & e_stb) begin
+                for (ei = 15; ei > 0; ei = ei - 1) e_h[ei] <= e_h[ei-1];
+                e_h[0] <= {e_vec, cpu_dbg_exc[95:80], e_pc, cpu_dbg_exc[15:0], 8'd0};
+                e_cnt  <= e_cnt + 6'd1;
+                if (e_bad) e_frz <= 1'b1;
+                if (e_vec == 8'd6) f_frz <= 1'b1;
+            end
+            if (e_cyc & ~f_frz & e_cod & x_rwn) begin
+                for (ei = 7; ei > 0; ei = ei - 1) f_h[ei] <= f_h[ei-1];
+                f_h[0] <= {x_adr[23:0], cpu_din[31:16]};
+                j_last <= x_adr[23:0];
+                if (x_adr[23:0] != j_last && x_adr[23:0] != j_last + 24'd2) begin
+                    for (ei = 6; ei > 0; ei = ei - 1) j_h[ei] <= j_h[ei-1];
+                    j_h[0] <= {j_last[21:0], x_adr[21:0]};
+                end
+            end
+            if (e_cyc & e_hit & ~f_frz) begin
+                if (!x_rwn) begin s_wd <= e_wds ? e_wd : cpu_dout[31:16]; if (s_wn != 4'hF) s_wn <= s_wn + 4'd1; end
+                else if (e_cod) begin s_fd <= cpu_din[31:16]; if (s_fn != 4'hF) s_fn <= s_fn + 4'd1; end
+                else s_rd <= cpu_din[31:16];
+            end
+        end
+    end
+`ifdef DIAG_GDTRACE
+    // V5 GEMDOS trace: for every TRAP #1 (vector 33) the stacked PC and the first 5 user-data (FC1) read words
+    // after it (EmuTOS reads the function number and the arguments from the caller's stack). Last 16 complete calls,
+    // frozen at the first vector 6. Entry (116) = {PC 23:0, w0 (function), w1, w2, w3, w4, 12'b0}.
+    reg [115:0] g_h [0:15];
+    reg [115:0] g_e;
+    reg [2:0]   g_k = 3'd5;
+    reg [5:0]   g_n = 6'd0;
+    integer     gi;
+    always @(posedge clk) begin
+        if (extReset | pwrUp) begin g_k <= 3'd5; g_n <= 6'd0; end
+        else if (!f_frz & e_arm) begin
+            if (e_stb & (e_vec == 8'd33) & ~cpu_dbg_exc[93]) begin   // from user mode (stacked SR S=0)
+                g_e <= {e_pc, 92'd0};  g_k <= 3'd0;
+                if (g_n != 6'd63) g_n <= g_n + 6'd1;
+            end else if (e_cyc & x_rwn & (x_fc == 3'b001) & (g_k != 3'd5)) begin
+                case (g_k)
+                    3'd0: g_e[91:76] <= cpu_din[31:16];
+                    3'd1: g_e[75:60] <= cpu_din[31:16];
+                    3'd2: g_e[59:44] <= cpu_din[31:16];
+                    3'd3: g_e[43:28] <= cpu_din[31:16];
+                    default: g_e[27:12] <= cpu_din[31:16];
+                endcase
+                if (g_k == 3'd4) begin
+                    for (gi = 15; gi > 0; gi = gi - 1) g_h[gi] <= g_h[gi-1];
+                    g_h[0] <= {g_e[115:28], cpu_din[31:16], 12'd0};
+                end
+                g_k <= g_k + 3'd1;
+            end
+        end
+    end
+    wire [3:0] e_pg = e_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, f_frz, g_n, g_h[e_pg]};
+`elsif DIAG_WRWATCH
+    // V4 write-watch: CPU writes into $55C96-$55D21 (any FC but IACK). Entry (116) =
+    // {PC 23:0 (core PC at the cycle start = the writing instruction, for BSR/JSR pushes already the target),
+    //  A23:0, D15:0 (data at DS), SIZ1:0, FC2:0, SR 15:0, A5 23:0, 3'b0}. Slots 0-7 = FIRST 8 writes after
+    // arming, 8-15 = LAST 8 (15 = newest), all frozen by the first vector 6. w_n = total (saturates at 63).
+    // Only the 030 is visible here: DMA/shifter/blitter/helper RAM writes do not pass the bridge.
+    reg [115:0] w_h [0:15];
+    reg [5:0]   w_n = 6'd0;
+    reg         w_pend = 1'b0;
+    reg [115:0] w_e;
+    integer     wi;
+    wire        w_hit = (x_adr[23:0] >= 24'h055C96) && (x_adr[23:0] <= 24'h055D21) && (x_fc != 3'b111);
+    always @(posedge clk) begin
+        if (extReset | pwrUp) begin w_n <= 6'd0; w_pend <= 1'b0; end
+        else if (!f_frz & e_arm) begin
+            if (x_start) w_e <= {cpu_dbg_exc[71:48], 92'd0};          // PC at the start of the cycle
+            if (e_cyc & ~x_rwn & w_hit) begin
+                if (w_n < 6'd8) w_h[w_n[2:0]] <= {w_e[115:92], x_adr[23:0], e_wds ? e_wd : cpu_dout[31:16],
+                                                  x_size, x_fc, cpu_dbg_exc[95:80], cpu_dbg_exc[39:16], 3'd0};
+                else begin
+                    for (wi = 8; wi < 15; wi = wi + 1) w_h[wi] <= w_h[wi+1];
+                    w_h[15] <= {w_e[115:92], x_adr[23:0], e_wds ? e_wd : cpu_dout[31:16],
+                                x_size, x_fc, cpu_dbg_exc[95:80], cpu_dbg_exc[39:16], 3'd0};
+                end
+                if (w_n != 6'd63) w_n <= w_n + 6'd1;
+            end
+        end
+    end
+    wire [3:0] e_pg = e_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, f_frz, w_n, w_h[e_pg]};
+`else
+    wire [3:0] e_pg = e_tmr[24:21];
+    wire [43:0] e_x = (e_pg == 4'd8) ? {s_wd, s_fd, s_wn, s_fn, 3'd0, f_frz} :
+                      e_pg[3] ? j_h[e_pg[2:0] - 3'd1] : {f_frz, 3'd0, f_h[e_pg[2:0]]};
+    assign dbg_trace = {d_got, d_info, d_badr, e_frz, e_pg, 1'b1, e_cnt, e_h[e_pg], e_x};
+`endif
+`elsif DIAG_HIWATCH
+    // ---- FalconFPGA DIAG hiwatch (float panic). Observation only.
+    // Armed by the first user-mode cycle (FC2 = 0); after that the first 030 cycle (FC != 7)
+    // starting in $400000-$DFFFFF freezes a 16-entry history of terminated cycles.
+    // Entry (76) = {FC2:0, RWn, A23:0, D15:0, ADR_LATCH[23:16] at termination,
+    //               ADR_P[23:16], PC_L[23:16], ADR_L[23:16] at start}.
+    // One entry per overlay page (~0.13 s): rows c..f = {frz, page3:0, 1, trig{FC,RW,A23:0},
+    // entry[page] (0 = newest), last vector number 7:0 (excl. IRQ 24-31,
+    // TRAP 32-47, MFP 64-79), cycles since it 3:0 (15 = 15 or more), 6'b0}.
+    reg  h_arm = 1'b0;
+    reg        h_frz = 1'b0;
+    reg [27:0] h_t   = 28'd0;
+    reg [75:0] h_e [0:15];
+    reg [15:0] h_wd = 16'd0;
+    reg        h_wds = 1'b0;
+    reg [23:0] h_st = 24'd0;           // ADR_P, PC_L, ADR_L 23:16 at the start
+    reg [24:0] h_tmr = 25'd0;
+    reg [7:0]  h_vec = 8'd0;            // last exception vector read (FC5, $008-$3FC), not IRQ/TRAP
+    reg [3:0]  h_vcnt = 4'd0;           // cycles since that vector read (saturates at 15)
+    reg        h_pend = 1'b0;           // V6: trigger seen, post-trigger cycles running
+    reg [3:0]  h_post = 4'd0;
+    integer    hi;
+`ifdef DIAG_HIWATCH_V6
+    // Variant: freeze on the CHK vector fetch (FC5 read of $000018). The history then holds the
+    // format 2 frame writes (SR, PC, $2018, instruction address) and the cycles before them.
+    // A FC5 read of $018 is also done by Setexc(), so trigger on the stacked format/vector word
+    // $2018 (format 2, CHK/CHK2) instead and keep recording 8 more cycles (frame + vector fetch).
+    wire [15:0] h_wdat = h_wds ? h_wd : cpu_dout[31:16];
+    wire h_trig = h_arm & ~x_done & x_term & ~x_rwn & (x_fc == 3'b101) & (h_wdat == 16'h2018);
+`else
+    wire h_trig = h_arm & x_start & (cpu_fc != 3'b111) &
+                  ((cpu_adr[23] ^ cpu_adr[22]) | (cpu_adr[23] & cpu_adr[22] & ~cpu_adr[21]));
+`endif
+    always @(posedge clk) begin
+        h_tmr <= h_tmr + 25'd1;
+        if (x_start) begin h_wds <= 1'b0; h_st <= cpu_dbg_adr[23:0]; end
+        else if (!x_done & ~cpu_dsn & ~h_wds) begin h_wds <= 1'b1; h_wd <= cpu_dout[31:16]; end
+        if (extReset | pwrUp) begin
+            h_frz <= 1'b0;  h_arm <= 1'b0;  h_pend <= 1'b0;
+        end else if (!h_frz) begin
+            if (x_start & ~cpu_fc[2]) h_arm <= 1'b1;
+            if (x_start & (cpu_fc == 3'b101) & cpu_rwn & (cpu_adr[23:10] == 14'd0) & (cpu_adr[9:2] != 8'd0) &
+                (cpu_adr[9:2] != 8'd1) & ~((cpu_adr[9:2] >= 8'd24) & (cpu_adr[9:2] <= 8'd47)) & ~(cpu_adr[9:6] == 4'h4)) begin
+                h_vec <= cpu_adr[9:2];  h_vcnt <= 4'd0;
+            end else if (x_start & (h_vcnt != 4'hF)) h_vcnt <= h_vcnt + 4'd1;
+`ifdef DIAG_HIWATCH_V6
+            if (h_trig & ~h_pend) begin
+                h_pend <= 1'b1;  h_post <= 4'd8;
+                h_t    <= {x_fc, x_rwn, x_adr[23:0]};
+            end
+            if (h_pend & !x_done & x_term) begin
+                if (h_post == 4'd0) h_frz <= 1'b1; else h_post <= h_post - 4'd1;
+            end
+            if (!x_done & x_term) begin
+`else
+            if (h_trig) begin
+                h_frz <= 1'b1;
+                h_t   <= {cpu_fc, cpu_rwn, cpu_adr[23:0]};
+            end else if (!x_done & x_term) begin
+`endif
+                for (hi = 15; hi > 0; hi = hi - 1) h_e[hi] <= h_e[hi-1];
+                h_e[0] <= {x_fc, x_rwn, x_adr[23:0], x_rwn ? cpu_din[31:16] : (h_wds ? h_wd : cpu_dout[31:16]),
+                           cpu_dbg_adr[31:24], h_st};
+            end
+        end
+    end
+    wire [3:0] h_pg = h_tmr[24:21];
+    assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], h_vec, h_vcnt, 6'd0};
+`else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
+`endif
 
 endmodule
 
