@@ -1,8 +1,8 @@
 # SD write corruption / "state 13" jam: findings (2026-10-15)
 
 Builds (place_option 3, sdw_p3 config = 7e3d5dd, which includes F65 bb9baa2):
-- `st_helper_sdlog_d94dde4_p3.fs` (sd-core-log, SD_WRITE_DEBUG): on the board now.
-- `st_helper_mch_7df7f29_p3.fs` (sd-mediach, + ST_FLOPPY_MEDIACH): built, timing clean, NOT flashed.
+- `st_helper_sdlog_d94dde4_p3.fs` (sd-core-log, SD_WRITE_DEBUG): debug build (superseded by mch).
+- `st_helper_mch_7df7f29_p3.fs` (sd-mediach, + ST_FLOPPY_MEDIACH): flashed 15 Oct, swap retest PASSED, on the board.
 - helper `helper_companion_sdwlog_3ec6e20.bin` (sd-write-log): sdwlog / sdstate / sdrw / scrc / get.
 
 ## Root cause of the misdirected writes (gb403): runtime image swap, no media change
@@ -36,3 +36,27 @@ Remaining weaknesses (proposed, not applied):
 4. fdc1772 `sd_lba` is combinational and sd_card latches rsector only when it starts the request.
    It is safe today (the ring flags any change: none seen), but should be latched at the request
    edge.
+
+## ST_FLOPPY_MEDIACH board retest (mch build, 15 Oct 2026): PASS
+Restored gbsnap.st (CRC 9bb44fbd). Steps: `mount a tools2.st`, `c`, Save Desktop, then `mount a gbsnap.st`
+(no reset), Save Desktop. gbsnap now gets writes to image sectors 1, 4, 7 (its own FAT/root) and 494/495.
+Those are cluster 242, its own first free cluster; before the fix they were tools2's 420/421, inside
+GEMBENCH.RSC. Per-sector diff against the clean copy: only those 5 sectors. Root directory: gbsnap's own
+entries plus EMUDESK.INF (cluster 242, 640 bytes); sector 494 holds the INF text. A further runtime swap to
+gbref.st showed gbref's directory (7 items) and GEMBENCH.PRG loaded with its RSC: no -35, no "not
+readable". gbref.st CRC still 791ee820.
+
+## ST_SD_HARDEN (branch sd-harden, test variant, not flashed)
+Implements the 4 items above in sd_rw.v / sd_card.v behind `HARDEN`. Fault-injection bench
+`hdl/misc/sim/tb_sd_harden.v`:
+
+| case | result |
+|---|---|
+| clean write + read | done, data match, 0 recoveries |
+| 1 rejected token (CRC error) | 1 re-init, write re-issued, data match |
+| 5 rejected tokens / CMD24 never answered | done after 2 re-inits (3 tries) + error count, no hang, card usable after |
+| 10 dead reads | 2 re-inits, read completes with the right data |
+| 40 dead reads | done after the budget, card usable after |
+| HARDEN=0 + rejected token | upstream: block silently counted as written |
+
+Limit: on give-up the FDC still gets a plain done. Passing the error to the FDC status is the next step.
