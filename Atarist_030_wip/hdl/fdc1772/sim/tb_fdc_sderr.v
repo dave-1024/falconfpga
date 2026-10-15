@@ -18,6 +18,7 @@ fdc1772 #(.CLK_EN(16'd800)) dut(.clkcpu(clk),.clk8m_en(en8),.floppy_drive(2'b10)
  .cpu_din(din),.cpu_dout(dout),.img_type(3'd1),.img_mounted(mnt),.img_wp(2'b00),.img_ds(1'b0),.img_size(32'd737280),
  .sd_lba(lba),.sd_rd(sd_rd),.sd_wr(sd_wr),.sd_ack(ack),.sd_err(err),.sd_buff_addr(baddr),.sd_dout(sdout),.sd_din(sd_din),
  .sd_dout_strobe(strobe));
+initial forever begin #50000000; $display("  t=%0d ms busy=%0d cmd=%02x trk=%0d fdtrk=%0d sdreq=%0d ready=%0d spin=%0d stepb=%0d dly=%0d pres=%0d idx=%0d", $time/1000000, dut.busy, dut.cmd, dut.track, dut.fd_track, nreq, dut.fd_ready, dut.motor_spin_up_sequence, dut.step_busy, dut.delaying, dut.fd_present, dut.fd_index); end // progress
 integer nreq=0, ERR_ON=-1, k;
 // SD side
 initial forever begin
@@ -40,7 +41,7 @@ end endtask
 initial begin
   repeat(20) @(posedge clk); rst_n=1; mnt=2'b01; repeat(4) @(posedge clk); mnt=0;
   repeat(100) @(posedge clk);
-  wr(0,8'h08); repeat(200) @(posedge clk); begin : w0 integer q; q=0; rd(0,st); while(st[0] && q<40000000) begin rd(0,st); q=q+1; end end  // restore
+  // (no RESTORE: the bench model never reports it done; track is 0 after reset)
   run(8'h88, 1, "read  sector 1 clean      ");
   ERR_ON = nreq+1;
   run(8'h88, 2, "read  sector 2 SD give-up ");
