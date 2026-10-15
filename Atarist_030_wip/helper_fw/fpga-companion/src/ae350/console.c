@@ -40,6 +40,7 @@ static void help(void) {
          "  ls [dir]     list an SD directory (default /sd)\r\n"
          "  mount <d> <file>  insert an image: d = a, b (floppy .st), h0, h1 (ACSI .hd/.img)\r\n"
          "  eject <d>    remove the image from drive d\r\n"
+         "  sdlog on|off log every core SD request: SDLOG #n R/W drv img-lba -> card-lba, timeouts\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
          "  spd [n]      bit-bang delay per half SCK period (default 2)\r\n"
@@ -386,12 +387,17 @@ static void run_line(const char *line) {
   if(!argc) return;
   const char *c = argv[0];
   if(!strcmp(c, "h")) { up_hex(argc > 1 ? argv[1] : ""); return; }
-  if(!strcmp(c, "put")) { up_put(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "put")) { sdc_log = 0; up_put(argc > 1 ? argv[1] : NULL); return; }
   if(!strcmp(c, "pend")) { up_end(); return; }
   if(!strcmp(c, "crc")) { up_crcfile(argc > 1 ? argv[1] : NULL); return; }
   int link = ae350_link_up();
 
   if(!strcmp(c, "?") || !strcasecmp(c, "help")) { help(); return; }
+  if(!strcmp(c, "sdlog")) {
+    if(argc > 1) sdc_log = !strcmp(argv[1], "on");
+    printf("sdlog %s\r\n", sdc_log ? "on" : "off");
+    return;
+  }
   if(!strcmp(c, "spd")) {
     if(argc > 1) ae350_spi_set_div((unsigned)atoi(argv[1]));
     printf("bit-bang delay %u MSR reads per half period\r\n", ae350_spi_div());

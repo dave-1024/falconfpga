@@ -519,6 +519,11 @@ static int sdc_rom_image_get_buffer(char image) {
   return buffer;
 }
 
+// runtime SD request logging (console "sdlog on|off"), default off so the
+// upload protocol on the same UART is not disturbed
+int sdc_log = 0;
+static unsigned long sdc_log_seq = 0;
+
 int sdc_handle_event(void) {
   bool handled = false;
   
@@ -529,7 +534,12 @@ int sdc_handle_event(void) {
   unsigned char request = mcu_hw_spi_tx_u08(0);
   unsigned long rsector = 0;
   for(int i=0;i<4;i++) rsector = (rsector << 8) | mcu_hw_spi_tx_u08(0); 
+  // optional status bytes 5/6 (sd_card.v): byte 5 bit 7 == ~rsector[7]
+  // marks byte 6 valid; byte 6 bit 0 = a write is pending (|wstart)
+  unsigned char st5 = mcu_hw_spi_tx_u08(0);
+  unsigned char st6 = mcu_hw_spi_tx_u08(0);
   mcu_hw_spi_end();
+  char rw = (((st5 >> 7) & 1) == (((rsector >> 7) & 1) ^ 1)) ? ((st6 & 1) ? 'W' : 'R') : '?';
 
   if(request) {
     int drive = 0;
@@ -555,7 +565,8 @@ int sdc_handle_event(void) {
     unsigned long dsector = clst2sect(clmt_clust(&fil[drive], (FSIZE_t)rsector*512ll)) + rsector%fs.csize;
 #endif
     
-    sdc_debugf("DRV %d: lba %lu = %lu", drive, rsector, dsector);
+    if(sdc_log) printf("SDLOG #%lu %c req=%02x drv %d img %lu -> card %lu\r\n",
+                       (unsigned long)++sdc_log_seq, rw, request, drive, rsector, dsector);
 
     // send sector number to core, so it can read or write the right
     // sector from/to its local sd card
@@ -576,6 +587,8 @@ int sdc_handle_event(void) {
         mcu_hw_spi_end();
         sdc_unlock();
         sdc_debugf("SDC: core request timeout");
+        if(sdc_log) printf("SDLOG #%lu TIMEOUT %c drv %d img %lu -> card %lu\r\n",
+                           (unsigned long)sdc_log_seq, rw, drive, rsector, dsector);
         return -1;
       }
     }

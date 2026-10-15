@@ -19,6 +19,7 @@ int sdc_init(void);
 int sdc_image_open(int drive, char *name);
 sdc_dir_entry_t *sdc_readdir(int drive, char *name, const char *exts);
 int sdc_handle_event(void);
+extern int sdc_log;   // 1 = print every core SD request (SDLOG lines)
 void sdc_lock(void);
 void sdc_unlock(void);
 char *sdc_get_image_name(int drive);
