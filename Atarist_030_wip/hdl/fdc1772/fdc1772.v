@@ -49,6 +49,7 @@ module fdc1772 (
 	output reg [W:0] sd_rd,
 	output reg [W:0] sd_wr,
 	input            sd_ack,
+	input            sd_err,      // FalconFPGA ST_SD_HARDEN: SD request gave up (level)
 	input      [8:0] sd_buff_addr,
 	input      [7:0] sd_dout,
 	output     [7:0] sd_din,
@@ -386,6 +387,9 @@ wire fd_track0 = (fd_track == 0);
 
 reg [7:0] step_to;
 reg RNF;
+// FalconFPGA ST_SD_HARDEN: SD card gave up on a sector -> CRC error, cleared at command start
+reg crc_err = 1'b0;
+reg sd_errD = 1'b0;
 reg sector_inc_strobe;
 reg track_inc_strobe;
 reg track_dec_strobe;
@@ -419,6 +423,8 @@ always @(posedge clkcpu) begin
 		irq_at_index <= 1'b0;
 		data_transfer_state <= 2'b00;
 		RNF <= 1'b0;
+		crc_err <= 1'b0;
+		sd_errD <= 1'b0;
 	        fd_sector_hdrD <= 1'b0;   
 	end else if (clk8m_en) begin
 		sd_card_read <= 0;
@@ -442,9 +448,14 @@ always @(posedge clkcpu) begin
 		if(delay_cnt != 0) 
 			delay_cnt <= delay_cnt - 1'd1;
 
+		// FalconFPGA: SD give-up during this command -> CRC error
+		sd_errD <= sd_err;
+		if(sd_err && !sd_errD && busy) crc_err <= 1'b1;
+
 		// just received a new command
 		if(cmd_rx) begin
 			busy <= 1'b1;
+			crc_err <= 1'b0;
 			notready_wait <= 1'b0;
 			sector_not_found <= 1'b0;
 			data_transfer_state <= 2'b00;
@@ -604,7 +615,7 @@ always @(posedge clkcpu) begin
 
 								if(data_transfer_done) begin
 									data_transfer_state <= 2'b00;
-									if (cmd[4]) sector_inc_strobe <= 1'b1; // multiple sector transfer
+									if (cmd[4] && !crc_err) sector_inc_strobe <= 1'b1; // multiple sector transfer (FalconFPGA: stop on SD error)
 									else begin
 										busy <= 1'b0;
 										irq_set <= 1'b1; // emit irq when command done
@@ -649,7 +660,7 @@ always @(posedge clkcpu) begin
                                 2'b11: begin
                                     // SD Card phase
                                     data_transfer_state <= 2'b00;
-                                    if (cmd[4]) sector_inc_strobe <= 1'b1; // multiple sector transfer
+                                    if (cmd[4] && !crc_err && !(sd_err && !sd_errD)) sector_inc_strobe <= 1'b1; // multiple sector transfer (FalconFPGA: stop on SD error)
                                     else begin
                                         busy <= 1'b0;
                                         irq_set <= 1'b1; // emit irq when command done
@@ -976,7 +987,7 @@ wire [7:0] status = { (MODEL == 1 || MODEL == 3) ? !floppy_ready : motor_on,
 		      (cmd[7:5] == 3'b101 || cmd[7:4] == 4'b1111 || cmd_type_1) && fd_writeprot, // wrprot (only for write!)
 		      cmd_type_1?motor_spin_up_done:1'b0,  // data mark
 		      RNF,                                 // seek error/record not found
-		      1'b0,                                // crc error
+		      crc_err,                             // crc error (FalconFPGA: SD give-up)
 		      (cmd_type_1 | cmd_type_4)?fd_track0:data_lost, // track0/data lost
 		      (cmd_type_1 | cmd_type_4)?~fd_index:drq,       // index mark/drq
 		      busy } /* synthesis keep */;

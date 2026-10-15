@@ -15,7 +15,15 @@ module sd_rw # (
     // only start CMD17/CMD24 when DAT0 is high (card not programming, SD
     // spec 4.3.4/4.12.3), give up a sector after 16 failed CMD24s or a
     // WERR and report it done, so the request clears without a reload
-    parameter       WRITE_FIX = 0
+    parameter       WRITE_FIX = 0,
+    // FalconFPGA ST_SD_HARDEN (needs WRITE_FIX): 1) check the data-response
+    // token, a rejected block is a failure; 2) a failed write (rejected token,
+    // no token / busy timeout, CMD24 unanswered 16x) or 3) a failed read (8 data
+    // timeouts or CMD17 unanswered 16x) re-initialises the card (CMD0 ...) and
+    // re-issues the still pending request. After 2 re-inits the request is
+    // completed (done) and counted as an error instead of hanging or silently
+    // passing. Every recovery bumps rec_cnt (dbg_state[35:32]).
+    parameter       HARDEN = 0
 ) (
     // rstn active-low, 1:working, 0:reset
     input wire	       rstn,
@@ -130,11 +138,14 @@ reg [3:0] wack;
 assign     rbusy  = (sdcmd_stat != READY) ;
 reg        wfail  = 1'b0;   // WRITE_FIX: CMD24 abandoned, complete the request
 reg  [3:0] wretry = 4'd0;
+reg  [3:0] rretry = 4'd0;   // HARDEN: read retries
+reg  [1:0] reinit = 2'd0;   // HARDEN: re-inits for the current request
+reg  [3:0] rec_cnt = 4'd0;  // HARDEN: recoveries (wraps)
 assign     rdone  = (((sdcmd_stat == READING) || (sdcmd_stat == WRITING)) && (sddat_stat==DONE)) ||
-                    (WRITE_FIX && ((sdcmd_stat == WRITING) && (sddat_stat==WERR))) || wfail;
+                    (WRITE_FIX && !HARDEN && ((sdcmd_stat == WRITING) && (sddat_stat==WERR))) || wfail;
 
 assign card_stat = sdcmd_stat;
-assign dbg_state = { wfail, 3'b000, sdcmd_stat, sddat_stat, wack, wretry, 4'b0000, sectoraddr };
+assign dbg_state = { wfail, 3'b000, sdcmd_stat, sddat_stat, wack, wretry, rec_cnt, sectoraddr };
 
 function  [15:0] CalcCrc16;
     input [15:0] crc;
@@ -184,6 +195,25 @@ begin
 end
 endtask
 
+// HARDEN: re-initialise the card; complete the request with an error after 2 tries
+task recover;
+begin
+    if(reinit == 2'd2) begin
+        wfail  <= 1'b1;            // done pulse: release the requester
+        reinit <= 2'd0;
+    end else
+        reinit <= reinit + 2'd1;
+    rec_cnt    <= rec_cnt + 4'd1;
+    wretry     <= 4'd0;
+    rretry     <= 4'd0;
+    clkdiv     <= SLOWCLKDIV;
+    cmd8_cnt   <= 0;
+    sdv1_maybe <= 1'b0;
+    sdcmd_stat <= CMD0;
+end
+endtask
+
+
 always @ (posedge clk or negedge rstn)
     if(~rstn) begin
         set_cmd(0,0,0,0);
@@ -196,6 +226,9 @@ always @ (posedge clk or negedge rstn)
         cmd8_cnt    <= 0;
         wfail       <= 1'b0;
         wretry      <= 4'd0;
+        rretry      <= 4'd0;
+        reinit      <= 2'd0;
+        rec_cnt     <= 4'd0;
     end else begin
         set_cmd(0,0,0,0);
         wfail <= 1'b0;
@@ -204,12 +237,21 @@ always @ (posedge clk or negedge rstn)
 	    // write? If this happens repeatedly it may wear out the
 	    // SD card. So for now i'd say: No retry on write!	   
             if(sddat_stat==RTIMEOUT) begin
-                set_cmd(1, 96, 17, sectoraddr);   // retry read
-                sdcmd_stat <= CMD17;
-            end else if(sddat_stat==DONE)
+                if(HARDEN && rretry == 4'd7)
+                    recover;
+                else begin
+                    rretry <= rretry + 4'd1;
+                    set_cmd(1, 96, 17, sectoraddr);   // retry read
+                    sdcmd_stat <= CMD17;
+                end
+            end else if(sddat_stat==DONE) begin
                 sdcmd_stat <= READY;
-            else if(sddat_stat==WERR)             // don't retry write
-                sdcmd_stat <= READY;
+                reinit <= 2'd0;
+                rretry <= 4'd0;
+            end else if(sddat_stat==WERR) begin   // upstream: don't retry write
+                if(HARDEN) recover;
+                else sdcmd_stat <= READY;
+            end
         end else if(~busy) begin
             case(sdcmd_stat)
                 CMD0    :   set_cmd(1, (SIMULATE?512:64000),  0,  'h00000000);
@@ -227,6 +269,7 @@ always @ (posedge clk or negedge rstn)
                                 sectoraddr <= (card_type==SDHCv2) ? sector : (sector<<9);
                                 sdcmd_stat <= rstart?CMD17:CMD24;
                                 wretry <= 4'd0;
+                                rretry <= 4'd0;
 		            end
             endcase
         end else if(done) begin
@@ -272,15 +315,22 @@ always @ (posedge clk or negedge rstn)
                             else if(WRITE_FIX) begin
                                 wretry <= wretry + 4'd1;
                                 if(wretry == 4'd15) begin       // give up: report done, back to READY
-                                    wfail <= 1'b1;
-                                    sdcmd_stat <= READY;
+                                    if(HARDEN) recover;
+                                    else begin
+                                        wfail <= 1'b1;
+                                        sdcmd_stat <= READY;
+                                    end
                                 end else
                                     set_cmd(1, 128, 24, sectoraddr);   // retry
                             end
                 CMD17   :   if(~timeout && ~syntaxe)
                                 sdcmd_stat <= READING;
-                            else
+                            else if(HARDEN && rretry == 4'd15)
+                                recover;
+                            else begin
+                                rretry <= rretry + 4'd1;
                                 set_cmd(1, 128, 17, sectoraddr);   // retry
+                            end
                 default :
 		  ;	      
             endcase
@@ -412,7 +462,8 @@ always @ (posedge clk or negedge rstn)
 		   
 		   // wait for not being busy anymore
 		   if(sddatin[0] == 1) begin
-		      sddat_stat <= RTAIL;
+		      // HARDEN: data response must be "accepted" (0 010 1 -> wack 4'b1010)
+		      sddat_stat <= (HARDEN && wack != 4'b1010) ? WERR : RTAIL;
                       ridx   <= 0; 
 		   end else if(WRITE_FIX ? ridx[24] : (ridx > 1000000)) begin   // ~16.7M clocks ≈1 s; single-bit test keeps timing
 		      sddat_stat <= WERR;   // busy timeout
