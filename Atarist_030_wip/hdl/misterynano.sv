@@ -599,6 +599,12 @@ wire [31:0] fdc_lba;
 wire [8:0]  sd_byte_index;
 wire	    sd_rd_byte_strobe;
 wire	    sd_busy, sd_done;
+wire        sd_err;                // FalconFPGA ST_SD_HARDEN: SD request gave up
+`ifdef DISABLE_ACSI
+wire        fdc_sd_err = sd_err;
+`else
+wire        fdc_sd_err = sd_err && !is_acsi;
+`endif
 wire [63:0] sd_img_size;
 wire [3:0]  sd_img_mounted;
 
@@ -739,6 +745,7 @@ atarist atarist (
 	.sd_rd          ( fdc_rd_req ),
 	.sd_wr          ( fdc_wr_req ),
 	.sd_ack         ( sd_busy ),
+	.sd_err         ( fdc_sd_err ),
 	.sd_buff_addr   ( sd_byte_index ),
 	.sd_dout        ( sd_rd_data ),
 	.sd_din         ( fdc_sd_wr_data ),
@@ -958,6 +965,7 @@ sd_card #(
 `endif
 
     .rbusy(sd_busy),
+    .sd_err(sd_err),
     .rdone(sd_done),
 		   
     // sector data output interface (sync with clk32)

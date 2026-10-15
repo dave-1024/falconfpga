@@ -44,6 +44,7 @@ module atarist (
 	output [1:0]	   sd_rd,
 	output [1:0]	   sd_wr,
 	input			   sd_ack,
+	input			   sd_err,         // FalconFPGA ST_SD_HARDEN: SD request gave up
 	input [8:0]		   sd_buff_addr,
 	input [7:0]		   sd_dout,
 	output [7:0]	   sd_din,
@@ -1313,6 +1314,7 @@ fdc1772 fdc1772 (
 	.sd_rd          ( sd_rd               ), // read request for two floppy drives
 	.sd_wr          ( sd_wr               ), // write request for two floppy drives
 	.sd_ack         ( sd_ack              ), // ackknowledge data transfer
+	.sd_err         ( sd_err              ), // FalconFPGA: SD give-up -> CRC error status
 	.sd_buff_addr   ( sd_buff_addr        ), // number of byte being transferred
 	.sd_dout        ( sd_dout             ), // data read by fdc
 	.sd_din         ( sd_din              ), // data written by fdc

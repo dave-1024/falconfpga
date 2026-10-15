@@ -56,6 +56,7 @@ module sd_card # (
 	output reg [2:0]  rsrc,     // source currently being process and for which 
     output			  rbusy,    //        busy and done are valid
     output			  rdone,
+    output reg        sd_err,   // FalconFPGA HARDEN: last direct request gave up (level, cleared on next request)
 
     // sector data output interface (sync with clk)
     input [7:0]		  inbyte,
@@ -138,6 +139,15 @@ always @(posedge clk) begin
    hs_startD <= start_any;
    if(start_any && !hs_startD) hs_latch <= rsector;
 end
+// FalconFPGA ST_SD_HARDEN: sd_rw gave up (wfail pulse with done) -> error level for the FDC,
+// cleared when the next request starts.
+initial sd_err = 1'b0;
+always @(posedge clk) begin
+   if(!HARDEN) sd_err <= 1'b0;
+   else if(start_any && !hs_startD) sd_err <= 1'b0;
+   else if(rw_dbg[55]) sd_err <= 1'b1;
+end
+
 wire [31:0] rsec = !HARDEN ? rsector : (start_any && !hs_startD) ? rsector : hs_latch;
 
 // drive index for the current request

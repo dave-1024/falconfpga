@@ -65,14 +65,14 @@ initial forever begin
       default: resp(ci, 32'h900, 48);
     endcase
   end end
-integer i, t0, ok, e0;
+integer i, t0, ok, e0; reg gaveup=0; always @(posedge clk) if(rdone && dbg[55]) gaveup<=1;
 task req; input w; input [31:0] s; input [7:0] seed; begin
-  for(i=0;i<512;i=i+1) buf_[i]=i^seed; sector=s; e0=dut.rec_cnt;
+  for(i=0;i<512;i=i+1) buf_[i]=i^seed; sector=s; e0=dut.rec_cnt; gaveup=0;
   @(posedge clk); if(w) wstart=1; else rstart=1; t0=0;
   while(!rdone && t0<200000000) begin @(posedge clk); t0=t0+1; end
-  wstart=0; rstart=0;
-  $display("%s sec %0d: %s after %0d clk, recoveries %0d, CMD0s %0d, card_stat %0d", w?"write":"read ", s,
-           rdone?"done":"HANG", t0, dut.rec_cnt-e0, cmd0s, card_stat);
+  ok=rdone; wstart=0; rstart=0;
+  @(posedge clk); $display("%s sec %0d: %s%s after %0d clk, recoveries %0d, CMD0s %0d, card_stat %0d", w?"write":"read ", s,
+           ok|gaveup?"done":"HANG", gaveup?" +GIVE-UP (sd_err)":"", t0, dut.rec_cnt-e0, cmd0s, card_stat);
   wait(card_stat==4'd8 || t0>=200000000); repeat(10) @(posedge clk);
 end endtask
 initial begin
