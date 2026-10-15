@@ -19,11 +19,15 @@ entity tb030 is
            RPC      : integer := 0;
            VEC6     : integer := 0;
            TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
+           WRST_DLY : integer := 0;       -- >0: warm reset (RESET+HALT low) WRST_DLY clocks after a write to $3500
+           WRST_LEN : integer := 128;     -- warm reset length in clocks (bridge RESET_HOLD = 128 clk_cpu)
            WSRND    : integer := 0);      -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
 end;
 architecture sim of tb030 is
   signal clk : std_logic := '0';
-  signal rstn : std_logic := '0';
+  signal rstn, rstn0 : std_logic := '0';
+  signal wrstn : std_logic := '1';
+  signal wrst_trig : boolean := false;
   signal adr, din, dout : std_logic_vector(31 downto 0);
   signal fc : std_logic_vector(2 downto 0);
   signal siz, dsackn : std_logic_vector(1 downto 0) := "11";
@@ -50,6 +54,19 @@ architecture sim of tb030 is
   signal trig_at : integer := -1;
   signal iack_clr : boolean := false;
 begin
+  rstn <= rstn0 and wrstn;
+  -- warm reset: RESET_INn and HALT_INn low together, as the ST bridge does (cpu_rst_n)
+  wrst: process
+    variable l : line;
+  begin
+    wait on wrst_trig;
+    for k in 1 to WRST_DLY loop wait until rising_edge(clk); end loop;
+    write(l, string'("WARM RESET asserted, RESET_OUT=")); write(l, std_logic'image(reso)); writeline(output, l);
+    wrstn <= '0';
+    for k in 1 to WRST_LEN loop wait until rising_edge(clk); end loop;
+    wrstn <= '1';
+    write(l, string'("WARM RESET released")); writeline(output, l);
+  end process;
   clk <= not clk after 62.5 ns when not done;
   dut : entity work.WF68K30L_TOP port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
@@ -88,7 +105,7 @@ begin
       file_close(rf);
     end if;
     lfsr := IRQ_DLY + 1;
-    wait for 20 us; rstn <= '1';
+    wait for 20 us; rstn0 <= '1';
     loop
       wait until rising_edge(clk); n := n + 1;
       if stop_at > 0 and n > stop_at then done <= true; wait; end if;
@@ -131,6 +148,7 @@ begin
           if a = x"00003400" then
             if IPL_MODE = 2 then trig_at <= clkn + IRQ_DLY; end if;
           end if;
+          if a = x"00003500" and WRST_DLY > 0 then wrst_trig <= not wrst_trig; end if;
           if a = x"00003300" then
             write(l, string'("DONE marker write at clk ")); write(l, n); writeline(output, l);
             if STOPDONE = 1 then stop_at := n + 200; end if;

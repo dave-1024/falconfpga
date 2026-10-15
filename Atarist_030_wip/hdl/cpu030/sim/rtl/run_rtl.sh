@@ -60,6 +60,20 @@ for ws in 0 1 3 7; do
   $G -r $O tb030 -gROMFILE=prog_berrwb.hex -gWS=$ws -gMAXCLK=20000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_berrwb.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_berrwb WS=$ws: $(bwres)"; fail=1; }
 done
+# F67: warm reset (RESET+HALT low 128 clocks, prog_wreset.s) after VBR/CACR/MSP/T1/M were set:
+# SSP/PC from $0/$4, SR $2704 (S, IPL7, T/M clear; Z from the boot check), VBR 0, CACR 0, SP $8000.
+# RSTI=1: the reset arrives while the RESET instruction drives RESET_OUT (EmuTOS start-up).
+for r in 0 1; do
+  m68k-linux-gnu-as -m68030 --register-prefix-optional --defsym RSTI=$r $H/prog_wreset.s -o p.o
+  m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+  python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_wreset.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+  for dly in 40 300; do
+    $G -r $O tb030 -gROMFILE=prog_wreset.hex -gWRST_DLY=$dly -gMAXCLK=40000 2>/dev/null > r.log || true
+    t=$([ $r = 0 ] && [ $dly = 300 ] && echo 0001 || echo 0000)
+    w=$(grep -oE "WR   A=000050[0-9A-F]{2} FC=5 SIZ=0 W=[0-9A-F]+" r.log | awk -F'W=' '{print substr($2,1,8)}' | tr '\n' ' ')
+    [ "$w" = "00002704 00000000 00000000 00008000 0000$t 00000002 " ] && grep -q DONE r.log || { echo "FAIL prog_wreset RSTI=$r DLY=$dly: $w"; fail=1; }
+  done
+done
 # F62d: A7 written back by the previous instruction while JSR/BSR/PEA/-(SP) decrements it
 # (prog_spwb.s); $600DC0DE at $3300 = every case saw the right SP.
 m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_spwb.s -o p.o
@@ -77,4 +91,4 @@ python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_loop
 $G -r $O tb030 -gROMFILE=prog_loop.hex -gWS=5 -gMAXCLK=200000 2>/dev/null > r.log || true
 lc=$(awk '/DONE/{print $NF}' r.log); echo "prog_loop WS=5: DONE at clk ${lc:-none}"
 [ -n "$lc" ] && [ "$lc" -le 45885 ] || { echo "FAIL prog_loop slower than the original core"; fail=1; }
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok"
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, warm reset ok, loop timing ok"

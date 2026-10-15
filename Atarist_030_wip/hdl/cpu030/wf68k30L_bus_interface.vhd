@@ -72,6 +72,7 @@
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-15 F67: external RESET+HALT is honoured while the RESET instruction drives RESET_OUT.
 -- 
 
 library work;
@@ -1181,9 +1182,14 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         --
-        if RESET_IN = '1' and HALT_In = '0' and RESET_OUT_I = '0' and TMP < x"F" then
+        -- [F67] An external reset is RESET and HALT together (MC68030UM 5.7, 7.9); the RESET
+        -- instruction drives RESET only. Upstream also ignored RESET_IN while RESET_OUT was
+        -- active, so an ST reset during the 512-clock RESET instruction (EmuTOS executes it
+        -- right after the reset vector) was lost and the CPU booted on top of a freshly reset
+        -- chipset. RESET_OUT is not fed back into RESET_IN in this system, and HALT qualifies.
+        if RESET_IN = '1' and HALT_In = '0' and TMP < x"F" then
             TMP := TMP + '1';
-        elsif RESET_IN = '0' or HALT_In = '1' or RESET_OUT_I = '1' then
+        elsif RESET_IN = '0' or HALT_In = '1' then
             TMP := x"0";
         end if;
         if TMP > x"A" then
