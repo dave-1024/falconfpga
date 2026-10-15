@@ -38,7 +38,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - Rollbacks: `st_helper_hdn_917668c_p3.fs` (previous board build), other `.fs` in `~/fpga_bitstreams`; helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`; `/workspace/fpga_rollback_20261009.zip` on the box.
 
 ## Branches
-`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
+`main` is the truth (open: `warm-reset`, F67, built `st_helper_hdn_wrst_39a1868_p3.fs`, not flashed; all other done work merged; `berr-nowb` F66 merged 15 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;

@@ -6,6 +6,10 @@ Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS
 FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all closed 15 Oct 2026).
 
 1. **Warm-reset halt** (`$482`): after `w` the 030 build stops at "System halted!"; `c` works.
+   15 Oct: not reproduced on `st_helper_hdn_berr_7e3660e_p3` (7 x `w`, 2 x FPGA reload: all desktop). EmuTOS halts when
+   `cmdload` ($482) != 0 (Pexec COMMAND.PRG fails); sysvars are only cleared on a first boot. Found F67 (branch
+   `warm-reset`): the core ignored RESET+HALT during the 512-clock RESET instruction, which EmuTOS runs right after
+   the reset vector, so the cold-start second ST reset could be lost. Built `st_helper_hdn_wrst_39a1868_p3.fs`, not flashed.
 2. **EmuTOS blitter greyed out** (works under TOS 2.06; HDL path inspected and correct).
 3. **Helper port** (AE350 companion firmware port).
 4. **Phase 2 of the CPU rework** (operand cycles without IDLE; see item 1 of the older list below).
