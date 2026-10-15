@@ -615,7 +615,17 @@ reg  [31:0] rw_pa, rw_pb;
 wire        dbg_rw    = DEBUG_LOG && rw_pv && !dbg_cw && !dbg_mw;
 wire        dbg_ew    = DEBUG_LOG && dbg_pv && !dbg_cw && !dbg_mw && !dbg_rw;
 wire        dbg_we    = dbg_cw || dbg_mw || dbg_rw || dbg_ew;
-wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 2'b00, direct_enable, 2'b00, drive, rsector, core_sector }
+// rsector as it was when the request was raised (rising edge of start_any).
+// flags[4] = 1 when it differs from rsector at the moment the write is handed
+// to sd_rw, i.e. the image sector moved while the request was waiting.
+reg         dbg_sa;
+reg  [31:0] dbg_rs_edge;
+always @(posedge clk) begin
+   dbg_sa <= start_any;
+   if(start_any && !dbg_sa) dbg_rs_edge <= rsector;
+end
+wire        dbg_moved = dbg_rs_edge != rsector;
+wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 2'b00, direct_enable, dbg_moved, 1'b0, drive, rsector, core_sector }
                       : dbg_mw ? { dbg_wcnt, 2'b01, 3'b000, 3'b000, 32'd0, mcu_sector }
                       : dbg_rw ? { dbg_wcnt, 2'b01, rw_psub, 3'b000, rw_pa, rw_pb }
                       :          { dbg_wcnt, dbg_pt, 3'b000, dbg_pd, dbg_pa, dbg_pb };
