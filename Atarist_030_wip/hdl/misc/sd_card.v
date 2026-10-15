@@ -144,6 +144,10 @@ wire [2:0] drive =
 // write from and to the sd card without and further interaction
 // with the Companion.
 reg [31:0] direct_start [8];   
+// SD_WRITE_DEBUG event strobe from the MCU command decoder (1 clock)
+reg [1:0]  dbg_ev;        // 2 = direct base set (cmd 6), 3 = image inserted (cmd 4/7)
+reg [2:0]  dbg_ev_drv;
+reg [31:0] dbg_ev_a, dbg_ev_b;
 wire	   direct_enable = direct_start[drive] != 32'd0;   
    
 wire [7:0] doutb;
@@ -231,6 +235,7 @@ always @(posedge clk) begin
 	  core_request <= CORE_REQ_IDLE;	  
    end else begin
       image_mounted <= 8'b00000000;
+      dbg_ev <= 2'd0;
 
 	  // handle MCU/core requests
 	  if(!busy_int && !done_int) begin
@@ -429,6 +434,8 @@ always @(posedge clk) begin
 					 $display("sd_card.v: MCU inserted image %0d with %0d bytes", image_target, { image_size[63:8], data_in } );
 					 direct_start[image_target] <= 32'd0;
 					 image_mounted[image_target] <= 1'b1;
+					 dbg_ev <= 2'd3; dbg_ev_drv <= image_target[2:0];
+					 dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { image_size[31:8], data_in };
 				  end
 			   end
 			end
@@ -470,6 +477,8 @@ always @(posedge clk) begin
                if(byte_cnt == 4'd3) ds[ 7: 0] <= data_in;
                if(byte_cnt == 4'd4) begin
 				  direct_start[image_target] <= { ds, data_in };
+				  dbg_ev <= 2'd2; dbg_ev_drv <= image_target[2:0];
+				  dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { ds, data_in };
 				  $display("sd_card.v: MCU direct start %0d with offset %0d(%8x)", image_target, { ds, data_in }, { ds, data_in });
 			   end
 			end
@@ -485,6 +494,29 @@ always @(posedge clk) begin
                if(byte_cnt == 4'd2) data_out <= dbg_rcnt[15:8];
                if(byte_cnt == 4'd3) data_out <= dbg_rcnt[7:0];
                if(byte_cnt >= 4'd4 && byte_cnt <= 4'd14) data_out <= dbg_q[8'd87 - 8'd8*(byte_cnt-4'd4) -: 8];
+            end
+
+            // SDC CMD 10: SD_WRITE_DEBUG state: direct_start[0], [1] (8 bytes),
+            // core_request, mcu_request, rstart|wstart, rsector (4 bytes)
+            if(DEBUG_LOG && command == 8'd10) begin
+               case(byte_cnt)
+                 4'd0: data_out <= direct_start[0][31:24];
+                 4'd1: data_out <= direct_start[0][23:16];
+                 4'd2: data_out <= direct_start[0][15:8];
+                 4'd3: data_out <= direct_start[0][7:0];
+                 4'd4: data_out <= direct_start[1][31:24];
+                 4'd5: data_out <= direct_start[1][23:16];
+                 4'd6: data_out <= direct_start[1][15:8];
+                 4'd7: data_out <= direct_start[1][7:0];
+                 4'd8: data_out <= { 5'd0, core_request };
+                 4'd9: data_out <= { 5'd0, mcu_request };
+                 4'd10: data_out <= rstart | wstart;
+                 4'd11: data_out <= rsector[31:24];
+                 4'd12: data_out <= rsector[23:16];
+                 4'd13: data_out <= rsector[15:8];
+                 4'd14: data_out <= rsector[7:0];
+                 default: ;
+               endcase
             end
 
             // SDC CMD 7: LARGE FILE INSERTED, usually used for HDD images > 4GB
@@ -504,6 +536,8 @@ always @(posedge clk) begin
 					 $display("sd_card.v: MCU inserted large image %0d with %0d bytes", image_target, { image_size[63:8], data_in } );
 					 direct_start[image_target] <= 32'd0;
                      image_mounted[image_target] <= 1'b1;
+					 dbg_ev <= 2'd3; dbg_ev_drv <= image_target[2:0];
+					 dbg_ev_a <= direct_start[image_target[2:0]]; dbg_ev_b <= { image_size[31:8], data_in };
 				  end
                end
             end
@@ -527,18 +561,32 @@ wire        dbg_idle  = !busy_int && !done_int;
 wire        dbg_cw    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_WRITE;
 wire        dbg_cr    = DEBUG_LOG && dbg_idle && core_request == CORE_REQ_READ;
 wire        dbg_mw    = DEBUG_LOG && dbg_idle && !dbg_cw && !dbg_cr && mcu_request == MCU_READY2WRITE;
-wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 1'b0, direct_enable, 3'b000, drive, rsector, core_sector }
-                               : { dbg_wcnt, 1'b1, 1'b0, 3'b000, 3'b000, 32'd0, mcu_sector };
+// flags byte: [7:6] type (0 core write, 1 MCU write, 2 direct base set,
+// 3 image inserted), [5] direct_enable (core write), [2:0] drive.
+// Types 2/3: image field = old base, card field = new base / image size.
+reg         dbg_pv;          // pending base/insert event
+reg  [1:0]  dbg_pt;
+reg  [2:0]  dbg_pd;
+reg  [31:0] dbg_pa, dbg_pb;
+wire        dbg_ew    = DEBUG_LOG && dbg_pv && !dbg_cw && !dbg_mw;
+wire        dbg_we    = dbg_cw || dbg_mw || dbg_ew;
+wire [87:0] dbg_wd    = dbg_cw ? { dbg_wcnt, 2'b00, direct_enable, 2'b00, drive, rsector, core_sector }
+                      : dbg_mw ? { dbg_wcnt, 2'b01, 3'b000, 3'b000, 32'd0, mcu_sector }
+                      :          { dbg_wcnt, dbg_pt, 3'b000, dbg_pd, dbg_pa, dbg_pb };
 always @(posedge clk) begin
-   if(dbg_cw || dbg_mw) dbg_ring[dbg_wp] <= dbg_wd;
+   if(dbg_we) dbg_ring[dbg_wp] <= dbg_wd;
    dbg_q <= dbg_ring[dbg_idx];
 end
 always @(posedge clk) begin
    if(!rstn) begin
-      dbg_wp <= 6'd0; dbg_wcnt <= 16'd0; dbg_rcnt <= 16'd0;
+      dbg_wp <= 6'd0; dbg_wcnt <= 16'd0; dbg_rcnt <= 16'd0; dbg_pv <= 1'b0;
    end else begin
-      if(dbg_cw || dbg_mw) begin dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1; end
+      if(dbg_we) begin dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1; end
       if(dbg_cr) dbg_rcnt <= dbg_rcnt + 16'd1;
+      if(dbg_ew) dbg_pv <= 1'b0;
+      if(DEBUG_LOG && dbg_ev != 2'd0) begin
+         dbg_pv <= 1'b1; dbg_pt <= dbg_ev; dbg_pd <= dbg_ev_drv; dbg_pa <= dbg_ev_a; dbg_pb <= dbg_ev_b;
+      end
    end
 end
 
