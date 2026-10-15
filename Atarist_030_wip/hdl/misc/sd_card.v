@@ -14,7 +14,8 @@ module sd_card # (
     parameter [2:0] CLK_DIV = 3'd2,
     parameter       SIMULATE = 0,
     parameter       WRITE_FIX = 0,    // see sd_rw.v (FalconFPGA ST_HELPER)
-    parameter       DEBUG_LOG = 0     // FalconFPGA SD_WRITE_DEBUG: ring of card writes, SDC cmd 9
+    parameter       DEBUG_LOG = 0,    // FalconFPGA SD_WRITE_DEBUG: ring of card writes, SDC cmd 9
+    parameter       HARDEN = 0        // FalconFPGA ST_SD_HARDEN: see sd_rw.v; here: latch the sector at the request edge
 ) (
     // rstn active-low, 1:working, 0:reset
     input			  rstn,
@@ -126,6 +127,18 @@ wire [7:0] inbyte_int;
 wire rstart_any = {|{rstart}};
 wire wstart_any = {|{wstart}};
 wire start_any = rstart_any || wstart_any;
+
+// ST_SD_HARDEN: the FDC's sd_lba is combinational (current track/sector/side).
+// Take the sector as it is on the rising edge of the request and hold it, so a
+// request that has to wait (card busy, recovery) is served at the sector it was
+// raised for even if the FDC moves on.
+reg         hs_startD;
+reg  [31:0] hs_latch;
+always @(posedge clk) begin
+   hs_startD <= start_any;
+   if(start_any && !hs_startD) hs_latch <= rsector;
+end
+wire [31:0] rsec = !HARDEN ? rsector : (start_any && !hs_startD) ? rsector : hs_latch;
 
 // drive index for the current request
 wire [2:0] drive =
@@ -332,9 +345,9 @@ always @(posedge clk) begin
 		 // is a direct offset of the requested sector relative from the
 		 // start of the image on card.
 		 if(start_any && direct_enable && core_request == CORE_REQ_IDLE) begin
-			$display("sd_card.v: Direct request for drive %0d, sector %0d", drive, rsector);
+			$display("sd_card.v: Direct request for drive %0d, sector %0d", drive, rsec);
 			
-			core_sector <= direct_start[drive] + rsector;
+			core_sector <= direct_start[drive] + rsec;
 			if(rstart_any) core_request <= CORE_REQ_READ;
 			if(wstart_any) core_request <= CORE_REQ_WRITE;
 		 end
@@ -355,11 +368,11 @@ always @(posedge clk) begin
 
 			   // only forward request if direct_enable has not been enabled by MCU
 			   if(byte_cnt == 4'd0) data_out <= direct_enable?8'h00:(rstart | wstart);
-			   if(byte_cnt == 4'd1) data_out <= rsector[31:24];
-			   if(byte_cnt == 4'd2) data_out <= rsector[23:16];
-			   if(byte_cnt == 4'd3) data_out <= rsector[15: 8];
+			   if(byte_cnt == 4'd1) data_out <= rsec[31:24];
+			   if(byte_cnt == 4'd2) data_out <= rsec[23:16];
+			   if(byte_cnt == 4'd3) data_out <= rsec[15: 8];
 			   if(byte_cnt == 4'd4) begin
-				  data_out <= rsector[ 7: 0];
+				  data_out <= rsec[ 7: 0];
 				  $display("sd_card.v: MCU status request");
 			   end  
 
@@ -526,7 +539,7 @@ always @(posedge clk) begin
                case(byte_cnt)
                  4'd0: data_out <= rw_dbg[51:44];
                  4'd1: data_out <= rw_dbg[43:36];
-                 4'd2: data_out <= { rw_dbg[55], 7'd0 };
+                 4'd2: data_out <= { rw_dbg[55], 3'd0, rw_dbg[35:32] };   // wfail, recoveries (HARDEN)
                  4'd3: data_out <= rw_dbg[31:24];
                  4'd4: data_out <= rw_dbg[23:16];
                  4'd5: data_out <= rw_dbg[15:8];
@@ -668,7 +681,7 @@ always @(posedge clk) begin
    end
 end
 
-sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX)) sd_rw (
+sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX), .HARDEN(HARDEN)) sd_rw (
    // rstn active-low, 1:working, 0:reset
    .rstn(rstn),
    .clk(clk),

@@ -917,6 +917,9 @@ sd_card #(
 `ifdef SD_WRITE_DEBUG
     .DEBUG_LOG(1),                         // FalconFPGA: SD write ring, SDC cmd 9
 `endif
+`ifdef ST_SD_HARDEN
+    .HARDEN(1),                            // FalconFPGA: SD token check, recovery by re-init, sector latch
+`endif
     .CLK_DIV(SD_CLK_DIV)                   // for 32 Mhz clock -> sd card clock = 16Mhz
 ) sd_card (
     .rstn(!por),                     // rstn active-low, 1:working, 0:reset
