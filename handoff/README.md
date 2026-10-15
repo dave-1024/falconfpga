@@ -14,10 +14,21 @@ Or commit straight to a branch `handoff/<short-name>` and Grok Bot merges or app
 Grok Bot does not poll; the watcher routine is paused. David tells Grok Bot a handoff is waiting,
 and Grok Bot acts only then. Handled files move to `handoff/done/`.
 
-Screen captures are suspended until a new capture device arrives (faulty capture device, returned).
-Screen results come from David looking at his monitor.
+Screen results: Grok Bot grabs HDMI frames on the build box (`~/fpga_tools/grab.sh`), and David checks
+his monitor. Board input goes through the helper console (`/dev/ttyUSB1`: `key`, `mouse`, `click`, `c`).
 
-Never in git: `.fs`, `impl/`, ROMs. Credit contributors. No compatibility patches in the 030 builds.
+Never in git: `.fs`, `impl/`, ROMs, disk images. Credit contributors. No compatibility patches in the 030 builds.
+
+## Before you write a change
+- Build, switches, flash map and rules: [`Atarist_030_wip/docs/BUILD.md`](../Atarist_030_wip/docs/BUILD.md).
+  Core = `gw_sh build_st_helper.tcl`, flashed with op 53 only. TOS at 0x500000 and the helper at 0x600000 are never
+  written by a core flash; no bulk erase. Helper changes: `helper_fw/companion/build_companion.sh`, op 56 at 0x600000.
+- New behaviour goes behind a `define in `build_st_helper.tcl` (off until proven on the board).
+- Open work and its order: [`docs/TODO.md`](../Atarist_030_wip/docs/TODO.md). Past bugs and lessons:
+  [`docs/FALCON_LESSONS.md`](../Atarist_030_wip/docs/FALCON_LESSONS.md). SD path: [`docs/SD_WRITE_DEBUG.md`](../Atarist_030_wip/docs/SD_WRITE_DEBUG.md).
+- Test images: check the CRC before and after a board test (gbref.st = 791ee820); use scratch images for writes.
+- Merge to `main` normally (no force push) once the board test passes, and move fixed bugs from TODO.md to
+  FALCON_LESSONS.md "Bugs found" (symptom, cause, fix, commit).
 
 ## Template (`.md`)
 
@@ -25,8 +36,8 @@ Never in git: `.fs`, `impl/`, ROMs. Credit contributors. No compatibility patche
 REQUEST_ID: YYYYMMDD-N
 ACTION: APPLY_ONLY | BUILD | BUILD_AND_FLASH
 WORKDIR: Atarist_030_wip
-BUILD_CMD: gw_sh build_tc138k.tcl
-TOS: keep | tos104 | emutos
+BUILD_CMD: gw_sh build_st_helper.tcl
+TOS: keep | tos206 | emutos
 
 WHAT: plain English, what the change does.
 WHY: the reason for it.

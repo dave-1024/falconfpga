@@ -3,17 +3,20 @@
 **In one paragraph:** an Atari ST/STE (MiSTeryNano core) whose 68000 is replaced by a 68030 (Wolfgang Foerster's
 WF68K30L) behind a TerribleFire-style bus bridge, on a Sipeed Tang Console 138K, with a Gowin AE350 RISC-V helper for
 SD card, disks, keyboard/mouse and OSD. It should behave like a real 68030/TF board on an ST bus (no compatibility hacks,
-no posted writes). TOS 2.06 boots to the desktop; GEMBENCH 6 runs.
+no posted writes). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 123% of a stock STE.
 
-**Start here:** [docs/BUILD.md](docs/BUILD.md) (build switches and why, timing checks, flashing),
-[docs/HISTORY.md](docs/HISTORY.md) (every fix, symptom/cause/commit), [docs/TODO.md](docs/TODO.md) (open work, the
+**Start here:** [docs/BUILD.md](docs/BUILD.md) (building the core and the helper on Windows or Linux, every switch and its
+default, timing checks, flash addresses and rules), [docs/FALCON_LESSONS.md](docs/FALCON_LESSONS.md) (lessons and the
+"Bugs found" list: symptom, cause, fix, commit), [docs/SD_WRITE_DEBUG.md](docs/SD_WRITE_DEBUG.md) (SD/floppy write path),
+[docs/HISTORY.md](docs/HISTORY.md), [docs/TODO.md](docs/TODO.md) (open work, the
 URGENT core item first), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed lab sections),
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (9 Oct 2026, main = BRIDGE_EARLY_AS build)
+## Status (15 Oct 2026, main)
 
-**Next task / handover for the CPU rework (Grok chat):** [`handoff/HANDOVER_2026-10-09_cpu_rework.md`](../handoff/HANDOVER_2026-10-09_cpu_rework.md). Rollback point: tag `rollback-2026-10-09-eas`.
+Board build: `st_helper_hdn_917668c_p3.fs` (main switches + `SD_WRITE_DEBUG`, place 3), TOS 2.06, helper
+`helper_companion_sdwlog_3ec6e20.bin`.
 
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 
@@ -22,17 +25,21 @@ GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 | F60 (CHK fix) | 48 | 60 | 31 | 120 | 61 |
 | F63 (bridge + SDRAM early start) | 61 | 69 | 37 | 137 | 71 |
 | F62d (prefetch queue + JSR fix) | 76 | 85 | 72 | 225 | 112 |
-| BRIDGE_EARLY_AS (current) | 86 | 86 | 74 | 230 | 115 |
+| p3 (early AS + F65 handoff + SD fixes) | 98 | 98 | 80 | 240 | **123** |
 
-Works: cold and warm boot, 4 MB memory test, desktop in low/medium res, menus, GEMBENCH All Tests, SD floppy images
-through the helper, program load and quit.
+Float Math: OK (13.08 s, 101%). The old "float panic" was a corrupt test image, not the CPU
+(docs/FALCON_LESSONS.md).
 
-Known issues (details in docs/TODO.md):
-- Dialog OK/Cancel buttons ignore mouse clicks (radio buttons work; Return works).
-- The blitter shows as disabled under TOS 2.06.
-- Helper SD writes time out.
-- Placement sensitivity: try place_option 3, then 1; always check TNS and recovery/removal before flashing.
-- Speed: the 030 core leaves 2 idle clocks between bus transfers (URGENT TODO item 1); no working caches yet.
+Works: cold boot, 4 MB memory test, desktop in low/medium res, GEMBENCH All Tests, SD floppy images mounted at
+power-up (`atarist.ini`) or at runtime, with desktop saves (the swap corruption is fixed by `ST_FLOPPY_MEDIACH`), large
+uploads through the helper, SD error recovery (`ST_SD_HARDEN`; a lost sector shows as a disk error in TOS).
+
+Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
+- A read that bus-errors writes `$FFFF` into the destination register.
+- Warm reset (`w`) halts the 030 build ("System halted!"); cold boot (`c`) works.
+- The blitter shows as disabled under EmuTOS.
+- Operand cycles still take an IDLE state (CPU rework phase 2); no working caches yet.
+- Placement sensitivity: always check TNS and recovery/removal before flashing.
 
 ## Credits and thanks: Stephen J. Leary (TerribleFire)
 
@@ -98,9 +105,7 @@ and the TV.
   black borders; mono (high resolution) is shown 1:1. The position can be
   tuned with `ST_H_OFS_COLOR`, `ST_H_OFS_MONO` and `ST_V_BORDER` in
   `hdmi_testpattern_640.sv`.
-- The on-screen menu (OSD) is **not** shown on this output yet.
-- The ST picture through the frame buffer has not yet been tested on real
-  hardware (the colour bars have).
+- The helper's OSD (`ST_HELPER_OSD`) is drawn over this output.
 - To go back to the original MiSTeryNano video output (with OSD and ST audio),
   comment out `` `define HDMI_TESTPATTERN `` near the top of `top.sv`.
 
@@ -158,16 +163,16 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   build) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
   at boot: it sends a line to the helper and shows the answer, then the
   desktop starts.
-- **Firmware:** `helper_fw/mailbox/` (`build_mailbox.bat`, AndeSight), flashed
-  at 0x0600000.
+- **Firmware:** `helper_fw/companion/` (`build_companion.sh` on Linux, `.bat` on
+  Windows), flashed at 0x0600000. See helper_fw/README.md.
 - **USB keyboard/mouse:** `ST_HELPER_USB` (on in this build) is a USB host
   on both Console USB-A ports. The AE350 companion firmware
   (`helper_fw/companion/`) reads it. See docs/ST_HELPER.md 7b.
 - **STE:** `ST_STE` (on in `build_st_helper.tcl`) forces the STE chipset
   (STE video/DMA sound/joypads, blitter) but keeps TOS in the ST ROM slot
   (flash 0x500000) instead of the MiSTeryNano STE offset. Extra 8 MB RAM stays
-  on its own OSD setting. `ST_SD_WRITE_FIX` (off) enables the unfinished
-  sd_rw write-busy fix (67793da), which is not timing-clean yet.
+  on its own OSD setting. The SD switches (`ST_SD_WRITE_FIX`, `ST_FLOPPY_MEDIACH`,
+  `ST_SD_HARDEN`, all on) are described in docs/BUILD.md.
 - **030 caches:** `ST_030_CACHES` (off; commented out in
   `build_st_helper.tcl`) builds in the experimental WF68K30L instruction and
   data caches (`wf68k30L_icache.vhd`, `wf68k30L_dcache.vhd`, CACHES generic on
@@ -208,8 +213,8 @@ to the Falcon hardware. It is not meant to be the fastest or most compatible ST.
   itself (instruction and data caches, CACR) goes **inside** the WF68K30L core
   in `hdl/cpu030/`, so the same core can move to the Falcon unchanged. Anything
   specific to the ST bus belongs in the bridge (`hdl/cpu030/cpu030_st_bridge.v`).
-- **The 68000 stays available.** Comment out `` `define CPU_030 `` at the top
-  of `hdl/atarist/atarist.v` to build the original fx68k 68000 instead.
+- **The 68000 stays available.** `ST_CPU_68000` (`build_st_68000.tcl`) builds the original fx68k
+  68000 instead of the 030, for comparisons.
 
 ## Where it came from
 
@@ -219,22 +224,10 @@ happens here; `misterynano_tc138k/` is kept as it was. File, module and output
 names (`atarist_tc138k`) were left unchanged. `HOW_TO_FILL.md` still describes
 the original `misterynano_tc138k` upload.
 
-## Status
+## Core limits
 
-| Step | State |
-|---|---|
-| 68030 (WF68K30L) replaces fx68k through a TF534-style bridge, CPU at 8 MHz locked to the ST bus | Built and simulated (`3b9afa6`), **not yet tested on hardware** |
-| Tighter bridge: 16 MHz CPU clock locked to `clk_32`, faster bus handshake | Planned |
-| Instruction cache inside the core (256 bytes, 16-byte lines, CACR control) | Planned |
-| Data cache inside the core (256 bytes, write-through, never caching I/O at `$FF8000` and up) | Planned |
-| Fast RAM | Later |
-
-Known limits of the core today: no MMU, no FPU, no caches yet, and no
-address error on odd word accesses, so it is not yet a complete 68030. TOS 3
-and 4 won't boot, because they need PMOVE (MMU). Use EmuTOS or TOS 1.04.
-
-See `hdl/cpu030/README.md` for how the bridge works, and `BUILD_REPORT.md` at the
-top of the repository for each build's results.
+No MMU, no FPU, no working caches, and no address error on odd word accesses, so it is not yet a complete 68030.
+TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl/cpu030/README.md` for the bridge.
 
 ## Board
 
@@ -243,32 +236,18 @@ top of the repository for each build's results.
 - Output name: `atarist_tc138k`
 - **Tang SDRAM module required**, in J9 / SDRAM0 (`hdl/tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
 - `Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `rigsdram/`, and the 030 splice.
-- TOS in SPI flash: **0x500000** (STE TOS at 0x540000), as in `misterynano_tc138k`. Only the bitstream changes between builds. Don't use Gowin Programmer's "SRAM Erase".
+- SPI flash: bitstream from 0, **TOS at 0x500000** (with `ST_STE` too), **helper firmware at 0x600000**. Only the bitstream changes between builds (op 53). Never bulk erase, and don't use Gowin Programmer's "SRAM Erase".
 
-## Build (Windows Gowin V1.9.12)
+## Build
 
-Open this folder, not `rigsdram`.
-
-**Preferred (options actually applied):**
-
-```
-cd Atarist_030_wip
-gw_sh build_tc138k.tcl
-```
-
-TCL sets Version C, `use_jtag_as_gpio 1`, MSPI/SSPI/DONE/CPU/READY as GPIO, `replicate_resources 1`.
-
-**IDE:** File → Open → `atarist_tc138k.gprj`. The `.gprj` is a file list. Confirm Process Configuration matches the TCL before you hit Run: SystemVerilog 2017, top module `top`, device version C, and dual-purpose pins JTAG / DONE / READY / MSPI / SSPI / CPU as GPIO. Leave MODE and I2C off.
-
-Bitstream: `impl/pnr/atarist_tc138k.fs` (gitignored).
+See [docs/BUILD.md](docs/BUILD.md): `gw_sh build_st_helper.tcl` (Windows or Linux), timing checks, op 53 flashing,
+and the helper build. `build_tc138k.tcl` / `atarist_tc138k.gprj` are the old desktop build without the helper.
 
 ## Not in this tree
 
-- FPGA-Companion / BL616 firmware (needed for OSD / TOS load / keyboard)
+- Bitstreams, helper binaries and disk images (kept on the build box, `~/fpga_bitstreams`)
 - TOS ROM images
 - Nano 20K, Primer 25K, Mega 138K, Console 60K board tops
-
-Cold-boot on this SOM is a known open item in both this core and rigsdram. Stock `top.sv` already ties `.reset` / `.user` to `0` “to fix tc138k booting”.
 
 ## Licence
 

@@ -1,81 +1,128 @@
 # Building and flashing Atarist_030_wip (Tang Console 138K)
 
-Short version: install Gowin V1.9.12.03, run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/`, check timing,
-flash `impl/pnr/st_helper.fs` with `programmer_cli` operation 53. The details and the reasons are below.
+Short version: run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/` (Gowin V1.9.12.03, Windows or Linux), check
+timing, and flash `impl/pnr/st_helper.fs` with `programmer_cli` op 53. Build the AE350 helper with
+`helper_fw/companion/build_companion.sh` (Linux) or `.bat` (Windows), and flash it with op 56 at 0x600000.
+Details, reasons and the rules are below. What went wrong before and why is in
+[FALCON_LESSONS.md](FALCON_LESSONS.md); open work is in [TODO.md](TODO.md); the SD/floppy write path is in
+[SD_WRITE_DEBUG.md](SD_WRITE_DEBUG.md).
 
 ## 1. What you need
-- **Gowin EDA V1.9.12.03** (Windows, the version every build here was made and timed with). Other versions place
-  differently, and this design is placement sensitive (see section 5).
-- **Board:** Sipeed Tang Console 138K (GW5AST-LV138PG484AC1/I0, device version C) with the SDRAM module.
-- **TOS image:** TOS 2.06 (256 KB, `tos206.img`, any language) is what all tests use. EmuTOS 256K also boots.
-  TOS is stored in the board flash at 0x500000 (section 7), not in the bitstream.
-- **SD card** (FAT) with floppy images, e.g. `blank.st` and GEMBENCH `gb403.st`. The AE350 helper mounts them.
-- **AE350 helper firmware** (`helper_fw/`, see ST_HELPER.md) flashed at 0x600000.
+- **Gowin EDA V1.9.12.03**: every build here was made and timed with it. Windows (`gw_sh.exe`) or Linux headless
+  (`/opt/gowin/IDE/bin/gw_sh`, run with `QT_QPA_PLATFORM=offscreen`); both give the same results. Other versions
+  place differently, and this design is placement sensitive (section 5).
+- **Board:** Sipeed Tang Console 138K (GW5AST-LV138PG484AC1/I0, **device version C**) with the **Tang SDRAM module in
+  J9**. Don't flash with J9 empty.
+- **TOS:** TOS 2.06 (256 KB) for all tests; EmuTOS 256K also boots. It lives in the board flash at 0x500000, not in
+  the bitstream, and is not in git.
+- **SD card** (FAT) with `.st` floppy images. The helper mounts them (`atarist.ini` for power-up mounts, OSD or the
+  console for runtime mounts).
+- **AE350 helper firmware** at flash 0x600000 (section 8).
 
 ## 2. Layout
-- `hdl/`: all HDL. `hdl/cpu030` (the WF68K30L 68030 core and the ST bus bridge), `hdl/atarist`, `hdl/gstmcu`,
-  `hdl/ikbd`, `hdl/jt49`, `hdl/fdc1772`, `hdl/hdmi`, `hdl/misc` (ST core from MiSTeryNano), `hdl/helper` (AE350 SoC glue,
-  PLLs), `hdl/tang/console138k` (top level, pins `.cst`, timing `.sdc`).
-- `helper_fw/`: firmware for the AE350 RISC-V helper (FPGA-Companion based).
-- `build_st_helper.tcl` (the main build), `build_tc138k.tcl` (desktop only, no helper), `build_ae350_serial.tcl`.
-- Benches: `hdl/cpu030/sim/rtl/run_rtl.sh` (CPU RTL, GHDL), `hdl/cpu030/sim/st/run_bus.sh` (whole ST, Icarus).
+- `hdl/`: all HDL. `hdl/cpu030` (WF68K30L 68030 and the ST bus bridge), `hdl/atarist`, `hdl/gstmcu`, `hdl/ikbd`,
+  `hdl/jt49`, `hdl/fdc1772`, `hdl/hdmi`, `hdl/misc` (ST core parts from MiSTeryNano, incl. `sd_card.v`/`sd_rw.v`),
+  `hdl/helper` (AE350 SoC glue, PLLs), `hdl/tang/console138k` (top, pins `.cst`, timing `.sdc`).
+- `helper_fw/`: AE350 helper firmware ([helper_fw/README.md](../helper_fw/README.md)).
+- Build scripts: `build_st_helper.tcl` (**the main build**), `build_st_helper_hdn.tcl` (same + `SD_WRITE_DEBUG`,
+  place 3: the build on the board), `build_st_68000*.tcl` (68000 comparison builds), `build_tc138k.tcl` (old desktop
+  build without the helper), `build_st_helper_{sdlog,mch,dmaw,excw,gdt,hiwatch,hiv6,wrw,nocart}.tcl` (debug/test
+  variants, one define each on top of the main build).
+- Benches: `hdl/cpu030/sim/rtl/run_rtl.sh` (CPU RTL, GHDL), `hdl/cpu030/sim/st/run_bus.sh` (whole ST, Icarus),
+  `hdl/misc/sim/tb_sd_*.v` (SD controller fault injection, Icarus), `hdl/fdc1772/sim/run_sim.sh` (FDC error status).
 
-## 3. Build
+## 3. Build the core
 ```
 cd Atarist_030_wip
-C:\Dev\Gowin\Gowin_V1.9.12.03_x64\IDE\bin\gw_sh.exe build_st_helper.tcl
+gw_sh build_st_helper.tcl                         # Windows: C:\Dev\Gowin\Gowin_V1.9.12.03_x64\IDE\bin\gw_sh.exe
+QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl   # Linux
 ```
-Output: `impl/pnr/st_helper.fs`, the timing report `impl/pnr/st_helper_tr_content.html`. A build takes about 25 min.
-The script writes the compile-time switches into `hdl/tang/console138k/build_sel.vh` (Gowin has no command-line
-define), which `top.sv` includes. To change a switch, edit the `puts $fh` lines at the top of the tcl.
+Output: `impl/pnr/st_helper.fs`, timing report `impl/pnr/st_helper_tr_content.html`. About 25-40 min. The script
+writes the switches into `hdl/tang/console138k/build_sel.vh` (Gowin has no command-line define), which `top.sv`
+includes. To change a switch, edit the `puts $fh` lines at the top of the tcl. Name the copy you keep after the
+commit and place option, e.g. `st_helper_hdn_917668c_p3.fs`, and keep it in `~/fpga_bitstreams`.
 
 ## 4. Compile-time switches (`define)
-Rule of the project: options are `define switches, off unless they are needed; no runtime hacks.
+Rule: options are `define switches; fixes that are proven go on by default; debug defines stay off on main.
 
-| switch | default in build_st_helper.tcl | what it does | why |
-|---|---|---|---|
-| `ST_HELPER` | on | AE350 RISC-V helper next to the ST: SD card, floppy/HD images, keyboard/mouse from the console, OSD | the board has no other way to load disks |
-| `ST_HELPER_OSD` | on | MiSTeryNano OSD drawn on the HDMI picture by the helper | menu without a PC |
-| `ST_COLOUR_MONITOR` | on | colour monitor (low/medium res); off = mono ST High | GEMBENCH and most software need colour |
-| `ST_STE` | on | STE chipset (TOS in the ST ROM slot) | TOS 2.06 + STE features |
-| `BRIDGE_EARLY_AS` | on | 030 bridge asserts AS for ST RAM cycles 62.5 ns after the address instead of 125 ns (still a legal 68000 cycle) | an 030 request lands just after the 8 MHz edge; without this every new transfer misses its 500 ns GSTMCU slot (notes/RAM_PATH.md). Delete the line to get the original 68000 timing, e.g. to measure a CPU-side fix alone |
-| `ST_030_CACHES` | off | experimental 030 I/D caches | incomplete (no CIIN, burst, DMA snoop), see TODO.md |
-| `ST_SD_WRITE_FIX` | on | helper SD write: wait for DAT0, 1 s busy, bounded CMD24 retry | see TODO.md 6 |
-| `DIAG_OVERLAY` | off | on-screen diagnostic overlay (DIAG_OVERLAY.md) | debugging only; never commit it switched on |
-| `WF030_TRACE` | off (branch `diag-trace`, `build_trace.tcl`) | in-fabric bus trace, dumped over HDMI | how the JSR bug was found |
-| `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out | resource/debug |
+| switch | default (build_st_helper.tcl) | what it does |
+|---|---|---|
+| `ST_HELPER` | on | AE350 RISC-V helper: SD card, floppy images, USB keyboard/mouse, console (ST_HELPER.md) |
+| `ST_HELPER_CART` | on | self-test cartridge at $FA0000 (helper mailbox check at boot) |
+| `ST_HELPER_USB` | on | USB host on the Console USB-A ports for the helper |
+| `ST_HELPER_OSD` | on | MiSTeryNano OSD drawn by the helper over HDMI (F12) |
+| `ST_COLOUR_MONITOR` | on | colour monitor (low/medium res); off = mono ST High |
+| `ST_STE` | on | STE chipset, TOS in the ST ROM slot (0x500000). Pinned in TODO.md: the ST/STE switch will be removed and STE hardwired |
+| `BRIDGE_EARLY_AS` | on | "early AS": the bridge asserts AS for ST RAM cycles at S0 en2 (62.5 ns after the address, still a legal 68000 cycle), so a 030 request makes its GSTMCU slot (notes/RAM_PATH.md). Off = the original 68000 phase timing |
+| `WF030_FAST_HANDOFF` | on | F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L (operand cycles still go through IDLE; TODO.md) |
+| `ST_SD_WRITE_FIX` | on | sd_rw waits for DAT0 not busy before CMD17/CMD24, bounded CMD24 retry, a failed write completes instead of jamming in state 13 |
+| `ST_FLOPPY_MEDIACH` | on | holds floppy write-protect ~0.75 s after each image insert/eject, so TOS sees a runtime disk swap. Without it TOS writes the old disk's FAT/directory into the new image (the gb403 corruption) |
+| `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
+| `ST_030_CACHES` | off | experimental 030 I/D caches; incomplete (no CIIN, burst, DMA snoop) |
+| `ST_CPU_68000` | off (`build_st_68000.tcl`, `build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
+| `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn/mch/sdlog.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
+| `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |
+| `DIAG_HIWATCH`, `DIAG_HIWATCH_V6`, `DIAG_EXCWATCH`, `DIAG_DMAWATCH`, `DIAG_GDTRACE` | off (own tcl each) | float-panic hunt probes (float_panic/FLOAT_PANIC.md); debug only, never on main |
+| `WF030_TRACE` | off (branch `diag-trace`) | in-fabric bus trace (how the JSR SP bug was found) |
+| `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out |
 
-## 5. place_option (placement)
-The design is sensitive to placement: the same RTL can fail timing or, in one case, give a bitstream whose AE350
-helper did not boot. Builds here use `set_option -place_option 3` first and `1` if 3 fails. Never accept a build that
-does not meet timing; try the other place option instead of changing constraints.
+## 5. place_option
+The same RTL can fail timing, or (once) give a bitstream whose helper didn't boot, depending on placement.
+`build_st_helper.tcl` uses `place_option 1`; the board builds (`*_p3.fs`, `build_st_helper_hdn.tcl`) use 3. If one
+fails timing, try the other. Don't relax constraints to make a build pass.
 
 ## 6. Check timing (before every flash)
 In `impl/pnr/st_helper_tr_content.html`:
-1. **TNS table: 0 on every clock**, setup and hold. Typical: clk32_core ~32 MHz, clk_cpu030 ~17 MHz.
-2. **Recovery and removal tables** (further down, NOT included in the TNS table): every slack positive. These are
-   the asynchronous reset paths; the reset synchronisers (HISTORY.md) made them clean (recovery ~+7.5 ns,
-   removal ~+0.25 ns).
-3. Ignore the header's "violated endpoints" count; it does not match the tables.
+1. **TNS table: 0 on every clock**, setup and hold (clk32 ~32 MHz, clk_cpu030 ~17 MHz).
+2. **Recovery/removal tables** (not in the TNS table): every slack positive.
+3. Ignore the header's "violated endpoints" count.
 
-## 7. Flash (programmer_cli)
-Find the cable location first (it changes when the PC reboots):
+## 7. Flash the core (programmer_cli)
+Linux (`/opt/gowin/Programmer/bin`, as root) or Windows (`programmer_cli.exe`):
 ```
-programmer_cli.exe --scan-cables
-programmer_cli.exe --scan --location 289
+./programmer_cli --scan-cables                     # every time: the location changes (e.g. 4289)
+./programmer_cli -d GW5AST-138C --location 4289 --run 53 --fsFile st_helper_hdn_917668c_p3.fs
+./programmer_cli -d GW5AST-138C --location 4289 --run 1   # reload the FPGA from flash
+modprobe ftdi_sio                                  # Linux: the programmer unbinds the helper's ttyUSB1
 ```
-Bitstream (to the flash, op 53):
-```
-programmer_cli.exe --device GW5AST-138B --operation_index 53 --fsFile impl\pnr\st_helper.fs --location 289
-```
-- TOS lives at flash 0x500000 (written once with op 56 `--mcuFile tos206.img` at that address), the helper
-  firmware at 0x600000. Operation 53 only writes the bitstream area; the bitstream must end below 0x500000
-  (the log prints the end address, about 0x04D0000).
-- **Never bulk erase** and never write over 0x500000/0x600000 by accident: TOS and the helper firmware are gone then.
-- Check the file hash before flashing (`Get-FileHash`), and after flashing cold boot to the desktop at once. Keep the
-  last good `.fs` to go back to.
+Rules:
+- **Op 53 only**, always with `--fsFile`. Give it about 300 s and log the output; the log prints the end address
+  (about 0x04B6000), which must be below 0x500000.
+- **Flash map:** bitstream from 0; **TOS at 0x500000**; **helper firmware at 0x600000**. Never write either of those
+  by mistake, and **never bulk erase**.
+- Rescan the cables before each flash. Check the file's SHA-256. Keep the last good `.fs`.
+- After a flash, a second op 1 is sometimes needed before the helper console answers.
+- Then cold boot (`c` on the helper console) and check the desktop. Note: warm reset (`w`) currently halts the 030
+  build (TODO.md).
 
-## 8. Tests
-- `bash hdl/cpu030/sim/rtl/run_rtl.sh` must print PASS (CPU core, GHDL).
-- `bash hdl/cpu030/sim/st/run_bus.sh <wf030.vg>` (whole ST with sdram.v): read-data timing, no late reads.
-- On the board: cold boot (memory test 4096 KB, desktop), warm reset, ST Medium, GEMBENCH 6 All Tests.
+## 8. The AE350 helper
+Source: `helper_fw/fpga-companion` (FPGA-Companion with an AE350 port in `src/ae350/`). Build script:
+`helper_fw/companion/build_companion.sh` (Linux) or `build_companion.bat` (Windows); both give the same image.
+
+Linux setup (once):
+1. Toolchain: **Andes AST v5.1.1** Linux, `nds32le-elf-newlib-v5` (gcc 10.3.0), from
+   github.com/andestech/Andes-Development-Kit, release `ast-v5_1_1-release-linux`. Unpack to
+   `~/andes/5_1_1/` (or set `FALCON_TC` to its `bin/`). It matches AndeSight RDS v5.1.1 on Windows; a generic
+   riscv-gnu or xPack gcc is not a drop-in.
+2. BSP: from Gowin's **RiscV_AE350_SOC_V1.3** zip, unpack so that `~/ae350sdk/library/bsp` exists (or set
+   `FALCON_SDK`). The script uses `bsp/ae350`, `driver`, `config`, `lib` and the linker script `sag/ae350-ddr.ld`.
+3. `bash helper_fw/companion/build_companion.sh` gives `output/helper_companion.bin` (prints size and SHA-256; it
+   warns if the `.bootloader` section is missing, in which case don't flash).
+
+Flash it (core flash untouched):
+```
+./programmer_cli -d GW5AST-138C --location 4289 --run 56 --mcuFile helper_companion.bin --spiaddr 0x600000
+```
+Keep a known-good helper `.bin` to roll back to (e.g. `helper_companion_osd3.bin`, `helper_companion_sdwlog_3ec6e20.bin`).
+
+Helper console: the BL616 USB serial (Linux `/dev/ttyUSB1`), 115200 8N1. Useful commands: `c` cold boot, `w` warm
+reset, `ls`, `mount a <img>`, `eject`, `save` (atarist.ini), `crc <file>`, `scrc <file>` (per-sector CRC),
+`get <file> [off] [len]`, `put`/`h`/`pend` (upload), `key`, `type`, `mouse dx dy`, `click [2]`, `sd`, and with
+`SD_WRITE_DEBUG`: `sdwlog`, `sdstate`, `sdrw`. Avoid two programs on the port at once (a concurrent upload left a
+0-byte file).
+
+## 9. Tests
+- `bash hdl/cpu030/sim/rtl/run_rtl.sh` must print PASS; `run_bus.sh` for the whole ST.
+- SD/FDC: `iverilog` benches in `hdl/misc/sim/` and `hdl/fdc1772/sim/run_sim.sh`.
+- Board: cold boot (4096 KB memory test, desktop), ST Medium, GEMBENCH 6 All Tests from a known-good image
+  (check its CRC first: a corrupt image once looked like a CPU bug for days), a runtime image swap with a desktop save.

@@ -33,7 +33,7 @@ It does not replace the board, the real 68030, or the decision of what is known-
 
 ---
 
-FPGA work toward an Atari Falcon on a **Sipeed Tang Console** with the **GW5AST-138K** SOM (device `GW5AST-LV138PG484AC1/I0`, **Version C**). Toolchain is **Gowin IDE / gw_sh V1.9.12** on Windows, plus a Linux headless Gowin box used only to compile.
+FPGA work toward an Atari Falcon on a **Sipeed Tang Console** with the **GW5AST-138K** SOM (device `GW5AST-LV138PG484AC1/I0`, **Version C**). Toolchain is **Gowin IDE / gw_sh V1.9.12.03**, on Windows or on a headless Linux box (same results). The AE350 helper firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**, on Linux (`build_companion.sh`) or Windows (`.bat`). How to build and flash: [`Atarist_030_wip/docs/BUILD.md`](Atarist_030_wip/docs/BUILD.md).
 
 This repository is **source only**. Bitstreams, `impl/`, and disk images stay on the machine that built or flashed them. **Atari TOS is not in git.** The hybrid was designed so **any TOS the user owns can be loaded from an SD card**.
 
@@ -78,7 +78,17 @@ These faults do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those tre
 
 ## Where we are
 
-Two **active** vehicles in this repo, on purpose. They do not share a top. `Hybrid030/` is frozen history, not a third live Gowin target.
+The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by the re-engineered wf68k30L behind a TerribleFire TF534-style bridge, with the SOM's AE350 as the helper (SD card, floppy images, USB keyboard/mouse, OSD).
+
+### `Atarist_030_wip/`: 68030 ST (status 15 Oct 2026)
+
+- TOS 2.06 boots to the GEM desktop from cold; 4 MB, low/medium res.
+- **GEMBENCH 6: 123% of a stock STE** (RAM 98 / ROM 98 / Display 80 / CPU 240), all tests. **Float Math OK** (13.08 s).
+- SD floppy images work at power-up and at runtime, including desktop saves; the SD path recovers from card errors and reports a lost sector to TOS as a disk error.
+- Open (in order): `$FFFF` bus-error writeback, warm-reset halt, EmuTOS blitter greyed out, helper port, CPU rework phase 2. See [`TODO.md`](Atarist_030_wip/docs/TODO.md).
+- Docs: [`README`](Atarist_030_wip/README.md), [`BUILD.md`](Atarist_030_wip/docs/BUILD.md) (switches, defaults, Linux builds, flash map and rules), [`FALCON_LESSONS.md`](Atarist_030_wip/docs/FALCON_LESSONS.md) (lessons and every bug found), [`SD_WRITE_DEBUG.md`](Atarist_030_wip/docs/SD_WRITE_DEBUG.md), [`handoff/`](handoff/README.md).
+
+The two older vehicles below are kept as references. They do not share a top. `Hybrid030/` is frozen history.
 
 ### `rigsdram/` — 030 + external SDRAM oracle
 
@@ -108,13 +118,9 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 ## Where it is headed
 
-1. **Prove stock MiSTeryNano** on the Tang Console: repeated cold boots to a GEM desktop.
-2. **Freeze** that tree. Clone it (`misterynano_030/` or similar).
-3. **Splice the re-engineered wf68k30L** into the clone using TerribleFire **TF534** bus arbitration, not a drop-in replacement of fx68k. 030 bus (`SIZ` / `DSACKn` / `FC`) is not a 68000 bus.
-4. First splice: **8 MHz CPU**, stock ST chipset. Caches off. PMMU off.
-5. Then: **16 MHz CPU**, chipset still stock ST speed — a real accelerator, wait-stated onto the 8 MHz bus.
-6. Only after that desktop validates the 030: move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map).
-7. Once the 030 build reaches a desktop, and not before: the SOM **Andes AE350** is the helper. OSD, and floppy and hardfile insertion from the microSD. Keyboard and mouse on the two front USB-A sockets, already used by the hybrid. The BL616 stays the USB JTAG debugger and is not reflashed. PMMU walks on the AE350 come later, only when MiNT is next. A hit stays in the fabric.
+1. ~~Clone MiSTeryNano~~ (`Atarist_030_wip/`), ~~splice the wf68k30L via TF534-style bus arbitration~~, ~~8 then 16 MHz CPU on the stock 8 MHz ST bus~~, ~~AE350 as the helper (OSD, floppy images from microSD, USB keyboard/mouse; the BL616 stays the JTAG/serial bridge)~~. Done as of October 2026.
+2. **Now:** finish the 030 on the ST bus (the open list in `Atarist_030_wip/docs/TODO.md`), then the full request-handoff rework and caches.
+3. Then move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map). PMMU walks on the AE350 come later, only when MiNT is next.
 
 Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolated 030+SDRAM check.
 
@@ -138,9 +144,9 @@ The **Tang SDRAM module** is the plug-in board in **J9**. It is not the DDR3 sol
 - **Every HDL build from here does.** `misterynano_tc138k/`, `rigsdram/`, the 030 splice, and later Falcon HDL all use that module. Do not flash those bitstreams with J9 empty.
 
 - Tang Console + 138K SOM.
-- FPGA-Companion / BL616 is required for MiSTeryNano OSD, keyboard and TOS load. It is **not** in this repo. The hybrid does not use Companion.
+- `Atarist_030_wip/` runs FPGA-Companion on the SOM's AE350 (source in `Atarist_030_wip/helper_fw/`); the BL616 is not reflashed. Stock `misterynano_tc138k/` still expects a BL616 companion, which is not in this repo. The hybrid does not use Companion.
 - Hybrid TOS: user-supplied image on **SD**. EmuTOS 1.4 may ship as a GPL C array; Atari TOS does not.
-- Nano TOS flash offset is measured from bitstream size after a real build (HDL map 0x500000 vs some docs 0x900000). Do not guess.
+- Flash map for `Atarist_030_wip/`: bitstream from 0 (ends ~0x4B6000), **TOS at 0x500000**, **helper at 0x600000**. Core flashes use op 53 only; never bulk erase.
 
 ## Credits
 
@@ -171,7 +177,7 @@ will be fixed.
 | `CONTEXT.md` | engineering handoff for a new chat. Not a build request. |
 | `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
 | `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
-| `Atarist_030_wip/` | ST test bench with the 68030 in place of the 68000, via a TF534-style bridge. **Needs the SDRAM module.** |
+| `Atarist_030_wip/` | **the live tree:** ST with the 68030 in place of the 68000, via a TF534-style bridge, AE350 helper. **Needs the SDRAM module.** Docs in `Atarist_030_wip/docs/`. |
 | `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
 | `Hybrid030/hybrid_falcon030/GUI.md` | GUI ticks before a hybrid Place & Route. MSPI and CPU only. |
 | `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. Not in vendor docs. |
