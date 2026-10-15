@@ -67,6 +67,8 @@ static void help(void) {
          "  mount <d> <file>  insert an image: d = a, b (floppy .st), h0, h1 (ACSI .hd/.img)\r\n"
          "  eject <d>    remove the image from drive d\r\n"
          "  sdlog on|off log every core SD request: SDLOG #n R/W drv img-lba -> card-lba, timeouts\r\n"
+         "  scrc <f>     CRC32 of every 512 byte sector of /sd/<f> (read-only)\r\n"
+         "  get <f> [off] [len]  hex dump of /sd/<f> (read-only, default 512 bytes)\r\n"
          "  sdwlog [n]   last n card writes from the core's SD_WRITE_DEBUG ring\r\n"
          "  save         write the mounted images to /sd/atarist.ini (mounted at boot)\r\n"
          "  cfg          dump the core's XML config\r\n"
@@ -386,6 +388,34 @@ static void up_end(void) {
   printf("done %lu bytes crc32 %08lx\r\n", (unsigned long)up_len, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
 }
 
+
+/* read-only image inspection: per-sector CRC32 list and hex dump */
+static void up_scrc(const char *name) {
+  char path[96]; static uint8_t b[512]; UINT r; FIL f; unsigned long s = 0;
+  if(!sd_ready() || !name) return;
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&f, path, FA_READ) != FR_OK) { printf("e open\r\n"); return; }
+  while(f_read(&f, b, sizeof(b), &r) == FR_OK && r) {
+    up_crc = 0xFFFFFFFFu; up_crc_add(b, r);
+    printf("s %lu %08lx\r\n", s++, (unsigned long)(up_crc ^ 0xFFFFFFFFu));
+  }
+  f_close(&f);
+  printf("done %lu sectors\r\n", s);
+}
+static void up_get(const char *name, unsigned long off, unsigned long len) {
+  char path[96]; uint8_t b[32]; UINT r; FIL f;
+  if(!sd_ready() || !name) return;
+  snprintf(path, sizeof(path), "%s/%s", CARD_MOUNTPOINT, name);
+  if(f_open(&f, path, FA_READ) != FR_OK) { printf("e open\r\n"); return; }
+  if(f_lseek(&f, off) != FR_OK) { f_close(&f); printf("e seek\r\n"); return; }
+  while(len && f_read(&f, b, len > 32 ? 32 : len, &r) == FR_OK && r) {
+    printf("g %06lx ", off);
+    for(UINT i = 0; i < r; i++) printf("%02x", b[i]);
+    printf("\r\n"); off += r; len -= r;
+  }
+  f_close(&f);
+  printf("done\r\n");
+}
 static void up_crcfile(const char *name) {
   char path[96]; static uint8_t b[512]; UINT r; FIL f;
   if(!sd_ready() || !name) return;
@@ -416,6 +446,8 @@ static void run_line(const char *line) {
   if(!strcmp(c, "h")) { up_hex(argc > 1 ? argv[1] : ""); return; }
   if(!strcmp(c, "put")) { sdc_log = 0; up_put(argc > 1 ? argv[1] : NULL); return; }
   if(!strcmp(c, "pend")) { up_end(); return; }
+  if(!strcmp(c, "scrc")) { up_scrc(argc > 1 ? argv[1] : NULL); return; }
+  if(!strcmp(c, "get")) { up_get(argc > 1 ? argv[1] : NULL, argc > 2 ? strtoul(argv[2], 0, 0) : 0, argc > 3 ? strtoul(argv[3], 0, 0) : 512); return; }
   if(!strcmp(c, "crc")) { up_crcfile(argc > 1 ? argv[1] : NULL); return; }
   int link = ae350_link_up();
 
