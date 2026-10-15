@@ -592,7 +592,7 @@ reg         dbg_pv;          // pending base/insert event
 reg  [1:0]  dbg_pt;
 reg  [2:0]  dbg_pd;
 reg  [31:0] dbg_pa, dbg_pb;
-// sd_rw.v state ({ wfail, 7'b0, sdcmd_stat, sddat_stat, wack, wretry, sectoraddr })
+// sd_rw.v state ({ wfail, 3'b0, sdcmd_stat, sddat_stat, wack, wretry, 4'b0, sectoraddr }): [51:48] sdcmd, [47:44] sddat, [43:40] wack, [39:36] wretry
 wire [55:0] rw_dbg;
 reg  [55:0] rw_prev;
 wire [3:0]  rw_cmd   = rw_dbg[51:48], rw_dat = rw_dbg[47:44], rw_pcmd = rw_prev[51:48], rw_pdat = rw_prev[47:44];
