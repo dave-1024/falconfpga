@@ -186,9 +186,14 @@ module cpu030_st_bridge #(
         .CACHES    ( 0             ),    // no caches, as a TF534/TF536 with ST-RAM (default)
 `endif
 `ifdef WF030_FAST_HANDOFF
-        .FAST_HANDOFF ( 1          )     // [F65] prefetch S5 rolls into the next prefetch S0
+        .FAST_HANDOFF ( 1          ),    // [F65] prefetch S5 rolls into the next prefetch S0
 `else
-        .FAST_HANDOFF ( 0          )     // [F65] IDLE -> START_CYCLE between prefetches
+        .FAST_HANDOFF ( 0          ),    // [F65] IDLE -> START_CYCLE between prefetches
+`endif
+`ifdef WF030_BERR_NOWB
+        .BERR_NOWB    ( 1          )     // [F66] a bus-errored read leaves its destination register unchanged
+`else
+        .BERR_NOWB    ( 0          )     // [F66] upstream: the bus value ($FFFF) is written to the destination
 `endif
     ) i_wf68k30l (
 `endif

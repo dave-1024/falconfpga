@@ -19,6 +19,7 @@ entity tb030 is
            RPC      : integer := 0;
            VEC6     : integer := 0;
            TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
+           BERR_NOWB : integer := 1;      -- [F66] core generic: bus-errored reads do not write their destination
            WSRND    : integer := 0);      -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
 end;
 architecture sim of tb030 is
@@ -51,7 +52,7 @@ architecture sim of tb030 is
   signal iack_clr : boolean := false;
 begin
   clk <= not clk after 62.5 ns when not done;
-  dut : entity work.WF68K30L_TOP port map (
+  dut : entity work.WF68K30L_TOP generic map (BERR_NOWB => BERR_NOWB) port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,

@@ -38,6 +38,9 @@ puts $fh "`define BRIDGE_EARLY_AS"
 # has been run with the generic set to 1. Delete the comment to build it in.
 # Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
 puts $fh "`define WF030_FAST_HANDOFF"
+# F66: a read that bus-errors leaves its destination register unchanged (MC68030).
+# Delete for the upstream WF68K30L behaviour (the bus value $FFFF is written).
+puts $fh "`define WF030_BERR_NOWB"
 # SD write recovery (hdl/misc/sd_rw.v WRITE_FIX): wait for DAT0 not busy before
 # CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.

@@ -157,6 +157,7 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-10-15 F66: BERR_NOWB generic: a bus-errored operand read ends the instruction, no register writeback.
 --
 
 library work;
@@ -183,7 +184,10 @@ entity WF68K30L_TOP is
         -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
         -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
         -- unchanged either way.
-        FAST_HANDOFF    : integer := 0);
+        FAST_HANDOFF    : integer := 0;
+        -- [F66] 1: a read that bus-errors does not write its destination register
+        -- (MC68030). 0 (default): upstream behaviour, the bus value ($FFFF) is written.
+        BERR_NOWB       : integer := 0);
 
     port (
         CLK             : in std_logic;
@@ -1136,7 +1140,7 @@ begin
         );
 
     I_CONTROL: WF68K30L_CONTROL
-        generic map(NO_PIPELINE     => NO_PIPELINE)
+        generic map(NO_PIPELINE     => NO_PIPELINE, BERR_NOWB => BERR_NOWB) -- [F66]
         port map(
             CLK                     => CLK,
             RESET_CPU               => RESET_CPU,

@@ -155,6 +155,7 @@
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
+--   2026-10-15 F66: BERR_NOWB generic: a bus-errored operand read ends the instruction, no register writeback.
 --
 
 use work.WF68K30L_PKG.all;
@@ -165,7 +166,8 @@ use ieee.std_logic_unsigned.all;
 use ieee.numeric_std.all;
 
 entity WF68K30L_CONTROL is
-    generic(NO_PIPELINE     : boolean := false); -- If true the controller work in scalar mode.
+    generic(NO_PIPELINE     : boolean := false; -- If true the controller work in scalar mode.
+            BERR_NOWB       : integer := 0); -- [F66] 1: a bus-errored operand read ends the instruction (no writeback)
     port (
         CLK                 : in std_logic; -- System clock.
         RESET_CPU           : in bit; -- CPU reset.
@@ -1505,6 +1507,13 @@ begin
         elsif OPD_ACK = '1' and OW_VALID = '0' then
             FETCH_STATE <= START_OP; -- Bus error.
             EXEC_WB_STATE <= IDLE;
+        elsif BERR_NOWB = 1 and RD_RDY = '1' and DATA_VALID = '0' and
+              (FETCH_STATE = FETCH_OPERAND or FETCH_STATE = FETCH_MEMADR) then
+            -- [F66] A faulted operand read ends the instruction here, so it never reaches
+            -- INIT_EXEC_WB and its destination keeps the old value (MC68030). The branch
+            -- below never fires: DATA_RD_I is forced to '0' while DATA_RDY = '1'. The
+            -- write-back stage keeps running: it belongs to the previous instruction.
+            FETCH_STATE <= START_OP;
         elsif DATA_RD_I = '1' and RD_RDY = '1' and DATA_VALID = '0' then
             FETCH_STATE <= START_OP; -- Bus error.
             EXEC_WB_STATE <= IDLE;
