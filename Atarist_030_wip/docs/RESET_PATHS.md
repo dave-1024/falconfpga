@@ -120,3 +120,13 @@ booting under a freshly reset chipset (the MMU/memconf, MFP and so on reset mid-
 4. **Board test procedure:** first a power cycle or `c` to clear stale SDRAM. Read diag030w after any halt. Run the stress test (op 1 / `w` / `c`) with a frame check
    that tells the desktop from the noise and "System halted!" screens (brightness alone counted two halted noise frames as desktop).
 5. **Optional, to check:** on a real STE the RESET instruction also resets the DMA chip. Ours resets DMA (and the ACIAs, which have no pin) on the ST reset only.
+
+## 7. F68 board test (15 Oct 2026, st_helper_hdn_wrst_ec5503a_p3, timing clean)
+
+- **Results:** `c` (c0): desktop. Reloads (op 1) r1-r7: desktop. r8 and r10: "System halted!"; r9: halted (noisy capture). Then w1-w3: halted (sticky). Stopped there.
+- **Rollback:** back to F66 (st_helper_hdn_berr_7e3660e_p3); `c`: desktop, `w`: desktop.
+- **Conclusion:** F68 removes the RESET_OUT tail, but F67+F68 still halts intermittently on op 1 reloads (power-up + DR_GAP path), and the bad state then survives `w` (stale SDRAM, as in section 5).
+  F66 (upstream filter) does not show this. Possible next steps:
+  - Build with DIAG_OVERLAY to read the diag030w flags and the cmdload word on a halt.
+  - Check the DR_GAP pulse itself: with F67 the CPU now really reboots 48 us into EmuTOS, so DR_GAP may no longer be wanted, or it should be applied before the CPU is released.
+- **Frame classifier:** correlation of a blurred, normalised frame with a reference desktop (> 0.6 = desktop, > 85 % white = halt screen). It copes with capture noise. In the F67 run, r1/r7/r9 were noisy halt screens, not desktops.
