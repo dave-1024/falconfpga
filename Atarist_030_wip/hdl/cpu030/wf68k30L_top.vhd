@@ -158,6 +158,7 @@
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
 --   2026-10-16 PH2: address/FC latches also load on OP_CHAIN_LD (prefetch S5 to operand S0).
+--   2026-10-16 PH2-FMAX: ADR_LATCH/FC_LATCH drive the bus interface's ADR_LAT/FC_LAT (address pins).
 --
 
 library work;
@@ -1106,6 +1107,8 @@ begin
             OP_WR               => DATA_WR, -- [F65]
             ADR_NXT             => ADR_NXT, -- [PH2]
             FC_NXT              => FC_NXT, -- [PH2]
+            ADR_LAT             => ADR_LATCH, -- [PH2-FMAX]
+            FC_LAT              => FC_LATCH, -- [PH2-FMAX]
             OP_CHAIN_LD         => OP_CHAIN_LD, -- [PH2]
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,

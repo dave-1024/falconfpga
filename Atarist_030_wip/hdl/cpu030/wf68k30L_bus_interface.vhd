@@ -78,6 +78,7 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-16 PH2: prefetch S5 to operand S0 (OP_CHAIN), operand S5 to prefetch S0 (DP_CHAIN), unconditional.
+--   2026-10-16 PH2-FMAX: operand address and FC pins from ADR_LAT/FC_LAT (registered; differ only in IDLE).
 -- 
 
 library work;
@@ -146,6 +147,8 @@ entity WF68K30L_BUS_INTERFACE is
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
         FC_NXT              : in std_logic_vector(2 downto 0); -- [PH2] Its function code.
+        ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
+        FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX] Its registered function code.
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
@@ -683,7 +686,10 @@ begin
         end if;
     end process P_ADR_OFFS;
 
-    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_IN_P + ADR_OFFSET; -- [F62]
+    -- [PH2-FMAX] The bus address comes from the address register (ADR_LATCH) instead of ADR_IN_P:
+    -- they differ only in IDLE, where AS is negated and ADR_OUT_I is not used, so the
+    -- control unit's address logic no longer reaches the address pins (and the ST bridge).
+    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62]
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -912,7 +918,7 @@ begin
     -- whether the next opcode ready is a dummy, so the decoder and the queue cannot disagree.
     Q_DISMISS <= OPC_DISMISS;
 
-    FC_OUT <= F_FC when PF_ACC = '1' else FC_IN; -- [F62]
+    FC_OUT <= F_FC when PF_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] registered, as ADR_OUT_I
 
     -- The output multiplexer is as follows:
     -- SIZE    ADR    Bytes (L = long word port, W = word port, B = Byte port, x = not used by either port)
