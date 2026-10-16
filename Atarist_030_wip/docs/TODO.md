@@ -5,10 +5,23 @@
 Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS.md) (SD hardening + FDC error status,
 FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all closed 15 Oct 2026).
 
-1. **Warm-reset halt** (`$482`): after `w` the 030 build stops at "System halted!"; `c` works.
+1. **Warm-reset halt**: PINNED, see "Pinned: warm-reset halt" below (no work on it for now).
 2. **EmuTOS blitter greyed out** (works under TOS 2.06; HDL path inspected and correct).
 3. **Helper port** (AE350 companion firmware port).
 4. **Phase 2 of the CPU rework** (operand cycles without IDLE; see item 1 of the older list below).
+
+## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
+- **Symptom:** intermittent "System halted!" after the cartridge self-test, on FPGA reloads (op 1) and warm resets (`w`).
+  Once it happens, stale SDRAM keeps it halting until `c` or a power cycle.
+- **Status:**
+  - F66 (st_helper_hdn_berr_7e3660e_p3) is on the board and shows no halts (10/10 reloads with the reference-frame check).
+  - F67 (accept an external RESET+HALT during the RESET instruction) and F68 (an external reset clears RESET_TIMER)
+    are correct per the MC68030 manual and the STE/TF534 wiring, but halt about 3 in 10 reloads.
+  - ST_DR_PRECPU (cold-start second reset inside the CPU hold): 1 in 10. DIAG_OVERLAY builds: 0 in 27 (21 reloads + 6 `w`).
+  - Likely timing-dependent: the plain build's clk32_core margin is only 0.04 MHz (32.04 against 32).
+- **Evidence:** branch `warm-reset` @ 65e8b32, `docs/RESET_PATHS.md` sections 7-9 (on that branch), frames in `/workspace/gb`
+  on the box (f67, f68, drp, f66base, diag).
+- **Next step:** a seed/place_option sweep of the plain F67+F68 build, or more clk32 margin, then re-run the stress test.
 
 ## Pinned: final stage
 - **Remove the ST/STE chipset switch.** The helper's ST/STE option misbehaves because the compile default

@@ -54,7 +54,7 @@ docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOT
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
 ## Next-fix order (docs/TODO.md, set 2026-10-15)
-1. Warm-reset halt ($482, "System halted!" after `w`).
+1. Warm-reset halt: PINNED (TODO.md "Pinned: warm-reset halt"; branch warm-reset 65e8b32, F66 stays on the board).
 2. EmuTOS blitter greyed out.
 3. Helper port (AE350 companion).
 4. CPU rework phase 2 (operand cycles without IDLE).
