@@ -817,7 +817,7 @@ begin
     -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
     -- INFL, so PF_REQ never fires again.
     PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' and PF_HOLD = '0' -- [PFCOF]
+                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' -- [PFCOF vchain] hold not applied at the S5 decision
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
 

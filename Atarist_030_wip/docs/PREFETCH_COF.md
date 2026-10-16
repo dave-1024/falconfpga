@@ -98,3 +98,10 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
 - Regression rev 2: run_rtl PASS. cmp_wr prog_branch WS=1 DIFF: only the two internal words of a bus-error
   stack frame at $7FD0 (pipe stage contents 41FA00F2 vs 43F86000), i.e. which words were prefetched; the program
   results match expect_branch. Implementation-internal frame state, timing-dependent.
+
+## Regression finish / boot sim / board narrowing (from 16:47 UK)
+- Whole-ST boot sim with pre-filled RAM: not run. Icarus with the netlist runs prog_bus (6.8 ms ST time)
+  in about 8 min; TOS boot to the ST_HELPER mailbox self-test is about 1-2 s ST time, i.e. 20+ hours per run.
+  Going to the approved board narrowing test instead.
+- Code review: every FSM/queue use of the S5 handoff is PF_CHAIN_GO (PF_CHAIN only arms), so a hold rising
+  between S3 and S5 takes the plain IDLE path in RTL. Variant "vchain": PF_HOLD removed from PF_CHAIN_GO only.
