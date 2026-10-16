@@ -78,3 +78,21 @@ Split "the cycle is accepted" from "the data is here":
 
 ## Checkpoints
 - 22:25 UK: design note written; branch option-a created off 705db1a.
+- 22:40 UK, code reading:
+  - **A1 is already in place for writes.** PH2-WP strobes a write's DATA_RDY at the S3 posting point (`WP_GO`,
+    PREFETCH_BUFFERS). For reads, DATA_RDY at S5 is the earliest 030-correct point. So no new DATA_ACK signal is needed;
+    step 1 is dropped.
+  - **Where the 3 clocks go for MOVEM register-to-memory.** Each register makes one round trip through
+    FETCH_STATE INIT_EXEC_WB → ALU (ALU_INIT / EXECUTE, ALU_BSY handshake) → EXEC_WB_STATE WRITE_DEST.
+    MOVEM_CONTROL advances MOVEM_PNTR only in INIT_EXEC_WB with ALU_BSY = '0', i.e. after the previous WRITE_DEST
+    got WR_RDY and ALU_ACK. The predecrement of An happens on ALU_INIT_I. So the next write request exists only after
+    INIT_EXEC_WB → EXECUTE → WRITE_DEST again.
+  - **Revised A2 (030-like overlap) for MOVEM writes.** Let FETCH run the next register's INIT_EXEC_WB / ALU pass
+    while EXEC_WB is still in WRITE_DEST of the current one. This needs a second ALU result/operand latch (or the ALU
+    result held in the write buffer, which PH2-WP already does: the written data is in WP_BUFFER from S0). MOVEM_PNTR and
+    the -(An) decrement then advance on ALU_ACK of the current register instead of after WR_RDY. The ordering rules
+    stay: register writeback of An only at the end (MOVEM_INH_WR), ADR_IN_USE for the next EA.
+  - Same pattern for -(SP) pushes inside one instruction (exception stacking is the exception handler's own sequence,
+    which is not covered).
+  - Next run: a sim probe (per-clock FETCH_STATE/EXEC_WB_STATE/ALU_BSY/DATA_WR/DATA_RDY on prog_pushrts) to confirm
+    the 3-clock breakdown before RTL. The board stays on vchain db04754.
