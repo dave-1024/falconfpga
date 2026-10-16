@@ -35,5 +35,17 @@ Branch `prefetch-cof` (off main 9e27c24). Unconditional correctness/behaviour fi
   and look-ahead fetches share PF_REQ, so no stream word past the branch is started. A decoder request
   left pending is dismissed by the existing OPCODE_FLUSH/Q_DUMMY path at the flush.
 - Safety: COF_PEND only blocks starting *instruction* fetches; operand cycles are untouched, and the
-  control unit never waits for the decoder in those states, so it cannot deadlock. If COF_PEND is wrong
-  (e.g. stale ALU_COND) only timing changes; the fetched words and their order are unchanged.
+  control unit never waits for the decoder in those states, so it cannot deadlock. A wrong COF_PEND changes timing only, never results.
+
+## Status / measurements (in progress)
+- Step 1 (commit 833183b): control-unit hold (COF_PEND -> decoder PF_HOLD, registered; lifted by any
+  operation/extension word wait, exceptions, loop mode, the flush). RTL: all cmp_wr programs give the same
+  writes as main; run_rtl PASS. Gains 2-9% on call/return-heavy RTL programs (prog_pushrts -8..-10%,
+  prog_spwb -7%, prog_branch -2..-3%).
+- Whole-ST bench (netlist, DIAG_BUSTRACE counters, prog_bus.s in ROM): 10101 -> 10085 ST cycles but
+  6.808 -> 7.103 ms (+4.3%) - slower. The hold is only up 1-2 clocks (SLEEP of the branch), far too late:
+  the words past the branch were fetched long before (decoder pipe 3 words + queue up to 3 + in-flight
+  long), and a hold that coincides with the S3 arm of the prefetch-to-prefetch chain loses a 250 ns slot.
+- Potential (trace analysis, docs/prefetch_cof/waste.py): in prog_bus 1973 of 10101 ST cycles (19.5%)
+  are instruction words fetched past a change of flow and thrown away.
+- Next: stop the look-ahead earlier (COF detected in the decoder pipe / shallower queue), see below.
