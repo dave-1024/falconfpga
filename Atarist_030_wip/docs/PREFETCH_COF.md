@@ -143,3 +143,11 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   reload brought the companion serial back ("link OK"). Redone 20:50 UK: 3 x `w`, each acknowledged (R=1), each DESK.
   Open: why the companion serial went silent (seen once, on vchain; cause unknown, could be the board/USB event).
 - GEMBENCH on vchain: not run yet (time box).
+- 21:19 UK GEMBENCH All Tests on vchain db04754 (ST Medium, STE ref): Display 89%, CPU 251%, Average 132%
+  (= the ph2 reference 89/251/132). Per test: Dialog 80, VDI Text 98, Text Eff 93, Small Text 96, VDI Graphics 72,
+  GEM Window 81, Int Div 667, Float 109, RAM 115, ROM 115, Blitting 90, Scroll 99, Justified 96, Enquire 96,
+  New Dialogs 81. Image: docs/prefetch_cof/board/gembench_vchain_db04754_1080p.png.
+  So vchain passes: 10 reloads (9 seen + 1 not captured), 3 warm resets, GEMBENCH equal to 132%.
+  (The CPU hold changes no GEMBENCH ratio at its display resolution: expected, the bench is mostly VDI/RAM bound.)
+- Reusable board scripts: docs/prefetch_cof/board/ (gembench.sh = the GEMBENCH drive sequence, go.sh pointer
+  positioning, gg.sh grab-until-not-black, rl.sh c + 10 reloads with the 5-grab halt rule).
