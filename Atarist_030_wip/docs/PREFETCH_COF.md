@@ -128,3 +128,13 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   but the HDMI capture returns all-black frames (6 KB png) for >3 min, on the known-good de35f5f too. So the capture
   or HDMI link can go black on its own, and step 2's r11 BLACK is NOT proof of a CPU halt. Desktop on de35f5f not yet
   visually confirmed.
+
+## Board run 3 (from 20:00 UK, after the capture/USB recovery)
+- Capture check: de35f5f and 5246d00 both show the desktop; single black grabs occur on all builds (capture glitch).
+  Halt criterion now: 5 grabs over ~40 s all non-desktop.
+- vchain db04754 flashed 20:01 UK (sha f9f3742a..., ends 0x04B2100, rc 0). c DESK; reloads r1-r3, r5-r10 DESK
+  (r10 on the 2nd grab); r4 not captured (every ssh grab failed for ~10 min, an empty png, not a black frame).
+  No "System halted!". Step 1 halted on r6-r10 with the same procedure, so the hold at the S5 handoff decision
+  (PF_CHAIN_GO) is the prime suspect for the step 1 halt. vchain is also the more 030-correct variant (a handoff
+  decided at S3 completes).
+- Next: 3 warm resets + GEMBENCH on vchain; then queue gating (see below).
