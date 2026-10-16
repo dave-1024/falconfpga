@@ -79,6 +79,9 @@
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-16 PH2: prefetch S5 to operand S0 (OP_CHAIN), operand S5 to prefetch S0 (DP_CHAIN), unconditional.
 --   2026-10-16 PH2-FMAX: operand address and FC pins from ADR_LAT/FC_LAT (registered; differ only in IDLE).
+--   2026-10-16 PH2-WP: posted writes: DATA_RDY of a write on the S3 edge of its last portion (option b).
+--   2026-10-16 PH2-WP: a faulted write's data is held in OUTBUFFER (frame DOB) until the exception.
+--   2026-10-16 PH2-WP: PW_GO: the operand request in the IDLE clock after a posted write starts without START_CYCLE.
 -- 
 
 library work;
@@ -232,6 +235,12 @@ signal RETRY                : bit := '0';  -- [F54] measured warm-boot value
 signal SIZE_D               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_I               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_N               : std_logic_vector(2 downto 0) := "000";
+signal SIZE_DEC             : std_logic_vector(2 downto 0); -- [PH2-WP] SIZE_N after this portion.
+signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
+signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
+signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
+signal WP_LAST              : bit := '0'; -- [PH2-WP] The bus is idle since a posted write ended.
+signal PW_GO                : bit; -- [PH2-WP] IDLE clock after a posted write: start the operand cycle now.
 signal SLICE_CNT_N          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal SLICE_CNT_P          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal STERM_In             : std_logic := '1';  -- [F54] measured warm-boot value
@@ -398,7 +407,15 @@ begin
         -- frame-build cycles would otherwise overwrite them -- measured as
         -- T1 0055, T2 1234, T3 89AB/CDEF all going to zero. Only the SSW
         -- staging above is un-frozen.
-        if BUSY_EXH = '0' then
+        -- [PH2-WP] A faulted write's data stays in OUTBUFFER (DOB, frame $18) until the exception
+        -- handler runs: before, the cycles the core still ran before taking the exception (the next
+        -- instruction's operand read) reloaded WP_BUFFER, so the frame showed an older write's data.
+        if BUS_CTRL_STATE = DATA_C1C4 and WRITE_ACCESS = '1' and BUS_FLT = '1' and HALT_In = '1' then
+            DOB_HOLD <= '1';
+        elsif BUSY_EXH = '1' then
+            DOB_HOLD <= '0';
+        end if;
+        if BUSY_EXH = '0' and DOB_HOLD = '0' then
             OUTBUFFER <= WP_BUFFER; -- Used for exception stack frame type A and B.
             INBUFFER <= DATA_INMUX; -- Used for exception stack frame type B.
         end if;
@@ -542,27 +559,7 @@ begin
         if RETRY = '1' then
             SIZE_N <= RESTORE_VAR;
         elsif BUS_CTRL_STATE = DATA_C1C4 and ((T_SLICE = S1 and STERMn = '0') or (T_SLICE = S3 and WAITSTATES = '0')) then -- On positive clock edge.
-            if BUS_WIDTH = LONG_32 and SIZE_N > x"3" and ADR_OUT_I(1 downto 0) = "01" then
-                SIZE_N <= SIZE_N - "11";
-            elsif BUS_WIDTH = LONG_32 and SIZE_N > x"2" and ADR_OUT_I(1 downto 0) = "10" then
-                SIZE_N <= SIZE_N - "10";
-            elsif BUS_WIDTH = LONG_32 and SIZE_N > x"1" and ADR_OUT_I(1 downto 0) = "11" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = LONG_32 then
-                SIZE_N <= "000";
-            --
-            elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "11" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "01" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD and SIZE_N = "001" then
-               SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD then
-                SIZE_N <= SIZE_N - "10";
-            --
-            elsif BUS_WIDTH = BYTE then
-                SIZE_N <= SIZE_N - '1';
-            end if;
+            SIZE_N <= SIZE_DEC; -- [PH2-WP] Same decrement, also used for the write post.
         end if;
         --
         if (BUS_FLT = '1' and HALT_In = '1') then -- Abort bus cycle.
@@ -570,6 +567,18 @@ begin
             RESTORE_VAR := "000";
         end if;        
     end process PARTITIONING;
+
+    -- [PH2-WP] SIZE_N after the running portion (the decrement of PARTITIONING, unchanged).
+    SIZE_DEC <= SIZE_N - "11" when BUS_WIDTH = LONG_32 and SIZE_N > x"3" and ADR_OUT_I(1 downto 0) = "01" else
+                SIZE_N - "10" when BUS_WIDTH = LONG_32 and SIZE_N > x"2" and ADR_OUT_I(1 downto 0) = "10" else
+                SIZE_N - '1' when BUS_WIDTH = LONG_32 and SIZE_N > x"1" and ADR_OUT_I(1 downto 0) = "11" else
+                "000" when BUS_WIDTH = LONG_32 else
+                SIZE_N - '1' when BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "11" else
+                SIZE_N - '1' when BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "01" else
+                SIZE_N - '1' when BUS_WIDTH = WORD and SIZE_N = "001" else
+                SIZE_N - "10" when BUS_WIDTH = WORD else
+                SIZE_N - '1' when BUS_WIDTH = BYTE else
+                SIZE_N;
 
     SIZE_I <= SIZE_N(1 downto 0) when T_SLICE = S0 or T_SLICE = S1 else SIZE_D;
     SIZE <= SIZE_I;
@@ -592,7 +601,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, CHAIN_GO)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -605,6 +614,8 @@ begin
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- This is the 'HALT' condition.
                 elsif (BR_In = '0' and RMC = '0') or ARB_STATE /= IDLE or BGACK_In = '0' then
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- Arbitration, wait!
+                elsif PW_GO = '1' then
+                    NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [PH2-WP] Operand cycle after a posted write, S0 next.
                 elsif RD_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
                 elsif WR_REQ = '1' and SIZE_N = "000" then
@@ -813,7 +824,21 @@ begin
     OP_CHAIN_GO <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
                    and (OP_RD = '1' or OP_WR = '1') and RMC = '0'
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
-                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else
+                   PW_GO; -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
+
+    -- [PH2-WP] The control unit sees a posted write's DATA_RDY in the S4/S5 clock and presents its
+    -- next operand request in the clock after S5 (IDLE). That request starts here without the
+    -- START_CYCLE clock: the edge out of IDLE does what the OP_CHAIN edge does (access type, SSW,
+    -- WP_BUFFER, SIZE_N, RDY, queue flush for a write, DSACK/offset/OCS reset; the top loads the
+    -- address/FC latches in IDLE anyway) and the slice counter goes straight to S0. Only operand
+    -- requests (no RMC, no exception processing), and every IDLE hold (reset, halt, arbitration)
+    -- takes precedence.
+    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and (OP_RD = '1' or OP_WR = '1')
+                      and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
+                      and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
+                      and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                      and RETRY = '0' and RESET_CPU_I = '0' else '0';
     CH_WR <= OP_WR and not OP_RD; -- Read has priority, as in START_CYCLE.
     DP_CHAIN_GO <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
                    and SIZE_N = "000" and PF_REQ = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
@@ -1078,9 +1103,11 @@ begin
         --
         -- The following variable is responsible, that the _RDY signals are
         -- always strobes.
-        if DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
+        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then -- [PH2] [PH2-WP] First: a posted write's DATA_RDY can
+            RDY_VAR := '1';                                 -- be high on the chain edge (never the case before).
+        elsif DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
             RDY_VAR := '0';
-        elsif BUS_CTRL_STATE = START_CYCLE or OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then -- [PH2]
+        elsif BUS_CTRL_STATE = START_CYCLE then
             RDY_VAR := '1';
         end if;
         -- Opcode cycle:
@@ -1100,8 +1127,12 @@ begin
             OPCODE_RDY_I <= RDY_VAR;
         end if;
         -- Data cycle:
-        if WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
-            DATA_RDY_I <= RDY_VAR;
+        if WP_GO = '1' then
+            DATA_RDY_I <= RDY_VAR; -- [PH2-WP] Posted: the outcome of the last portion is final here.
+        elsif WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
+            if WP_DONE = '0' then
+                DATA_RDY_I <= RDY_VAR;
+            end if;
         elsif READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' then
             case OP_SIZE is
                 when LONG =>
@@ -1122,6 +1153,31 @@ begin
     end process PREFETCH_BUFFERS;
 
     DATA_RDY <= DATA_RDY_I;
+
+    -- [PH2-WP] Posted write (option b): the S3 edge of the last portion of a write decides the
+    -- outcome in this core (DSACK, BERR and HALT sampled at the start of S3; a BERR seen at S5 is
+    -- not used; a late retry needs SIZE_N /= 0). A clean ending reports DATA_RDY here, one clock
+    -- before S5, so the control unit can present its next request for the S5 edge. Bus errors,
+    -- retry, halt, RMC and STERM cycles are never posted and keep the S5 DATA_RDY.
+    WP_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
+                      WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
+                      BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+
+    P_WP_DONE: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if WP_DONE = '1' and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then
+            WP_LAST <= '1'; -- Held through the IDLE clocks until the next cycle starts.
+        elsif BUS_CTRL_STATE /= IDLE or NEXT_BUS_CTRL_STATE /= IDLE then
+            WP_LAST <= '0';
+        end if;
+        if WP_GO = '1' then
+            WP_DONE <= '1';
+        elsif BUS_CYC_RDY = '1' or BUS_CTRL_STATE /= DATA_C1C4 then
+            WP_DONE <= '0'; -- Cleared on the S5 edge (also when it chains).
+        end if;
+    end process P_WP_DONE;
     OPCODE_RDY <= OPCODE_RDY_I;
 
     DATA_TO_CORE <= DBUFFER;
@@ -1142,7 +1198,9 @@ begin
     -- slice counter working on the positive clock edge may change it's state.
     begin
         if CLK = '1' and CLK' event then
-            if BUS_CTRL_STATE = IDLE then
+            if BUS_CTRL_STATE = IDLE and PW_GO = '1' then
+                SLICE_CNT_P <= "000"; -- [PH2-WP] S0 in the next clock.
+            elsif BUS_CTRL_STATE = IDLE then
                 SLICE_CNT_P <= "111"; -- Init.
             elsif RETRY = '1' then
                 SLICE_CNT_P <= "111"; -- Stay in IDLE, go to IDLE.
