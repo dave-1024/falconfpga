@@ -84,3 +84,17 @@ RTL cmp_wr, writes all SAME vs main:
 prog_loop regression is the open problem (likely hold active on stale stream words in the cycle
 after a flush, or backward Bcc predicted taken in loop bodies). Not synthesized/flashed: step 1's
 board halt on reloads is still unexplained and step 2 uses the same hold path.
+
+## Step 2 rev 2 + step 1 halt investigation (16:15-16:50 UK)
+- de35f5f reload control: 8/8 reloads reached the desktop (ctl.log). The reload halt is specific to step 1 (833183b).
+- prog_loop slowdown cause: `bne.s l0` (backward, NOT taken in the loop) was predecoded as a COF and held the
+  fetch of the following `dbf`. Fix: predecode only unconditional COF (BRA/BSR/JMP/JSR/RTS/RTE/RTR/RTD); Bcc and DBcc are
+  left to step 1's execution-stage hold (no branch prediction, as on a real 030). prog_loop WS3 31608 -> 31613.
+- Hold also gated with EXH_REQ='0' (an exception waiting in IDLE for BUSY_OPD needs the pipe filled). A sim probe
+  (report when the hold would be set with EXH_REQ=1) fired 0 times for step-1 conditions over trapirq/berrwb/linea/
+  wpberr/srmask_a/pushrts, and once for COF_Q (linea, PNTR=2, harmless). So it is a safety guard, NOT the proven cause.
+- Step 1 halt root cause: NOT found. Not reproduced in RTL sims. Candidates left: PF_CHAIN_GO gating mid-handoff
+  in the netlist, hold vs in-flight prefetch bus-error/retry. No flash done (rule: flash only once the cause is fixed).
+- Regression rev 2: run_rtl PASS. cmp_wr prog_branch WS=1 DIFF: only the two internal words of a bus-error
+  stack frame at $7FD0 (pipe stage contents 41FA00F2 vs 43F86000), i.e. which words were prefetched; the program
+  results match expect_branch. Implementation-internal frame state, timing-dependent.

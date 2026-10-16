@@ -291,7 +291,7 @@ begin
                 end case;
             elsif W(15 downto 12) = "0110" and (W(11 downto 8) = "0000" or W(11 downto 8) = "0001") then -- BRA, BSR
                 if W(7 downto 0) = x"FF" then L := 3; else L := 2; end if;
-            elsif W(15 downto 12) = "0110" and W(7) = '1' and W(7 downto 0) /= x"FF" then L := 2; -- Bcc.B backward
+            -- Bcc/DBcc: not predecoded (a real 030 does not predict branches; prog_loop bne.s not taken was held). Step 1 covers them at execution.
             -- DBcc excluded: measured slower (prog_loop +19%), see PREFETCH_COF.md
             end if;
             if L /= 0 and i + L <= N then HIT := '1'; end if;
@@ -302,7 +302,7 @@ begin
     P_PF_HOLD: process -- Registered: no combinational path from the control unit to the bus controller.
     begin
         wait until CLK = '1' and CLK' event;
-        if (COF_PEND = '1' or COF_Q = '1') and PF_DEMAND = '0' and BUSY_EXH = '0' and IPIPE_FLUSH = '0' and LOOP_BSY_I = false then
+        if (COF_PEND = '1' or COF_Q = '1') and PF_DEMAND = '0' and EXH_REQ = '0' and BUSY_EXH = '0' and IPIPE_FLUSH = '0' and LOOP_BSY_I = false then
             PF_HOLD <= '1';
         else
             PF_HOLD <= '0';
