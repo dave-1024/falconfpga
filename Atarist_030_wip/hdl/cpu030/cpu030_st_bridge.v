@@ -906,6 +906,7 @@ module cpu030_st_bridge #(
     wire t_wait = enPhi1 & (phase == P_S4) & ~(~rDtack | iStop);
     wire t_pf = (q_fc[1:0] == 2'b10);
     integer ti;
+    initial for (ti = 0; ti < 128; ti = ti + 1) tc[ti] = 32'd0;
     always @(posedge clk) begin
         if (trc_clear) begin
             for (ti = 0; ti < 128; ti = ti + 1) tc[ti] <= 32'd0;
