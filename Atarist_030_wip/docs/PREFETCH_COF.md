@@ -111,3 +111,43 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
 - p3 8ed3aec: clk_cpu030 18.442 MHz (16 constraint), clk32 33.915, TNS 0. BUT the timer lists a derived clock
   "IPIPE_PNTR[1]": P_COF_Q inferred latches (variable S not assigned on all paths). Fixed (S cleared first) before any flash;
   8ed3aec bitstream discarded.
+- 17:19 UK p3 builds of 04a79d6 (step 2, no latch) and db04754 (vchain) died: "License verification failed, server
+  not responding". Restarted 17:38 UK (setsid nohup, sequential). Board untouched: still de35f5f (no test flash done yet).
+
+## Board narrowing (18:00-18:40 UK)
+- 04a79d6 (step 2, no latch) flashed 17:54 UK (op 53 @4193, ends 0x04B5F00, rc 0), c cold boot DESK.
+  Reloads: r1-r4 DESK, r5 not captured (grab failed on network), r6-r10 DESK, r11 BLACK screen (no video after 5
+  grabs over ~40 s), r12 DESK; warm resets w1-w3 DESK. NOT clean: 1 failure in 11 seen reloads (step 1: r6-r10 halted).
+  p3 timing of this build not captured (worktree reused by the next build before reading the report).
+- db04754 (vchain, PF_HOLD not applied to PF_CHAIN_GO) built 18:02 UK; flashing next.
+- db04754 (vchain) flashed 18:28 UK (ends 0x04B2100, rc 0). c cold boot DESK; reloads v1-v3 DESK. Stopped after 3
+  (time box; the screen grabs over the SOCKS link were slow). Not enough reloads to call it clean or not.
+- Restored de35f5f at 18:47 UK + c cold boot (see the report). Next: finish 10 reloads on vchain; if clean, PF_CHAIN_GO
+  gating is implicated (step 1 also gated it). Step 2's single BLACK reload (r11) has to be reproduced first.
+- 18:47 UK de35f5f restored (ends 0x04B2100, core/reload rc 0); helper link OK (core status 5C 42). Two c cold boots,
+  but the HDMI capture returns all-black frames (6 KB png) for >3 min, on the known-good de35f5f too. So the capture
+  or HDMI link can go black on its own, and step 2's r11 BLACK is NOT proof of a CPU halt. Desktop on de35f5f not yet
+  visually confirmed.
+
+## Board run 3 (from 20:00 UK, after the capture/USB recovery)
+- Capture check: de35f5f and 5246d00 both show the desktop; single black grabs occur on all builds (capture glitch).
+  Halt criterion now: 5 grabs over ~40 s all non-desktop.
+- vchain db04754 flashed 20:01 UK (sha f9f3742a..., ends 0x04B2100, rc 0). c DESK; reloads r1-r3, r5-r10 DESK
+  (r10 on the 2nd grab); r4 not captured (every ssh grab failed for ~10 min, an empty png, not a black frame).
+  No "System halted!". Step 1 halted on r6-r10 with the same procedure, so the hold at the S5 handoff decision
+  (PF_CHAIN_GO) is the prime suspect for the step 1 halt. vchain is also the more 030-correct variant (a handoff
+  decided at S3 completes).
+- Next: 3 warm resets + GEMBENCH on vchain; then queue gating (see below).
+- 20:40 UK warm resets on vchain: first 3 tries showed DESK but the helper serial was silent (no reply even to `s`),
+  so those resets probably never happened (and the run-3 `c` before the reloads is unconfirmed too). One op 1
+  reload brought the companion serial back ("link OK"). Redone 20:50 UK: 3 x `w`, each acknowledged (R=1), each DESK.
+  Open: why the companion serial went silent (seen once, on vchain; cause unknown, could be the board/USB event).
+- GEMBENCH on vchain: not run yet (time box).
+- 21:19 UK GEMBENCH All Tests on vchain db04754 (ST Medium, STE ref): Display 89%, CPU 251%, Average 132%
+  (= the ph2 reference 89/251/132). Per test: Dialog 80, VDI Text 98, Text Eff 93, Small Text 96, VDI Graphics 72,
+  GEM Window 81, Int Div 667, Float 109, RAM 115, ROM 115, Blitting 90, Scroll 99, Justified 96, Enquire 96,
+  New Dialogs 81. Image: docs/prefetch_cof/board/gembench_vchain_db04754_1080p.png.
+  So vchain passes: 10 reloads (9 seen + 1 not captured), 3 warm resets, GEMBENCH equal to 132%.
+  (The CPU hold changes no GEMBENCH ratio at its display resolution: expected, the bench is mostly VDI/RAM bound.)
+- Reusable board scripts: docs/prefetch_cof/board/ (gembench.sh = the GEMBENCH drive sequence, go.sh pointer
+  positioning, gg.sh grab-until-not-black, rl.sh c + 10 reloads with the 5-grab halt rule).
