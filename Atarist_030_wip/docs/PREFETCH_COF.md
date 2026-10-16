@@ -105,3 +105,9 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   Going to the approved board narrowing test instead.
 - Code review: every FSM/queue use of the S5 handoff is PF_CHAIN_GO (PF_CHAIN only arms), so a hold rising
   between S3 and S5 takes the plain IDLE path in RTL. Variant "vchain": PF_HOLD removed from PF_CHAIN_GO only.
+- Regression rev 2 complete: run_rtl PASS; cmp_wr all SAME except prog_branch WS1 (accepted frame words);
+  prog_linea WS7 "DIFF/no DONE" was a GHDL re-analysis error from touching sources mid-run, re-run SAME (19330 -> 18531);
+  prog_fpuprobe/fpbr time out identically on main and new (as before).
+- p3 8ed3aec: clk_cpu030 18.442 MHz (16 constraint), clk32 33.915, TNS 0. BUT the timer lists a derived clock
+  "IPIPE_PNTR[1]": P_COF_Q inferred latches (variable S not assigned on all paths). Fixed (S cleared first) before any flash;
+  8ed3aec bitstream discarded.

@@ -267,6 +267,7 @@ begin
         variable HIT : bit;
         variable W   : std_logic_vector(15 downto 0);
     begin
+        S := (others => (others => '0')); -- No latch: every element assigned on every path.
         S(0) := IPIPE.D; S(1) := IPIPE.C; S(2) := IPIPE.B;
         for i in 0 to 3 loop
             if IPIPE_PNTR = 0 then S(i) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
