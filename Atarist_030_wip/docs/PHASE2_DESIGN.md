@@ -244,3 +244,9 @@ Work log (kept current so an interrupted run loses little):
   operand read before it takes the exception. MC68030UM 8.1.2 says a data fault is taken right after its bus cycle ends.
   The stacked frame is format $B with the faulting instruction's PC; a real 68030 builds a $A frame when the faulted
   write was the instruction's last. Not changed here.
+- Build (p3, de35f5f): st_helper_hdn_ph2wp_de35f5f_p3.fs, sha256 273083f29f4529f53e62ba29006948a937aeab706038b2ba22a1839a2e601285.
+  clk_cpu030 19.651 MHz (was 22.179 at 5246d00), clk32_core 34.200 MHz, TNS 0.
+- Board (2026-10-16 BST): flashed with op 53 --fsFile at location 4193 (core rc 0, reload rc 0).
+  - First run: reloads without a cold boot first all stopped at "System halted!" after the mailbox test.
+    The 5246d00 rollback halted the same way until a `c` cold boot, so this is the boot state (no `c` after the flash), not the change.
+  - Second run, with `c` first: c0 DESK, and reloads r1..r7 DESK so far (stab.sh in /workspace/gb/wp). GEMBENCH still to run.
