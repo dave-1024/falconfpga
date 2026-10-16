@@ -11,7 +11,7 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 4. ~~Phase 2 of the CPU rework~~: **done** 16 Oct 2026 (merged; PHASE2_DESIGN.md, GEMBENCH 132%).
 
 ## Phase 2 follow-ups (open, 16 Oct 2026)
-0. **Bridge timing left from the 32 MHz CPU clock**: review 16 Oct 2026 in PREFETCH_COF.md / handoff (options listed, no RTL yet).
+0. **Bridge timing left from the 32 MHz CPU clock**: reviewed 16 Oct 2026, see [`BRIDGE_REVIEW.md`](BRIDGE_REVIEW.md) (no bridge leftovers that cost speed; options 1-2 cleanup, gains are core-side).
 1. **Option (a): pipelined control unit.** After DATA_RDY the control unit needs 3 clk_cpu before a MOVEM presents its
    next request, so posted writes (option b) save only 1 clock; back-to-back operand cycles need the control unit to
    issue the next request during the current cycle.
