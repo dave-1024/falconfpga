@@ -196,3 +196,20 @@ The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path a
 
 - `gbref.st` CRC32 after the run: 791ee820 (unchanged).
 - Result: stable and faster everywhere, so phase 2 stays on the board (location 4193, desktop in ST Medium, gbref.st on A:).
+
+## 7. Option (b): posted writes (approved 16 Oct 2026, work in progress)
+
+Work log (kept current so an interrupted run loses little):
+- Design (10:55 UK). The control unit gets the write's DATA_RDY on the edge that ends S3 of the **last** portion
+  (S4 start), not the edge that ends S5. That is the edge where the bus interface itself decides the outcome of the
+  portion: DSACK is sampled at the start of S3, together with BERR and HALT; SIZE_N is decremented on that edge.
+  - Post only if DSACK is seen (asynchronous cycle, no STERM), BERR is negated (BUS_FLT_N and BUS_FLT = 0), RETRY = 0,
+    HALT is negated, the cycle is not RMC (TAS/CAS/CAS2 keep their locked sequence), no reset, and the decremented SIZE_N is 0.
+  - Why nothing needs to be rolled back: in this core the outcome of a portion is final at the S3 sample.
+    - A BERR sampled at S5 reaches BUS_FLT only on the S5 edge, after VALIDATION has already used it.
+    - A late retry (BERR + HALT at S5) needs SIZE_N /= 0, so it can only happen on non-final portions, which are never posted.
+    - A write that bus-errors (BERR with or without DSACK at S3) is never posted, so it ends with the same DATA_RDY/DATA_VALID = 0,
+      the same SSW/fault address/DOB and the same stack frame as before.
+    - On the board BERR only ends a cycle that had no DSACK (bridge timeout), and HALTn is tied high.
+  - The bus interface needs no other change: address/FC come from the latch, the data from WP_BUFFER, and
+    RWn/DS from WRITE_ACCESS, all frozen for the whole cycle. The S5-edge write DATA_RDY is suppressed after a post.
