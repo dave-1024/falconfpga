@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-16 (CPU rework phase 2 + posted writes merged and on the board). Owner: David Dunne (dave-1024).
+Last update: 2026-10-16 (CPU rework phase 2 + posted writes on the board; CACHE_PLAN.md added). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -74,7 +74,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 
 ## Doc map
 README.md (top) · Atarist_030_wip/README.md (status) · docs/BUILD.md (build, switches, flash) · docs/TODO.md (order) ·
-docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
+docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/CACHE_PLAN.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
 docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
@@ -84,4 +84,6 @@ hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, t
 3. Helper port (AE350 companion).
 4. Phase 2 follow-ups: option (a) pipelined control unit; data-fault timing + $A/$B frame; stale bus-fault flag on a
    chained late BERR; clk_cpu030 decoder -> ADR_EFF path (before caches); clk32 blitter falling-edge path.
+5. Caches (later): full plan in `Atarist_030_wip/docs/CACHE_PLAN.md` — I then D, CIIN on ST-side, CDIS hard off,
+   match real MC68030; no cache logic in the bus path when disabled.
 Pinned, final stage: remove the ST/STE switch, STE only.

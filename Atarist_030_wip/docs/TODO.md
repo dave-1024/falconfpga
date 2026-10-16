@@ -28,6 +28,11 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
    gamecart_r/mde0_r/mde1_r (register.v samples on negedge), about 0.5 ns slack, mostly routing. The blitter arm has to
    stay; a fix needs register.v's sampling moved (timing change). Also jt49 -> sd_card data_out at 1.2 ns (full period).
 
+## When the caches go in
+Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,
+no cache in the path when disabled; I then D; keep clk_cpu030 19–22 MHz headroom). Old attempt a7ccf76/e9a4fd9
+stays out until that plan is followed.
+
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
 - **Symptom:** intermittent "System halted!" after the cartridge self-test, on FPGA reloads (op 1) and warm resets (`w`).
   Once it happens, stale SDRAM keeps it halting until `c` or a power cycle.
@@ -58,8 +63,10 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
    - Expected (notes/RAM_PATH.md, RAM code): reads +32%, writes +37%, copy +22%, dbra loop +33%, ROM code +10-15%.
    - Skipping only IDLE (156 -> 94 ns) gives nothing; the request must reach the bridge within 62.5 ns.
 2. **Prefetch queue fetches past taken branches** (2-3 wasted 500 ns words per branch; up to ~35% in tight loops).
-3. **Caches** (`ST_030_CACHES`): needs CIIN for I/O/ROM, cache flush on Pexec (TOS does it via CACR), fast RAM.
-   The real TF board runs loops from the 256-byte I-cache; this is the largest possible speedup.
+3. **Caches** (`ST_030_CACHES`): plan ready in [`CACHE_PLAN.md`](CACHE_PLAN.md). Needs CIIN (bridge asserts
+   on all ST-side cycles), CDIS hard off, CIOUT from PMMU later, burst only for future 030-side fast RAM;
+   no cache logic in the bus path when disabled. I-cache first, then D. Match real MC68030 (CACR/CAAR).
+   GEMBENCH may show CACHE D=ON I=ON from CACR bits even with caches compiled out.
 4. **Blitter** shows as disabled under TOS 2.06.
 5. **Dialog exit-button click loss:** OK/Cancel ignore mouse clicks inside form_do (radio buttons work, Return works).
    Present on F63 too: helper mouse/button injection or IKBD path.
