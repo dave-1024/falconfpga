@@ -164,3 +164,10 @@ clk_cpu030 has 39% headroom (target 16 MHz). clk32_core is limited to about 3% h
   cycle-neutral fix would need register.v sampling moved, which changes timing. Open.
 - jt49 register -> sd_card data_out at 1.2 ns slack (full period). Not yet looked at.
 The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path at about 0 ns).
+
+## Board test (16 Oct 2026)
+
+- Bitstream `st_helper_hdn_ph2fmax_5246d00_p3.fs` (SHA256 c74d9676...), op 53 at location 4193, "Program Flash finished" (127 s), reload rc 0.
+- `c`: EmuTOS desktop (reference correlation 1.0).
+- 10 reloads: 10/10 desktop. 3 + 2 warm resets (`w`): every classified frame was desktop. Two frames were black and two grabs came back empty; these are capture dropouts (the capture goes black for about a minute even at an idle desktop, and a mouse nudge or a later grab shows the desktop). No halts.
+- GEMBENCH: in progress.
