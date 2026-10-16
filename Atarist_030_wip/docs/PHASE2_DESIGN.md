@@ -213,3 +213,16 @@ Work log (kept current so an interrupted run loses little):
     - On the board BERR only ends a cycle that had no DSACK (bridge timeout), and HALTn is tied high.
   - The bus interface needs no other change: address/FC come from the latch, the data from WP_BUFFER, and
     RWn/DS from WRITE_ACCESS, all frozen for the whole cycle. The S5-edge write DATA_RDY is suppressed after a post.
+- Implementation (UK morning, uncommitted until the regression passes):
+  - `WP_GO` posts the write and `WP_DONE` suppresses its S5 DATA_RDY.
+  - The chain edge now sets RDY_VAR before the clear, because a posted DATA_RDY can be high on that edge.
+  - SIZE_DEC is the unchanged PARTITIONING decrement, now shared with the post.
+- Finding: the control unit needs **3 clocks** after DATA_RDY before a MOVEM write presents its next request
+  (and more for other instructions), so the request is never there on the S5 edge of the posted write.
+  Option (b) alone saves the one clock between S3 and S5. To take one more, `PW_GO` starts an operand request
+  from the IDLE clocks after a posted write directly in S0, without the START_CYCLE clock. It uses the same
+  start actions as the PH2 OP_CHAIN edge. Truly back-to-back operand cycles after writes would need option (a).
+- DOB fix found on the way (also in 6b4f100): after a write bus error the core still runs the next instruction's
+  operand read before it takes the exception. That read reloaded WP_BUFFER, so the frame's DOB ($18) showed an
+  older write's data. OUTBUFFER is now held from the faulting write until the exception handler runs.
+- prog_gap DD gaps (6b4f100 -> WP+PW_GO), WS0: 6:32 7:17 9:15 11:15 -> 4:17 5:1 6:15 7:32 9:15; DONE 2765 -> 2665.
