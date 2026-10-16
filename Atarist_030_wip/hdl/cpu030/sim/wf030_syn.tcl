@@ -11,6 +11,8 @@ foreach f {pkg address_registers alu bus_interface control data_registers except
 # registers on the CLK_N port). The generic default is rewritten in a copy.
 set fh [open $here/../wf68k30L_top.vhd r]; set t [read $fh]; close $fh
 if {![regsub {(CLK_N_EXT +: integer := )0([;)])} $t {\11\2} t]} { error "CLK_N_EXT generic not found" }
+# FAST_HANDOFF = 1 as in the board builds (WF030_FAST_HANDOFF on; a netlist ignores the bridge parameter).
+if {![regsub {(FAST_HANDOFF +: integer := )0([;)])} $t {\11\2} t]} { error "FAST_HANDOFF generic not found" }
 set fh [open wf68k30L_top_clkn.vhd w]; puts -nonewline $fh $t; close $fh
 add_file [file normalize wf68k30L_top_clkn.vhd]
 set_option -synthesis_tool gowinsynthesis
