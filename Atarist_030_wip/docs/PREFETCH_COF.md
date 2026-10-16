@@ -113,3 +113,10 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   8ed3aec bitstream discarded.
 - 17:19 UK p3 builds of 04a79d6 (step 2, no latch) and db04754 (vchain) died: "License verification failed, server
   not responding". Restarted 17:38 UK (setsid nohup, sequential). Board untouched: still de35f5f (no test flash done yet).
+
+## Board narrowing (18:00-18:40 UK)
+- 04a79d6 (step 2, no latch) flashed 17:54 UK (op 53 @4193, ends 0x04B5F00, rc 0), c cold boot DESK.
+  Reloads: r1-r4 DESK, r5 not captured (grab failed on network), r6-r10 DESK, r11 BLACK screen (no video after 5
+  grabs over ~40 s), r12 DESK; warm resets w1-w3 DESK. NOT clean: 1 failure in 11 seen reloads (step 1: r6-r10 halted).
+  p3 timing of this build not captured (worktree reused by the next build before reading the report).
+- db04754 (vchain, PF_HOLD not applied to PF_CHAIN_GO) built 18:02 UK; flashing next.
