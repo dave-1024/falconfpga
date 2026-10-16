@@ -123,6 +123,14 @@ module atarist (
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
 	output wire [23:0] dbg_vbase          // diag030w: {boot-path flags[7:0], last word read from cmdload $482}
+`ifdef DIAG_BUSTRACE
+	// FalconFPGA DIAG_BUSTRACE: bridge bus counters, read through sd_card.v SDC cmd 9 (helper sdwlog)
+	,
+	input  wire [5:0]  trc_idx,
+	input  wire        trc_freeze,
+	input  wire        trc_clear,
+	output wire [63:0] trc_q
+`endif
 `ifdef ST_HELPER
 	,
 	// FalconFPGA ST_HELPER (build_st_helper.tcl only): one extra I/O device,
@@ -654,7 +662,18 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_req    ( dbg_030[1] ),
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
-	.dbg_trace  ( dbg_trace_cpu )
+	.dbg_trace  ( dbg_trace_cpu ),
+`ifdef DIAG_BUSTRACE
+	.trc_idx    ( trc_idx    ),
+	.trc_freeze ( trc_freeze ),
+	.trc_clear  ( trc_clear  ),
+	.trc_q      ( trc_q      )
+`else
+	.trc_idx    ( 6'd0 ),
+	.trc_freeze ( 1'b0 ),
+	.trc_clear  ( 1'b0 ),
+	.trc_q      (      )
+`endif
 );
 `ifdef DIAG_DMAWATCH
 // FalconFPGA DIAG dmawatch (float panic): ALL ST RAM writes (CPU via bridge, floppy/HD DMA, blitter)

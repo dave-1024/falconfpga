@@ -66,6 +66,13 @@ module sd_card # (
 	output [8:0]	  outaddr, // outaddr from 0 to 511, because the
                                // sector size is 512
 	output [7:0]	  outbyte  // a byte of sector content
+`ifdef DIAG_BUSTRACE
+    // FalconFPGA DIAG_BUSTRACE: SDC cmd 9 reads the 030 bridge bus counters instead of the write ring
+   ,input [63:0]      trc_q,
+    output reg [5:0]  trc_idx = 6'd0,
+    output reg        trc_freeze = 1'b0,
+    output reg        trc_clear = 1'b0
+`endif
 );
 
 wire [3:0] card_stat;  // show the sdcard initialize status
@@ -336,6 +343,9 @@ always @(posedge clk) begin
 		   $error("sd_card.v: Error, spurious done_int");
 	  end
 	  
+`ifdef DIAG_BUSTRACE
+	  trc_clear <= 1'b0;
+`endif
 	  // buffer writing on MCU write is triggered via dinb_we
 	  dinb_we <=1'b0;
 	  if(mcu_request == MCU_REQ_WRITE) begin
@@ -511,6 +521,22 @@ always @(posedge clk) begin
             // wcnt[15:0], rcnt[15:0] and the 11 byte entry
             // { seq16, flags8, image sector32, card sector32 }, flags =
             // { mcu, direct, 3'b0, drive[2:0] }.
+`ifdef DIAG_BUSTRACE
+            // DIAG_BUSTRACE: entry i = { seq = i, flags 0x80 (shown as "BASE drv 0"), counter 2i, counter 2i+1 },
+            // event count 64. Reading entry 0 freezes the counters, entry 63 (last byte) clears and restarts them.
+            if(command == 8'd9) begin
+               if(byte_cnt == 4'd0) begin trc_idx <= data_in[5:0]; if(data_in[5:0] == 6'd0) trc_freeze <= 1'b1; data_out <= 8'h00; end
+               if(byte_cnt == 4'd1) data_out <= 8'h40;
+               if(byte_cnt == 4'd2) data_out <= 8'h00;
+               if(byte_cnt == 4'd3) data_out <= { 2'b00, trc_idx };
+               if(byte_cnt == 4'd4) data_out <= 8'h00;
+               if(byte_cnt == 4'd5) data_out <= { 2'b00, trc_idx };
+               if(byte_cnt == 4'd6) data_out <= 8'h80;
+               if(byte_cnt >= 4'd7 && byte_cnt <= 4'd14) data_out <= trc_q[8'd63 - 8'd8*(byte_cnt-4'd7) -: 8];
+               if(byte_cnt == 4'd14 && trc_idx == 6'd63) begin trc_clear <= 1'b1; trc_freeze <= 1'b0; end
+            end
+            else
+`endif
             if(DEBUG_LOG && command == 8'd9) begin
                if(byte_cnt == 4'd0) begin dbg_idx <= data_in[5:0]; data_out <= dbg_wcnt[15:8]; end
                if(byte_cnt == 4'd1) data_out <= dbg_wcnt[7:0];

@@ -132,7 +132,13 @@ module cpu030_st_bridge #(
     // [95:64]   row d: last-start info + termination + CPU pins (clk_cpu)
     // [63:32]   row e: bridge 68000-side state machine (clk_32)
     // [31:0]    row f: {start count 7:0, live last program fetch A23:0} (clk_cpu)
-    output wire [167:0] dbg_trace
+    output wire [167:0] dbg_trace,
+    // FalconFPGA DIAG_BUSTRACE (observation only, clk_32): counter bank readout through the
+    // helper's sdwlog (sd_card.v SDC cmd 9). trc_idx selects entry 0..63 = counters 2i, 2i+1.
+    input  wire [5:0]   trc_idx,
+    input  wire         trc_freeze,  // counters hold while high (readout in progress)
+    input  wire         trc_clear,   // one clk_32: clear all counters
+    output reg  [63:0]  trc_q
 );
 
     // =====================================================================
@@ -867,6 +873,92 @@ module cpu030_st_bridge #(
     assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], h_vec, h_vcnt, 6'd0};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
+`endif
+
+`ifdef DIAG_BUSTRACE
+    // ===== FalconFPGA DIAG_BUSTRACE: bus counters (observation only) =====
+    // Reads only existing clk_32 state of this bridge; drives nothing back.
+    // Counter map (32 bit each, see docs/BUSTRACE.md):
+    //   0 total clk_32          1 030 AS low (c_open)       2 no request, bridge idle
+    //   3 request pending       4 pending, bus held by another master (BR/BGACK/arb)
+    //   5 pending, bridge busy (S0/S2/S4)                    6 pending, free, waiting for en1
+    //   7 ST cycles started     8 S4 wait states (en1 without DTACK, all)
+    //   9 bus not ours (arb != IDLE)   10 bus grants        11 other-master DTACKs (en2 edges)
+    //  12 RMC lock clocks      13 RMC cycles started       14 starts from S6 (back-to-back)
+    //  15 starts from IDLE     16-19 wait states per region RAM/ROM/IO/other
+    //  20 VPA (6800) cycles    21 BERR cycles              22 program fetches (FC 2/6)
+    //  23 program-fetch wait clocks
+    //  24-55 cycles per class {region[1:0], write, size[1:0]} (size 00 long, 01 byte, 10 word, 11 3-byte)
+    //  56-87 wait clocks (request -> start) per class
+    //  88-119 start-wait histogram, clk_32 0..31 (31 = 31 or more)
+    //  120-127 RAM wait-state histogram 0..7 (7 = 7 or more)
+    reg  [31:0] tc [0:127];
+    reg  [7:0]  t_w   = 8'd0;   // clocks this request has waited
+    reg  [3:0]  t_ws  = 4'd0;   // S4 wait states of the current cycle
+    reg  [4:0]  t_cls = 5'd0;   // class of the current cycle
+    reg         t_dt  = 1'b1;
+    reg  [1:0]  t_arb = 2'd0;
+    wire t_start = enPhi1 & (phase == P_IDLE | phase == P_S6) & can_start & ~(extReset | pwrUp);
+    wire [1:0] t_reg = req_cpu_space ? 2'd3 : (q_adr[23:22] == 2'b00) ? 2'd0 : req_rom ? 2'd1 :
+                       (q_adr[23:16] == 8'hFF) ? 2'd2 : 2'd3;
+    wire [4:0] t_ncls = {t_reg, ~q_rwn, q_size};
+    wire t_s6 = enPhi1 & (phase == P_S4) & (~rDtack | iStop);   // cycle leaves S4
+    wire t_wait = enPhi1 & (phase == P_S4) & ~(~rDtack | iStop);
+    wire t_pf = (q_fc[1:0] == 2'b10);
+    integer ti;
+    always @(posedge clk) begin
+        if (trc_clear) begin
+            for (ti = 0; ti < 128; ti = ti + 1) tc[ti] <= 32'd0;
+        end else if (!trc_freeze) begin
+            tc[0] <= tc[0] + 32'd1;
+            if (c_open) tc[1] <= tc[1] + 32'd1;
+            if (~pending & (phase == P_IDLE)) tc[2] <= tc[2] + 32'd1;
+            if (pending) tc[3] <= tc[3] + 32'd1;
+            if (pending & ~bus_avail) tc[4] <= tc[4] + 32'd1;
+            if (pending & bus_avail & (phase == P_S0 | phase == P_S2 | phase == P_S4)) tc[5] <= tc[5] + 32'd1;
+            if (pending & bus_avail & (phase == P_IDLE | phase == P_S6) & ~t_start) tc[6] <= tc[6] + 32'd1;
+            if (t_start) tc[7] <= tc[7] + 32'd1;
+            if (t_wait) begin
+                tc[8] <= tc[8] + 32'd1;
+                tc[16 + t_cls[4:3]] <= tc[16 + t_cls[4:3]] + 32'd1;
+            end
+            if (arb != A_IDLE) tc[9] <= tc[9] + 32'd1;
+            if (t_arb == A_IDLE && arb != A_IDLE) tc[10] <= tc[10] + 32'd1;
+            if (enPhi2 & (arb != A_IDLE) & ~DTACKn & t_dt) tc[11] <= tc[11] + 32'd1;
+            if (rmc_lock) tc[12] <= tc[12] + 32'd1;
+            if (t_start & rmc_lock) tc[13] <= tc[13] + 32'd1;
+            if (t_start & (phase == P_S6)) tc[14] <= tc[14] + 32'd1;
+            if (t_start & (phase == P_IDLE)) tc[15] <= tc[15] + 32'd1;
+            if (t_s6 & rDtack & ~rVma) tc[20] <= tc[20] + 32'd1;
+            if (t_s6 & rDtack & rVma) tc[21] <= tc[21] + 32'd1;
+            if (t_start & t_pf) begin
+                tc[22] <= tc[22] + 32'd1;
+                tc[23] <= tc[23] + t_w;
+            end
+            if (t_start) begin
+                tc[24 + t_ncls] <= tc[24 + t_ncls] + 32'd1;
+                tc[56 + t_ncls] <= tc[56 + t_ncls] + t_w;
+                tc[88 + ((t_w > 8'd31) ? 5'd31 : t_w[4:0])] <= tc[88 + ((t_w > 8'd31) ? 5'd31 : t_w[4:0])] + 32'd1;
+            end
+            if (t_s6 & (t_cls[4:3] == 2'd0))
+                tc[120 + ((t_ws > 4'd7) ? 3'd7 : t_ws[2:0])] <= tc[120 + ((t_ws > 4'd7) ? 3'd7 : t_ws[2:0])] + 32'd1;
+        end
+    end
+    always @(posedge clk) begin
+        if (enPhi2) t_dt <= DTACKn;
+        t_arb <= arb;
+        if (t_start) begin
+            t_w   <= 8'd0;
+            t_ws  <= 4'd0;
+            t_cls <= t_ncls;
+        end else begin
+            if (pending && t_w != 8'hff) t_w <= t_w + 8'd1;
+            if (t_wait && t_ws != 4'hf) t_ws <= t_ws + 4'd1;
+        end
+        trc_q <= {tc[{trc_idx, 1'b0}], tc[{trc_idx, 1'b1}]};
+    end
+`else
+    always @(posedge clk) trc_q <= 64'd0;
 `endif
 
 endmodule

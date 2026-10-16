@@ -655,6 +655,12 @@ wire [7:0] parallel_data_in_int = EXTERNAL_PARPORT?parallel_data_in:
   
 wire dbg_cpu_as_n, dbg_cpu_halted_n;   // FalconFPGA DIAG
 
+`ifdef DIAG_BUSTRACE
+// FalconFPGA DIAG_BUSTRACE: 030 bridge bus counters <-> sd_card.v SDC cmd 9
+wire [5:0]  trc_idx;
+wire        trc_freeze, trc_clear;
+wire [63:0] trc_q;
+`endif
 atarist atarist (
     .clk_32(clk32),
     .clk_cpu(clk_cpu),
@@ -783,6 +789,13 @@ atarist atarist (
     .dbg_030(diag_030),
     .dbg_trace(diag_trace),
     .dbg_vbase(diag_vbase)
+`ifdef DIAG_BUSTRACE
+    ,
+    .trc_idx(trc_idx),
+    .trc_freeze(trc_freeze),
+    .trc_clear(trc_clear),
+    .trc_q(trc_q)
+`endif
 `ifdef ST_HELPER
     ,
     .ext_io_cs(ext_io_cs),
@@ -972,6 +985,12 @@ sd_card #(
     .outen(sd_rd_byte_strobe), // when outen=1, a byte of sector content is read out from outbyte
     .outaddr(sd_byte_index),   // outaddr from 0 to 511, because the sector size is 512
     .outbyte(sd_rd_data)       // a byte of sector content
+`ifdef DIAG_BUSTRACE
+   ,.trc_q(trc_q),
+    .trc_idx(trc_idx),
+    .trc_freeze(trc_freeze),
+    .trc_clear(trc_clear)
+`endif
 );
 
 endmodule
