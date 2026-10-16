@@ -170,4 +170,29 @@ The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path a
 - Bitstream `st_helper_hdn_ph2fmax_5246d00_p3.fs` (SHA256 c74d9676...), op 53 at location 4193, "Program Flash finished" (127 s), reload rc 0.
 - `c`: EmuTOS desktop (reference correlation 1.0).
 - 10 reloads: 10/10 desktop. 3 + 2 warm resets (`w`): every classified frame was desktop. Two frames were black and two grabs came back empty; these are capture dropouts (the capture goes black for about a minute even at an idle desktop, and a mouse nudge or a later grab shows the desktop). No halts.
-- GEMBENCH: in progress.
+- Drives/windows: TOS 2.06 desktop, Options > Change resolution to ST Medium, opened A: (gbref.st, 7 items), started GEMBENCH from the A: window, quit back to the desktop. All fine.
+- GEMBENCH 6 from `gbref.st`, ST Medium, STE reference, Blitter/FPU off (same mode as the F66 baseline). The CPU group and the Display group were run one after the other (10:02-10:17 BST), so every test ran. Results screen: `phase2/gembench_ph2_1080p.png` (1920x1080).
+
+| Test | Time (s) | Ratio | F66 baseline |
+|---|---|---|---|
+| GEM Dialog Box | 10.010 | 78% | |
+| VDI Text | 14.185 | 99% | |
+| VDI Text Effects | 25.745 | 93% | |
+| VDI Small Text | 14.055 | 96% | |
+| VDI Graphics | 26.140 | 72% | |
+| GEM Window | 4.070 | 80% | |
+| Integer Division | 2.695 | 667% | |
+| Float Math | 12.400 | 107% | 13.080 s, 101% |
+| RAM Access | 5.485 | 115% | 98% |
+| ROM Access | 5.485 | 115% | 98% |
+| Blitting | 9.635 | 91% | |
+| VDI Scroll | 13.500 | 99% | |
+| Justified Text | 14.165 | 97% | |
+| VDI Enquire | 2.755 | 96% | |
+| New Dialogs | 11.825 | 80% | |
+| **Display** | | **89%** | 80% |
+| **CPU** | | **251%** | 240% |
+| **Average** | | **132%** | 123% |
+
+- `gbref.st` CRC32 after the run: 791ee820 (unchanged).
+- Result: stable and faster everywhere, so phase 2 stays on the board (location 4193, desktop in ST Medium, gbref.st on A:).
