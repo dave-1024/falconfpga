@@ -146,6 +146,7 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
+        PF_HOLD             : in bit; -- [PFCOF] Change of flow pending (decoder): start no further stream fetches.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
@@ -733,7 +734,7 @@ begin
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
-    PF_REQ <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 else '0';
+    PF_REQ <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
     PF_START <= '1' when BUS_CTRL_STATE = START_CYCLE and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and
                          RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
     PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
@@ -774,7 +775,7 @@ begin
         if FAST_HANDOFF /= 0 and PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4
            and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
            and PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL_STALE = '0'
-           and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
+           and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' and PF_HOLD = '0' -- [PFCOF]
            and OP_RD = '0' and OP_WR = '0'
            and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
            and BUS_FLT = '0' and RETRY = '0' and Q_CNT = 0 then
@@ -814,7 +815,7 @@ begin
     -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
     -- INFL, so PF_REQ never fires again.
     PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0'
+                   and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' and PF_HOLD = '0' -- [PFCOF]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
 

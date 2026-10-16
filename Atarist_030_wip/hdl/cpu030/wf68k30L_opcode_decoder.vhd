@@ -111,6 +111,8 @@ entity WF68K30L_OPCODE_DECODER is
         IPIPE_FILL          : in bit;
         IPIPE_FLUSH         : in bit; -- Abandon the instruction pipe.
         OPCODE_DISMISS      : out bit; -- [F62c] OPCODE_FLUSH: the next OPCODE_RDY is dismissed (prefetch queue uses it as is).
+        COF_PEND            : in bit; -- [PFCOF] Control unit executes a taken change of flow.
+        PF_HOLD             : out bit := '0'; -- [PFCOF] Start no further instruction-stream fetches.
 
         -- Fault logic:
         OW_VALID            : out std_logic; -- Operation words valid.
@@ -196,6 +198,7 @@ signal TRAP_CODE_I          : TRAPTYPE_OPC;
 signal FLUSHED              : boolean := false; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
+signal PF_DEMAND            : bit; -- [PFCOF]
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
     -- This logic requires asynchronous reset. This flip flop is intended 
@@ -237,6 +240,24 @@ begin
 
     OPCODE_RD <= OPCODE_RD_I;
     OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
+
+    -- [PFCOF] The control unit executes a change of flow (COF_PEND): hold the stream fetches past it,
+    -- as the 68030/CPU32 bus controller. Any wait of the control unit for an operation or extension word
+    -- (PF_DEMAND) lifts the hold, as do exceptions, loop mode and the flush itself, so a wrong COF_PEND
+    -- costs time only. (A decoder-side detection at the head of the pipe was tried and was slower: it
+    -- also blocks words of the running instruction's look-ahead; see docs/PREFETCH_COF.md.)
+    PF_DEMAND <= '1' when OW_REQ = '1' and PIPE_RDY = '0' else
+                 '1' when EW_REQ = '1' and IPIPE_PNTR = 0 else '0';
+
+    P_PF_HOLD: process -- Registered: no combinational path from the control unit to the bus controller.
+    begin
+        wait until CLK = '1' and CLK' event;
+        if COF_PEND = '1' and PF_DEMAND = '0' and BUSY_EXH = '0' and IPIPE_FLUSH = '0' and LOOP_BSY_I = false then
+            PF_HOLD <= '1';
+        else
+            PF_HOLD <= '0';
+        end if;
+    end process P_PF_HOLD;
     OPCODE_RDY_I <= '0' when OPCODE_FLUSH = '1' else OPCODE_RDY; -- Dismiss the current read cycle.
     BUSY_OPD <= '0' when EXH_REQ = '1' and BUSY_MAIN = '0' and IPIPE_PNTR > 0 and OPCODE_RD_I = '0' else -- Fill one opcode is sufficient here.
                 '1' when IPIPE_PNTR < 3 or OPCODE_RD_I = '1' else '0';
