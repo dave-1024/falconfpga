@@ -111,3 +111,5 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
 - p3 8ed3aec: clk_cpu030 18.442 MHz (16 constraint), clk32 33.915, TNS 0. BUT the timer lists a derived clock
   "IPIPE_PNTR[1]": P_COF_Q inferred latches (variable S not assigned on all paths). Fixed (S cleared first) before any flash;
   8ed3aec bitstream discarded.
+- 17:19 UK p3 builds of 04a79d6 (step 2, no latch) and db04754 (vchain) died: "License verification failed, server
+  not responding". Restarted 17:38 UK (setsid nohup, sequential). Board untouched: still de35f5f (no test flash done yet).
