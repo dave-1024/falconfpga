@@ -130,19 +130,37 @@ recovery min slack 8.17 ns, removal 0.27 ns, clk_cpu030 16.845 MHz (main build o
 Reproduce with
 `sim/rtl/run_rtl.sh`, `sim/rtl/gap.sh prog_gap <WS>`, `sim/rtl/cmp_wr.sh <old> <new> <prog> <WS>`.
 
-## Fmax work (in progress, notes kept as we go)
+## Fmax work
 
 Board build `build_st_helper_hdn.tcl`, place_option 3. No constraint changes. Each step is
-cycle-neutral: RTL regression (run_rtl.sh + cmp_wr.sh on 12 programs x WS 0/1/3/7 against 6b4f100)
-and the whole-ST bench (`sim/st/run_bus.sh`, netlist with FAST_HANDOFF=1) must be identical.
+cycle-neutral: RTL regression (run_rtl.sh, plus cmp_wr.sh on 12 programs x WS 0/1/3/7 against
+6b4f100) and the whole-ST bench (`sim/st/run_bus.sh`, netlist with FAST_HANDOFF=1), whose
+register dump and both bus traces must be byte-identical to 6b4f100.
 
-| build | clk_cpu030 | clk32_core | notes |
-|---|---|---|---|
-| main 4d0157d | 16.210 | 32.133 | |
-| 6b4f100 (PH2 handoff) | 16.845 | 32.897 | |
-| 5ca9e65 PACK/UNPK select (box) | 18.814 | 32.962 | 48/48 SAME, run_rtl PASS |
-| df0c6d7 + gstmcu DIN (linserver) | 20.558 | 33.150 | ST bench identical; P&R noise on cpu clock |
-| WIP + bus address from ADR_LATCH + HD63701 RR/CC reg (box c4) | 22.906 | 32.562 | IKBD p->ADI->iopt->R0/R1->ALU->RR still 30.7 ns |
+Commits:
+- 5ca9e65 control: the register-mode PACK/UNPK START_OP address select drops its DR_IN_USE term.
+  This breaks the chain DR_IN_USE -> AR_SEL_RD_1 -> AR_IN_USE -> NEXT_FETCH_STATE -> ADR_EFF.
+- df0c6d7 atarist.v: gstmcu DIN no longer has the shifter_dout arm. That arm was selected only in
+  RAM read cycles, and nothing that reads gstmcu DIN is active then.
+- 61b0fd2 bus interface: the address and FC pins come from ADR_LATCH/FC_LATCH. They differ from
+  ADR_P/FC_I only in IDLE, while AS is negated, so the control unit no longer reaches the ST bridge.
+- 0913b33 + 5246d00 HD63701: ALU result/flags and operands are registered every clk32. Their
+  inputs are stable for at least 5 clk32 before EN2, and only the EN2 block reads them.
 
-Next: HD63701 R0/R1 also registered (c5); the blitter_data_out arm of gstmcu DIN is still a
-half-period path (0.5 ns slack at df0c6d7).
+| build (MHz) | clk_cpu030 | clk32_core |
+|---|---|---|
+| main 4d0157d | 16.210 | 32.133 |
+| 6b4f100 PH2 handoff | 16.845 | 32.897 |
+| 5ca9e65 | 18.814 | 32.962 |
+| df0c6d7 | 20.558 | 33.150 |
+| 0913b33 | 21.215 | 33.073 |
+| 5246d00 p3 (final) | 22.179 | 32.985 |
+| 5246d00 p1 / p4 | 20.848 / 22.986 | 32.003 / 33.540 |
+
+clk_cpu030 has 39% headroom (target 16 MHz). clk32_core is limited to about 3% headroom by two paths:
+- A half-period path from blitter bltState -> blitter address -> gstmcu I/O decode ->
+  gamecart_r/mde0_r/mde1_r (register.v samples on negedge). 0.47 ns slack in 15.6 ns, mostly
+  routing. A blitter can be bus master and write these registers, so its arm has to stay. A
+  cycle-neutral fix would need register.v sampling moved, which changes timing. Open.
+- jt49 register -> sd_card data_out at 1.2 ns slack (full period). Not yet looked at.
+The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path at about 0 ns).
