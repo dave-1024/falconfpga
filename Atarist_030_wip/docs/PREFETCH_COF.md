@@ -58,3 +58,12 @@ Branch `prefetch-cof` (off main 9e27c24). Unconditional correctness/behaviour fi
 - Potential (trace analysis, docs/prefetch_cof/waste.py): in prog_bus 1973 of 10101 ST cycles (19.5%)
   are instruction words fetched past a change of flow and thrown away.
 - Timing (p3, hdn build): clk_cpu030 20.711 MHz (constraint 16 MHz; main 20.901), clk32 36.031 MHz, TNS 0.
+
+## Board test of step 1 (st_helper_hdn_pfcof_833183b_p3.fs, sha256 e8ea0de2..., 16 Oct 15:48-16:10 BST)
+- op 53 at 4193 after cable rescan, flash ended 0x04B9D00, core/reload rc 0.
+- `c` cold boot: desktop. Reloads r1-r5: desktop. **r6-r10: "System halted!"** right after the
+  ST_HELPER mailbox self-test line ("-- mailbox test done, TOS continues --"), every reload.
+  A `c` cold boot afterwards reached the desktop again. Warm resets and GEMBENCH not run.
+- The same sequence on de35f5f (posted writes, main) gave 10/10 reloads + 3/3 warm resets. Treated as a
+  failure of step 1: rolled back to st_helper_hdn_ph2wp_de35f5f_p3.fs. Cause not yet known (EmuTOS
+  halts after an unexpected exception; the mailbox code runs in cartridge ROM space).
