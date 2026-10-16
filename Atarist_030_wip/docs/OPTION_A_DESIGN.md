@@ -115,3 +115,14 @@ Split "the cycle is accepted" from "the data is here":
     `prog_movemw.s` covers long/word, (An), -(An) with An in the list, d16(An), (d8,An,Xn), abs, single/sparse masks:
     writes identical to main at WS 0/1/3/7, about 100 clocks faster.
   - Not done this run: MOVEM reads (4 clocks; needs the read data path, larger change) and run-ahead requests (A3).
+- 23:00 UK, **verification of 08e1cf8**:
+  - Full RTL regression vs main 705db1a: run_rtl PASS; cmp_wr 19 programs × WS 0/1/3/7 all SAME (prog_fpbr and
+    prog_fpuprobe do not build/finish in this harness, same as on main). prog_gap WS0 2657 → 2636, WS3 3834 → 3813.
+  - Whole-ST bench (netlists of main and option-a, FAST_HANDOFF=1): prog_bus and prog_cof identical
+    (10099 ST cycles / 6807734 ns; 2167 / 1163734 ns). The saved clock per MOVEM write does not cross an ST en1 there,
+    so no ST-bus gain on these benches. Expected: bridge-bound, see §5.
+  - p3 (st_helper_hdn_oa_08e1cf8_p3.fs, sha256 3996f7ca…e1fb): clk_cpu030 19.831 MHz, clk32_core 32.167 MHz,
+    TNS 0 on all clocks.
+  - Board (flashed op 53 at 4193 after rescan): c + 10 reloads 10/10 DESK. Helper serial went silent after the first
+    warm-reset attempt (known, same as vchain at 20:40); op 1 reload restored it. Then c + 3 warm resets (`w`,
+    "ST reset via sysctrl"): 3/3 DESK, serial OK after each. GEMBENCH next.
