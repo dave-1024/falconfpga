@@ -138,3 +138,8 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   (PF_CHAIN_GO) is the prime suspect for the step 1 halt. vchain is also the more 030-correct variant (a handoff
   decided at S3 completes).
 - Next: 3 warm resets + GEMBENCH on vchain; then queue gating (see below).
+- 20:40 UK warm resets on vchain: first 3 tries showed DESK but the helper serial was silent (no reply even to `s`),
+  so those resets probably never happened (and the run-3 `c` before the reloads is unconfirmed too). One op 1
+  reload brought the companion serial back ("link OK"). Redone 20:50 UK: 3 x `w`, each acknowledged (R=1), each DESK.
+  Open: why the companion serial went silent (seen once, on vchain; cause unknown, could be the board/USB event).
+- GEMBENCH on vchain: not run yet (time box).
