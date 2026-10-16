@@ -202,6 +202,98 @@ signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
+signal NXT_OP               : integer range 0 to 15 := 0; -- [PFCOF3]
+signal NXT_KNOWN            : boolean := false; -- [PFCOF3]
+
+-- [PFCOF3] Extension words of an effective address (0 to 2), or 15 when unknown here (index modes:
+-- brief or full format needs the extension word; we pass it in X and accept the brief format only).
+function EA_EXT(M, R : std_logic_vector(2 downto 0); SZ : integer; X : std_logic_vector(15 downto 0)) return integer is
+begin
+    case M is
+        when "000" | "001" | "010" | "011" | "100" => return 0;
+        when "101" => return 1;
+        when "110" => if X(8) = '0' then return 1; else return 15; end if;
+        when others =>
+            case R is
+                when "000" | "010" => return 1;
+                when "001" => return 2;
+                when "011" => if X(8) = '0' then return 1; else return 15; end if;
+                when "100" => if SZ = 4 then return 2; else return 1; end if;
+                when others => return 15;
+            end case;
+    end case;
+end function EA_EXT;
+
+-- [PFCOF3] Length in words of a common operation (W = operation word, X = the word after it), 0 = unknown.
+function OP_LEN(W, X : std_logic_vector(15 downto 0)) return integer is
+    variable E, F, SZ : integer;
+begin
+    if W = x"4E71" or W = x"4E75" or W = x"4E73" or W = x"4E77" then return 1; end if;
+    if W = x"4E74" then return 2; end if;
+    case W(15 downto 12) is
+        when "0111" => if W(8) = '0' then return 1; else return 0; end if; -- MOVEQ
+        when "0110" => if W(7 downto 0) = x"00" then return 2; elsif W(7 downto 0) = x"FF" then return 3; else return 1; end if;
+        when "0101" =>
+            if W(7 downto 6) /= "11" then -- ADDQ/SUBQ
+                if W(7 downto 6) = "10" then SZ := 4; else SZ := 2; end if;
+                E := EA_EXT(W(5 downto 3), W(2 downto 0), SZ, X);
+            elsif W(5 downto 3) = "001" then return 2; -- DBcc
+            elsif W(5 downto 3) = "111" and W(2 downto 0) /= "000" and W(2 downto 0) /= "001" then return 0; -- TRAPcc
+            else E := EA_EXT(W(5 downto 3), W(2 downto 0), 1, X); -- Scc
+            end if;
+            if E = 15 then return 0; else return 1 + E; end if;
+        when "0001" | "0010" | "0011" => -- MOVE, MOVEA
+            if W(13 downto 12) = "10" then SZ := 4; elsif W(13 downto 12) = "11" then SZ := 2; else SZ := 1; end if;
+            E := EA_EXT(W(5 downto 3), W(2 downto 0), SZ, X);
+            if E = 15 then return 0; end if;
+            if W(8 downto 6) = "111" and W(11 downto 9) /= "000" and W(11 downto 9) /= "001" then return 0; end if;
+            if W(8 downto 6) = "110" then return 0; end if; -- Destination index: its extension word is not X.
+            F := EA_EXT(W(8 downto 6), W(11 downto 9), SZ, X);
+            if F = 15 then return 0; else return 1 + E + F; end if;
+        when "0100" =>
+            if W(8 downto 6) = "111" then -- LEA
+                E := EA_EXT(W(5 downto 3), W(2 downto 0), 4, X);
+            elsif W(11 downto 6) = "111011" or W(11 downto 6) = "111010" then -- JMP, JSR
+                E := EA_EXT(W(5 downto 3), W(2 downto 0), 4, X);
+            elsif W(11 downto 6) = "100001" then -- PEA, SWAP
+                E := EA_EXT(W(5 downto 3), W(2 downto 0), 4, X);
+            elsif (W(11 downto 8) = "0000" or W(11 downto 8) = "0010" or W(11 downto 8) = "0100" or
+                   W(11 downto 8) = "0110" or W(11 downto 8) = "1010") and W(7 downto 6) /= "11" then -- NEGX CLR NEG NOT TST
+                if W(7 downto 6) = "10" then SZ := 4; elsif W(7 downto 6) = "01" then SZ := 2; else SZ := 1; end if;
+                E := EA_EXT(W(5 downto 3), W(2 downto 0), SZ, X);
+            elsif W(11 downto 3) = "100010000" or W(11 downto 3) = "100011000" or W(11 downto 3) = "100111000" then
+                return 1; -- EXT.W, EXT.L, EXTB.L
+            else
+                return 0;
+            end if;
+            if E = 15 then return 0; else return 1 + E; end if;
+        when "1101" | "1001" | "1100" | "1000" | "1011" => -- ADD SUB AND OR CMP/EOR (MUL/DIV/ADDA/CMPA)
+            case W(7 downto 6) is
+                when "00" => SZ := 1;
+                when "01" => SZ := 2;
+                when "10" => SZ := 4;
+                when others => -- opmode x11: ADDA/SUBA/CMPA, or MUL/DIV word
+                    if W(8) = '1' and (W(15 downto 12) = "1101" or W(15 downto 12) = "1001" or W(15 downto 12) = "1011") then SZ := 4; else SZ := 2; end if;
+            end case;
+            E := EA_EXT(W(5 downto 3), W(2 downto 0), SZ, X);
+            if E = 15 then return 0; else return 1 + E; end if;
+        when "1110" =>
+            if W(7 downto 6) /= "11" then return 1; -- Register shifts/rotates.
+            elsif W(11) = '1' then return 0; -- Bit field.
+            else E := EA_EXT(W(5 downto 3), W(2 downto 0), 2, X); if E = 15 then return 0; else return 1 + E; end if;
+            end if;
+        when others => return 0;
+    end case;
+end function OP_LEN;
+
+-- [PFCOF3] Unconditional change of flow: BRA, BSR, JMP, JSR, RTS, RTE, RTR, RTD.
+function IS_UCOF(W : std_logic_vector(15 downto 0)) return boolean is
+begin
+    return W = x"4E75" or W = x"4E73" or W = x"4E77" or W = x"4E74" or
+           W(15 downto 9) = "0110000" or -- BRA, BSR
+           W(15 downto 7) = "010011101"; -- JMP, JSR
+end function IS_UCOF;
+
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
     -- This logic requires asynchronous reset. This flip flop is intended 
@@ -259,15 +351,52 @@ begin
     -- RTD), DBcc, and Bcc with a backward displacement (loops; a forward Bcc may fall through). The words
     -- are not known to be operation words (they can be extension or immediate data); a wrong guess only
     -- delays the next fetch, because any wait of the control unit for a word (PF_DEMAND) lifts the hold.
-    P_COF_Q: process(IPIPE, IPIPE_PNTR, Q_STREAM, Q_COUNT)
-        type SW_T is array (0 to 6) of std_logic_vector(15 downto 0);
+    -- [PFCOF3] Queue gating at real opcode positions. NXT_OP counts the words in front of the next operation
+    -- word in the stream (IPIPE D, C, B, then the queue): set when the control unit takes an operation word
+    -- (its length minus the words taken with it), counted down per extension word, 0 after a flush (the pipe
+    -- head is then the branch target). OP_LEN gives the length of the common operations (operation word plus
+    -- effective address extensions); an operation it does not know (or a full format index extension) stops
+    -- the look-ahead (NXT_KNOWN false), so a hold is set only on a word that is an operation word.
+    -- From that position the stream is walked over known lengths; an unconditional change of flow (BRA, BSR,
+    -- JMP, JSR, RTS, RTE, RTR, RTD) whose words are all present holds further stream fetches. No prediction
+    -- of Bcc/DBcc (step 1 holds those when they execute). Timing only: PF_DEMAND still lifts any hold.
+    P_NXT_OP: process
+        variable L : integer range 0 to 15;
+        variable T : integer range 0 to 3;
+    begin
+        wait until CLK = '1' and CLK' event;
+        if IPIPE_FLUSH = '1' then
+            NXT_OP <= 0; NXT_KNOWN <= true;
+        elsif BUSY_EXH = '1' or BKPT_INSERT = '1' or BKPT_REQ = '1' then
+            NXT_KNOWN <= false;
+        elsif OW_REQ = '1' and PIPE_RDY = '1' then
+            L := OP_LEN(IPIPE.D, IPIPE.C);
+            case INSTR_LVL is when D => T := 1; when C => T := 2; when B => T := 3; end case;
+            if L = 0 or L < T then
+                NXT_KNOWN <= false; NXT_OP <= 0;
+            else
+                NXT_KNOWN <= true; NXT_OP <= L - T;
+            end if;
+        elsif EW_REQ = '1' and IPIPE_PNTR /= 0 then
+            if NXT_OP = 0 then
+                NXT_KNOWN <= false; -- Length was wrong: stop until the next flush.
+            else
+                NXT_OP <= NXT_OP - 1;
+            end if;
+        end if;
+    end process P_NXT_OP;
+
+    P_COF_Q: process(IPIPE, IPIPE_PNTR, Q_STREAM, Q_COUNT, NXT_OP, NXT_KNOWN)
+        type SW_T is array (0 to 7) of std_logic_vector(15 downto 0);
         variable S   : SW_T;
         variable N   : integer range 0 to 7;
-        variable L   : integer range 0 to 3;
+        variable P   : integer range 0 to 31;
+        variable L   : integer range 0 to 15;
         variable HIT : bit;
+        variable GO  : boolean;
         variable W   : std_logic_vector(15 downto 0);
     begin
-        S := (others => (others => '0')); -- No latch: every element assigned on every path.
+        S := (others => (others => '0')); -- No latch.
         S(0) := IPIPE.D; S(1) := IPIPE.C; S(2) := IPIPE.B;
         for i in 0 to 3 loop
             if IPIPE_PNTR = 0 then S(i) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
@@ -277,25 +406,21 @@ begin
             end if;
         end loop;
         N := IPIPE_PNTR + Q_COUNT;
-        HIT := '0';
-        for i in 0 to 5 loop
-            W := S(i); L := 0;
-            if W = x"4E75" or W = x"4E73" or W = x"4E77" then L := 2; -- RTS, RTE, RTR (+1: decoder takes two words).
-            elsif W = x"4E74" then L := 2; -- RTD #d16.
-            elsif W(15 downto 7) = "010011101" then -- JMP/JSR <ea>
-                case W(5 downto 0) is
-                    when "010000" | "010001" | "010010" | "010011" | "010100" | "010101" | "010110" | "010111" => L := 2; -- (An)
-                    when "101000" | "101001" | "101010" | "101011" | "101100" | "101101" | "101110" | "101111" => L := 2; -- d16(An)
-                    when "111000" | "111010" => L := 2; -- xxx.W, d16(PC)
-                    when "111001" => L := 3; -- xxx.L
-                    when others => L := 0; -- indexed/indirect: length unknown here, no hold
-                end case;
-            elsif W(15 downto 12) = "0110" and (W(11 downto 8) = "0000" or W(11 downto 8) = "0001") then -- BRA, BSR
-                if W(7 downto 0) = x"FF" then L := 3; else L := 2; end if;
-            -- Bcc/DBcc: not predecoded (a real 030 does not predict branches; prog_loop bne.s not taken was held). Step 1 covers them at execution.
-            -- DBcc excluded: measured slower (prog_loop +19%), see PREFETCH_COF.md
+        HIT := '0'; GO := NXT_KNOWN; P := NXT_OP;
+        for k in 0 to 3 loop -- At most four operations ahead.
+            if GO and P < N then
+                W := S(P mod 8);
+                L := OP_LEN(W, S((P + 1) mod 8));
+                if L = 0 then
+                    GO := false;
+                else
+                    if IS_UCOF(W) and P + L <= N and P + 2 <= N then HIT := '1'; end if;
+                    if IS_UCOF(W) then GO := false; end if; -- Nothing after it is on the path.
+                    P := P + L;
+                end if;
+            else
+                GO := false;
             end if;
-            if L /= 0 and i + L <= N then HIT := '1'; end if;
         end loop;
         COF_Q <= HIT;
     end process P_COF_Q;
