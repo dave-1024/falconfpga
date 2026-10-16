@@ -226,3 +226,21 @@ Work log (kept current so an interrupted run loses little):
   operand read before it takes the exception. That read reloaded WP_BUFFER, so the frame's DOB ($18) showed an
   older write's data. OUTBUFFER is now held from the faulting write until the exception handler runs.
 - prog_gap DD gaps (6b4f100 -> WP+PW_GO), WS0: 6:32 7:17 9:15 11:15 -> 4:17 5:1 6:15 7:32 9:15; DONE 2765 -> 2665.
+- Committed: dfa0f15 (posted writes + PW_GO + DOB hold) and de35f5f (prog_wpberr.s).
+- Regression for dfa0f15:
+  - run_rtl.sh: PASS. prog_loop WS5 is unchanged at 40284 (no writes in its loop).
+  - cmp_wr.sh against 6b4f100, 13 programs x WS 0/1/3/7: 47 SAME. The differences are expected ones:
+    - prog_branch WS1: only the format B internal word ($7FD0), as in section 4.
+    - prog_wpberr: only the DOB (now the faulted write's data, e.g. $33334444 instead of the
+      older write's $11112222) and the format B internal word. Format ($B008), SSW, fault address,
+      PC and SR are identical.
+  - prog_berrwb (F66): SAME at all wait states.
+- prog_gap, WS0: DONE 2765 -> 2665. Operand->operand (DD) gaps 6 -> 4 (MOVEM writes), 9 -> 7 and 11 -> 9 after writes;
+  gaps after reads are unchanged.
+- Whole-ST bench (netlist, FAST_HANDOFF = 1): the same 10101/10103 accesses with the same data and the same register dump.
+  030 AS-negate -> AS gaps 9 -> 7 (23 cases), and the ST time is the same (6807734 ns). On the ST bus the 030 waits for the
+  4-clock ST slot (AS->AS is 4 x 125 ns for 7103 of the cycles), so posting rarely moves an ST cycle.
+- Open (report to David): after a data bus error, the core (6b4f100 too) still runs the next instruction's
+  operand read before it takes the exception. MC68030UM 8.1.2 says a data fault is taken right after its bus cycle ends.
+  The stacked frame is format $B with the faulting instruction's PC; a real 68030 builds a $A frame when the faulted
+  write was the instruction's last. Not changed here.
