@@ -340,6 +340,7 @@ signal NEXT_EXEC_WB_STATE   : EXEC_WB_STATES := IDLE;  -- [F54] measured warm-bo
 signal ADR_MARK_USED_I		: bit := '0';  -- [F54] measured warm-boot value
 signal ADR_MODE_I           : std_logic_vector(2 downto 0) := "100";  -- [F54] measured warm-boot value
 signal ALU_INIT_I           : bit := '0';  -- [F54] measured warm-boot value
+signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
 signal AR_WR_I              : bit := '0';  -- [F54] measured warm-boot value
@@ -386,6 +387,13 @@ signal WRITE_CYCLE          : bit := '0';  -- [F54] measured warm-boot value
 -- Debugging:
 signal OP_TEST            : bit := '0';  -- [F54] measured warm-boot value
 begin
+    -- Option A (see docs/OPTION_A_DESIGN.md): for MOVEM register-to-memory the ALU is
+    -- released in the clock its write completes (ALU_ACK), so the next register may be
+    -- loaded in that same clock instead of one clock later (as on the real 68030, which
+    -- overlaps the next MOVEM transfer set-up with the current bus cycle).
+    ALU_BSY_M <= '0' when ALU_BSY = '0' else
+                 '0' when OP = MOVEM and OP_WB_I = MOVEM and BIW_0(10) = '0' and BIW_0_WB(10) = '0' and
+                          EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' else '1';
     BUSY <= '1' when OPD_ACK = '1' else -- Early indication.
             '1' when LOOP_BSY = '1' else -- Finish the DBcc loop.
             '1' when ALU_BSY = '1' else -- Busy, wait.
@@ -1111,7 +1119,7 @@ begin
     SP_ADD_DISPL <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else 
                     '1' when OP = RTD and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' else '0';
 
-    ALU_TRIG <= '0' when ALU_BSY = '1' or FETCH_STATE /= INIT_EXEC_WB else
+    ALU_TRIG <= '0' when ALU_BSY_M = '1' or FETCH_STATE /= INIT_EXEC_WB else
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
                 '0' when OP = MOVE and PHASE2 = true else -- no ALU required after second portion of address calculation.
                 '0' when OP = MOVEM and MOVEM_COND = false else
@@ -1167,7 +1175,7 @@ begin
                             SUB | SUBI | SUBQ | SUBX | SWAP | TAS | TST, '0' when others;
 
     ADR_MARK_USED_I <= '1' when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and PHASE2 = true else -- Destination address calculation done.
-                       '0' when FETCH_STATE /= INIT_EXEC_WB or ALU_BSY = '1' else -- Deactivate except in the end of INIT_EXEC_WB.
+                       '0' when FETCH_STATE /= INIT_EXEC_WB or ALU_BSY_M = '1' else -- Deactivate except in the end of INIT_EXEC_WB.
                        '1' when OP = BFCHG or OP = BFCLR or OP = BFINS or OP = BFSET or OP = BSR  or OP = JSR or OP = LINK or OP = PEA  else
                        '1' when (OP = ADDI or OP = ANDI or OP = EOR or OP = EORI or OP = ORI or OP = SUBI) and BIW_0(5 downto 3) /= "000" else
                        '1' when (OP = ABCD or OP = SBCD or OP = ADDX or OP = SUBX) and BIW_0(3) = '1' else
@@ -1320,9 +1328,9 @@ begin
                         null; -- Offset comes from addressing register.
                     elsif BIW_0(10) = '1' and MOVEM_FIRST_RD = false then
                         null; -- Do not increment before the first bus access.
-                    elsif MOVEM_COND = true and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' and OP_SIZE_I = LONG then
+                    elsif MOVEM_COND = true and FETCH_STATE = INIT_EXEC_WB and ALU_BSY_M = '0' and OP_SIZE_I = LONG then
                         ADR_OFFS_VAR := ADR_OFFS_VAR + "100"; -- Register to memory.
-                    elsif MOVEM_COND = true and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
+                    elsif MOVEM_COND = true and FETCH_STATE = INIT_EXEC_WB and ALU_BSY_M = '0' then
                         ADR_OFFS_VAR := ADR_OFFS_VAR + "10"; -- Register to memory.
                     end if;
                 when MOVEP =>
@@ -1378,7 +1386,7 @@ begin
         end if;
     end process BITFIELD_CONTROL;
 
-    MOVEM_CONTROL: process(ADR_MODE_I, CLK, BIW_0, BIW_1, OP, RESET_CPU, FETCH_STATE, NEXT_FETCH_STATE, ALU_BSY, MOVEM_PNTR)
+    MOVEM_CONTROL: process(ADR_MODE_I, CLK, BIW_0, BIW_1, OP, RESET_CPU, FETCH_STATE, NEXT_FETCH_STATE, ALU_BSY, ALU_BSY_M, MOVEM_PNTR)
     variable INDEX      : integer range 0 to 15 := 0;
     variable MOVEM_PVAR : std_logic_vector(3 downto 0) := x"0";
     variable BITS       : std_logic_vector(4 downto 0);
@@ -1386,11 +1394,11 @@ begin
         if CLK = '1' and CLK' event then
             if FETCH_STATE = START_OP then
                 MOVEM_PVAR := x"0";
-            elsif FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = false and MOVEM_PVAR < x"F" and ALU_BSY = '0' then
+            elsif FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = false and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
                 MOVEM_PVAR := MOVEM_PVAR + '1'; -- No data to write.
-            elsif BIW_0(10) = '1' and MOVEM_FIRST_RD = true and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY = '0' then
+            elsif BIW_0(10) = '1' and MOVEM_FIRST_RD = true and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
                 MOVEM_PVAR := MOVEM_PVAR + '1'; -- Data has not been read.
-            elsif BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY = '0' then
+            elsif BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
                 MOVEM_PVAR := MOVEM_PVAR + '1'; -- Data has been written.
             end if;
 
@@ -1555,7 +1563,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY)
     -- ADH: avoid data hazard.
@@ -2424,13 +2432,13 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVEM =>
-                        if ALU_BSY = '0' and BIW_0(10) = '0' and ADR_MODE_I = "100" and MOVEM_PNTR = x"0" then -- -(An), register to memory.
+                        if ALU_BSY_M = '0' and BIW_0(10) = '0' and ADR_MODE_I = "100" and MOVEM_PNTR = x"0" then -- -(An), register to memory.
                             NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
-                        elsif ALU_BSY = '0' and BIW_0(10) = '0' and ADR_MODE_I /= "100" and MOVEM_PNTR = x"F"  then -- Register to memory
+                        elsif ALU_BSY_M = '0' and BIW_0(10) = '0' and ADR_MODE_I /= "100" and MOVEM_PNTR = x"F"  then -- Register to memory
                             NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
-                        elsif ALU_BSY = '0' and BIW_0(10) = '1' and MOVEM_PNTR = x"F"  then -- Memory to register.
+                        elsif ALU_BSY_M = '0' and BIW_0(10) = '1' and MOVEM_PNTR = x"F"  then -- Memory to register.
                             NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
-                        elsif ALU_BSY = '0' and BIW_0(10) = '1' then -- Memory to register.
+                        elsif ALU_BSY_M = '0' and BIW_0(10) = '1' then -- Memory to register.
                             NEXT_FETCH_STATE <= SWITCH_STATE;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
@@ -2664,6 +2672,12 @@ begin
                         when CAS2 =>
                             if PHASE2 = false then
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Update destination 2.
+                            else
+                                NEXT_EXEC_WB_STATE <= IDLE;
+                            end if;
+                        when MOVEM =>
+                            if ALU_INIT_I = '1' then
+                                NEXT_EXEC_WB_STATE <= EXECUTE; -- Option A: next MOVEM register overlaps this write.
                             else
                                 NEXT_EXEC_WB_STATE <= IDLE;
                             end if;

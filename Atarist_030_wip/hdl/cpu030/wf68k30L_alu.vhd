@@ -305,7 +305,9 @@ begin
             ALU_BSY_I <= '0';
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
-        if ALU_ACK = '1' then
+        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
+            ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
+        elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
             ALU_REQ <= '1';
