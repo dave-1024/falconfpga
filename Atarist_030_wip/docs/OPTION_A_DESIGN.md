@@ -96,3 +96,22 @@ Split "the cycle is accepted" from "the data is here":
     which is not covered).
   - Next run: a sim probe (per-clock FETCH_STATE/EXEC_WB_STATE/ALU_BSY/DATA_WR/DATA_RDY on prog_pushrts) to confirm
     the 3-clock breakdown before RTL. The board stays on vchain db04754.
+- 23:10 UK, sim probe (prog_gap, WS0, P_DBG copy of control.vhd):
+  - MOVEM read: DATA_RDY → INIT_EXEC_WB(ALU_INIT) → SWITCH_STATE(EXECUTE) → CALC_AEFF(WRITEBACK) → FETCH_OPERAND
+    (DATA_RD=1): 4 clocks.
+  - MOVEM write: DATA_RDY → EXEC_WB IDLE (ALU_INIT) → EXECUTE → WRITE_DEST (DATA_WR=1): 3 clocks.
+- 23:25 UK, **A2 for MOVEM register-to-memory implemented (08e1cf8)**:
+  - New `ALU_BSY_M` in the control unit: '0' when the ALU is idle, or when OP = MOVEM register-to-memory and the
+    current WRITE_DEST gets WR_RDY (that is the ALU_ACK clock). It replaces ALU_BSY in ALU_TRIG, the MOVEM
+    ADDRESS_OFFSET increments, MOVEM_CONTROL (MOVEM_PNTR), ADR_MARK_USED_I and the MOVEM branch of FETCH_DEC.
+  - EXEC_WB_DEC: WRITE_DEST with WR_RDY goes straight to EXECUTE when ALU_INIT_I = '1' (OP_WB = MOVEM), so there is
+    no IDLE clock and no UNMARK in between (the next mark follows from ADR_MARK_USED one clock later, as before).
+  - ALU P_BUSY: ALU_INIT together with ALU_ACK for MOVEM re-arms ALU_REQ (ALU_BSY already had INIT priority).
+  - Why it is 030-correct: the write's DATA_RDY is the posting point (PH2-WP; data and address are latched in the bus
+    interface), or the end of the cycle when not posted. So the next register is loaded only after the current write
+    is committed, never ahead of a possible BERR on a non-posted write. Late BERR on a posted write is unchanged
+    (prog_wpberr).
+  - Result: MOVEM write DD gap 4 → 3 clocks (prog_gap: 17 transfers, DONE 2657 → 2636 at WS0). New test
+    `prog_movemw.s` covers long/word, (An), -(An) with An in the list, d16(An), (d8,An,Xn), abs, single/sparse masks:
+    writes identical to main at WS 0/1/3/7, about 100 clocks faster.
+  - Not done this run: MOVEM reads (4 clocks; needs the read data path, larger change) and run-ahead requests (A3).
