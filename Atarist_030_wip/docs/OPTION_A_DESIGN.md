@@ -145,3 +145,7 @@ Split "the cycle is accepted" from "the data is here":
   - Whole-ST bench: prog_bus 10099 ST cycles / 6807734 ns, same as main (some 13-unit gaps became 11, still missing
     the en1); prog_cof identical.
   - p3 st_helper_hdn_oa_039c710_p3.fs (sha256 f543ebe4…3ba6): clk_cpu030 21.725 MHz, clk32_core 35.255 MHz, TNS 0.
+- 00:45 UK, **board on 039c710** (op 53 at 4193 after rescan, ends 0x4AE300): c + 10 reloads 10/10 DESK (r2 and
+  r4 desktop at the 4th grab, the earlier grabs non-desktop, within the 5-grab rule; no "System halted!").
+  Warm resets: the first `w` got the helper help line instead of a reset (not counted, see FALCON_LESSONS); then 3 `w`
+  answered "ST reset via sysctrl R=1", 3/3 DESK, serial OK after each. GEMBENCH running.
