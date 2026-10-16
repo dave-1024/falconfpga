@@ -3,19 +3,21 @@
 **In one paragraph:** an Atari ST/STE (MiSTeryNano core) whose 68000 is replaced by a 68030 (Wolfgang Foerster's
 WF68K30L) behind a TerribleFire-style bus bridge, on a Sipeed Tang Console 138K, with a Gowin AE350 RISC-V helper for
 SD card, disks, keyboard/mouse and OSD. It should behave like a real 68030/TF board on an ST bus (no compatibility hacks,
-no posted writes). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 123% of a stock STE.
+no write buffer beyond the cycle on the bus: a write ends for the control unit at S3 of its last portion, once DSACK
+has decided it, as on a 68030). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 132% of a stock STE.
 
 **Start here:** [docs/BUILD.md](docs/BUILD.md) (building the core and the helper on Windows or Linux, every switch and its
 default, timing checks, flash addresses and rules), [docs/FALCON_LESSONS.md](docs/FALCON_LESSONS.md) (lessons and the
 "Bugs found" list: symptom, cause, fix, commit), [docs/SD_WRITE_DEBUG.md](docs/SD_WRITE_DEBUG.md) (SD/floppy write path),
 [docs/HISTORY.md](docs/HISTORY.md), [docs/TODO.md](docs/TODO.md) (open work, the
-URGENT core item first), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed lab sections),
+phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed lab sections),
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (15 Oct 2026, main)
+## Status (16 Oct 2026, main)
 
-Board build: `st_helper_hdn_917668c_p3.fs` (main switches + `SD_WRITE_DEBUG`, place 3), TOS 2.06, helper
+Board build: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
+writes, place 3; clk_cpu030 19.65 MHz, clk32 34.2 MHz), helper
 `helper_companion_sdwlog_3ec6e20.bin`.
 
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
@@ -25,9 +27,10 @@ GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 | F60 (CHK fix) | 48 | 60 | 31 | 120 | 61 |
 | F63 (bridge + SDRAM early start) | 61 | 69 | 37 | 137 | 71 |
 | F62d (prefetch queue + JSR fix) | 76 | 85 | 72 | 225 | 112 |
-| p3 (early AS + F65 handoff + SD fixes) | 98 | 98 | 80 | 240 | **123** |
+| p3 (early AS + F65 handoff + SD fixes) | 98 | 98 | 80 | 240 | 123 |
+| phase 2 (S5->S0 handoff, Fmax, posted writes) | 115 | 115 | 89 | 251 | **132** |
 
-Float Math: OK (13.08 s, 101%). The old "float panic" was a corrupt test image, not the CPU
+Float Math: OK (12.37 s, 107%). Phase 2: [docs/PHASE2_DESIGN.md](docs/PHASE2_DESIGN.md). The old "float panic" was a corrupt test image, not the CPU
 (docs/FALCON_LESSONS.md).
 
 Works: cold boot, 4 MB memory test, desktop in low/medium res, GEMBENCH All Tests, SD floppy images mounted at
@@ -35,10 +38,11 @@ power-up (`atarist.ini`) or at runtime, with desktop saves (the swap corruption 
 uploads through the helper, SD error recovery (`ST_SD_HARDEN`; a lost sector shows as a disk error in TOS).
 
 Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
-- A read that bus-errors writes `$FFFF` into the destination register.
-- Warm reset (`w`) halts the 030 build ("System halted!"); cold boot (`c`) works.
+- Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; cold boot (`c`) clears it
+  (pinned in TODO.md). Always `c` after a flash.
 - The blitter shows as disabled under EmuTOS.
-- Operand cycles still take an IDLE state (CPU rework phase 2); no working caches yet.
+- A data bus error is taken one operand cycle late and always as a format $B frame (TODO.md phase 2 follow-ups);
+  no working caches yet; the control unit still needs 3 clocks between operand requests (option a).
 - Placement sensitivity: always check TNS and recovery/removal before flashing.
 
 ## Credits and thanks: Stephen J. Leary (TerribleFire)

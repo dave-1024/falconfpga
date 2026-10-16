@@ -10,6 +10,9 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
 | F62d (prefetch queue + JSR fix, on reset-sync main) 75bfc8c | 76 / 85 / 72 / 225 / 112 |
 | BRIDGE_EARLY_AS d43f5fd | 86 / 86 / 74 / 230 / 115 |
 | F65 prefetch handoff (switch off) | not built |
+| F66 BERR no-writeback 7e3660e (board build) | 98 / 98 / 80 / 240 / 123 |
+| PH2 handoff + Fmax 5246d00 | 115 / 115 / 89 / 251 / 132 |
+| PH2-WP posted writes de35f5f (board build) | 115 / 115 / 89 / 251 / 132 |
 
 8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
@@ -38,3 +41,13 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
    156 ns gap between transfers plus the 68000 S0 length makes the ST AS miss the 500 ns GSTMCU slot (notes/RAM_PATH.md).
    Fix: AS for ST RAM cycles 62.5 ns after the address. +11-20% on RAM code in the bench, GEMBENCH RAM 76 -> 86.
    The proper fix is in the core (TODO.md item 1).
+9. **CPU rework phase 2 (6b4f100, cpu-phase2, merged 16 Oct 2026).** Symptom: every operand cycle went S5 -> IDLE ->
+   START_CYCLE (2 idle clk_cpu). Fix: a prefetch rolls S5 into S0 of a waiting operand cycle and an operand cycle into a
+   waiting prefetch; the chain edge resets DSACK_MEM first (bus-width bug, FALCON_LESSONS.md). GEMBENCH 123 -> 132%.
+10. **Fmax (5ca9e65, df0c6d7, 61b0fd2, 0913b33, 5246d00).** Cycle-neutral cuts of the PACK/UNPK select, gstmcu DIN
+    shifter arm, bus address/FC from the latches and HD63701 ALU registers: clk_cpu030 16.2 -> 22.2 MHz, clk32 32.1 -> 33.0 MHz
+    (PHASE2_DESIGN.md "Fmax work").
+11. **Posted writes, option b (dfa0f15, de35f5f).** A write's DATA_RDY on the S3 edge of its last portion when DSACK ends it
+    cleanly (never on BERR/retry/halt/RMC/STERM); PW_GO starts the next operand cycle from IDLE straight into S0; the frame DOB
+    keeps the faulted write's data. Operand gaps after writes 6 -> 4 / 9 -> 7 clocks; GEMBENCH unchanged at 132% (ST-bus bound).
+    Board: st_helper_hdn_ph2wp_de35f5f_p3.fs, clk_cpu030 19.65 MHz (placement spread, not the change).

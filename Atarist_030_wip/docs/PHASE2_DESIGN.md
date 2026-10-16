@@ -1,6 +1,6 @@
 # CPU rework phase 2: the next bus cycle straight after S5
 
-Branch `cpu-phase2` (from `main` 4d0157d), 16 Oct 2026. Tag in the code: `[PH2]`.
+Branch `cpu-phase2` (from `main` 4d0157d), 16 Oct 2026, merged into `main` 16 Oct 2026. Tags in the code: `[PH2]`, `PH2-FMAX`, `PH2-WP`.
 WF68K30L by Wolfgang Foerster (CERN OHL v1.2); headers and revision blocks kept, PH2 lines added.
 
 ## 1. The handoff before phase 2
@@ -197,7 +197,7 @@ The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path a
 - `gbref.st` CRC32 after the run: 791ee820 (unchanged).
 - Result: stable and faster everywhere, so phase 2 stays on the board (location 4193, desktop in ST Medium, gbref.st on A:).
 
-## 7. Option (b): posted writes (approved 16 Oct 2026, work in progress)
+## 7. Option (b): posted writes (approved and done 16 Oct 2026)
 
 Work log (kept current so an interrupted run loses little):
 - Design (10:55 UK). The control unit gets the write's DATA_RDY on the edge that ends S3 of the **last** portion
@@ -282,3 +282,14 @@ Work log (kept current so an interrupted run loses little):
   (5246d00: OP_101 -> ADR_EFF_I_29, data 44.97 ns, slack 17.41; de35f5f: OP_74 -> ADR_EFF_I_26, data 50.82 ns, slack 11.61).
   No bus-interface cell is on it, so the drop is placement/routing spread (box p3 builds of nearby trees ranged 17.4-20.8 MHz).
   The bus-interface half-cycle paths are about the same (worst slack 20.55 -> 20.63 ns).
+
+## 8. Final state (16 Oct 2026, merged to main)
+
+- On the board: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (SHA256 273083f2...), clk_cpu030 19.651 MHz, clk32_core 34.200 MHz,
+  TNS 0. Rollback: `st_helper_hdn_ph2fmax_5246d00_p3.fs` (c74d9676...), then F66 `st_helper_hdn_berr_7e3660e_p3.fs`.
+- GEMBENCH 6: 132% (Display 89, CPU 251; RAM/ROM 115), from 123% before phase 2. gbref.st CRC 791ee820.
+- Bugs found: the bus-width register on a chained long read that bus-errors (6b4f100) and the posted-write frame DOB
+  (dfa0f15); both in FALCON_LESSONS.md "Bugs found".
+- Open (TODO.md "Phase 2 follow-ups"): option (a) pipelined control unit; data-fault timing and the $A/$B frame; stale
+  bus-fault flag on a chained late BERR; halt on a reload without `c`; clk_cpu030 decoder -> ADR_EFF path before the
+  caches; clk32 blitter falling-edge path.
