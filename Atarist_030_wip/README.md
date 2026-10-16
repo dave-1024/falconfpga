@@ -16,8 +16,8 @@ All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmwa
 
 ## Status (16 Oct 2026, main)
 
-Board build: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
-writes, place 3; clk_cpu030 19.65 MHz, clk32 34.2 MHz), helper
+Board build: `st_helper_hdn_pfcofvchain_db04754_p3.fs` (main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
+writes + prefetch stop at change of flow, place 3), helper
 `helper_companion_sdwlog_3ec6e20.bin`.
 
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
@@ -29,8 +29,10 @@ GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 | F62d (prefetch queue + JSR fix) | 76 | 85 | 72 | 225 | 112 |
 | p3 (early AS + F65 handoff + SD fixes) | 98 | 98 | 80 | 240 | 123 |
 | phase 2 (S5->S0 handoff, Fmax, posted writes) | 115 | 115 | 89 | 251 | **132** |
+| prefetch stop at change of flow (vchain) | 115 | 115 | 89 | 251 | **132** |
 
-Float Math: OK (12.37 s, 107%). Phase 2: [docs/PHASE2_DESIGN.md](docs/PHASE2_DESIGN.md). The old "float panic" was a corrupt test image, not the CPU
+Prefetch: the queue no longer fetches past a taken/unconditional change of flow (as a 68030; [docs/PREFETCH_COF.md](docs/PREFETCH_COF.md)),
+-2.7% ST cycles on branch-heavy code, GEMBENCH unchanged (ST-bus bound). Float Math: OK (12.37 s, 107%). Phase 2: [docs/PHASE2_DESIGN.md](docs/PHASE2_DESIGN.md). The old "float panic" was a corrupt test image, not the CPU
 (docs/FALCON_LESSONS.md).
 
 Works: cold boot, 4 MB memory test, desktop in low/medium res, GEMBENCH All Tests, SD floppy images mounted at

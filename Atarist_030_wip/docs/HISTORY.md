@@ -51,3 +51,9 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
     cleanly (never on BERR/retry/halt/RMC/STERM); PW_GO starts the next operand cycle from IDLE straight into S0; the frame DOB
     keeps the faulted write's data. Operand gaps after writes 6 -> 4 / 9 -> 7 clocks; GEMBENCH unchanged at 132% (ST-bus bound).
     Board: st_helper_hdn_ph2wp_de35f5f_p3.fs, clk_cpu030 19.65 MHz (placement spread, not the change).
+12. **Prefetch stop at change of flow (db04754, prefetch-cof-vchain, merged 16 Oct 2026).** Symptom: the F62 queue kept
+    fetching long words past taken branches, jumps and returns (15% of ST cycles in a branch-heavy bench). Fix: a hold
+    from the control unit while a taken/unconditional COF executes (step 1) plus a predecode of complete unconditional COFs
+    in the pipe/queue (step 2); Bcc/DBcc are not predicted; a hand-over already decided at S3 still completes (vchain).
+    -2.7% ST cycles on prog_cof, GEMBENCH 132% unchanged. Blocking the decided S5 hand-over (step 1 as first built) halted
+    reloads (FALCON_LESSONS.md). Board: st_helper_hdn_pfcofvchain_db04754_p3.fs. Shelved: prefetch-cof-qg.

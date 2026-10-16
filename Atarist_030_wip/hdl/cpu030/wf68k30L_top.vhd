@@ -370,6 +370,10 @@ signal IRQ_PEND                 : std_logic_vector(2 downto 0);
 signal IPIPE_FILL               : bit;
 signal IPIPE_FLUSH              : bit;
 signal OPC_DISMISS              : bit; -- [F62c]
+signal COF_PEND                 : bit; -- [PFCOF]
+signal PF_HOLD                  : bit; -- [PFCOF]
+signal Q_STREAM                 : std_logic_vector(63 downto 0); -- [PFCOF2]
+signal Q_COUNT                  : integer range 0 to 4; -- [PFCOF2]
 signal IPIPE_FLUSH_EXH          : bit;
 signal IPIPE_FLUSH_MAIN         : bit;
 signal IPIPE_OFFESET            : std_logic_vector(2 downto 0);
@@ -1103,6 +1107,9 @@ begin
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
+            PF_HOLD             => PF_HOLD, -- [PFCOF]
+            Q_STREAM            => Q_STREAM, -- [PFCOF2]
+            Q_COUNT             => Q_COUNT,
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
             OP_WR               => DATA_WR, -- [F65]
             ADR_NXT             => ADR_NXT, -- [PH2]
@@ -1243,6 +1250,7 @@ begin
             USP_RD                  => USP_RD,
             USP_WR                  => USP_WR,
             IPIPE_FLUSH             => IPIPE_FLUSH_MAIN,
+            COF_PEND                => COF_PEND, -- [PFCOF]
             ALU_INIT                => ALU_INIT,
             ALU_BSY                 => ALU_BSY,
             ALU_REQ                 => ALU_REQ,
@@ -1409,6 +1417,10 @@ begin
             IPIPE_FILL              => IPIPE_FILL,
             IPIPE_FLUSH             => IPIPE_FLUSH,
             OPCODE_DISMISS          => OPC_DISMISS, -- [F62c]
+            COF_PEND                => COF_PEND, -- [PFCOF]
+            PF_HOLD                 => PF_HOLD, -- [PFCOF]
+            Q_STREAM                => Q_STREAM, -- [PFCOF2]
+            Q_COUNT                 => Q_COUNT,
 
             -- Fault logic:
             OW_VALID                => OW_VALID,

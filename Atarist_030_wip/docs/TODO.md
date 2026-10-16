@@ -11,6 +11,7 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 4. ~~Phase 2 of the CPU rework~~: **done** 16 Oct 2026 (merged; PHASE2_DESIGN.md, GEMBENCH 132%).
 
 ## Phase 2 follow-ups (open, 16 Oct 2026)
+0. **Bridge timing left from the 32 MHz CPU clock**: review 16 Oct 2026 in PREFETCH_COF.md / handoff (options listed, no RTL yet).
 1. **Option (a): pipelined control unit.** After DATA_RDY the control unit needs 3 clk_cpu before a MOVEM presents its
    next request, so posted writes (option b) save only 1 clock; back-to-back operand cycles need the control unit to
    issue the next request during the current cycle.
@@ -62,7 +63,8 @@ stays out until that plan is followed.
    - Now: DATA_C1C4 -> IDLE -> START_CYCLE, 2 extra clocks per transfer (hdl/cpu030/wf68k30L_bus_interface.vhd, DATA_C1C4 returns to IDLE). Requests are masked while BUS_BSY (wf68k30L_top.vhd P_BUSREQ); DATA_RDY is strobed on the edge that ends the cycle, so the control unit only issues the next operand afterwards.
    - Expected (notes/RAM_PATH.md, RAM code): reads +32%, writes +37%, copy +22%, dbra loop +33%, ROM code +10-15%.
    - Skipping only IDLE (156 -> 94 ns) gives nothing; the request must reach the bridge within 62.5 ns.
-2. **Prefetch queue fetches past taken branches** (2-3 wasted 500 ns words per branch; up to ~35% in tight loops).
+2. ~~**Prefetch queue fetches past taken branches**~~: **done** 16 Oct 2026 (vchain merged, PREFETCH_COF.md).
+   Shelved: `prefetch-cof-qg` (look-ahead at real opcode positions, no extra gain, clk_cpu030 17.2 MHz).
 3. **Caches** (`ST_030_CACHES`): plan ready in [`CACHE_PLAN.md`](CACHE_PLAN.md). Needs CIIN (bridge asserts
    on all ST-side cycles), CDIS hard off, CIOUT from PMMU later, burst only for future 030-side fast RAM;
    no cache logic in the bus path when disabled. I-cache first, then D. Match real MC68030 (CACR/CAAR).

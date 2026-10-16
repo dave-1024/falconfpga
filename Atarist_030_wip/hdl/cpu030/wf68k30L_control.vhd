@@ -285,6 +285,7 @@ entity WF68K30L_CONTROL is
         USP_WR              : out bit;
 
         IPIPE_FLUSH         : out bit; -- Abandon the instruction pipeline.
+        COF_PEND            : out bit; -- [PFCOF] A taken change of flow executes: start no further stream fetches.
 
         ALU_INIT            : out bit;
         ALU_BSY             : in bit;
@@ -1088,6 +1089,16 @@ begin
     --   changing the RAM space (status register MSBs).
     --   changing Function codes or the active stack pointer.
     IPIPE_FLUSH <= IPIPE_FLUSH_I;
+
+    -- [PFCOF] Change of flow pending, as the 68030/CPU32 prefetch controller: the instruction words of
+    -- the executing branch/jump/return are all consumed (states after the extension words), and it will
+    -- load the PC. The bus interface starts no further instruction-stream fetches while this is set.
+    -- Only timing depends on it (a stale ALU_COND costs or saves one fetch, never changes results).
+    -- The decoder lifts the hold whenever the control unit waits for an operation or extension word.
+    COF_PEND <= '1' when FETCH_STATE /= START_OP and
+                         ((OP = BRA or OP = BSR or OP = JMP or OP = JSR or OP = RTS or OP = RTD or OP = RTR) or
+                          (OP = Bcc and FETCH_STATE = SLEEP and ALU_COND = true) or -- Condition valid in SLEEP only.
+                          (OP = DBcc and FETCH_STATE = SLEEP and LOOP_BSY = '0' and ALU_COND = false and DBcc_COND = false)) else '0';
     IPIPE_FLUSH_I <= '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else
                      '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                      '1' when OP = DBcc and LOOP_BSY = '0' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = false and DBcc_COND = false else
