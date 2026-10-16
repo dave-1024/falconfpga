@@ -147,6 +147,8 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
         PF_HOLD             : in bit; -- [PFCOF] Change of flow pending (decoder): start no further stream fetches.
+        Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2] Queued words 0-3 (registered) for the decoder's predecode.
+        Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
@@ -943,6 +945,8 @@ begin
     -- [F62c] The decoder's own dismissal flag, not a registered copy of its logic: one flip-flop decides
     -- whether the next opcode ready is a dummy, so the decoder and the queue cannot disagree.
     Q_DISMISS <= OPC_DISMISS;
+    Q_STREAM <= Q_W(0) & Q_W(1) & Q_W(2) & Q_W(3); -- [PFCOF2]
+    Q_COUNT <= Q_CNT;
 
     FC_OUT <= F_FC when PF_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] registered, as ADR_OUT_I
 

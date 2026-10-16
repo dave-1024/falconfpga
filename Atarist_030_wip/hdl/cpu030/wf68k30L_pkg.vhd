@@ -264,6 +264,8 @@ component WF68K30L_BUS_INTERFACE
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
         PF_HOLD             : in bit; -- [PFCOF]
+        Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2]
+        Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
@@ -551,6 +553,8 @@ component WF68K30L_OPCODE_DECODER
         OPCODE_DISMISS      : out bit; -- [F62c]
         COF_PEND            : in bit; -- [PFCOF]
         PF_HOLD             : out bit; -- [PFCOF]
+        Q_STREAM            : in std_logic_vector(63 downto 0); -- [PFCOF2]
+        Q_COUNT             : in integer range 0 to 4; -- [PFCOF2]
         OW_VALID            : out std_logic;
         RC                  : out std_logic;
         RB                  : out std_logic;

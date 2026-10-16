@@ -67,3 +67,20 @@ Branch `prefetch-cof` (off main 9e27c24). Unconditional correctness/behaviour fi
 - The same sequence on de35f5f (posted writes, main) gave 10/10 reloads + 3/3 warm resets. Treated as a
   failure of step 1: rolled back to st_helper_hdn_ph2wp_de35f5f_p3.fs. Cause not yet known (EmuTOS
   halts after an unexpected exception; the mailbox code runs in cartridge ROM space).
+
+## Step 2 (predecode of pipe + queue), 2026-10-16 evening — WIP, not flashed
+Decoder scans IPIPE D,C,B + queue W0..3 (exported Q_STREAM/Q_COUNT) for a complete COF opcode
+(RTS/RTE/RTR/RTD, JMP/JSR (An)/d16(An)/abs/d16(PC), BRA/BSR, backward Bcc.B; DBcc excluded) and ORs
+it into the registered PF_HOLD (PF_DEMAND still lifts it, so no deadlock; results cannot change).
+RTL cmp_wr, writes all SAME vs main:
+
+| prog | WS | main | step2 |
+|---|---|---|---|
+| prog_loop | 3 | 31608 | 35309 (+11.7%) (with DBcc: 37773) |
+| prog_branch | 3 | 8518 | 8349 |
+| prog_pushrts | 3 | 67863 | 62946 |
+| prog_gap | 3 | 3848 | 3834 |
+
+prog_loop regression is the open problem (likely hold active on stale stream words in the cycle
+after a flush, or backward Bcc predicted taken in loop bodies). Not synthesized/flashed: step 1's
+board halt on reloads is still unexplained and step 2 uses the same hold path.

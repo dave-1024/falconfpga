@@ -113,6 +113,8 @@ entity WF68K30L_OPCODE_DECODER is
         OPCODE_DISMISS      : out bit; -- [F62c] OPCODE_FLUSH: the next OPCODE_RDY is dismissed (prefetch queue uses it as is).
         COF_PEND            : in bit; -- [PFCOF] Control unit executes a taken change of flow.
         PF_HOLD             : out bit := '0'; -- [PFCOF] Start no further instruction-stream fetches.
+        Q_STREAM            : in std_logic_vector(63 downto 0); -- [PFCOF2] Prefetch queue words 0-3.
+        Q_COUNT             : in integer range 0 to 4; -- [PFCOF2]
 
         -- Fault logic:
         OW_VALID            : out std_logic; -- Operation words valid.
@@ -199,6 +201,7 @@ signal FLUSHED              : boolean := false; -- F57: explicit power-up value 
 signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
+signal COF_Q                : bit; -- [PFCOF2]
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
     -- This logic requires asynchronous reset. This flip flop is intended 
@@ -249,10 +252,57 @@ begin
     PF_DEMAND <= '1' when OW_REQ = '1' and PIPE_RDY = '0' else
                  '1' when EW_REQ = '1' and IPIPE_PNTR = 0 else '0';
 
+    -- [PFCOF2] Predecode, as the 68030 pipeline recognises a change of flow before it executes: the
+    -- instruction stream ahead of the decoder (pipe words D, C, B, then the prefetch queue) is scanned for
+    -- a change-of-flow operation word whose words (at least two: the decoder takes two to deliver one) are
+    -- all present. Unconditional ones (BRA, BSR, JMP/JSR (An)/d16(An)/xxx.W/d16(PC)/xxx.L, RTS, RTE, RTR,
+    -- RTD), DBcc, and Bcc with a backward displacement (loops; a forward Bcc may fall through). The words
+    -- are not known to be operation words (they can be extension or immediate data); a wrong guess only
+    -- delays the next fetch, because any wait of the control unit for a word (PF_DEMAND) lifts the hold.
+    P_COF_Q: process(IPIPE, IPIPE_PNTR, Q_STREAM, Q_COUNT)
+        type SW_T is array (0 to 6) of std_logic_vector(15 downto 0);
+        variable S   : SW_T;
+        variable N   : integer range 0 to 7;
+        variable L   : integer range 0 to 3;
+        variable HIT : bit;
+        variable W   : std_logic_vector(15 downto 0);
+    begin
+        S(0) := IPIPE.D; S(1) := IPIPE.C; S(2) := IPIPE.B;
+        for i in 0 to 3 loop
+            if IPIPE_PNTR = 0 then S(i) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
+            elsif IPIPE_PNTR = 1 then S(i + 1) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
+            elsif IPIPE_PNTR = 2 then S(i + 2) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
+            else S(i + 3) := Q_STREAM(63 - 16 * i downto 48 - 16 * i);
+            end if;
+        end loop;
+        N := IPIPE_PNTR + Q_COUNT;
+        HIT := '0';
+        for i in 0 to 5 loop
+            W := S(i); L := 0;
+            if W = x"4E75" or W = x"4E73" or W = x"4E77" then L := 2; -- RTS, RTE, RTR (+1: decoder takes two words).
+            elsif W = x"4E74" then L := 2; -- RTD #d16.
+            elsif W(15 downto 7) = "010011101" then -- JMP/JSR <ea>
+                case W(5 downto 0) is
+                    when "010000" | "010001" | "010010" | "010011" | "010100" | "010101" | "010110" | "010111" => L := 2; -- (An)
+                    when "101000" | "101001" | "101010" | "101011" | "101100" | "101101" | "101110" | "101111" => L := 2; -- d16(An)
+                    when "111000" | "111010" => L := 2; -- xxx.W, d16(PC)
+                    when "111001" => L := 3; -- xxx.L
+                    when others => L := 0; -- indexed/indirect: length unknown here, no hold
+                end case;
+            elsif W(15 downto 12) = "0110" and (W(11 downto 8) = "0000" or W(11 downto 8) = "0001") then -- BRA, BSR
+                if W(7 downto 0) = x"FF" then L := 3; else L := 2; end if;
+            elsif W(15 downto 12) = "0110" and W(7) = '1' and W(7 downto 0) /= x"FF" then L := 2; -- Bcc.B backward
+            -- DBcc excluded: measured slower (prog_loop +19%), see PREFETCH_COF.md
+            end if;
+            if L /= 0 and i + L <= N then HIT := '1'; end if;
+        end loop;
+        COF_Q <= HIT;
+    end process P_COF_Q;
+
     P_PF_HOLD: process -- Registered: no combinational path from the control unit to the bus controller.
     begin
         wait until CLK = '1' and CLK' event;
-        if COF_PEND = '1' and PF_DEMAND = '0' and BUSY_EXH = '0' and IPIPE_FLUSH = '0' and LOOP_BSY_I = false then
+        if (COF_PEND = '1' or COF_Q = '1') and PF_DEMAND = '0' and BUSY_EXH = '0' and IPIPE_FLUSH = '0' and LOOP_BSY_I = false then
             PF_HOLD <= '1';
         else
             PF_HOLD <= '0';
