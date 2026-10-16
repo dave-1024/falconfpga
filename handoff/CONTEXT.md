@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-16 (CPU rework phase 2 + posted writes merged and on the board). Owner: David Dunne (dave-1024).
+Last update: 2026-10-16 22:00 (prefetch stop at change of flow merged and on the board). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -31,11 +31,13 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-16)
-- Core: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (SHA256 273083f29f4529f53e62ba29006948a937aeab706038b2ba22a1839a2e601285;
-  main switches + SD_WRITE_DEBUG + phase 2 + posted writes, place 3), location 4193 at the time. clk_cpu030 19.651 MHz,
-  clk32_core 34.200 MHz, TNS 0. 10/10 reloads and 3/3 `w` clean after a `c` cold boot. gbref.st CRC 791ee820.
-  **Always `c` after a flash/reload before testing** (a bare reload can halt, TODO.md).
+## Board state (2026-10-16, 22:00 UK)
+- Core: `st_helper_hdn_pfcofvchain_db04754_p3.fs` (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b;
+  main + prefetch stop at change of flow, merged), location 4193. 10 reloads + 3 `w` clean, GEMBENCH 89/251/132.
+  Rollback: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (SHA256 273083f29f4529f53e62ba29006948a937aeab706038b2ba22a1839a2e601285),
+  then `st_helper_hdn_ph2fmax_5246d00_p3.fs` (c74d9676...).
+  **Always `c` after a flash/reload before testing.** Board checks: `hc.sh s` first; halt = 5 black grabs over ~40 s.
+- Previous board (de35f5f) results kept below.
 - GEMBENCH 6 (gbref.st, ST Medium, STE reference, Blitter/FPU off), 16 Oct 2026:
 
   | Test | Time (s) | Ratio |

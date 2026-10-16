@@ -70,12 +70,24 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - **Decoder bit-18 mask.** *Symptom:* an apparent A23:16 address corruption. *Cause:* our overlay decoder masked bit 18 (row d, bit 20), so the address "corruption" was a decode error. *Fix:* `86882a8`, re-read in `5e855f4`. *Lesson:* check your probe before you believe it.
 - **Stability script without the cold boot (16 Oct 2026).** *Symptom:* every reload of the option (b) build showed "System halted!" after the cartridge self-test, and the known-good 5246d00 rollback did too. *Cause:* the script dropped the initial `c` cold boot of the earlier procedure; a bare reload after a flash or after a halt keeps halting (stale state) until `c`. *Fix:* `c` first (gb/wp/stab.sh); then 10/10 reloads and 3/3 `w` were clean on the same bitstream. Lesson: compare against the rollback on the same procedure before calling a build bad.
 
+- **Prefetch hold must not cancel a decided S5 hand-over (16 Oct 2026, prefetch-cof).** *Symptom:* step 1 (833183b)
+  halted with "System halted!" on reloads r6-r10 after a `c` cold boot; de35f5f did 8/8 under the same procedure.
+  *Cause:* the change-of-flow hold was also ANDed into PF_CHAIN_GO, so a prefetch-to-prefetch hand-over armed at S3
+  could be refused at S5 when the hold rose in between. Not reproduced in RTL; narrowed on the board: the same RTL
+  with PF_HOLD removed from PF_CHAIN_GO (vchain) did 10 reloads, 3 warm resets and GEMBENCH clean. *Fix:* the hold
+  only stops new requests (PF_REQ and the S3 arm), never the S5 decision, as on a real 030. *Lesson:* a gate added to an
+  S3-armed/S5-decided path must apply at the arm only.
 ### Bridge, bus and RAM
 
 - **Early AS in the bridge.** *Status:* F64, behind `BRIDGE_EARLY_AS` (AS and read DS at S0 en2, write DS at S2 en2), off by default (`d43f5fd`). F62d and the early-AS build both still hit the float panic, so this isn't its cause.
 - **F61 bridge read timing.** *Symptom:* wrong RAM reads in the bench. *Cause:* F61 took the data at A+375, but it only reaches the ST bus at A+406. *Fix:* reverted (`6611246`). Reinstated together with the SDRAM early start (F63 `f484271`, `RAM_EARLY`), which moves the data to A+344. The bench RAM model was also wrong: it never wrote anything (`016016e`).
 - **Exception 33 (TRAP #1) on the 68000 build** (open). *Symptom:* `68000_cmp` doesn't boot. *Suspects:* the 030-tuned shared logic (`DR_GAP` double reset, `RAM_EARLY`) running on a 68000. The cartridge isn't in that build. *Status:* the new `ST_CPU_68000` switch (`cc2ee21`) is being built for the test.
 
+- **Board test false halts (16 Oct 2026).** The HDMI capture gives single all-black frames on every build, and after a
+  USB/FT2232 event it stayed black (and `v4l2-ctl --query-dv-timings` reads 0x0 even with a picture). The helper serial
+  went silent once (no reply to `s`; warm resets sent then never happened); an op 1 reload brought it back. *Rules:*
+  count a halt only if 5 grabs over ~40 s are all non-desktop (rl.sh), check the serial with `s` before relying on `c`/`w`,
+  and confirm a known-good build shows a picture before blaming a test build.
 ### Reset, clocks and timing constraints
 
 - **rigsdram double cold-start reset.** *Why:* the SDRAM isn't always ready on the first reset after power-up. *How:* after the first ST reset, the CPU runs for `DR_GAP` clk32 cycles (1536), then gets a second reset (`atarist.v`; ported from rigsdram, `doublereset.patch`). It is tuned for the 030 and may hurt a 68000.

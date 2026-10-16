@@ -151,3 +151,10 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   (The CPU hold changes no GEMBENCH ratio at its display resolution: expected, the bench is mostly VDI/RAM bound.)
 - Reusable board scripts: docs/prefetch_cof/board/ (gembench.sh = the GEMBENCH drive sequence, go.sh pointer
   positioning, gg.sh grab-until-not-black, rl.sh c + 10 reloads with the 5-grab halt rule).
+
+## Final (16 Oct 2026, 22:00 UK)
+- Merged to main: prefetch-cof-vchain (db04754 RTL) + these docs/scripts. Board: st_helper_hdn_pfcofvchain_db04754_p3.fs
+  (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b): 10 reloads, 3 warm resets, GEMBENCH 89/251/132 (= reference).
+- Shelved (branch kept, not merged): prefetch-cof-qg (a263bf0), opcode-position look-ahead: same cycles as step 1 on
+  the benches, clk_cpu030 17.2 MHz. Revisit only with a registered/pipelined length walk.
+- Step 1 alone (833183b) and step 2 without vchain (04a79d6) are superseded; do not flash them.
