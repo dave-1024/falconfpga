@@ -19,7 +19,9 @@ entity tb030 is
            RPC      : integer := 0;
            VEC6     : integer := 0;
            TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
-           WSRND    : integer := 0);      -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
+           WSRND    : integer := 0;        -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)
+           GAPLOG   : integer := 0;
+           FASTH    : integer := 1);       -- [PH2] FAST_HANDOFF generic of the core (the board builds use 1)       -- [PH2] 1: log the clocks between AS negation and the next AS assertion -- (was:) extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
 end;
 architecture sim of tb030 is
   signal clk : std_logic := '0';
@@ -51,7 +53,7 @@ architecture sim of tb030 is
   signal iack_clr : boolean := false;
 begin
   clk <= not clk after 62.5 ns when not done;
-  dut : entity work.WF68K30L_TOP port map (
+  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => FASTH) port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
@@ -170,5 +172,22 @@ begin
     end if;
     wd := not asn and not rwn;
     d := dbgx(104);
+  end process;
+  -- [PH2] Bus gap monitor: counts the rising clock edges on which AS is negated between two
+  -- cycles. One edge (the S5 half) = back to back, as on a 68030; each idle clock adds one.
+  -- Logged as GAP <edges> <previous kind> <next kind> (P = program space, D = data).
+  gapmon: process
+    variable l : line; variable cnt : integer := -1; variable pk, nk : character := 'D';
+  begin
+    wait until rising_edge(clk);
+    if GAPLOG /= 0 then
+      if fc(1 downto 0) = "10" then nk := 'P'; else nk := 'D'; end if;
+      if asn = '1' and cnt >= 0 then cnt := cnt + 1;
+      elsif asn = '0' and cnt > 0 then
+        write(l, string'("GAP ")); write(l, cnt); write(l, string'(" ")); write(l, pk); write(l, nk); writeline(output, l);
+        cnt := 0;
+      elsif asn = '0' then cnt := 0; pk := nk; end if;
+      if asn = '0' then pk := nk; end if;
+    end if;
   end process;
 end;

@@ -156,6 +156,7 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
+--   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
 --
 
 use work.WF68K30L_PKG.all;
@@ -619,7 +620,11 @@ begin
                    BIW_0(11 downto 9) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and BIW_0(8 downto 6) /= "000" else
                    BIW_1(14 downto 12) when OP = MOVEC and BIW_0(0) = '1' else -- MOVEC: general register to control register.
                    "111" when OP = BSR or OP = MOVEC else -- Stack pointers.
-                   BIW_0(11 downto 9) when (OP = PACK or OP = UNPK) and FETCH_STATE = START_OP and BIW_0(3) = '0' and DR_IN_USE = '0' else -- Destination address.
+                   -- [PH2-FMAX] No DR_IN_USE term: register-mode PACK/UNPK leaves START_OP on DR_IN_USE alone
+                   -- (FETCH_DEC), AR_IN_USE is not looked at, and nothing reads the AR port in those wait
+                   -- clocks. The term put the data hazard compare in front of the address hazard compare
+                   -- (DR_IN_USE -> AR_SEL_RD_1 -> AR_IN_USE -> NEXT_FETCH_STATE): the clk_cpu030 critical path.
+                   BIW_0(11 downto 9) when (OP = PACK or OP = UNPK) and FETCH_STATE = START_OP and BIW_0(3) = '0' else -- Destination address.
                    BIW_0(11 downto 9) when (OP = PACK or OP = UNPK) and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' else -- Destination address.
                    BIW_0(11 downto 9) when (OP = PACK or OP = UNPK) and FETCH_STATE = INIT_EXEC_WB else -- Destination address.
                    BIW_1(14 downto 12) when OP = CAS2 and FETCH_STATE = START_OP else -- Address operand.

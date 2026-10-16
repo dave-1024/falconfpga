@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-15 (F66 BERR no-writeback merged and on the board). Owner: David Dunne (dave-1024).
+Last update: 2026-10-16 (CPU rework phase 2 + posted writes merged and on the board). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -31,14 +31,39 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-15)
-- Core: `st_helper_hdn_berr_7e3660e_p3.fs` (main switches + SD_WRITE_DEBUG + F66, place 3), TOS 2.06. GEMBENCH 123% all tests,
-  Float Math 13.080 s. gbref.st CRC 791ee820. Scratch image BERRT.ST (= gb/sysinfo.st: COOKIEFP.TOS, SYSI834, NOFPU) on the SD card.
+## Board state (2026-10-16)
+- Core: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (SHA256 273083f29f4529f53e62ba29006948a937aeab706038b2ba22a1839a2e601285;
+  main switches + SD_WRITE_DEBUG + phase 2 + posted writes, place 3), location 4193 at the time. clk_cpu030 19.651 MHz,
+  clk32_core 34.200 MHz, TNS 0. 10/10 reloads and 3/3 `w` clean after a `c` cold boot. gbref.st CRC 791ee820.
+  **Always `c` after a flash/reload before testing** (a bare reload can halt, TODO.md).
+- GEMBENCH 6 (gbref.st, ST Medium, STE reference, Blitter/FPU off), 16 Oct 2026:
+
+  | Test | Time (s) | Ratio |
+  |---|---|---|
+  | GEM Dialog Box | 9.995 | 79% |
+  | VDI Text | 14.175 | 99% |
+  | VDI Text Effects | 25.730 | 94% |
+  | VDI Small Text | 14.045 | 97% |
+  | VDI Graphics | 26.105 | 72% |
+  | GEM Window | 4.070 | 80% |
+  | Integer Division | 2.695 | 667% |
+  | Float Math | 12.370 | 107% |
+  | RAM Access | 5.485 | 115% |
+  | ROM Access | 5.480 | 115% |
+  | Blitting | 9.635 | 91% |
+  | VDI Scroll | 13.495 | 99% |
+  | Justified Text | 14.155 | 97% |
+  | VDI Enquire | 2.750 | 96% |
+  | New Dialogs | 11.815 | 80% |
+  | **Display / CPU / Average** | | **89% / 251% / 132%** |
+
 - Helper: `helper_companion_sdwlog_3ec6e20.bin` (at 0x600000).
-- Rollbacks: `st_helper_hdn_917668c_p3.fs` (previous board build), other `.fs` in `~/fpga_bitstreams`; helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`; `/workspace/fpga_rollback_20261009.zip` on the box.
+- Rollbacks: `st_helper_hdn_ph2fmax_5246d00_p3.fs` (SHA256 c74d9676..., phase 2 without posted writes, 132%),
+  then `st_helper_hdn_berr_7e3660e_p3.fs` (F66, 123%), `st_helper_hdn_917668c_p3.fs`; all in `~/fpga_bitstreams`
+  (SHA256SUMS). Helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`.
 
 ## Branches
-`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
+`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;
@@ -49,13 +74,14 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 
 ## Doc map
 README.md (top) · Atarist_030_wip/README.md (status) · docs/BUILD.md (build, switches, flash) · docs/TODO.md (order) ·
-docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
+docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
 docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
-## Next-fix order (docs/TODO.md, set 2026-10-15)
-1. Warm-reset halt: PINNED (TODO.md "Pinned: warm-reset halt"; branch warm-reset 65e8b32, F66 stays on the board).
+## Next-fix order (docs/TODO.md, updated 2026-10-16)
+1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`.
 2. EmuTOS blitter greyed out.
 3. Helper port (AE350 companion).
-4. CPU rework phase 2 (operand cycles without IDLE).
+4. Phase 2 follow-ups: option (a) pipelined control unit; data-fault timing + $A/$B frame; stale bus-fault flag on a
+   chained late BERR; clk_cpu030 decoder -> ADR_EFF path (before caches); clk32 blitter falling-edge path.
 Pinned, final stage: remove the ST/STE switch, STE only.

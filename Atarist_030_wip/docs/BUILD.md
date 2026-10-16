@@ -54,7 +54,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_COLOUR_MONITOR` | on | colour monitor (low/medium res); off = mono ST High |
 | `ST_STE` | on | STE chipset, TOS in the ST ROM slot (0x500000). Pinned in TODO.md: the ST/STE switch will be removed and STE hardwired |
 | `BRIDGE_EARLY_AS` | on | "early AS": the bridge asserts AS for ST RAM cycles at S0 en2 (62.5 ns after the address, still a legal 68000 cycle), so a 030 request makes its GSTMCU slot (notes/RAM_PATH.md). Off = the original 68000 phase timing |
-| `WF030_FAST_HANDOFF` | on | F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L (operand cycles still go through IDLE; TODO.md) |
+| `WF030_FAST_HANDOFF` | on | F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L. Phase 2 (PH2, PH2-WP: prefetch<->operand chaining, writes complete at S3 of the last portion) is a correctness change with no switch; see PHASE2_DESIGN.md |
 | `ST_SD_WRITE_FIX` | on | sd_rw waits for DAT0 not busy before CMD17/CMD24, bounded CMD24 retry, a failed write completes instead of jamming in state 13 |
 | `ST_FLOPPY_MEDIACH` | on | holds floppy write-protect ~0.75 s after each image insert/eject, so TOS sees a runtime disk swap. Without it TOS writes the old disk's FAT/directory into the new image (the gb403 corruption) |
 | `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
@@ -73,7 +73,8 @@ fails timing, try the other. Don't relax constraints to make a build pass.
 
 ## 6. Check timing (before every flash)
 In `impl/pnr/st_helper_tr_content.html`:
-1. **TNS table: 0 on every clock**, setup and hold (clk32 ~32 MHz, clk_cpu030 ~17 MHz).
+1. **TNS table: 0 on every clock**, setup and hold (targets clk32 32 MHz, clk_cpu030 16 MHz; the ph2wp build reaches
+   34.2 / 19.65 MHz at place_option 3). Keep clk_cpu030 headroom: it varies between placements (17.4-23.0 MHz seen).
 2. **Recovery/removal tables** (not in the TNS table): every slack positive.
 3. Ignore the header's "violated endpoints" count.
 
@@ -92,8 +93,8 @@ Rules:
   by mistake, and **never bulk erase**.
 - Rescan the cables before each flash. Check the file's SHA-256. Keep the last good `.fs`.
 - After a flash, a second op 1 is sometimes needed before the helper console answers.
-- Then cold boot (`c` on the helper console) and check the desktop. Note: warm reset (`w`) currently halts the 030
-  build (TODO.md).
+- Then **cold boot (`c` on the helper console) before any test** and check the desktop. A bare reload (op 1) without a
+  `c` can stop at "System halted!" after the cartridge self-test (TODO.md); after a `c`, reloads and `w` resets are clean.
 
 ## 8. The AE350 helper
 Source: `helper_fw/fpga-companion` (FPGA-Companion with an AE350 port in `src/ae350/`). Build script:

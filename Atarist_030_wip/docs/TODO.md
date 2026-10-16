@@ -8,7 +8,25 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 1. **Warm-reset halt**: PINNED, see "Pinned: warm-reset halt" below (no work on it for now).
 2. **EmuTOS blitter greyed out** (works under TOS 2.06; HDL path inspected and correct).
 3. **Helper port** (AE350 companion firmware port).
-4. **Phase 2 of the CPU rework** (operand cycles without IDLE; see item 1 of the older list below).
+4. ~~Phase 2 of the CPU rework~~: **done** 16 Oct 2026 (merged; PHASE2_DESIGN.md, GEMBENCH 132%).
+
+## Phase 2 follow-ups (open, 16 Oct 2026)
+1. **Option (a): pipelined control unit.** After DATA_RDY the control unit needs 3 clk_cpu before a MOVEM presents its
+   next request, so posted writes (option b) save only 1 clock; back-to-back operand cycles need the control unit to
+   issue the next request during the current cycle.
+2. **Data-fault timing and the $A/$B frame.** After a data bus error the core still runs the next instruction's operand
+   cycle before it takes the exception, and always stacks format $B with the faulting PC. MC68030UM 8.1.2: the fault is
+   taken right after its bus cycle; a fault on an instruction's last write gives a format $A frame. Pre-existing.
+3. **Stale bus-fault flag on a chained late BERR.** A BERR at S5 on a cycle that chained into the next updates BUS_FLT
+   after VALIDATION used it; the flag can stay stale into the chained cycle. Pre-existing PH2 corner, no bench yet.
+4. **Halt on a reload without a cold boot.** A bare op 1 reload (no `c`) can stop at "System halted!" after the
+   cartridge self-test; 5246d00 and de35f5f alike, `c` clears it. Related to the pinned warm-reset halt below.
+5. **clk_cpu030: tighten the decoder -> ADR_EFF path before caches.** Opcode decoder -> I_CONTROL fetch state -> AR
+   select -> I_ADDRESSREGISTERS effective-address adders -> ADR_EFF_I, one full clk_cpu (50.8 ns in de35f5f,
+   19.65 MHz; 45.0 ns in 5246d00). Placement-dependent; the caches will need the margin.
+6. **clk32: blitter falling-edge path.** Half-period path blitter bltState -> blitter address -> gstmcu I/O decode ->
+   gamecart_r/mde0_r/mde1_r (register.v samples on negedge), about 0.5 ns slack, mostly routing. The blitter arm has to
+   stay; a fix needs register.v's sampling moved (timing change). Also jt49 -> sd_card data_out at 1.2 ns (full period).
 
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
 - **Symptom:** intermittent "System halted!" after the cartridge self-test, on FPGA reloads (op 1) and warm resets (`w`).
@@ -30,7 +48,7 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 
 ## Older list
 
-1. **URGENT / REQUIRED: WF68K30L bus request handoff rework.** Patch 1 (F65) is done and on
+1. ~~WF68K30L bus request handoff rework~~ (**done**: F65 + phase 2, 16 Oct 2026; history below). Patch 1 (F65) is done and on
    `main` (`bb9baa2`): prefetch-to-prefetch S5-to-S0, `WF030_FAST_HANDOFF` on. Operand cycles still take IDLE.
    The next bus cycle must start straight after S5 when a
    request is pending, like a real 68030 (cycle-correct; also a speedup). Wanted, not optional.

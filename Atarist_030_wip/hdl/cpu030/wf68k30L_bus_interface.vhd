@@ -62,6 +62,11 @@
 --   stream is still valid rolls S5 straight into S0 of the next long, the
 --   way a 68030 starts the next cycle when a request is pending. Default 0
 --   keeps the IDLE -> START_CYCLE path. Operand cycles are not chained here.
+-- [PH2] FalconFPGA (dave-1024, 2026-10-16): CPU rework phase 2. A completing
+--   queue prefetch with an operand request already waiting rolls S5 straight
+--   into S0 of that operand cycle (MC68030UM 7.3: the next cycle starts after
+--   S5 when a request is pending). Unconditional: a 68030 bus behaviour fix.
+--   Likewise an operand cycle rolls into a waiting queue prefetch (DP_CHAIN).
 -- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
 -- Changes are tagged Fnn in the code. Dates are from git history.
 -- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
@@ -72,6 +77,11 @@
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-16 PH2: prefetch S5 to operand S0 (OP_CHAIN), operand S5 to prefetch S0 (DP_CHAIN), unconditional.
+--   2026-10-16 PH2-FMAX: operand address and FC pins from ADR_LAT/FC_LAT (registered; differ only in IDLE).
+--   2026-10-16 PH2-WP: posted writes: DATA_RDY of a write on the S3 edge of its last portion (option b).
+--   2026-10-16 PH2-WP: a faulted write's data is held in OUTBUFFER (frame DOB) until the exception.
+--   2026-10-16 PH2-WP: PW_GO: the operand request in the IDLE clock after a posted write starts without START_CYCLE.
 -- 
 
 library work;
@@ -138,6 +148,11 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+        ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
+        FC_NXT              : in std_logic_vector(2 downto 0); -- [PH2] Its function code.
+        ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
+        FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX] Its registered function code.
+        OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -220,6 +235,12 @@ signal RETRY                : bit := '0';  -- [F54] measured warm-boot value
 signal SIZE_D               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_I               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_N               : std_logic_vector(2 downto 0) := "000";
+signal SIZE_DEC             : std_logic_vector(2 downto 0); -- [PH2-WP] SIZE_N after this portion.
+signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
+signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
+signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
+signal WP_LAST              : bit := '0'; -- [PH2-WP] The bus is idle since a posted write ended.
+signal PW_GO                : bit; -- [PH2-WP] IDLE clock after a posted write: start the operand cycle now.
 signal SLICE_CNT_N          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal SLICE_CNT_P          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal STERM_In             : std_logic := '1';  -- [F54] measured warm-boot value
@@ -254,6 +275,12 @@ signal PF_START             : bit;
 signal PF_DONE              : bit;
 signal PF_CHAIN             : bit := '0'; -- [F65] Armed at S3. Not the S5 decision.
 signal PF_CHAIN_GO          : bit; -- [F65] S5 decision: PF_CHAIN and every cancel the FSM uses.
+signal OP_CHAIN             : bit := '0'; -- [PH2] Armed at S3 of a prefetch while an operand request waits.
+signal OP_CHAIN_GO          : bit; -- [PH2] S5 decision: the prefetch rolls into the operand cycle.
+signal DP_CHAIN             : bit := '0'; -- [PH2] Armed at S3 of an operand cycle while a queue prefetch waits.
+signal DP_CHAIN_GO          : bit; -- [PH2] S5 decision: the operand cycle rolls into the prefetch.
+signal CH_WR                : bit; -- [PH2] The chained operand cycle is a write.
+signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle starts on this S5 edge.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 begin
 
@@ -320,6 +347,16 @@ begin
                 OPCODE_ACCESS <= '1';
                 PF_ACC <= '1';
             end if;
+        elsif OP_CHAIN_GO = '1' then -- [PH2] The prefetch ends, the waiting operand cycle starts.
+            READ_ACCESS <= not CH_WR;
+            WRITE_ACCESS <= CH_WR;
+            OPCODE_ACCESS <= '0';
+            PF_ACC <= '0';
+        elsif DP_CHAIN_GO = '1' then -- [PH2] The operand cycle ends, the waiting prefetch starts.
+            READ_ACCESS <= '0';
+            WRITE_ACCESS <= '0';
+            OPCODE_ACCESS <= '1';
+            PF_ACC <= '1';
         elsif AERR = '1' then -- Reject due to address error.
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
@@ -356,6 +393,10 @@ begin
             --
             if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
                 SSW_80 <= To_StdLogicVector('0' & RMC & not WR_REQ) & SIZEVAR & '0' & FC_IN;
+            elsif DP_CHAIN_GO = '1' then -- [PH2] As START_CYCLE writes it for a prefetch.
+                SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_NXT;
+            elsif OP_CHAIN_GO = '1' then -- [PH2]
+                SSW_80 <= To_StdLogicVector('0' & RMC & not CH_WR) & SIZEVAR & '0' & FC_NXT;
             elsif BUS_CTRL_STATE = DATA_C1C4 and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_FLT = '1' then
                 SSW_80(8) <= '1';
             end if;
@@ -366,7 +407,15 @@ begin
         -- frame-build cycles would otherwise overwrite them -- measured as
         -- T1 0055, T2 1234, T3 89AB/CDEF all going to zero. Only the SSW
         -- staging above is un-frozen.
-        if BUSY_EXH = '0' then
+        -- [PH2-WP] A faulted write's data stays in OUTBUFFER (DOB, frame $18) until the exception
+        -- handler runs: before, the cycles the core still ran before taking the exception (the next
+        -- instruction's operand read) reloaded WP_BUFFER, so the frame showed an older write's data.
+        if BUS_CTRL_STATE = DATA_C1C4 and WRITE_ACCESS = '1' and BUS_FLT = '1' and HALT_In = '1' then
+            DOB_HOLD <= '1';
+        elsif BUSY_EXH = '1' then
+            DOB_HOLD <= '0';
+        end if;
+        if BUSY_EXH = '0' and DOB_HOLD = '0' then
             OUTBUFFER <= WP_BUFFER; -- Used for exception stack frame type A and B.
             INBUFFER <= DATA_INMUX; -- Used for exception stack frame type B.
         end if;
@@ -436,6 +485,8 @@ begin
         wait until CLK = '1' and CLK' event;
         if BUS_CTRL_STATE = IDLE and NEXT_BUS_CTRL_STATE = START_CYCLE then -- Freeze during a bus cycle.
             WP_BUFFER <= DATA_FROM_CORE;
+        elsif OP_CHAIN_GO = '1' then -- [PH2] Chained operand cycle: data of the waiting request.
+            WP_BUFFER <= DATA_FROM_CORE;
         end if;
     end process WRITEBACK_INFO;
 
@@ -444,12 +495,16 @@ begin
     -- during the current bus access.
     begin
         wait until CLK = '1' and CLK' event;
-        if DSACK_In = "01" then
+        -- [PH2] The chain edge comes first: DSACK_In still holds the ending
+        -- cycle's DSACK there (sampled on the S4 half), and a kept "01" made the
+        -- next cycle a word port (measured: a chained long read that bus-errored
+        -- filled only half of the data input buffer). Same as the IDLE reset.
+        if CHAIN_GO = '1' then
+            DSACK_MEM <= "11"; -- [F65] [PH2] New cycle samples the port width again.
+        elsif DSACK_In = "01" then
             DSACK_MEM <= "01";
         elsif DSACK_In = "10" then
             DSACK_MEM <= "10";
-        elsif PF_CHAIN_GO = '1' then
-            DSACK_MEM <= "11"; -- [F65] New cycle samples the port width again.
         elsif BUS_CTRL_STATE = IDLE then
             DSACK_MEM <= "11";
         end if;
@@ -477,8 +532,14 @@ begin
         --
         if RESET_CPU_I = '1' then
             SIZE_N <= "000";
-        elsif PF_CHAIN_GO = '1' then
-            SIZE_N <= "100"; -- [F65] Next prefetch long, loaded on the S5 edge.
+        elsif PF_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
+            SIZE_N <= "100"; -- [F65] [PH2] Next prefetch long, loaded on the S5 edge.
+        elsif OP_CHAIN_GO = '1' then -- [PH2] Operand size of the waiting request.
+            case OP_SIZE is
+                when LONG => SIZE_N <= "100";
+                when WORD => SIZE_N <= "010";
+                when BYTE => SIZE_N <= "001";
+            end case;
         elsif BUS_CTRL_STATE /= DATA_C1C4 and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
             if RD_REQ = '1' or WR_REQ = '1' then
                 case OP_SIZE is
@@ -498,27 +559,7 @@ begin
         if RETRY = '1' then
             SIZE_N <= RESTORE_VAR;
         elsif BUS_CTRL_STATE = DATA_C1C4 and ((T_SLICE = S1 and STERMn = '0') or (T_SLICE = S3 and WAITSTATES = '0')) then -- On positive clock edge.
-            if BUS_WIDTH = LONG_32 and SIZE_N > x"3" and ADR_OUT_I(1 downto 0) = "01" then
-                SIZE_N <= SIZE_N - "11";
-            elsif BUS_WIDTH = LONG_32 and SIZE_N > x"2" and ADR_OUT_I(1 downto 0) = "10" then
-                SIZE_N <= SIZE_N - "10";
-            elsif BUS_WIDTH = LONG_32 and SIZE_N > x"1" and ADR_OUT_I(1 downto 0) = "11" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = LONG_32 then
-                SIZE_N <= "000";
-            --
-            elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "11" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "01" then
-                SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD and SIZE_N = "001" then
-               SIZE_N <= SIZE_N - '1';
-            elsif BUS_WIDTH = WORD then
-                SIZE_N <= SIZE_N - "10";
-            --
-            elsif BUS_WIDTH = BYTE then
-                SIZE_N <= SIZE_N - '1';
-            end if;
+            SIZE_N <= SIZE_DEC; -- [PH2-WP] Same decrement, also used for the write post.
         end if;
         --
         if (BUS_FLT = '1' and HALT_In = '1') then -- Abort bus cycle.
@@ -526,6 +567,18 @@ begin
             RESTORE_VAR := "000";
         end if;        
     end process PARTITIONING;
+
+    -- [PH2-WP] SIZE_N after the running portion (the decrement of PARTITIONING, unchanged).
+    SIZE_DEC <= SIZE_N - "11" when BUS_WIDTH = LONG_32 and SIZE_N > x"3" and ADR_OUT_I(1 downto 0) = "01" else
+                SIZE_N - "10" when BUS_WIDTH = LONG_32 and SIZE_N > x"2" and ADR_OUT_I(1 downto 0) = "10" else
+                SIZE_N - '1' when BUS_WIDTH = LONG_32 and SIZE_N > x"1" and ADR_OUT_I(1 downto 0) = "11" else
+                "000" when BUS_WIDTH = LONG_32 else
+                SIZE_N - '1' when BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "11" else
+                SIZE_N - '1' when BUS_WIDTH = WORD and ADR_OUT_I(1 downto 0) = "01" else
+                SIZE_N - '1' when BUS_WIDTH = WORD and SIZE_N = "001" else
+                SIZE_N - "10" when BUS_WIDTH = WORD else
+                SIZE_N - '1' when BUS_WIDTH = BYTE else
+                SIZE_N;
 
     SIZE_I <= SIZE_N(1 downto 0) when T_SLICE = S0 or T_SLICE = S1 else SIZE_D;
     SIZE <= SIZE_I;
@@ -548,7 +601,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, PF_CHAIN_GO)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -561,6 +614,8 @@ begin
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- This is the 'HALT' condition.
                 elsif (BR_In = '0' and RMC = '0') or ARB_STATE /= IDLE or BGACK_In = '0' then
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- Arbitration, wait!
+                elsif PW_GO = '1' then
+                    NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [PH2-WP] Operand cycle after a posted write, S0 next.
                 elsif RD_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
                 elsif WR_REQ = '1' and SIZE_N = "000" then
@@ -592,7 +647,7 @@ begin
                 -- [F65] PF_CHAIN_GO is the only chain decision. S5 rolls to S0
                 -- when it is set. Every cancel takes IDLE, and the queue re-arm
                 -- and the SIZE/offset/width/OCS updates use the same signal.
-                if PF_CHAIN_GO = '1' then
+                if CHAIN_GO = '1' then -- [PH2] or a waiting operand cycle.
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif BUS_CYC_RDY = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= IDLE;
@@ -633,8 +688,8 @@ begin
             ADR_OFFSET <= (others => '0');
         elsif RETRY = '1' then
             null; -- Do not update if there is a retry cycle.
-        elsif PF_CHAIN_GO = '1' then
-            ADR_OFFSET <= (others => '0'); -- [F65] New prefetch long starts at F_ADR.
+        elsif CHAIN_GO = '1' then
+            ADR_OFFSET <= (others => '0'); -- [F65] [PH2] New cycle starts at its base address.
         elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
             ADR_OFFSET <= (others => '0');
         elsif BUS_CYC_RDY = '1' then
@@ -642,7 +697,10 @@ begin
         end if;
     end process P_ADR_OFFS;
 
-    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_IN_P + ADR_OFFSET; -- [F62]
+    -- [PH2-FMAX] The bus address comes from the address register (ADR_LATCH) instead of ADR_IN_P:
+    -- they differ only in IDLE, where AS is negated and ADR_OUT_I is not used, so the
+    -- control unit's address logic no longer reaches the address pins (and the ST bridge).
+    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62]
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -724,6 +782,31 @@ begin
         else
             PF_CHAIN <= '0';
         end if;
+        -- [PH2] Same arm for a prefetch that ends while an operand request waits.
+        -- No Q_CNT or stream condition: the operand cycle does not touch the queue.
+        if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4
+           and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
+           and RMC = '0' and (OP_RD = '1' or OP_WR = '1')
+           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+           and BUS_FLT = '0' and RETRY = '0' then
+            OP_CHAIN <= '1';
+        else
+            OP_CHAIN <= '0';
+        end if;
+        -- [PH2] An operand cycle that ends while a queue prefetch waits. The IDLE
+        -- clock after it would start that prefetch anyway (the control unit drops
+        -- its request in the DATA_RDY clock), so only the two idle clocks go.
+        -- Not during exception processing, where the handler's requests are not
+        -- dropped in that clock and would come first.
+        if (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CTRL_STATE = DATA_C1C4
+           and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
+           and RMC = '0' and BUSY_EXH = '0' and PF_REQ = '1'
+           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+           and BUS_FLT = '0' and RETRY = '0' then
+            DP_CHAIN <= '1';
+        else
+            DP_CHAIN <= '0';
+        end if;
     end process P_PF_CHAIN;
 
     -- [F65] One S5 decision for the FSM, the queue re-arm, and the SIZE,
@@ -735,12 +818,43 @@ begin
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
 
+    -- [PH2] S5 decision for the operand handoff. The request must still be
+    -- there on the S5 edge (it is registered in the control unit, so this is
+    -- not a loop through BUS_BSY), and every cancel takes the old IDLE path.
+    OP_CHAIN_GO <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
+                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0'
+                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else
+                   PW_GO; -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
+
+    -- [PH2-WP] The control unit sees a posted write's DATA_RDY in the S4/S5 clock and presents its
+    -- next operand request in the clock after S5 (IDLE). That request starts here without the
+    -- START_CYCLE clock: the edge out of IDLE does what the OP_CHAIN edge does (access type, SSW,
+    -- WP_BUFFER, SIZE_N, RDY, queue flush for a write, DSACK/offset/OCS reset; the top loads the
+    -- address/FC latches in IDLE anyway) and the slice counter goes straight to S0. Only operand
+    -- requests (no RMC, no exception processing), and every IDLE hold (reset, halt, arbitration)
+    -- takes precedence.
+    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and (OP_RD = '1' or OP_WR = '1')
+                      and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
+                      and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
+                      and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                      and RETRY = '0' and RESET_CPU_I = '0' else '0';
+    CH_WR <= OP_WR and not OP_RD; -- Read has priority, as in START_CYCLE.
+    DP_CHAIN_GO <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
+                   and SIZE_N = "000" and PF_REQ = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
+                   and RMC = '0' and BUSY_EXH = '0'
+                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    CHAIN_GO <= PF_CHAIN_GO or OP_CHAIN_GO or DP_CHAIN_GO;
+    OP_CHAIN_LD <= OP_CHAIN_GO or DP_CHAIN_GO; -- The top level loads its address/FC latches as in IDLE.
+
     P_QUEUE: process
     variable W      : QWORDS_T;
     variable F      : bit_vector(0 to 3);
     variable CNT    : integer range 0 to 4;
     variable F0, F1 : bit;
     variable WDIST  : std_logic_vector(31 downto 2);
+    variable WDIST2 : std_logic_vector(31 downto 2);
     begin
         wait until CLK = '1' and CLK' event;
         if PREFETCH_Q /= 0 then
@@ -754,7 +868,7 @@ begin
             if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
                 if ADR_OFFSET(1) = '0' then PF_FLT0 <= '1'; else PF_FLT1 <= '1'; end if;
             end if;
-            if PF_START = '1' then
+            if PF_START = '1' or DP_CHAIN_GO = '1' then -- [PH2]
                 INFL <= '1';
                 INFL_STALE <= '0';
                 F_CUR <= F_ADR;
@@ -785,6 +899,13 @@ begin
                 if INFL = '1' then
                     INFL_STALE <= '1';
                 end if;
+            end if;
+            -- [PH2] The same flush for a write chained on the S5 edge. The finishing
+            -- prefetch long is queued above first, so it is dropped with the rest.
+            WDIST2 := ADR_NXT(31 downto 2) - Q_ADR(31 downto 2) + '1';
+            if OP_CHAIN_GO = '1' and CH_WR = '1' and WDIST2(31 downto 4) = x"000000" & "0000" then
+                S_VALID <= '0';
+                CNT := 0;
             end if;
             -- Restart the stream at the requested word.
             if Q_MISS = '1' then
@@ -822,7 +943,7 @@ begin
     -- whether the next opcode ready is a dummy, so the decoder and the queue cannot disagree.
     Q_DISMISS <= OPC_DISMISS;
 
-    FC_OUT <= F_FC when PF_ACC = '1' else FC_IN; -- [F62]
+    FC_OUT <= F_FC when PF_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] registered, as ADR_OUT_I
 
     -- The output multiplexer is as follows:
     -- SIZE    ADR    Bytes (L = long word port, W = word port, B = Byte port, x = not used by either port)
@@ -982,7 +1103,9 @@ begin
         --
         -- The following variable is responsible, that the _RDY signals are
         -- always strobes.
-        if DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
+        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then -- [PH2] [PH2-WP] First: a posted write's DATA_RDY can
+            RDY_VAR := '1';                                 -- be high on the chain edge (never the case before).
+        elsif DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
             RDY_VAR := '0';
         elsif BUS_CTRL_STATE = START_CYCLE then
             RDY_VAR := '1';
@@ -1004,8 +1127,12 @@ begin
             OPCODE_RDY_I <= RDY_VAR;
         end if;
         -- Data cycle:
-        if WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
-            DATA_RDY_I <= RDY_VAR;
+        if WP_GO = '1' then
+            DATA_RDY_I <= RDY_VAR; -- [PH2-WP] Posted: the outcome of the last portion is final here.
+        elsif WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
+            if WP_DONE = '0' then
+                DATA_RDY_I <= RDY_VAR;
+            end if;
         elsif READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' then
             case OP_SIZE is
                 when LONG =>
@@ -1026,6 +1153,31 @@ begin
     end process PREFETCH_BUFFERS;
 
     DATA_RDY <= DATA_RDY_I;
+
+    -- [PH2-WP] Posted write (option b): the S3 edge of the last portion of a write decides the
+    -- outcome in this core (DSACK, BERR and HALT sampled at the start of S3; a BERR seen at S5 is
+    -- not used; a late retry needs SIZE_N /= 0). A clean ending reports DATA_RDY here, one clock
+    -- before S5, so the control unit can present its next request for the S5 edge. Bus errors,
+    -- retry, halt, RMC and STERM cycles are never posted and keep the S5 DATA_RDY.
+    WP_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
+                      WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
+                      BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+
+    P_WP_DONE: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if WP_DONE = '1' and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then
+            WP_LAST <= '1'; -- Held through the IDLE clocks until the next cycle starts.
+        elsif BUS_CTRL_STATE /= IDLE or NEXT_BUS_CTRL_STATE /= IDLE then
+            WP_LAST <= '0';
+        end if;
+        if WP_GO = '1' then
+            WP_DONE <= '1';
+        elsif BUS_CYC_RDY = '1' or BUS_CTRL_STATE /= DATA_C1C4 then
+            WP_DONE <= '0'; -- Cleared on the S5 edge (also when it chains).
+        end if;
+    end process P_WP_DONE;
     OPCODE_RDY <= OPCODE_RDY_I;
 
     DATA_TO_CORE <= DBUFFER;
@@ -1046,7 +1198,9 @@ begin
     -- slice counter working on the positive clock edge may change it's state.
     begin
         if CLK = '1' and CLK' event then
-            if BUS_CTRL_STATE = IDLE then
+            if BUS_CTRL_STATE = IDLE and PW_GO = '1' then
+                SLICE_CNT_P <= "000"; -- [PH2-WP] S0 in the next clock.
+            elsif BUS_CTRL_STATE = IDLE then
                 SLICE_CNT_P <= "111"; -- Init.
             elsif RETRY = '1' then
                 SLICE_CNT_P <= "111"; -- Stay in IDLE, go to IDLE.
@@ -1090,8 +1244,8 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         --
-        if PF_CHAIN_GO = '1' then
-            OCS_INH <= '0'; -- [F65] OCSn pulses again on the chained S0.
+        if CHAIN_GO = '1' then
+            OCS_INH <= '0'; -- [F65] [PH2] OCSn pulses again on the chained S0.
         elsif BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
             OCS_INH <= '0';
         elsif BUS_CYC_RDY = '1' and RETRY = '0' then -- No inhibit if first portion results in a retry cycle.

@@ -44,7 +44,8 @@ doing from day one on a Falcon core. Background: `BUILD.md`, `float_panic/FLOAT_
     Test new data paths on small chunks first.
 15. **Leave a trail.** Before any overnight or token-limited run, write the state into the notes (board build, bitstream
     names, what's next) and keep the bitstreams in `~/fpga_bitstreams`, so work can pick up cold. Always end on the fallback `.fs`.
-16. **Keep credits.** Keep the original authors' headers and `LICENSE-NOTES.md` up to date as cores are borrowed (WF68K30L, fx68k, FX blitter, MiSTeryNano).
+16. **Run the rollback on the same procedure before blaming a build.** A failure that the known-good bitstream shows too is the setup, not the change (the missing `c` of 16 Oct 2026).
+17. **Keep credits.** Keep the original authors' headers and `LICENSE-NOTES.md` up to date as cores are borrowed (WF68K30L, fx68k, FX blitter, MiSTeryNano).
 
 ## Bugs found (ST/030 core)
 
@@ -61,10 +62,13 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - **CHK operand.** *Symptom:* spurious CHK traps (GEMBENCH 6 "Subscript out of range"). *Cause:* ALU operand 2 came from A0 (AR port 2) instead of Dn. *Fix:* F60 `87fac46`.
 - **Bus-error destination writeback.** *Symptom:* after the `$FFFA40` SFP004 probe bus-errors, the target register holds `$FFFF` (`moveq #0,d0; move.w $FFFA40,d0` gave D0 = `$0000FFFF`; logged in `9653a01`). *Cause:* upstream WF68K30L control's bus-error branch in `STATE_REGs` tests `DATA_RD_I = '1'` together with `RD_RDY = '1'`, but `DATA_RD_I` is forced to 0 while `DATA_RDY` is high, so it never fired: the faulted read went on to INIT_EXEC_WB and the ALU wrote the bus value. A real 030 leaves the register unchanged. *Fix:* F66, unconditional core fix: a faulted operand read (FETCH_OPERAND/FETCH_MEMADR) returns the fetch FSM to START_OP; the write-back stage keeps finishing the previous instruction (`7e3660e`, merged `1e0e229`). RTL bench `prog_berrwb.s` (Dn .b/.w/.l, MOVEA, ADD, MOVEM, (An)). Board 15 Oct (`st_helper_hdn_berr_7e3660e_p3.fs`): COOKIEFP D0 stays 0, GEMBENCH all tests 123%, Float Math 13.080 s (101%), unchanged. *Lesson:* check that an upstream error branch can actually fire.
 - **Float Math bus error / panic (gb403).** *Symptom:* GEMBENCH Float Math panics (CHK `$4320` executed from data, vector 6, bad A5, `jsr $416528`, BERR). *Cause:* not the CPU. AUTOFPU.BIN on the SD card's gb403.st had desktop INF text (`#a000000`...) written into it at offset $400 by the runtime-swap disk-change bug (see "AE350 helper and SD"). *Fix:* clean image (CRC 791ee820) plus `ST_FLOPPY_MEDIACH`. Float Math passes on p3: 13.075 s, and 13.080 s on the hardening build (`3b9b8d2`, `9a3d030`). *Lesson:* checksum test images before chasing a CPU fault.
+- **Bus-width register on a chained long read that bus-errors (phase 2).** *Symptom:* in the prog_berrwb bench the format B frame's data input buffer was only half filled. *Cause:* P_BUSWIDTH kept the ending cycle's DSACK ("01", word port) on the chain edge, because the DSACK sample is still the old one there; the chained cycle then ran as a word port until its own DSACK. F65's prefetch chain had the same latent bug (harmless with a single 16-bit port). *Fix:* the chain edge resets DSACK_MEM first (`6b4f100`).
+- **Posted-write frame DOB (phase 2, option b).** *Symptom:* after a write bus error the stacked format B frame's data output buffer held the data of an older write (e.g. `$11112222` instead of `$33334444`). *Cause:* with writes completing at S3, the core still runs the next instruction's operand cycle before it takes the exception, and that cycle reloaded WP_BUFFER. *Fix:* DOB_HOLD keeps OUTBUFFER until the exception (BUSY_EXH) (`dfa0f15`, bench prog_wpberr.s `de35f5f`). Still open: the data fault itself is taken one cycle late and the frame is always $B (TODO.md).
 
 ### Debug tooling
 
 - **Decoder bit-18 mask.** *Symptom:* an apparent A23:16 address corruption. *Cause:* our overlay decoder masked bit 18 (row d, bit 20), so the address "corruption" was a decode error. *Fix:* `86882a8`, re-read in `5e855f4`. *Lesson:* check your probe before you believe it.
+- **Stability script without the cold boot (16 Oct 2026).** *Symptom:* every reload of the option (b) build showed "System halted!" after the cartridge self-test, and the known-good 5246d00 rollback did too. *Cause:* the script dropped the initial `c` cold boot of the earlier procedure; a bare reload after a flash or after a halt keeps halting (stale state) until `c`. *Fix:* `c` first (gb/wp/stab.sh); then 10/10 reloads and 3/3 `w` were clean on the same bitstream. Lesson: compare against the rollback on the same procedure before calling a build bad.
 
 ### Bridge, bus and RAM
 

@@ -53,11 +53,15 @@ reg	[5:0]	rC;
 wire IsCCR   = (mcop==`mcCCB)|(mcop==`mcSCB);
 wire IsCChit = (({(rC[1]^rC[3]),rC} & mccf[6:0]) == 7'h0) ^ mccf[7];
 
-wire [15:0] R0, R1, RR;
-wire  [5:0] CC;
+wire [15:0] R0_c, R1_c, RR_c;
+// [PH2-FMAX] ALU operands registered every CLK as well (see RR below): stable for >=5 CLKs
+// before EN2, nothing else reads them.
+reg  [15:0] R0, R1;
+always @(posedge CLK) begin R0 <= R0_c; R1 <= R1_c; end
+wire  [5:0] CC_c;
 
 HD63701_DSEL13 sR0(
-	.o(R0),
+	.o(R0_c),
 	.f0((mcr0 == `mcrC)|IsCCR),.d0({10'b00000000_11,rC}),
 	.f1(mcr0 == `mcrA), .d1({8'h0,`rA}),
 	.f2(mcr0 == `mcrB), .d2({8'h0,`rB}),
@@ -74,7 +78,7 @@ HD63701_DSEL13 sR0(
 );
 
 HD63701_DSEL13 sR1(
-	.o(R1),
+	.o(R1_c),
 	.f0((mcr1 == `mcrC)|IsCCR),.d0({10'b00000000_11,rC}),
 	.f1(mcr1 == `mcrA), .d1({8'h0,`rA}),
 	.f2(mcr1 == `mcrB), .d2({8'h0,`rB}),
@@ -93,8 +97,15 @@ HD63701_DSEL13 sR1(
 HD63701_ALU ALU(
 	.op(mcop),.cf(mccf),.bw((mcr2==`mcrn) ? mcr0[2] : mcr2[2]),
 	.R0(R0),.R1(R1),.C(rC[0]),
-	.RR(RR),.RC(CC)
+	.RR(RR_c),.RC(CC_c)
 );
+
+// [PH2-FMAX] 2026-10-16: ALU result registered every CLK. All ALU inputs change only on
+// EN (count 31), EN2 (15) or the peripherals' EN2X (7, 23), so they are stable for at
+// least 7 CLKs before EN2, R0/R1 lag one CLK, so RR/CC below equal RR_c/CC_c at every EN2 edge (same cycles).
+// Only the EN2 register block reads RR/CC.
+reg [15:0] RR; reg [5:0] CC;
+always @(posedge CLK) begin RR <= RR_c; CC <= CC_c; end
 
 
 // Bus Control

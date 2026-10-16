@@ -80,12 +80,12 @@ These faults do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those tre
 
 The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by the re-engineered wf68k30L behind a TerribleFire TF534-style bridge, with the SOM's AE350 as the helper (SD card, floppy images, USB keyboard/mouse, OSD).
 
-### `Atarist_030_wip/`: 68030 ST (status 15 Oct 2026)
+### `Atarist_030_wip/`: 68030 ST (status 16 Oct 2026)
 
 - TOS 2.06 boots to the GEM desktop from cold; 4 MB, low/medium res.
-- **GEMBENCH 6: 123% of a stock STE** (RAM 98 / ROM 98 / Display 80 / CPU 240), all tests. **Float Math OK** (13.08 s).
+- **GEMBENCH 6: 132% of a stock STE** (RAM 115 / ROM 115 / Display 89 / CPU 251), all tests, after CPU rework phase 2 (the next bus cycle starts straight after S5; writes complete at S3). **Float Math OK** (12.37 s). Phase 2: [`PHASE2_DESIGN.md`](Atarist_030_wip/docs/PHASE2_DESIGN.md).
 - SD floppy images work at power-up and at runtime, including desktop saves; the SD path recovers from card errors and reports a lost sector to TOS as a disk error.
-- Open (in order): `$FFFF` bus-error writeback, warm-reset halt, EmuTOS blitter greyed out, helper port, CPU rework phase 2. See [`TODO.md`](Atarist_030_wip/docs/TODO.md).
+- Open (in order): warm-reset halt (pinned), EmuTOS blitter greyed out, helper port, then the phase 2 follow-ups (pipelined control unit, data-fault timing/frame format, clk_cpu030 and clk32 margin before caches). See [`TODO.md`](Atarist_030_wip/docs/TODO.md).
 - Docs: [`README`](Atarist_030_wip/README.md), [`BUILD.md`](Atarist_030_wip/docs/BUILD.md) (switches, defaults, Linux builds, flash map and rules), [`FALCON_LESSONS.md`](Atarist_030_wip/docs/FALCON_LESSONS.md) (lessons and every bug found), [`SD_WRITE_DEBUG.md`](Atarist_030_wip/docs/SD_WRITE_DEBUG.md), [`handoff/`](handoff/README.md).
 
 The two older vehicles below are kept as references. They do not share a top. `Hybrid030/` is frozen history.
