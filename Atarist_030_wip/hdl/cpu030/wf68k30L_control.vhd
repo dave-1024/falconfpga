@@ -495,7 +495,11 @@ begin
                  '0' when ADR_IN_USE = '1' else -- Avoid data hazards.
                  '0' when DATA_RDY = '1' or MEMADR_RDY = '1' else
                  '1' when FETCH_STATE = FETCH_MEMADR else
-                 '1' when FETCH_STATE = FETCH_OPERAND else '0';
+                 '1' when FETCH_STATE = FETCH_OPERAND else
+                 -- Option A step 3: MOVEM memory to register, 2nd and later reads: the effective address is valid in
+                 -- CALC_AEFF already (AR increment / offset update at ALU_INIT, one registered calculation clock in
+                 -- SWITCH_STATE), so the read is requested there instead of one clock later in FETCH_OPERAND.
+                 '1' when FETCH_STATE = CALC_AEFF and OP = MOVEM and BIW_0(10) = '1' and MOVEM_FIRST_RD = true else '0';
 
     DATA_WR <= DATA_WR_I;
     DATA_WR_I <= '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
