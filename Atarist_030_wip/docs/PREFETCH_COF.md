@@ -111,3 +111,16 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
 - p3 8ed3aec: clk_cpu030 18.442 MHz (16 constraint), clk32 33.915, TNS 0. BUT the timer lists a derived clock
   "IPIPE_PNTR[1]": P_COF_Q inferred latches (variable S not assigned on all paths). Fixed (S cleared first) before any flash;
   8ed3aec bitstream discarded.
+
+## Step 3: queue gating at real opcode positions (branch prefetch-cof-qg, off vchain db04754), 21:20 UK
+- NXT_OP/NXT_KNOWN (decoder) track where the next operation word sits in the stream: set from OP_LEN of the
+  operation word the control unit takes (minus the words taken with it, INSTR_LVL), decremented per extension
+  word, 0 after a flush. OP_LEN covers MOVE/MOVEA, MOVEQ, ADDQ/SUBQ/Scc/DBcc, Bcc/BRA/BSR, LEA/PEA/JMP/JSR,
+  NEGX/CLR/NEG/NOT/TST/EXT, ADD/SUB/AND/OR/CMP/EOR(+A, MUL/DIV.W), shifts, RTS/RTE/RTR/RTD/NOP, with EA
+  extensions (brief index only); anything else returns 0 = unknown and stops the look-ahead until the next flush
+  or known operation. P_COF_Q walks up to 4 operations from that position and holds on an unconditional COF
+  whose words are all queued. Extension/immediate words can no longer trigger a hold. Bcc/DBcc: not predicted.
+- Design choice: the hold is set when a COF is known to be next, not "hold until known not to be a COF"
+  (that would stall on every operation OP_LEN does not cover). Timing only either way.
+- Quick RTL (WS3): prog_loop 31613 (main 31608), prog_branch 8386 (scan-all 8349), pushrts 62943, gap 3834; writes SAME.
+- p3 build e77df9d started 21:22 UK; netlist synthesized; full regression and whole-ST bus sims running.
