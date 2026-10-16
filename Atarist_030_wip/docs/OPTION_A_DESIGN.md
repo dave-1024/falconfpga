@@ -133,3 +133,15 @@ Split "the cycle is accepted" from "the data is here":
 - Conclusion of step 2: correct and safe, 1 clock per MOVEM register write saved, but no measurable ST-time gain:
   the next AS still misses the ST en1. Bigger wins need the read side (4 → ≤2 clocks) and run-ahead requests (A3),
   which touch the read data path and ADR_IN_USE. Next run: MOVEM memory-to-register overlap (step 3).
+- 00:30 UK 17 Oct, **step 3 (MOVEM memory-to-register), 039c710**:
+  - The 2nd and later MOVEM reads are requested in CALC_AEFF instead of FETCH_OPERAND. The effective address is
+    already valid there: the (An)+ increment / offset update happens at ALU_INIT, and SWITCH_STATE is the one
+    registered address-calculation clock. 030-correct: the request follows the previous read's DATA_RDY (S5, after
+    the late-BERR point), ADR_IN_USE and write priority still gate it (same DATA_RD_I conditions).
+  - MOVEM read gap 7 → 6 clocks (prog_gap DD 7:15 → 6:15). New test `prog_movemr.s` (long/word sign extension,
+    (An), (An)+ and d16(An) with An in the list, (d8,An,Xn), abs, loop): SAME at WS 0/1/3/7, ~95 clocks faster.
+  - Full regression vs main: run_rtl PASS, cmp_wr 20 programs × 4 WS SAME (fpbr/fpuprobe harness as before).
+    prog_gap WS0 2657 → 2619, WS3 3834 → 3800.
+  - Whole-ST bench: prog_bus 10099 ST cycles / 6807734 ns, same as main (some 13-unit gaps became 11, still missing
+    the en1); prog_cof identical.
+  - p3 st_helper_hdn_oa_039c710_p3.fs (sha256 f543ebe4…3ba6): clk_cpu030 21.725 MHz, clk32_core 35.255 MHz, TNS 0.
