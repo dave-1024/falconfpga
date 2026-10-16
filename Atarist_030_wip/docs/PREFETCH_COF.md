@@ -124,3 +124,21 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   (that would stall on every operation OP_LEN does not cover). Timing only either way.
 - Quick RTL (WS3): prog_loop 31613 (main 31608), prog_branch 8386 (scan-all 8349), pushrts 62943, gap 3834; writes SAME.
 - p3 build e77df9d started 21:22 UK; netlist synthesized; full regression and whole-ST bus sims running.
+- Results (21:55 UK):
+  - Regression (run_rtl + cmp_wr all programs x WS 0/1/3/7): run_rtl PASS; all SAME except prog_branch WS1
+    (bus-error frame internal words, accepted); fpuprobe/fpbr time out identically on main (as before).
+  - Whole-ST netlist bench (FAST_HANDOFF=1):
+    | prog | main | step 1 | step 3 (qg) |
+    |---|---|---|---|
+    | prog_cof cycles / time | 2227 / 1.185 ms | 2167 / 1.164 ms | 2166 / 1.179 ms |
+    | prog_cof words past COF | 337 (15.1%) | (13.4%) | 290 (13.4%) |
+    | prog_bus cycles / time | 10101 / 6.808 ms | 10101 / 6.808 ms | 10099 / 6.808 ms |
+    | prog_bus words past COF | 1973 (19.5%) | | 1971 (19.5%) |
+    The opcode-position gating removes no further ST cycles on these benches: the remaining "past the COF" words
+    are mostly the second half of the long word that holds the COF's last word (a real 030 fetches the same long),
+    and fetches already started before the COF word arrived. No gain over step 1 here.
+  - p3 e77df9d (st_helper_hdn_pfcofqg_e77df9d_p3.fs): clk_cpu030 17.168 MHz (16 constraint; 62 logic levels;
+    main 20.901, step 1 20.711), clk32_core 35.615, no negative slack, no latch clock. Headroom down to 7%.
+  - Recommendation: keep vchain (step 1 + unconditional-COF predecode, board-tested) unless the opcode-position
+    gating is wanted for 030 fidelity; if so, the OP_LEN walk should be pipelined/registered to win back fmax.
+  Not flashed.
