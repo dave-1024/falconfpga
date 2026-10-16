@@ -120,3 +120,7 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   grabs over ~40 s), r12 DESK; warm resets w1-w3 DESK. NOT clean: 1 failure in 11 seen reloads (step 1: r6-r10 halted).
   p3 timing of this build not captured (worktree reused by the next build before reading the report).
 - db04754 (vchain, PF_HOLD not applied to PF_CHAIN_GO) built 18:02 UK; flashing next.
+- db04754 (vchain) flashed 18:28 UK (ends 0x04B2100, rc 0). c cold boot DESK; reloads v1-v3 DESK. Stopped after 3
+  (time box; the screen grabs over the SOCKS link were slow). Not enough reloads to call it clean or not.
+- Restored de35f5f at 18:47 UK + c cold boot (see the report). Next: finish 10 reloads on vchain; if clean, PF_CHAIN_GO
+  gating is implicated (step 1 also gated it). Step 2's single BLACK reload (r11) has to be reproduced first.
