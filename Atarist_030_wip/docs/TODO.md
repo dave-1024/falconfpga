@@ -28,6 +28,7 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 6. **clk32: blitter falling-edge path.** Half-period path blitter bltState -> blitter address -> gstmcu I/O decode ->
    gamecart_r/mde0_r/mde1_r (register.v samples on negedge), about 0.5 ns slack, mostly routing. The blitter arm has to
    stay; a fix needs register.v's sampling moved (timing change). Also jt49 -> sd_card data_out at 1.2 ns (full period).
+7. **Helper serial silent after the first warm reset (open).** Seen on vchain and option-a: the first `w` after reloads gets no reply and `s` is silent until an op 1 reload. Not core-related (two cores). See FALCON_LESSONS "Helper serial silent". Check helper firmware/UART handling of the sysctrl reset.
 
 ## When the caches go in
 Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,
