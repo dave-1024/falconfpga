@@ -249,4 +249,36 @@ Work log (kept current so an interrupted run loses little):
 - Board (2026-10-16 BST): flashed with op 53 --fsFile at location 4193 (core rc 0, reload rc 0).
   - First run: reloads without a cold boot first all stopped at "System halted!" after the mailbox test.
     The 5246d00 rollback halted the same way until a `c` cold boot, so this is the boot state (no `c` after the flash), not the change.
-  - Second run, with `c` first: c0 DESK, and reloads r1..r7 DESK so far (stab.sh in /workspace/gb/wp). GEMBENCH still to run.
+  - Second run, with `c` first: c0 desktop; 10 reloads: 10/10 desktop (r1-r7, r10, and r8b/r9b redone after a grab
+    failed and an ssh drop skipped a reload); 3 warm resets (`w`): 3/3 desktop.
+  - Later a bare reload (no `c`) halted again; `c` brought the desktop back. 5246d00 does the same on this board today,
+    so the boot-time halt is not caused by option (b). Open: the "System halted!" after a bare reload (EmuTOS banner, mailbox test passes).
+  - One HDMI capture state showed heavy colour noise and survived a `c`; 5246d00 showed the same earlier (ph2 r1/r5). A capture/HDMI issue.
+- GEMBENCH 6 (gbref.st, ST Medium, STE reference, Blitter/FPU off; Display group 12:33, CPU group 12:38 BST).
+  Results screen: `phase2/gembench_wp_1080p.png`.
+
+| Test | Time (s) | Ratio | 5246d00 |
+|---|---|---|---|
+| GEM Dialog Box | 9.995 | 79% | 10.010 / 78% |
+| VDI Text | 14.175 | 99% | 14.185 / 99% |
+| VDI Text Effects | 25.730 | 94% | 25.745 / 93% |
+| VDI Small Text | 14.045 | 97% | 14.055 / 96% |
+| VDI Graphics | 26.105 | 72% | 26.140 / 72% |
+| GEM Window | 4.070 | 80% | 4.070 / 80% |
+| Integer Division | 2.695 | 667% | 2.695 / 667% |
+| Float Math | 12.370 | 107% | 12.400 / 107% |
+| RAM Access | 5.485 | 115% | 5.485 / 115% |
+| ROM Access | 5.480 | 115% | 5.485 / 115% |
+| Blitting | 9.635 | 91% | 9.635 / 91% |
+| VDI Scroll | 13.495 | 99% | 13.500 / 99% |
+| Justified Text | 14.155 | 97% | 14.165 / 97% |
+| VDI Enquire | 2.750 | 96% | 2.755 / 96% |
+| New Dialogs | 11.815 | 80% | 11.825 / 80% |
+| **Display / CPU / Average** | | **89% / 251% / 132%** | 89% / 251% / 132% |
+
+- gbref.st CRC32 after the run: 791ee820. Option (b) stays on the board (location 4193).
+- Fmax 22.18 -> 19.65 MHz: the limiting clk_cpu030 path is the same full-cycle path in both builds,
+  opcode decoder -> I_CONTROL fetch-state logic -> AR select -> I_ADDRESSREGISTERS effective-address adders -> ADR_EFF_I
+  (5246d00: OP_101 -> ADR_EFF_I_29, data 44.97 ns, slack 17.41; de35f5f: OP_74 -> ADR_EFF_I_26, data 50.82 ns, slack 11.61).
+  No bus-interface cell is on it, so the drop is placement/routing spread (box p3 builds of nearby trees ranged 17.4-20.8 MHz).
+  The bus-interface half-cycle paths are about the same (worst slack 20.55 -> 20.63 ns).
