@@ -37,6 +37,7 @@
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
 -- 
 
@@ -263,6 +264,9 @@ component WF68K30L_BUS_INTERFACE
         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+        ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
+        FC_NXT              : in std_logic_vector(2 downto 0); -- [PH2] Its function code.
+        OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         INBUFFER            : out std_logic_vector(31 downto 0);
         OUTBUFFER           : out std_logic_vector(31 downto 0);
         SSW_80              : out std_logic_vector(8 downto 0);

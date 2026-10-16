@@ -157,6 +157,7 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-10-16 PH2: address/FC latches also load on OP_CHAIN_LD (prefetch S5 to operand S0).
 --
 
 library work;
@@ -496,6 +497,9 @@ signal CAAR_WR                  : bit;
 signal CAAR_RD                  : bit;
 signal WR_REQ                   : bit;
 signal WR_REQ_I                 : bit;
+signal ADR_NXT                  : std_logic_vector(31 downto 0); -- [PH2] Address of the request, as when the bus is free.
+signal FC_NXT                   : std_logic_vector(2 downto 0); -- [PH2]
+signal OP_CHAIN_LD              : bit; -- [PH2]
 begin
     IDATA_BUFFER : process
     -- This register stores the immediate data.
@@ -865,8 +869,8 @@ begin
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
-    ADR_P <= ADR_LATCH when BUS_BSY = '1' else
-             ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L;
+    ADR_NXT <= ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L; -- [PH2]
+    ADR_P <= ADR_LATCH when BUS_BSY = '1' else ADR_NXT;
 
     P_ADR_LATCHES: process
     -- This register stores the address during a running bus cycle.
@@ -878,16 +882,16 @@ begin
     -- bus cycle. 
     begin
         wait until CLK = '1' and CLK' event;
-        if BUS_BSY = '0' then
-            ADR_LATCH <= ADR_P;
-            FC_LATCH <= FC_I;
+        if BUS_BSY = '0' or OP_CHAIN_LD = '1' then -- [PH2] also on the S5 edge of a chained operand cycle
+            ADR_LATCH <= ADR_NXT;
+            FC_LATCH <= FC_NXT;
         elsif BERRn = '0' then
             FAULT_ADR <= ADR_LATCH;
         end if;
     end process P_ADR_LATCHES;
 
-    FC_I <= FC_LATCH when BUS_BSY = '1' else
-            SFC when USE_SFC = '1' else
+    FC_I <= FC_LATCH when BUS_BSY = '1' else FC_NXT;
+    FC_NXT <= SFC when USE_SFC = '1' else
             DFC when USE_DFC = '1' else
             "111" when (DATA_RD = '1' or DATA_WR = '1') and CPU_SPACE = '1' else
             "101" when (DATA_RD = '1' or DATA_WR = '1') and SBIT = '1' else
@@ -1100,6 +1104,9 @@ begin
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
             OP_WR               => DATA_WR, -- [F65]
+            ADR_NXT             => ADR_NXT, -- [PH2]
+            FC_NXT              => FC_NXT, -- [PH2]
+            OP_CHAIN_LD         => OP_CHAIN_LD, -- [PH2]
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,

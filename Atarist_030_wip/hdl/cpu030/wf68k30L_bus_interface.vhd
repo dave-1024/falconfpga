@@ -62,6 +62,11 @@
 --   stream is still valid rolls S5 straight into S0 of the next long, the
 --   way a 68030 starts the next cycle when a request is pending. Default 0
 --   keeps the IDLE -> START_CYCLE path. Operand cycles are not chained here.
+-- [PH2] FalconFPGA (dave-1024, 2026-10-16): CPU rework phase 2. A completing
+--   queue prefetch with an operand request already waiting rolls S5 straight
+--   into S0 of that operand cycle (MC68030UM 7.3: the next cycle starts after
+--   S5 when a request is pending). Unconditional: a 68030 bus behaviour fix.
+--   Likewise an operand cycle rolls into a waiting queue prefetch (DP_CHAIN).
 -- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
 -- Changes are tagged Fnn in the code. Dates are from git history.
 -- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
@@ -72,6 +77,7 @@
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-16 PH2: prefetch S5 to operand S0 (OP_CHAIN), operand S5 to prefetch S0 (DP_CHAIN), unconditional.
 -- 
 
 library work;
@@ -138,6 +144,9 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+        ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
+        FC_NXT              : in std_logic_vector(2 downto 0); -- [PH2] Its function code.
+        OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -254,6 +263,12 @@ signal PF_START             : bit;
 signal PF_DONE              : bit;
 signal PF_CHAIN             : bit := '0'; -- [F65] Armed at S3. Not the S5 decision.
 signal PF_CHAIN_GO          : bit; -- [F65] S5 decision: PF_CHAIN and every cancel the FSM uses.
+signal OP_CHAIN             : bit := '0'; -- [PH2] Armed at S3 of a prefetch while an operand request waits.
+signal OP_CHAIN_GO          : bit; -- [PH2] S5 decision: the prefetch rolls into the operand cycle.
+signal DP_CHAIN             : bit := '0'; -- [PH2] Armed at S3 of an operand cycle while a queue prefetch waits.
+signal DP_CHAIN_GO          : bit; -- [PH2] S5 decision: the operand cycle rolls into the prefetch.
+signal CH_WR                : bit; -- [PH2] The chained operand cycle is a write.
+signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle starts on this S5 edge.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 begin
 
@@ -320,6 +335,16 @@ begin
                 OPCODE_ACCESS <= '1';
                 PF_ACC <= '1';
             end if;
+        elsif OP_CHAIN_GO = '1' then -- [PH2] The prefetch ends, the waiting operand cycle starts.
+            READ_ACCESS <= not CH_WR;
+            WRITE_ACCESS <= CH_WR;
+            OPCODE_ACCESS <= '0';
+            PF_ACC <= '0';
+        elsif DP_CHAIN_GO = '1' then -- [PH2] The operand cycle ends, the waiting prefetch starts.
+            READ_ACCESS <= '0';
+            WRITE_ACCESS <= '0';
+            OPCODE_ACCESS <= '1';
+            PF_ACC <= '1';
         elsif AERR = '1' then -- Reject due to address error.
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
@@ -356,6 +381,10 @@ begin
             --
             if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
                 SSW_80 <= To_StdLogicVector('0' & RMC & not WR_REQ) & SIZEVAR & '0' & FC_IN;
+            elsif DP_CHAIN_GO = '1' then -- [PH2] As START_CYCLE writes it for a prefetch.
+                SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_NXT;
+            elsif OP_CHAIN_GO = '1' then -- [PH2]
+                SSW_80 <= To_StdLogicVector('0' & RMC & not CH_WR) & SIZEVAR & '0' & FC_NXT;
             elsif BUS_CTRL_STATE = DATA_C1C4 and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_FLT = '1' then
                 SSW_80(8) <= '1';
             end if;
@@ -436,6 +465,8 @@ begin
         wait until CLK = '1' and CLK' event;
         if BUS_CTRL_STATE = IDLE and NEXT_BUS_CTRL_STATE = START_CYCLE then -- Freeze during a bus cycle.
             WP_BUFFER <= DATA_FROM_CORE;
+        elsif OP_CHAIN_GO = '1' then -- [PH2] Chained operand cycle: data of the waiting request.
+            WP_BUFFER <= DATA_FROM_CORE;
         end if;
     end process WRITEBACK_INFO;
 
@@ -444,12 +475,16 @@ begin
     -- during the current bus access.
     begin
         wait until CLK = '1' and CLK' event;
-        if DSACK_In = "01" then
+        -- [PH2] The chain edge comes first: DSACK_In still holds the ending
+        -- cycle's DSACK there (sampled on the S4 half), and a kept "01" made the
+        -- next cycle a word port (measured: a chained long read that bus-errored
+        -- filled only half of the data input buffer). Same as the IDLE reset.
+        if CHAIN_GO = '1' then
+            DSACK_MEM <= "11"; -- [F65] [PH2] New cycle samples the port width again.
+        elsif DSACK_In = "01" then
             DSACK_MEM <= "01";
         elsif DSACK_In = "10" then
             DSACK_MEM <= "10";
-        elsif PF_CHAIN_GO = '1' then
-            DSACK_MEM <= "11"; -- [F65] New cycle samples the port width again.
         elsif BUS_CTRL_STATE = IDLE then
             DSACK_MEM <= "11";
         end if;
@@ -477,8 +512,14 @@ begin
         --
         if RESET_CPU_I = '1' then
             SIZE_N <= "000";
-        elsif PF_CHAIN_GO = '1' then
-            SIZE_N <= "100"; -- [F65] Next prefetch long, loaded on the S5 edge.
+        elsif PF_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
+            SIZE_N <= "100"; -- [F65] [PH2] Next prefetch long, loaded on the S5 edge.
+        elsif OP_CHAIN_GO = '1' then -- [PH2] Operand size of the waiting request.
+            case OP_SIZE is
+                when LONG => SIZE_N <= "100";
+                when WORD => SIZE_N <= "010";
+                when BYTE => SIZE_N <= "001";
+            end case;
         elsif BUS_CTRL_STATE /= DATA_C1C4 and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
             if RD_REQ = '1' or WR_REQ = '1' then
                 case OP_SIZE is
@@ -548,7 +589,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, PF_CHAIN_GO)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -592,7 +633,7 @@ begin
                 -- [F65] PF_CHAIN_GO is the only chain decision. S5 rolls to S0
                 -- when it is set. Every cancel takes IDLE, and the queue re-arm
                 -- and the SIZE/offset/width/OCS updates use the same signal.
-                if PF_CHAIN_GO = '1' then
+                if CHAIN_GO = '1' then -- [PH2] or a waiting operand cycle.
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif BUS_CYC_RDY = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= IDLE;
@@ -633,8 +674,8 @@ begin
             ADR_OFFSET <= (others => '0');
         elsif RETRY = '1' then
             null; -- Do not update if there is a retry cycle.
-        elsif PF_CHAIN_GO = '1' then
-            ADR_OFFSET <= (others => '0'); -- [F65] New prefetch long starts at F_ADR.
+        elsif CHAIN_GO = '1' then
+            ADR_OFFSET <= (others => '0'); -- [F65] [PH2] New cycle starts at its base address.
         elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
             ADR_OFFSET <= (others => '0');
         elsif BUS_CYC_RDY = '1' then
@@ -724,6 +765,31 @@ begin
         else
             PF_CHAIN <= '0';
         end if;
+        -- [PH2] Same arm for a prefetch that ends while an operand request waits.
+        -- No Q_CNT or stream condition: the operand cycle does not touch the queue.
+        if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4
+           and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
+           and RMC = '0' and (OP_RD = '1' or OP_WR = '1')
+           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+           and BUS_FLT = '0' and RETRY = '0' then
+            OP_CHAIN <= '1';
+        else
+            OP_CHAIN <= '0';
+        end if;
+        -- [PH2] An operand cycle that ends while a queue prefetch waits. The IDLE
+        -- clock after it would start that prefetch anyway (the control unit drops
+        -- its request in the DATA_RDY clock), so only the two idle clocks go.
+        -- Not during exception processing, where the handler's requests are not
+        -- dropped in that clock and would come first.
+        if (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CTRL_STATE = DATA_C1C4
+           and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
+           and RMC = '0' and BUSY_EXH = '0' and PF_REQ = '1'
+           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+           and BUS_FLT = '0' and RETRY = '0' then
+            DP_CHAIN <= '1';
+        else
+            DP_CHAIN <= '0';
+        end if;
     end process P_PF_CHAIN;
 
     -- [F65] One S5 decision for the FSM, the queue re-arm, and the SIZE,
@@ -735,12 +801,29 @@ begin
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
 
+    -- [PH2] S5 decision for the operand handoff. The request must still be
+    -- there on the S5 edge (it is registered in the control unit, so this is
+    -- not a loop through BUS_BSY), and every cancel takes the old IDLE path.
+    OP_CHAIN_GO <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
+                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0'
+                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    CH_WR <= OP_WR and not OP_RD; -- Read has priority, as in START_CYCLE.
+    DP_CHAIN_GO <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
+                   and SIZE_N = "000" and PF_REQ = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
+                   and RMC = '0' and BUSY_EXH = '0'
+                   and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    CHAIN_GO <= PF_CHAIN_GO or OP_CHAIN_GO or DP_CHAIN_GO;
+    OP_CHAIN_LD <= OP_CHAIN_GO or DP_CHAIN_GO; -- The top level loads its address/FC latches as in IDLE.
+
     P_QUEUE: process
     variable W      : QWORDS_T;
     variable F      : bit_vector(0 to 3);
     variable CNT    : integer range 0 to 4;
     variable F0, F1 : bit;
     variable WDIST  : std_logic_vector(31 downto 2);
+    variable WDIST2 : std_logic_vector(31 downto 2);
     begin
         wait until CLK = '1' and CLK' event;
         if PREFETCH_Q /= 0 then
@@ -754,7 +837,7 @@ begin
             if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
                 if ADR_OFFSET(1) = '0' then PF_FLT0 <= '1'; else PF_FLT1 <= '1'; end if;
             end if;
-            if PF_START = '1' then
+            if PF_START = '1' or DP_CHAIN_GO = '1' then -- [PH2]
                 INFL <= '1';
                 INFL_STALE <= '0';
                 F_CUR <= F_ADR;
@@ -785,6 +868,13 @@ begin
                 if INFL = '1' then
                     INFL_STALE <= '1';
                 end if;
+            end if;
+            -- [PH2] The same flush for a write chained on the S5 edge. The finishing
+            -- prefetch long is queued above first, so it is dropped with the rest.
+            WDIST2 := ADR_NXT(31 downto 2) - Q_ADR(31 downto 2) + '1';
+            if OP_CHAIN_GO = '1' and CH_WR = '1' and WDIST2(31 downto 4) = x"000000" & "0000" then
+                S_VALID <= '0';
+                CNT := 0;
             end if;
             -- Restart the stream at the requested word.
             if Q_MISS = '1' then
@@ -984,7 +1074,7 @@ begin
         -- always strobes.
         if DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
             RDY_VAR := '0';
-        elsif BUS_CTRL_STATE = START_CYCLE then
+        elsif BUS_CTRL_STATE = START_CYCLE or OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then -- [PH2]
             RDY_VAR := '1';
         end if;
         -- Opcode cycle:
@@ -1090,8 +1180,8 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         --
-        if PF_CHAIN_GO = '1' then
-            OCS_INH <= '0'; -- [F65] OCSn pulses again on the chained S0.
+        if CHAIN_GO = '1' then
+            OCS_INH <= '0'; -- [F65] [PH2] OCSn pulses again on the chained S0.
         elsif BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE /= IDLE then
             OCS_INH <= '0';
         elsif BUS_CYC_RDY = '1' and RETRY = '0' then -- No inhibit if first portion results in a retry cycle.
