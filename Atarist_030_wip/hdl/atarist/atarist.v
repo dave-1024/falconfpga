@@ -440,8 +440,12 @@ gstmcu gstmcu (
 	.MFPINT_N   ( mfpint_n ),
 	.A          ( mbus_a ), // from CPU bus
 	.ADDR       ( ram_addr ),  // to RAM
-	// DIN - only interested in sources which can be bus masters (+shifter) - to avoid long combinatorial paths
-	.DIN        ( ~rdy_i ? dma_data_out : blitter_sel ? blitter_data_out : !rdat_n  ? shifter_dout : cpu_dout ),
+	// DIN - only interested in sources which can be bus masters - to avoid long combinatorial paths
+	// [PH2-FMAX] 2026-10-16: shifter_dout arm dropped. It was selected only while rdat_n is low
+	// (RAM read cycles); every gstmcu use of DIN is an I/O register write strobe or an I/O
+	// decode (scrlsel, dmadir, cartsel), none active during a RAM read. Same behaviour; removes
+	// the blitter -> shifter -> gstmcu half-period path (register.v samples on negedge).
+	.DIN        ( ~rdy_i ? dma_data_out : blitter_sel ? blitter_data_out : cpu_dout ),
 	.DOUT       ( mcu_dout ),
 	.OE_L       ( mcu_oe_l ),
 	.OE_H       ( mcu_oe_h ),
