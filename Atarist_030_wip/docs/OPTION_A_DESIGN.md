@@ -126,3 +126,10 @@ Split "the cycle is accepted" from "the data is here":
   - Board (flashed op 53 at 4193 after rescan): c + 10 reloads 10/10 DESK. Helper serial went silent after the first
     warm-reset attempt (known, same as vchain at 20:40); op 1 reload restored it. Then c + 3 warm resets (`w`,
     "ST reset via sysctrl"): 3/3 DESK, serial OK after each. GEMBENCH next.
+- 23:50 UK, **GEMBENCH on 08e1cf8** (ST Medium, STE ref, gembench.sh steps driven by hand because the scripted
+  DISK A double-click was lost once): Display 89%, CPU 251%, Average 132%. Same as vchain (89/251/132); every line
+  within noise. No halts, no "System halted!". Screenshot `prefetch_cof/board/gb_oa_08e1cf8.png`.
+  **The board is left on st_helper_hdn_oa_08e1cf8_p3.fs (passed all board tests). Rollback: vchain db04754.**
+- Conclusion of step 2: correct and safe, 1 clock per MOVEM register write saved, but no measurable ST-time gain:
+  the next AS still misses the ST en1. Bigger wins need the read side (4 → ≤2 clocks) and run-ahead requests (A3),
+  which touch the read data path and ADR_IN_USE. Next run: MOVEM memory-to-register overlap (step 3).
