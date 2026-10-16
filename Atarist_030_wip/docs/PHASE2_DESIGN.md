@@ -129,3 +129,20 @@ recovery min slack 8.17 ns, removal 0.27 ns, clk_cpu030 16.845 MHz (main build o
 
 Reproduce with
 `sim/rtl/run_rtl.sh`, `sim/rtl/gap.sh prog_gap <WS>`, `sim/rtl/cmp_wr.sh <old> <new> <prog> <WS>`.
+
+## Fmax work (in progress, notes kept as we go)
+
+Board build `build_st_helper_hdn.tcl`, place_option 3. No constraint changes. Each step is
+cycle-neutral: RTL regression (run_rtl.sh + cmp_wr.sh on 12 programs x WS 0/1/3/7 against 6b4f100)
+and the whole-ST bench (`sim/st/run_bus.sh`, netlist with FAST_HANDOFF=1) must be identical.
+
+| build | clk_cpu030 | clk32_core | notes |
+|---|---|---|---|
+| main 4d0157d | 16.210 | 32.133 | |
+| 6b4f100 (PH2 handoff) | 16.845 | 32.897 | |
+| 5ca9e65 PACK/UNPK select (box) | 18.814 | 32.962 | 48/48 SAME, run_rtl PASS |
+| df0c6d7 + gstmcu DIN (linserver) | 20.558 | 33.150 | ST bench identical; P&R noise on cpu clock |
+| WIP + bus address from ADR_LATCH + HD63701 RR/CC reg (box c4) | 22.906 | 32.562 | IKBD p->ADI->iopt->R0/R1->ALU->RR still 30.7 ns |
+
+Next: HD63701 R0/R1 also registered (c5); the blitter_data_out arm of gstmcu DIN is still a
+half-period path (0.5 ns slack at df0c6d7).
