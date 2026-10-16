@@ -42,10 +42,19 @@ Branch `prefetch-cof` (off main 9e27c24). Unconditional correctness/behaviour fi
   operation/extension word wait, exceptions, loop mode, the flush). RTL: all cmp_wr programs give the same
   writes as main; run_rtl PASS. Gains 2-9% on call/return-heavy RTL programs (prog_pushrts -8..-10%,
   prog_spwb -7%, prog_branch -2..-3%).
-- Whole-ST bench (netlist, DIAG_BUSTRACE counters, prog_bus.s in ROM): 10101 -> 10085 ST cycles but
-  6.808 -> 7.103 ms (+4.3%) - slower. The hold is only up 1-2 clocks (SLEEP of the branch), far too late:
-  the words past the branch were fetched long before (decoder pipe 3 words + queue up to 3 + in-flight
-  long), and a hold that coincides with the S3 arm of the prefetch-to-prefetch chain loses a 250 ns slot.
+- Whole-ST bench (netlist with FAST_HANDOFF=1 as on the board, DIAG_BUSTRACE bridge). An earlier run that
+  showed +4..13% was invalid: the new netlist had FAST_HANDOFF=0 (see FALCON_LESSONS; wf030_syn.tcl fixed).
+  | program | main 9e27c24 | step 1 (833183b) |
+  |---|---|---|
+  | prog_bus.s (dbra loops, ROM) | 10101 ST cycles, 6.808 ms | 10101, 6.808 ms (unchanged) |
+  | prog_cof.s (bsr/rts/jsr/jmp table/Bcc, ROM) | 2227, 1.185 ms | 2167 (-2.7%), 1.164 ms (-1.8%) |
+  Results (R1000 words) identical. Words fetched past a change of flow in prog_cof: 337 -> 291.
+- Variants tried (same benches): A = also detect BRA/BSR/RTS/RTE/RTR/RTD/JMP (An)/JSR (An)/DBF at the head
+  of the decoder pipe; B = eager queue prefetch only when the queue is empty (Q_CNT = 0). Both gave exactly
+  the step-1 numbers on prog_cof (B: 10099 cycles on prog_bus, same time), so step 1 is kept as the
+  simplest form. The remaining waste happens before the branch reaches the pipe head: the long fetch that
+  carries the branch's last word also brings the next word, and the queue starts the following long while
+  the branch is still behind the running instruction.
 - Potential (trace analysis, docs/prefetch_cof/waste.py): in prog_bus 1973 of 10101 ST cycles (19.5%)
   are instruction words fetched past a change of flow and thrown away.
-- Next: stop the look-ahead earlier (COF detected in the decoder pipe / shallower queue), see below.
+- Timing (p3, hdn build): clk_cpu030 20.711 MHz (constraint 16 MHz; main 20.901), clk32 36.031 MHz, TNS 0.
