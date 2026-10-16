@@ -124,3 +124,7 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
   (time box; the screen grabs over the SOCKS link were slow). Not enough reloads to call it clean or not.
 - Restored de35f5f at 18:47 UK + c cold boot (see the report). Next: finish 10 reloads on vchain; if clean, PF_CHAIN_GO
   gating is implicated (step 1 also gated it). Step 2's single BLACK reload (r11) has to be reproduced first.
+- 18:47 UK de35f5f restored (ends 0x04B2100, core/reload rc 0); helper link OK (core status 5C 42). Two c cold boots,
+  but the HDMI capture returns all-black frames (6 KB png) for >3 min, on the known-good de35f5f too. So the capture
+  or HDMI link can go black on its own, and step 2's r11 BLACK is NOT proof of a CPU halt. Desktop on de35f5f not yet
+  visually confirmed.
