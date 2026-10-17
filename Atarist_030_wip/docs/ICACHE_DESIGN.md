@@ -189,32 +189,30 @@ vs `caches`, all 22 programs × WS 0/1/3/7 (+ prog_fpbr with TAKEN 0 and 1, IRQ 
 **92 of 92 SAME**. That includes prog_icache.s itself, which sets EI, FI, CEI, CI and CDIS: with CIIN asserted the
 new core is cycle-identical to the old one. `run_rtl.sh`: PASS (prog_loop WS=5 DONE at clk 40289, unchanged).
 
-### Gowin checkpoint (17 Oct 2026, `75c4c18`, not flashed)
+### Gowin checkpoint (17 Oct 2026, `47eba71`, not flashed)
 
 - Gowin 1.9.12.03, `build_st_helper_hdn.tcl`, niced on linserver. Bitstream
-  `~/fpga_bitstreams/st_helper_hdn_ic_75c4c18_p3.fs`, sha256
-  `b2064e8d40acfcca3ef89137ede482740751a53220b4a5aff57a624919c1cb49`. **Not flashed, no board test.**
-- The first attempt (`f096e2c`) crashed Gowin synthesis (segfault in "inference"); the valid bits as a 16x4 array
-  were the trigger, now a flat 64-bit vector (FALCON_LESSONS). Same behaviour in simulation.
-- Full ST build vs `fault-fixes` 667fcca, built the same way the same day:
+  `~/fpga_bitstreams/st_helper_hdn_ic_47eba71_p3.fs`, sha256
+  `da5f2238620f665c192dfabdaf02e12580247b20b20b86620c282b17716ce034`. **Not flashed, no board test.**
+- The cache is in the ST build (CIINn from the decode of §2a plus syn_keep/syn_preserve). Cells of
+  `WF68K30L_ICACHE` in the synthesised netlist: 1 SDPB (data), 119 RAM16SDP4 (tags, read copies), 112 DFFRE
+  (valid bits, kept half word), 484 ALU (tag compares), 249 LUT2-4 and 30 MUX2.
+- Full ST build vs `fault-fixes` 667fcca and vs `75c4c18` (CIINn tied asserted, cache swept), same script:
 
-| | 667fcca | 75c4c18 |
-|---|---|---|
-| LUT / ALU | 36146 / 4089 | 35792 / 4079 |
-| Registers | 15176 | 15209 |
-| SSRAM (RAM16) / BSRAM | 127 / 170 | 127 / 170 |
-| clk_cpu030 Fmax (16 MHz) | 22.045 MHz | 19.360 MHz |
-| clk32_core Fmax (32 MHz) | 35.279 MHz | 34.845 MHz |
-| TNS | 0 | 0 |
+| | 667fcca | 75c4c18 (swept) | 47eba71 |
+|---|---|---|---|
+| LUT / ALU | 36146 / 4089 | 35792 / 4079 | 35955 / 4590 |
+| Registers | 15176 | 15209 | 15347 |
+| SSRAM (RAM16) / BSRAM | 127 / 170 | 127 / 170 | 246 / 172 |
+| clk_cpu030 Fmax (16 MHz) | 22.045 MHz | 19.360 MHz | 23.069 MHz |
+| clk32_core Fmax (32 MHz) | 35.279 MHz | 34.845 MHz | 35.537 MHz |
+| TNS | 0 | 0 | 0 |
 
-  With CIINn tied asserted in `cpu030_st_bridge.v` no fill can happen, so Gowin removes the cache RAM and compare
-  logic: the ST build carries no cache hardware (and the old F59 cache modules are gone, hence fewer LUTs). The
-  clk_cpu030 critical path is the same in both builds (opcode decoder OP -> ADR_EFF_I adder, not touched by the
-  cache); the 2.7 MHz drop is placement variation, still 10.8 ns slack at 16 MHz. Watch it on the next builds.
-- Core alone (`wf030_syn.tcl`, CIINn a free port, so the cache is live): 667fcca 17673 LUT, 1564 ALU, 3064 FF,
-  0 RAM16, 0 BSRAM; 75c4c18 18287 LUT, 2046 ALU, 3186 FF, 119 RAM16, 1 BSRAM. So the cache costs about
-  +614 LUT, +482 ALU (tag compares), +122 FF, 119 RAM16 and 1 BSRAM once a cacheable region exists.
-- Netlist unit bench (`sim/run_unit.sh`, bridge + 75c4c18 netlist, 6 phases): ERRORS=0.
+- Slowest clk_cpu030 paths are now cache paths: half-cycle clk_cpu030_n -> clk_cpu030 (31.25 ns), `RETRY` -> stream
+  address -> `IC_LK_ADR` -> data BSRAM read address, slack 17.8 ns. In 667fcca the limiting path was the opcode
+  decoder -> ADR_EFF adder (same-edge, 62.5 ns). Plenty of margin at 16 MHz.
+- (75c4c18 had the first Gowin crash fix; 616946e had the inverted CIINn and its bitstream was deleted.)
+- Netlist benches: `run_unit.sh` ERRORS=0, traces identical to 75c4c18; `run_icache_net.sh` PASS.
 
 ## 5. Open questions
 
