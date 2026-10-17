@@ -526,6 +526,11 @@ signal WR_REQ_I                 : bit;
 signal ADR_NXT                  : std_logic_vector(31 downto 0); -- [PH2] Address of the request, as when the bus is free.
 signal FC_NXT                   : std_logic_vector(2 downto 0); -- [PH2]
 signal OP_CHAIN_LD              : bit; -- [PH2]
+-- [IC] The cache control is part of the CPU: keep it through synthesis (see WF68K30L_ICACHE).
+attribute syn_preserve : integer;
+attribute syn_preserve of CACR : signal is 1;
+attribute syn_preserve of CAAR : signal is 1;
+attribute syn_preserve of CDIS_R : signal is 1;
 begin
     IDATA_BUFFER : process
     -- This register stores the immediate data.

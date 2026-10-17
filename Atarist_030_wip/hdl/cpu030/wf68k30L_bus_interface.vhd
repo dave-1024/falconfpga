@@ -302,9 +302,14 @@ signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
-signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn sampled with the data of the running portion.
+signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
 signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
 signal PF_CI1               : std_logic := '0'; -- [IC] of the running prefetch long (as PF_FLT0/PF_FLT1).
+-- [IC] Cache-inhibit state of the running prefetch: keep it through synthesis (see WF68K30L_ICACHE).
+attribute syn_preserve : integer;
+attribute syn_preserve of CIIN_LAT : signal is 1;
+attribute syn_preserve of PF_CI0 : signal is 1;
+attribute syn_preserve of PF_CI1 : signal is 1;
 begin
 
     P_SYNC_N: process(CLK_F)
@@ -1050,13 +1055,24 @@ begin
         -- Byte: 
         WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0); -- SIZE = "01".
 
+    -- [IC] CIIN sampling as MC68030UM 7.2.8/7.2.9/7.2.10: "For asynchronous read cycles, the value of CIIN
+    -- is internally latched on the rising edge of bus cycle state 4" (here the rising edge that ends S3,
+    -- the last one with wait states) and for STERM cycles on the rising edge at which STERM is recognized.
+    -- The value is held until the same edge of the next cycle, past the data latch and the fill.
+    P_CIIN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if T_SLICE = S3 or (T_SLICE = S1 and STERMn = '0') then
+            CIIN_LAT <= CIINn;
+        end if;
+    end process P_CIIN;
+
     IN_MUX: process
     -- This is the input multiplexer which can handle up to four bytes.
     begin
     wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
         --
         if ((T_SLICE = S2 or T_SLICE = S3) and STERMn = '0') or T_SLICE = S4 then
-            CIIN_LAT <= CIINn; -- [IC] CIIN is sampled with the data (MC68030UM 5.7.1).
             case BUS_WIDTH is
                 when BYTE =>
                     case SIZE_I is

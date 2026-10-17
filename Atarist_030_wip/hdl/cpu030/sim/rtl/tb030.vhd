@@ -25,6 +25,7 @@ entity tb030 is
            CIMODE   : integer := 0);       -- [IC] 0: CIINn asserted on every cycle (as the ST bridge). 1: negated for ROM
                                            -- $FD0000-$FEFFFF, RAM $8000-$FFFF and the BERR range $20000-$2FFFF (a fake cacheable region); log marks them " C".
                                            -- A word write to $3500 drives CDISn = not D16 (both modes).
+                                          -- A word write to $3502 with D16 = 1 asserts CIIN on every cycle (CIMODE 1 overridden).
 end;
 architecture sim of tb030 is
   signal clk : std_logic := '0';
@@ -56,6 +57,7 @@ architecture sim of tb030 is
   signal iack_clr : boolean := false;
   signal ciinn : std_logic := '0'; -- [IC]
   signal cdisn : std_logic := '1'; -- [IC]
+  signal ciforce : std_logic := '0'; -- [IC] 1: CIIN asserted on every cycle (word write to $3502, D16)
 begin
   clk <= not clk after 62.5 ns when not done;
   dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => FASTH) port map (
@@ -111,7 +113,7 @@ begin
         isio  := ST = 1 and ((a >= x"00FF8000" and a <= x"00FFFFFF" and a(23 downto 4) /= x"FF8C8") or (a >= x"00FA0000" and a < x"00FC0000"));
         wi := to_integer(a(21 downto 1));
         -- [IC] cache inhibit for this cycle
-        if CIMODE = 1 and ((a >= x"00FD0000" and a < x"00FF0000") or (a >= x"00008000" and a < x"00010000") or
+        if CIMODE = 1 and ciforce = '0' and ((a >= x"00FD0000" and a < x"00FF0000") or (a >= x"00008000" and a < x"00010000") or
                             (a >= x"00020000" and a < x"00030000")) then -- (the last range is BERR: a faulting cacheable fetch)
           ciinn <= '1';
         else
@@ -144,6 +146,7 @@ begin
             else ram(wi) := (ram(wi) / 256) * 256 + to_integer(unsigned(dout(23 downto 16))); end if;
           else ram(wi) := to_integer(unsigned(dout(31 downto 16))); end if;
           if a = x"00003500" then cdisn <= not dout(16); end if; -- [IC]
+          if a = x"00003502" then ciforce <= dout(16); end if; -- [IC]
           if a = x"00003400" then
             if IPL_MODE = 2 then trig_at <= clkn + IRQ_DLY; end if;
           end if;

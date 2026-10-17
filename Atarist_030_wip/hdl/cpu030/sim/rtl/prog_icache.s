@@ -4,7 +4,7 @@
 | Each case writes its number to $3600, then runs a 2-instruction loop (8 passes) in its own
 | 16-byte line. check_icache.py counts program-space bus cycles inside the loop's line per case.
 | Results at $5000: case 14 D0 values (stale code until CI), CACR read-back, case 19 bus error
-| count. DONE at $3300.
+| count. DONE at $3300. Cases 21-25: CIIN asserted mid-run (tb $3502) keeps hits, stops fills.
         .text
         .org 0
         .long   0x00007000
@@ -129,6 +129,23 @@ retc:   move.w  #19,0x3600
         jmp     0x20000
 5:      move.l  #errh,0x08
         move.l  d6,(a4)+                | 2
+| 21-25: CIIN is per bus cycle and only stops fills (MC68030UM 5.7.1, 6.1): with CIIN asserted on
+| every cycle (tb $3502), loop A filled before still hits; loop B is never filled; after CIIN is
+| negated again loop B fills on its first pass
+        moveq   #9,d0
+        movec   d0,cacr
+        move.w  #21,0x3600
+        bsr     runa
+        move.w  #1,0x3502
+        move.w  #22,0x3600
+        bsr     runa
+        move.w  #23,0x3600
+        bsr     runb
+        move.w  #24,0x3600
+        bsr     runb
+        move.w  #0,0x3502
+        move.w  #25,0x3600
+        bsr     runb
         moveq   #0,d0
         movec   d0,cacr
         move.w  #20,0x3600

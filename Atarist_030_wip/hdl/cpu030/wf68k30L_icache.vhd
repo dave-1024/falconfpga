@@ -71,6 +71,18 @@ architecture RTL of WF68K30L_ICACHE is
     signal PH_W     : std_logic_vector(15 downto 0) := (others => '0');
     signal PH_L     : std_logic_vector(31 downto 2) := (others => '0');
     signal PH_FC2   : std_logic := '0';
+    -- [IC] Part of the CPU: Gowin must not sweep the cache even when a build's CIIN decode never lets it fill
+    -- (syn_keep on the storage nets, syn_preserve on the registers).
+    attribute syn_keep : integer;
+    attribute syn_preserve : integer;
+    attribute syn_keep of DATA_RAM : signal is 1;
+    attribute syn_keep of TAG_RAM : signal is 1;
+    attribute syn_keep of VALID : signal is 1;
+    attribute syn_preserve of VALID : signal is 1;
+    attribute syn_preserve of PH_V : signal is 1;
+    attribute syn_preserve of PH_W : signal is 1;
+    attribute syn_preserve of PH_L : signal is 1;
+    attribute syn_preserve of PH_FC2 : signal is 1;
 begin
     LK_LINE <= to_integer(unsigned(LK_ADR(7 downto 4)));
     LK_LW   <= to_integer(unsigned(LK_ADR(3 downto 2)));
