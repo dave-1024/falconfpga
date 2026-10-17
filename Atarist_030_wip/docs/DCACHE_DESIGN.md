@@ -179,6 +179,16 @@ independent of the cache correctness above. Proposed as its own branch step afte
   Slowest clk_cpu030 path is opcode decoder -> exception handler (slack 17.8 ns); no D cache cell in the
   reported worst paths.
 
+- After D-Q8 (ff6af03, st_helper_hdn_dc_ff6af03_p3.fs, sha256
+  c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e): WF68K30L_DCACHE = 74 RAM16SDP4 (32 for the
+  eight 32 x 8 data lanes, 42 for the two tag banks, replicated per read port) + 64 DFFRE (valid bits); no data
+  flip-flops left. LUT 37662 / ALU 4817 / Reg 15637 / RAM16 320 / BSRAM 172 (706a0aa: 42093 / 4815 / 18086 / 246 / 172).
+  Fmax clk_cpu030 22.794 MHz (706a0aa 22.393), clk32_core 33.784 MHz (706a0aa 33.509), TNS 0 on both; slowest
+  clk_cpu030 path opcode decoder -> ADR_EFF (slack 18.6 ns), no D cache cell in the reported paths.
+  Behaviour: dcache + icache unit PASS (all configs), regression 96/96 cycle-identical to 706a0aa (prog_dcache
+  included, cache on), gate-level netlist (sha256 d21d7c41...b6e64): run_unit ERRORS=0 with traces identical,
+  run_icache_net PASS, run_dcache_net PASS.
+
 ## 6. Open questions
 - D-Q1: partial hits of misaligned operands go to the bus for the whole operand (correct data, not 030 timing).
 - D-Q2: WA write allocation of ST-side writes with TOS 2.06's $3919 (§3): board test before use. Resolved later by
