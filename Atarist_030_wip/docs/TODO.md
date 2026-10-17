@@ -49,6 +49,12 @@ stays out until that plan is followed.
   on the box (f67, f68, drp, f66base, diag).
 - **Next step:** a seed/place_option sweep of the plain F67+F68 build, or more clk32 margin, then re-run the stress test.
 
+## Pinned: GEMBENCH display-group gap (pinned 17 Oct 2026, revisit later)
+- **Symptom:** the GEMBENCH display group sits at about 89% of a real STE (vchain, 08e1cf8 and 039c710 alike),
+  about 10% short, while CPU (251%) and ROM/RAM are at or above 100%.
+- **Cause:** extra 030 fetch cycles on the ST bus during display work (see [`OPTION_A_DESIGN.md`](OPTION_A_DESIGN.md)).
+- **Status:** deferred by David; no work on it for now.
+
 ## Pinned: final stage
 - **Remove the ST/STE chipset switch.** The helper's ST/STE option misbehaves because the compile default
   is STE, and David only wants STE. Final stage: remove the helper option and its HDL option/plumbing
