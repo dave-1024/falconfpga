@@ -81,6 +81,7 @@ architecture RTL of WF68K30L_DCACHE is
     signal LA0, LA1 : unsigned(29 downto 0);
     signal LX : std_logic;
     signal LB0, LB1 : std_logic_vector(31 downto 0); -- Bank 0 / 1 read.
+    signal LI0, LI1 : unsigned(4 downto 0); -- Bank 0 / 1 read index.
     signal LT0, LT1 : std_logic_vector(26 downto 0); -- Tag bank 0 / 1 read.
     signal LH0, LH1 : std_logic;
     signal LW : std_logic_vector(63 downto 0);
@@ -109,10 +110,6 @@ architecture RTL of WF68K30L_DCACHE is
     attribute syn_keep of VALID : signal is 1;
     attribute syn_preserve of VALID : signal is 1;
 
-    function rd(b0 : lane_t; b1 : lane_t; b2 : lane_t; b3 : lane_t; i : integer) return std_logic_vector is
-    begin
-        return b0(i) & b1(i) & b2(i) & b3(i);
-    end function;
     function tag(a : unsigned(29 downto 0); fc : std_logic_vector(2 downto 0)) return std_logic_vector is
     begin
         return std_logic_vector(a(29 downto 6)) & fc;
@@ -125,9 +122,11 @@ begin
     LA1 <= unsigned(LK_ADR(31 downto 2)) + 1;
     LX  <= '1' when (LK_SZ = "100" and LK_ADR(1 downto 0) /= "00") or (LK_SZ = "010" and LK_ADR(1 downto 0) = "11") else '0';
     -- Data bank b holds the entry of E0/E1 whose A2 = b. Same line when E0 is in bank 0.
-    LB0 <= rd(D00, D01, D02, D03, to_integer(LA0(5 downto 1))) when LA0(0) = '0' else
-           rd(D00, D01, D02, D03, to_integer(LA1(5 downto 1)));
-    LB1 <= rd(D10, D11, D12, D13, to_integer(LA0(5 downto 1)));
+    -- Direct indexed reads (one read address per lane array) so synthesis extracts the arrays as RAM.
+    LI0 <= LA0(5 downto 1) when LA0(0) = '0' else LA1(5 downto 1);
+    LI1 <= LA0(5 downto 1);
+    LB0 <= D00(to_integer(LI0)) & D01(to_integer(LI0)) & D02(to_integer(LI0)) & D03(to_integer(LI0));
+    LB1 <= D10(to_integer(LI1)) & D11(to_integer(LI1)) & D12(to_integer(LI1)) & D13(to_integer(LI1));
     -- Tag bank b holds the line of E0/E1 whose A4 = b.
     LT0 <= TAG0(to_integer(LA0(5 downto 3))) when LA0(2) = '0' else TAG0(to_integer(LA1(5 downto 3)));
     LT1 <= TAG1(to_integer(LA0(5 downto 3))) when LA0(2) = '1' else TAG1(to_integer(LA1(5 downto 3)));
