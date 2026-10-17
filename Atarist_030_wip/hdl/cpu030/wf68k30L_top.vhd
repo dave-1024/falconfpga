@@ -412,6 +412,30 @@ signal BUS_DATA_RDY             : bit;
 signal BUS_DATA_WORD            : std_logic_vector(31 downto 0);
 signal DC_BUS_REQ               : bit;
 signal IC_CEI                   : std_logic; -- [IC]
+signal DC_CD                    : std_logic; -- [DC]
+signal DC_CED                   : std_logic;
+signal DC_FILL_EN               : std_logic;
+signal DC_ON                    : std_logic;
+signal DC_LK_ADR                : std_logic_vector(31 downto 0);
+signal DC_LK_FC                 : std_logic_vector(2 downto 0);
+signal DC_LK_SZ                 : std_logic_vector(2 downto 0);
+signal DC_HIT                   : std_logic;
+signal DC_HIT_DATA              : std_logic_vector(31 downto 0);
+signal DC_WR_GO                 : std_logic;
+signal DC_WR_ADR                : std_logic_vector(31 downto 0);
+signal DC_WR_FC                 : std_logic_vector(2 downto 0);
+signal DC_WR_SZ                 : std_logic_vector(2 downto 0);
+signal DC_WR_DATA               : std_logic_vector(31 downto 0);
+signal DC_FL_GO                 : std_logic;
+signal DC_FL_A0                 : std_logic_vector(31 downto 2);
+signal DC_FL_FC                 : std_logic_vector(2 downto 0);
+signal DC_FL_U1                 : std_logic;
+signal DC_FL_D0                 : std_logic_vector(31 downto 0);
+signal DC_FL_D1                 : std_logic_vector(31 downto 0);
+signal DC_FL_OK0                : std_logic_vector(1 downto 0);
+signal DC_FL_OK1                : std_logic_vector(1 downto 0);
+signal DC_FL_BE0                : std_logic;
+signal DC_FL_BE1                : std_logic;
 signal CDIS_R                   : std_logic := '0'; -- [IC] Registered CDIS (asserted = '1').
 signal IC_LK_ADR                : std_logic_vector(31 downto 2); -- [IC]
 signal IC_LK_FC2                : std_logic;
@@ -965,10 +989,51 @@ begin
             FILL_DATA => IC_FILL_DATA
         );
 
+    -- [DC] 68030 data cache (MC68030UM 6.1.2, docs/DCACHE_DESIGN.md). CACR ED (8) enables, FD (9) freezes,
+    -- WA (13) selects write allocation; CD (11) clears every entry, CED (10) the long word at CAAR 7:2 (MOVEC
+    -- write strobes, read as zero). DBE (12) is stored but has no effect (no burst). CDIS disables both caches.
+    DC_CD <= '1' when CACR_WR = '1' and DATA_IN_EXH(11) = '1' else '0';
+    DC_CED <= '1' when CACR_WR = '1' and DATA_IN_EXH(10) = '1' else '0';
+    DC_FILL_EN <= CACR(8) and not CACR(9) and not CDIS_R;
+    DC_ON <= CACR(8) and not CDIS_R;
+
+    I_DCACHE: WF68K30L_DCACHE
+        port map(
+            CLK       => CLK,
+            RESET     => RESET_CPU,
+            ED        => CACR(8),
+            FD        => CACR(9),
+            WA        => CACR(13),
+            CDIS      => CDIS_R,
+            CLR_ALL   => DC_CD,
+            CLR_ENT   => DC_CED,
+            CLR_IDX   => CAAR(7 downto 2),
+            LK_ADR    => DC_LK_ADR,
+            LK_FC     => DC_LK_FC,
+            LK_SZ     => DC_LK_SZ,
+            LK_HIT    => DC_HIT,
+            LK_DATA   => DC_HIT_DATA,
+            WR_GO     => DC_WR_GO,
+            WR_ADR    => DC_WR_ADR,
+            WR_FC     => DC_WR_FC,
+            WR_SZ     => DC_WR_SZ,
+            WR_DATA   => DC_WR_DATA,
+            FL_GO     => DC_FL_GO,
+            FL_A0     => DC_FL_A0,
+            FL_FC     => DC_FL_FC,
+            FL_U1     => DC_FL_U1,
+            FL_D0     => DC_FL_D0,
+            FL_D1     => DC_FL_D1,
+            FL_OK0    => DC_FL_OK0,
+            FL_OK1    => DC_FL_OK1,
+            FL_BE0    => DC_FL_BE0,
+            FL_BE1    => DC_FL_BE1
+        );
+
     CBREQn <= '1'; -- [IC] No burst fill until a burst-capable fast RAM exists (CACR IBE has no effect).
     CIOUTn <= '1'; -- [IC] No PMMU, so no page or TT register can ask for cache inhibit.
 
-    -- The core talks to the bus interface directly for data (no data cache yet; step 2 of CACHE_PLAN.md).
+    -- The core talks to the bus interface for data; the bus interface serves read hits from the data cache.
     -- Instruction words come from the prefetch queue, which the instruction cache feeds.
     IC_BUS_REQ     <= OPCODE_REQ;
     OPCODE_RDY     <= BUS_OPCODE_RDY;
@@ -1109,8 +1174,8 @@ begin
             SIZE                => SIZE,
             OP_SIZE             => OP_SIZE_BUS,
 
-            RD_REQ              => DC_BUS_REQ,
-            WR_REQ              => WR_REQ,
+            RD_REQ_IN           => DC_BUS_REQ,
+            WR_REQ_IN           => WR_REQ,
             DATA_RDY            => BUS_DATA_RDY,
             DATA_VALID          => DATA_VALID,
             OPCODE_REQ          => IC_BUS_REQ,
@@ -1144,6 +1209,28 @@ begin
             IC_FILL_FC2         => IC_FILL_FC2,
             IC_FILL_DATA        => IC_FILL_DATA,
             CIINn               => CIINn,
+            DC_FILL_EN          => DC_FILL_EN, -- [DC]
+            DC_ON               => DC_ON,
+            DC_LK_ADR           => DC_LK_ADR,
+            DC_LK_FC            => DC_LK_FC,
+            DC_LK_SZ            => DC_LK_SZ,
+            DC_HIT              => DC_HIT,
+            DC_HIT_DATA         => DC_HIT_DATA,
+            DC_WR_GO            => DC_WR_GO,
+            DC_WR_ADR           => DC_WR_ADR,
+            DC_WR_FC            => DC_WR_FC,
+            DC_WR_SZ            => DC_WR_SZ,
+            DC_WR_DATA          => DC_WR_DATA,
+            DC_FL_GO            => DC_FL_GO,
+            DC_FL_A0            => DC_FL_A0,
+            DC_FL_FC            => DC_FL_FC,
+            DC_FL_U1            => DC_FL_U1,
+            DC_FL_D0            => DC_FL_D0,
+            DC_FL_D1            => DC_FL_D1,
+            DC_FL_OK0           => DC_FL_OK0,
+            DC_FL_OK1           => DC_FL_OK1,
+            DC_FL_BE0           => DC_FL_BE0,
+            DC_FL_BE1           => DC_FL_BE1,
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,
