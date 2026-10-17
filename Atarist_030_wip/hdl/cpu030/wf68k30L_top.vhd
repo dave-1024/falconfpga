@@ -550,6 +550,8 @@ signal WR_REQ_I                 : bit;
 signal ADR_NXT                  : std_logic_vector(31 downto 0); -- [PH2] Address of the request, as when the bus is free.
 signal FC_NXT                   : std_logic_vector(2 downto 0); -- [PH2]
 signal OP_CHAIN_LD              : bit; -- [PH2]
+signal MOVEM_RA                 : bit; -- [F2] MOVEM read-ahead allowed (control unit).
+signal RA_LD                    : bit; -- [F2] A MOVEM read-ahead starts on this S5 edge.
 -- [IC] The cache control is part of the CPU: keep it through synthesis (see WF68K30L_ICACHE).
 attribute syn_preserve : integer;
 attribute syn_preserve of CACR : signal is 1;
@@ -940,6 +942,12 @@ begin
         if BUS_BSY = '0' or OP_CHAIN_LD = '1' then -- [PH2] also on the S5 edge of a chained operand cycle
             ADR_LATCH <= ADR_NXT;
             FC_LATCH <= FC_NXT;
+        elsif RA_LD = '1' then -- [F2] MOVEM read-ahead: the next register's operand follows this one (same FC).
+            case OP_SIZE_BUS is
+                when LONG => ADR_LATCH <= ADR_LATCH + x"4";
+                when WORD => ADR_LATCH <= ADR_LATCH + x"2";
+                when others => ADR_LATCH <= ADR_LATCH + x"1";
+            end case;
         elsif BERRn = '0' then
             FAULT_ADR <= ADR_LATCH;
         end if;
@@ -1197,6 +1205,8 @@ begin
             ADR_LAT             => ADR_LATCH, -- [PH2-FMAX]
             FC_LAT              => FC_LATCH, -- [PH2-FMAX]
             OP_CHAIN_LD         => OP_CHAIN_LD, -- [PH2]
+            RA_MORE             => MOVEM_RA, -- [F2]
+            RA_LD               => RA_LD, -- [F2]
             IC_LK_ADR           => IC_LK_ADR, -- [IC]
             IC_LK_FC2           => IC_LK_FC2,
             IC_HIT              => IC_HIT,
@@ -1388,6 +1398,7 @@ begin
             RESET_STRB              => RESET_STRB,
             BERR                    => BERR_MAIN,
             BERR_IBOUND             => BERR_IBOUND,
+            MOVEM_RA                => MOVEM_RA, -- [F2]
             STATUSn                 => STATUSn_MAIN,
             EX_TRACE                => EX_TRACE,
             TRAP_cc                 => TRAP_cc,

@@ -82,6 +82,8 @@
 --   2026-10-16 PH2-WP: posted writes: DATA_RDY of a write on the S3 edge of its last portion (option b).
 --   2026-10-16 PH2-WP: a faulted write's data is held in OUTBUFFER (frame DOB) until the exception.
 --   2026-10-16 PH2-WP: PW_GO: the operand request in the IDLE clock after a posted write starts without START_CYCLE.
+--   2026-10-18 F2: MOVEM memory-to-register read-ahead: the S5 edge of a MOVEM read with more registers to come
+--     rolls into the next register's read (RA_GO); its data or bus error is handed over on the matching request.
 --   2026-10-17 IC: 68030 instruction cache on the prefetch queue: a queue long that hits is taken from the cache
 --     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
 --     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
@@ -159,6 +161,8 @@ entity WF68K30L_BUS_INTERFACE is
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX] Its registered function code.
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        RA_MORE             : in bit; -- [F2] MOVEM memory to register: the running read is not the last register.
+        RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
@@ -320,7 +324,21 @@ signal OP_CHAIN_GO          : bit; -- [PH2] S5 decision: the prefetch rolls into
 signal DP_CHAIN             : bit := '0'; -- [PH2] Armed at S3 of an operand cycle while a queue prefetch waits.
 signal DP_CHAIN_GO          : bit; -- [PH2] S5 decision: the operand cycle rolls into the prefetch.
 signal CH_WR                : bit; -- [PH2] The chained operand cycle is a write.
-signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle starts on this S5 edge.
+signal CHAIN_GO             : bit; -- [PH2] PF_, OP_, DP_CHAIN_GO or RA_GO: a new cycle starts on this S5 edge.
+signal DP_CHAIN_RAW         : bit; -- [F2] DP_CHAIN_GO before the read-ahead takes precedence.
+signal RA_ARM               : bit := '0'; -- [F2] Armed at S3 of a MOVEM read with more registers to come.
+signal DATA_VALID_I         : std_logic := '1'; -- [F2] DATA_VALID, readable.
+signal RA_FLT_P             : std_logic := '0'; -- [F2] A read-ahead bus-errored on the last edge.
+signal RA_DIB_HOLD          : std_logic := '0'; -- [F2] INBUFFER (DIB) keeps the faulted read-ahead's data.
+signal RA_GO                : bit; -- [F2] S5 decision: the read rolls into the next register's read.
+signal RA_GO_D              : bit := '0'; -- [F2] The clock after RA_GO.
+signal RA_ACC               : bit := '0'; -- [F2] The running read is a read-ahead.
+signal RA_HELD              : bit := '0'; -- [F2] A finished read-ahead waits for its request (data in DBUFFER, fault in DATA_VALID).
+signal RA_HADR              : std_logic_vector(31 downto 0) := (others => '0'); -- [F2] Its address.
+signal RA_END               : bit; -- [F2] The read-ahead cycle ends on this edge.
+signal RA_MATCH             : bit; -- [F2] The live request is the read-ahead's operand (running cycle).
+signal RA_TAKE              : bit; -- [F2] The held read-ahead is handed over on this edge.
+signal RA_DROP              : bit; -- [F2] Not requested as expected: dropped, the request runs its own cycle.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
@@ -447,6 +465,12 @@ begin
             WRITE_ACCESS <= CH_WR;
             OPCODE_ACCESS <= '0';
             PF_ACC <= '0';
+        elsif RA_GO = '1' then -- [F2] The MOVEM read rolls into the next register's read.
+            READ_ACCESS <= '1';
+            WRITE_ACCESS <= '0';
+            OPCODE_ACCESS <= '0';
+            PF_ACC <= '0';
+            FILL_ACC <= '0';
         elsif DP_CHAIN_GO = '1' then -- [PH2] The operand cycle ends, the waiting prefetch starts.
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
@@ -494,6 +518,8 @@ begin
                 SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_NXT;
             elsif OP_CHAIN_GO = '1' then -- [PH2]
                 SSW_80 <= To_StdLogicVector('0' & RMC & not CH_WR) & SIZEVAR & '0' & FC_NXT;
+            elsif RA_GO = '1' then -- [F2] Read, same function code.
+                SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_LAT;
             elsif BUS_CTRL_STATE = DATA_C1C4 and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_FLT = '1' then
                 SSW_80(8) <= '1';
             end if;
@@ -514,7 +540,21 @@ begin
         end if;
         if BUSY_EXH = '0' and DOB_HOLD = '0' then
             OUTBUFFER <= WP_BUFFER; -- Used for exception stack frame type A and B.
-            INBUFFER <= DATA_INMUX; -- Used for exception stack frame type B.
+            if RA_DIB_HOLD = '0' then -- [F2] A faulted read-ahead keeps its data (DIB) while prefetches run.
+                INBUFFER <= DATA_INMUX; -- Used for exception stack frame type B.
+            end if;
+        end if;
+        -- [F2] A read-ahead that bus-errors runs before the control unit asked for that register, so the
+        -- prefetches that used to precede the faulted read now follow it before BUSY_EXH freezes INBUFFER.
+        -- Keep the faulted read's data in the DIB as before: freeze from the clock after it was loaded.
+        RA_FLT_P <= '0';
+        if RA_ACC = '1' and READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' and HALT_In = '1' then
+            RA_FLT_P <= '1';
+        end if;
+        if RESET_CPU_I = '1' or BUSY_EXH = '1' or RA_DROP = '1' then
+            RA_DIB_HOLD <= '0';
+        elsif RA_FLT_P = '1' then
+            RA_DIB_HOLD <= '1';
         end if;
     end process P_DF;
 
@@ -631,7 +671,7 @@ begin
             SIZE_N <= "000";
         elsif PF_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
             SIZE_N <= "100"; -- [F65] [PH2] Next prefetch long, loaded on the S5 edge.
-        elsif OP_CHAIN_GO = '1' then -- [PH2] Operand size of the waiting request.
+        elsif OP_CHAIN_GO = '1' or RA_GO = '1' then -- [PH2] Operand size of the waiting request. [F2] Same size.
             case OP_SIZE is
                 when LONG => SIZE_N <= "100";
                 when WORD => SIZE_N <= "010";
@@ -933,6 +973,15 @@ begin
         else
             DP_CHAIN <= '0';
         end if;
+        -- [F2] MOVEM read-ahead: a MOVEM read's last portion with more registers to come (RA_MORE).
+        if READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and WAITSTATES = '0' and NXT = "000"
+           and RA_MORE = '1' and RMC = '0' and BUSY_EXH = '0'
+           and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+           and BUS_FLT = '0' and RETRY = '0' then
+            RA_ARM <= '1';
+        else
+            RA_ARM <= '0';
+        end if;
     end process P_PF_CHAIN;
 
     -- [F65] One S5 decision for the FSM, the queue re-arm, and the SIZE,
@@ -948,7 +997,7 @@ begin
     -- there on the S5 edge (it is registered in the control unit, so this is
     -- not a loop through BUS_BSY), and every cancel takes the old IDLE path.
     OP_CHAIN_RAW <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0' and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC]
+                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0' and RA_HELD = '0' -- [F2] a held read-ahead is handed over instead and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     OP_CHAIN_GO <= (OP_CHAIN_RAW and not DC_CHIT) or
@@ -962,29 +1011,73 @@ begin
     -- requests (no RMC, no exception processing), and every IDLE hold (reset, halt, arbitration)
     -- takes precedence.
     PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and ((OP_RD = '0' and OP_WR = '1') or (OP_RD = '1' and DC_ON = '0')) -- [DC]
+                      and RA_HELD = '0' -- [F2]
                       and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and RESET_CPU_I = '0' else '0';
     CH_WR <= OP_WR and not OP_RD; -- Read has priority, as in START_CYCLE.
-    DP_CHAIN_GO <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
+    DP_CHAIN_RAW <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
                    and SIZE_N = "000" and PF_REQ = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
                    and RMC = '0' and BUSY_EXH = '0' and DC_DPBLK = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
-    CHAIN_GO <= PF_CHAIN_GO or OP_CHAIN_GO or DP_CHAIN_GO;
+    DP_CHAIN_GO <= DP_CHAIN_RAW and not RA_GO; -- [F2] The next MOVEM operand comes before the queue (operand priority).
+
+    -- [F2] MOVEM read-ahead. S3 of the last portion of a MOVEM read while the control unit waits for it and the
+    -- register list has a further register (RA_MORE): arm; the S5 edge rolls into the read of the next operand
+    -- (address latch + operand size, same FC and size; RA_LD) under the conditions of every other chain.
+    -- No RMC, no exception processing. With the data cache on only behind a cache-inhibited read (CIIN asserted, as
+    -- the ST bridge does on every cycle): nothing of that memory is cached, so the read the 68030 would run is a bus
+    -- read too, and no fill is pending (a read-ahead is never looked up or filled, like the other chained reads).
+    RA_GO <= '1' when RA_ARM = '1' and READ_ACCESS = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000" and RA_MORE = '1'
+                      and RMC = '0' and BUSY_EXH = '0' and (DC_ON = '0' or CIIN_LAT = '0') and FILL_PEND = '0' and DC_DECIDE = '0'
+                      and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                      and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    RA_LD <= RA_GO;
+    -- The read-ahead ends (data or bus error). The control unit asked for it (OP_RD at the matching address):
+    -- DATA_RDY as for any read. Not asked yet: held. Asked for something else: dropped (never expected).
+    RA_END <= '1' when RA_ACC = '1' and READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
+    RA_MATCH <= '1' when OP_RD = '1' and ADR_NXT = ADR_LAT else '0';
+    RA_TAKE <= '1' when RA_HELD = '1' and OP_RD = '1' and ADR_NXT = RA_HADR and DATA_RDY_I = '0' and RESET_CPU_I = '0' else '0';
+    RA_DROP <= '1' when (RA_HELD = '1' and ((OP_RD = '1' and ADR_NXT /= RA_HADR) or BUSY_EXH = '1')) or
+                        (RA_END = '1' and OP_RD = '1' and ADR_NXT /= ADR_LAT) else '0';
+
+    P_RA: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        RA_GO_D <= RA_GO;
+        if RESET_CPU_I = '1' then
+            RA_ACC <= '0';
+        elsif RA_GO = '1' then
+            RA_ACC <= '1';
+        elsif RA_END = '1' or BUS_CTRL_STATE = IDLE then
+            RA_ACC <= '0';
+        end if;
+        if RESET_CPU_I = '1' or RA_TAKE = '1' or RA_DROP = '1' then
+            RA_HELD <= '0';
+        elsif RA_END = '1' and OP_RD = '0' then
+            RA_HELD <= '1';
+            RA_HADR <= ADR_LAT;
+        end if;
+        -- pragma translate_off
+        assert RA_DROP = '0' report "F2: MOVEM read-ahead dropped (request did not match)" severity warning;
+        -- pragma translate_on
+    end process P_RA;
+
+    CHAIN_GO <= PF_CHAIN_GO or OP_CHAIN_GO or DP_CHAIN_GO or RA_GO;
     OP_CHAIN_LD <= OP_CHAIN_GO or DP_CHAIN_GO; -- The top level loads its address/FC latches as in IDLE.
 
     -- [DC] Data cache (MC68030UM 6.1.2, docs/DCACHE_DESIGN.md). A read request is looked up in its
     -- START_CYCLE clock (address and FC latched, as on the pins): a hit delivers the operand from the
     -- cache with DATA_RDY on that edge and starts no bus cycle; the bus is free for the queue. RMC reads
     -- always miss (6.1.2.2). Chained reads (OP_CHAIN, PW_GO) are not looked up and use the bus.
-    DC_RHIT <= '1' when BUS_CTRL_STATE = START_CYCLE and RD_REQ_IN = '1' and DC_PH = '1' and DC_PV = '1' and RMC = '0' and
+    DC_RHIT <= '1' when BUS_CTRL_STATE = START_CYCLE and RD_REQ_IN = '1' and DC_PH = '1' and DC_PV = '1' and RMC = '0' and RA_HELD = '0' and -- [F2]
                         READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0' and
                         FILL_REQ = '0' and RESET_CPU_I = '0' else '0';
     FILL_START <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_REQ = '1' and READ_ACCESS = '0' and
                            WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0' else '0';
-    RD_REQ <= RD_REQ_IN and not DC_RHIT and not FILL_START;
+    RD_REQ <= RD_REQ_IN and not DC_RHIT and not FILL_START and not RA_HELD; -- [F2] a held read-ahead is handed over instead
     WR_REQ <= WR_REQ_IN and not FILL_START;
     -- The lookup is registered: the request's address, FC and size of each clock (ADR_NXT, the value the
     -- address latch takes in IDLE) are looked up and the result kept for the next clock (DC_PH, DC_PD), so
@@ -1417,13 +1510,13 @@ begin
         end if;
         --
         if RESET_CPU_I = '1' then
-            DATA_VALID <= '1';
+            DATA_VALID_I <= '1';
         elsif READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' and HALT_In = '0' then
             null; -- This is the RETRY condition, no bus error.
         elsif (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
-            DATA_VALID <= '0'; -- [F62] Data cycles only: an opcode fetch fault must not fail the next data read.
-        elsif DATA_RDY_I = '1' then
-            DATA_VALID <= '1'; -- Reset after use, TRAP_BERR is asserted during DATA_RDY.
+            DATA_VALID_I <= '0'; -- [F62] Data cycles only: an opcode fetch fault must not fail the next data read.
+        elsif DATA_RDY_I = '1' or RA_DROP = '1' then
+            DATA_VALID_I <= '1'; -- Reset after use, TRAP_BERR is asserted during DATA_RDY. [F2] A dropped read-ahead's fault is void.
         end if;
     end process VALIDATION;
 
@@ -1442,8 +1535,10 @@ begin
         --
         -- The following variable is responsible, that the _RDY signals are
         -- always strobes.
-        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then -- [PH2] [PH2-WP] First: a posted write's DATA_RDY can
+        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' or RA_GO = '1' then -- [PH2] [PH2-WP] First: a posted write's DATA_RDY can
             RDY_VAR := '1';                                 -- be high on the chain edge (never the case before).
+        elsif DATA_RDY_I = '1' and RA_GO_D = '1' then
+            null; -- [F2] DATA_RDY of the read that rolled into the read-ahead: the read-ahead keeps its ready.
         elsif DATA_RDY_I = '1' or (PREFETCH_Q = 0 and OPCODE_RDY_I = '1') then -- [F62] Queue hits do not end a bus cycle.
             RDY_VAR := '0';
         elsif BUS_CTRL_STATE = START_CYCLE then
@@ -1466,7 +1561,9 @@ begin
             OPCODE_RDY_I <= RDY_VAR;
         end if;
         -- Data cycle:
-        if DC_RHIT = '1' or DC_CHIT = '1' then
+        if RA_TAKE = '1' then
+            DATA_RDY_I <= '1'; -- [F2] Held read-ahead: data (or the bus error) is already in DBUFFER/DATA_VALID.
+        elsif DC_RHIT = '1' or DC_CHIT = '1' then
             DBUFFER <= DC_PD; -- [DC] Served by the data cache: no bus cycle.
             DATA_RDY_I <= '1';
         elsif WP_GO = '1' then
@@ -1480,12 +1577,16 @@ begin
                 when LONG =>
                     if SIZE_N = "000" then
                         DBUFFER <= DATA_INMUX;
-                        DATA_RDY_I <= RDY_VAR;
+                        if RA_ACC = '0' or RA_MATCH = '1' then -- [F2] A read-ahead nobody asked for yet is held.
+                            DATA_RDY_I <= RDY_VAR;
+                        end if;
                     end if;
                 when WORD =>
                     if SIZE_N = "000" then
                         DBUFFER <= x"0000" & DATA_INMUX(15 downto 0);
-                        DATA_RDY_I <= RDY_VAR;
+                        if RA_ACC = '0' or RA_MATCH = '1' then -- [F2]
+                            DATA_RDY_I <= RDY_VAR;
+                        end if;
                     end if;
                 when BYTE => -- Byte always aligned.
                     DATA_RDY_I <= RDY_VAR;
@@ -1495,6 +1596,7 @@ begin
     end process PREFETCH_BUFFERS;
 
     DATA_RDY <= DATA_RDY_I;
+    DATA_VALID <= DATA_VALID_I; -- [F2]
 
     -- [PH2-WP] Posted write (option b): the S3 edge of the last portion of a write decides the
     -- outcome in this core (DSACK, BERR and HALT sampled at the start of S3; a BERR seen at S5 is
