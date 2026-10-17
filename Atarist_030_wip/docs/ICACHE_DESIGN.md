@@ -2,9 +2,12 @@
 
 Written 17 Oct 2026 before the RTL, on branch `caches` (off `fault-fixes` 667fcca).
 Goal: an on-chip instruction cache that behaves like the MC68030's (MC68030UM ch. 6), with the real cache pins.
-Unconditional (no switch): a 68030 has the cache. The bridge asserts CIIN on every ST-side cycle (David's TF536
-decision, CACHE_PLAN.md §4), so on today's ST build nothing is ever stored and the bus is cycle-identical to
-`fault-fixes`. The cache only does work once 030-side fast RAM (8–16 MB, not built yet) leaves CIIN negated.
+Unconditional (no switch): a 68030 has the cache, it is always built in full and kept through synthesis, and it
+is enabled only by CACR EI (disabled only by CACR EI = 0 or the CDIS pin). CIIN never disables it: CIIN only stops
+the data of the bus cycle it is asserted on from being stored. The bridge drives CIIN from a per-cycle address
+decode (§2a): asserted on every ST-side cycle (David's TF536 decision, CACHE_PLAN.md §4), negated for a reserved
+030-side fast-RAM range ($01000000–$01FFFFFF, nothing fitted yet). So on today's ST build no ST cycle is ever
+stored and the bus is cycle-identical to `fault-fixes`; the cache fills once fast RAM (8–16 MB) is fitted there.
 
 ## 1. What a 68030 does (MC68030UM ch. 6, 5.7, 5.11; MC68EC030 data sheet; MC68020UM 4.2/4.3 for the shared rules)
 
@@ -15,9 +18,36 @@ decision, CACHE_PLAN.md §4), so on today's ST build nothing is ever stored and 
 - Fill on a miss, from the long word the bus brings in. Without burst (CBREQ/CBACK) one long word per miss
   (single-entry mode, 6.1.3.1); a 16-bit port gives that long word from two cycles (dynamic bus sizing, the bus
   controller assembles it).
-- **CIIN** (5.7.1): "prevents data from being loaded into the instruction and data caches". Sampled with the
-  data; with dynamic sizing the long word is stored only if no portion had CIIN asserted. CIIN does not stop a hit.
+- **CIIN** (5.7.1): stops the data of that bus cycle being stored, per cycle; latched at the start of S4
+  (asynchronous) or with STERM; with dynamic sizing the long word is stored only if no portion had CIIN asserted.
+  CIIN does not stop a hit and does not disable the cache (a hit has no bus cycle, so there is no CIIN to see).
 - **CDIS** (5.11.1): dynamically disables the caches (no hits, no fills), for emulators. Contents are kept.
+
+### 1a. Manual text and how the RTL matches it (MC68030UM/AD Rev. 2; quotes from the PDF text, OCR "CLOUT"/"El" read as CIOUT/EI)
+
+| MC68030UM | Text | RTL |
+|---|---|---|
+| 5.7.1 | "This input signal prevents data from being loaded into the MC68030 instruction and data caches. It is a synchronous input signal and is interpreted on a bus-cycle-by-bus-cycle basis. CIIN is ignored during all write cycles." | `CIIN_LAT` is taken per bus cycle and recorded per word of the prefetch long (`PF_CI0`/`PF_CI1`); it only gates `FILL_OK`. Only instruction prefetch reads fill. |
+| 6.1 | "Another input signal, cache inhibit in (CIIN), inhibits caching of data reads or instruction prefetches on a bus-cycle by bus-cycle basis." | Same: a cycle with CIIN asserted fills nothing; the next cycle is judged on its own CIIN. |
+| 6.1 | "An external access is defined as "cachable" ... when all the following conditions apply: • The cache is enabled with the appropriate bit in the CACR set. • The CDIS signal is negated. • The CIIN signal is negated for the access. • The CLOUT signal is negated for the access. • The MMU validates the access." | `FL_GO = (FA_GO or FM_GO) and EI and not FI and not CDIS`, with `FILL_OK` = CIIN negated and no bus error on each word (no PMMU here, so CIOUT/MMU do not apply). |
+| 6.1 | "Whenever a read access occurs and the required instruction word or data operand is resident in the appropriate on-chip cache (no external bus cycle is required), the MMU is completely ignored" | `HIT = EI and not CDIS and valid and tag match`: no CIIN term. Entries already present keep hitting while CIIN is asserted on other cycles (test cases 21–25). |
+| 6.1 | "When a cachable read cycle provides data with both CIIN and BERR negated, the MC68030 attempts to fill the cache entry." / "If the device cannot supply its full port width of data, it must assert CIIN for all bus cycles corresponding to a cache entry." | A long word made of two 16-bit cycles is stored only if both portions had CIIN and BERR negated (`FILL_OK="11"`). |
+| 7.2.8 | "For asynchronous read cycles, the value of CIIN is internally latched on the rising edge of bus cycle state 4." | `P_CIIN`: rising CLK edge that ends S3 (the start of S4, the last S3 edge when there are wait states). |
+| 7.2.10 | "the assertion or negation of CBACK and CIIN is internally latched on the rising edge of the clock for which STERM is asserted in a synchronous cycle." ... "The assertion of CIIN is ignored when the appropriate cache is not enabled or when cache inhibit out (CIOUT) is asserted. It is also ignored during write cycles or translation table searches." | `P_CIIN` also latches at S1 with STERM asserted; with EI = 0 nothing fills anyway. |
+| 5.11.1 | "The cache disable signal dynamically disables the on-chip caches to assist emulator support. ... CDIS does not flush the data and instruction caches; entries remain unaltered and become available again when CDIS is negated." | `CDIS_R` (registered pin) masks `HIT` and fills; no valid bit is touched (cases 12/13). |
+| 6.1 | "System hardware can assert the cache disable (CDIS) signal to disable both caches. The assertion of CDIS disables the caches, regardless of the state of the enable bits in CACR." | CDIS is the only pin that disables; CIIN does not. |
+| 6.3.1.11 | "Bit 0, the EI bit, is set to enable the instruction cache. When it is cleared, the instruction cache is disabled. A reset operation clears the EI bit. ... Disabling the instruction cache does not flush the entries. If it is enabled again, the previously valid entries remain valid and may be used." | `EI` = CACR(0) gates `HIT` and fills; valid bits kept (cases 4/5). |
+| 6.3.1.10 | "When the FI bit is set and a miss occurs in the instruction cache, the entry (or line) is not replaced." | FI masks fills only; hits continue (cases 6/7). |
+| 6.3.1.9 | "The processor clears only the specified long word by clearing the valid bit for the entry at the time a MOVEC instruction loads a one into the CEI bit of the CACR, regardless of the states of the EI and FI bits. The CEI bit is always read as a zero." | `IC_CEI` strobe clears VALID(CAAR 7:2) whatever EI/FI; read-back mask $3313 (case 8). |
+| 6.3.1.8 | "The processor clears all valid bits in the instruction cache at the time a MOVEC instruction loads a one into the CI bit of the CACR. The CI bit is always read as a zero." | `IC_CI` clears all valid bits (case 9). |
+| 6.3.1.7 | "Bit 4, the IBE bit, is set to enable burst filling of the instruction cache." | Stored and read back; no burst yet (Q3). |
+| 6.2 | "When a hardware reset of the processor occurs, all valid bits of both caches are cleared. The cache enable bits, burst enable bits, and the freeze bits in the cache control register (CACR) for both caches ... are also cleared" | RESET clears VALID and CACR. |
+| 6.3.2 | "The index field (bits 7-2) contains the address for the "clear cache entry" operations." | `CLR_IDX = CAAR(7:2)`. |
+
+The ED/FD/DBE/WA/CD/CED bits belong to the data cache (step 2): ED/FD/DBE/WA are stored and read back (mask
+$3313), CD/CED read as 0. The only change this check needed: CIIN used to be latched with the data (falling edge
+at the end of S4) and is now latched at the start of S4 as 7.2.8 says (616946e). Same results, since a CIIN
+from an address decode is stable for the whole cycle.
 - **CACR** (6.3.1): EI (bit 0) enable, FI (1) freeze = hits still served but misses do not replace entries,
   CEI (2) clear entry, CI (3) clear all, IBE (4) burst enable. CEI/CI are strobes and read as 0.
   CEI and CI work whatever EI and FI are.
@@ -63,8 +93,10 @@ In the bus interface (tag `[IC]`):
   bus has read in full is cached, as a 68030 caches every long it reads. Only the first long of a 4n+2 stream
   (its first word was never read) is not; see Q1. `BREAK` (Q_MISS), reset, CI and CEI drop the kept word.
 - Fills also happen when the queue drops the long (INFL_STALE): the bus read it, so a 030 would have filled it.
-- CIIN: sampled into `CIIN_LAT` on the same CLK_F edge that latches the data (IN_MUX condition), kept per word
-  (`PF_CI0`/`PF_CI1`, like the fault flags `PF_FLT0`/`PF_FLT1`).
+- CIIN: latched into `CIIN_LAT` at the start of S4 (rising CLK edge that ends S3) or at S1 with STERM
+  (`P_CIIN`, MC68030UM 7.2.8–7.2.10), kept per word (`PF_CI0`/`PF_CI1`, like the fault flags `PF_FLT0`/`PF_FLT1`).
+- Synthesis: `syn_keep` on the data/tag arrays and valid bits, `syn_preserve` on the valid bits, the kept half
+  word, CACR/CAAR/CDIS_R and CIIN_LAT/PF_CI0/PF_CI1, so Gowin never sweeps the cache as unused.
 - The queue's flush on writes (F62) stays: that is the pipe, not the cache.
 
 In the top (`wf68k30L_top.vhd`):
@@ -78,11 +110,29 @@ In the top (`wf68k30L_top.vhd`):
   design note.
 - CACR read-back mask $3313 already keeps EI/FI/IBE; IBE is stored and read back but has no effect (no burst).
 
-Bridge (`cpu030_st_bridge.v`): `CIINn = 0` on every cycle (all ST side), `CDISn = 1`, `CBACKn = 1`.
+Bridge (`cpu030_st_bridge.v`): `CIINn` from the per-cycle decode of §2a, `CDISn = 1`, `CBACKn = 1`.
+
+## 2a. CIIN decode in the bridge (how a 030 board drives it)
+
+A real 030 board decodes CIIN from the address of the running cycle (a PAL next to the address decoder) and holds
+it for the cycle; the 030 latches it at S4. The bridge does the same, from the 030's own outputs:
+
+    cpu_fast_sel = ~ASn & (FC != 7) & (A31:24 == $01)      // (* syn_keep *)
+    CIINn        = ~cpu_fast_sel
+
+- ST side (ROM, ST-RAM, I/O: every A31:24 other than $01) and CPU space: CIIN asserted, never cached (TF536 rule).
+- Reserved fast RAM $01000000–$01FFFFFF (TT-RAM layout, CACHE_PLAN.md): CIIN negated, cachable. Not fitted yet:
+  those cycles still go to the ST bus (A31:24 are ignored there, so they alias ST space), as they always have.
+  The only difference from a constant CIIN is that code *executed* from $01xxxxxx would be cached; TOS and ST
+  software never run code there. When fast RAM is fitted, this select also routes the cycle to it.
+- No 030 cycle (AS negated, e.g. the ST side owns the bus): CIIN asserted (don't care for the core).
+- CIIN never disables the cache: CACR EI enables it, CDIS (tied negated) is the only hardware disable, and lines
+  already stored keep hitting whatever CIIN is on other cycles.
 
 ## 3. Cycle identity on the ST build
 
-With CIIN asserted on every cycle no valid bit is ever set, so `HIT` is 0, `PF_REQ` equals the old `PF_REQ`,
+With CIIN asserted on every ST cycle no valid bit is ever set (unless code is executed from the reserved
+$01xxxxxx range), so `HIT` is 0, `PF_REQ` equals the old `PF_REQ`,
 and every chain and FSM decision is unchanged, whatever CACR holds (EmuTOS may set EI). The only new logic in
 the bus path is the hit mask; it is 0. This is checked with the full regression (cmp_wr.sh, every program × WS
 0/1/3/7, old = fault-fixes, new = caches) and by running the cache test with CIIN asserted.
@@ -95,7 +145,10 @@ the bus path is the hit mask; it is 0. This is checked with the full regression 
   (`check_icache.py`) counts program-space bus cycles inside each loop's 16-byte line between marker writes
   ($3600), and the results at $5000. `run_icache.sh` runs WS 0/1/3/7 × FAST_HANDOFF 0/1 × CIMODE 1/0 against
   `expect_icache_ci1.txt` / `expect_icache_ci0.txt`; `run_rtl.sh` calls it.
-- The same program with `CIMODE=0` (CIIN asserted, as the ST bridge): no hits at all.
+- The same program with `CIMODE=0` (CIIN asserted on every cycle): no hits at all.
+- Cases 21–25 (tb control $3502: CIIN asserted on every cycle mid-run): loop A filled first (21: 6), still hits
+  with CIIN asserted (22: 0), loop B is not filled while CIIN is asserted (23, 24: 48 each), and fills on its first
+  pass once CIIN is negated again (25: 6). CIIN inhibits fills of its own cycles only; it does not disable the cache.
 - Full regression cycle-identical (§3), run_rtl.sh PASS.
 
 ### Results (17 Oct 2026, RTL, GHDL)
