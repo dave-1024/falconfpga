@@ -40,7 +40,9 @@ which changed every bus cycle even with EI = 0).
 New entity `WF68K30L_ICACHE` (rewrites `wf68k30L_icache.vhd`, same file name so the build lists stay as they are):
 - storage: data 64 × 32 (index & long select), tag 16 × 25, valid 16 × 4 flip-flops (cleared by reset/CI/CEI);
 - lookup port: `LK_ADR` (A31:2) and `LK_FC2` → `HIT`, `HIT_DATA` (combinational, async read);
-- fill port: `FILL` strobe, `FILL_ADR`, `FILL_FC2`, `FILL_DATA`;
+- fill port: `FILL` strobe (every bus prefetch long, last portion), `FILL_MIS` (it started at 4n+2), `FILL_OK`
+  (per word: no bus error and CIIN negated on its portion), `BREAK` (stream restart), `FILL_ADR`, `FILL_FC2`,
+  `FILL_DATA`;
 - control: `EI`, `FI`, `CDIS`, `CLR_ALL` (CI), `CLR_ENT` + `CLR_IDX` (CEI, CAAR 7:2), `RESET`.
   HIT needs EI = 1 and CDIS negated; FILL is ignored unless EI = 1, FI = 0, CDIS negated.
 
@@ -51,14 +53,18 @@ In the bus interface (tag `[IC]`):
   bus is busy).
 - `PF_REQ` (bus) = `PF_REQ_RAW` and not a hit. The F65/PH2 chains (PF_CHAIN_GO, DP_CHAIN, DP_CHAIN_GO) use the
   masked request, so a long that hits never starts a bus cycle.
-- Misaligned stream start (branch to 4n+2: F62 fetches words 4n+2 and 4n+4 on the bus): lookup of long n; a hit
-  appends only word 4n+2 and F_ADR moves to 4n+4 (aligned from then on). The misaligned bus fetch is **not** filled
-  (it holds half of two long words; valid bits are per long word). See open question Q1.
-- Fill: at `PF_DONE` of an aligned prefetch long with no bus error on either word and CIIN negated on both
-  portions, the long goes into the cache at F_CUR. Also when the queue drops the long (INFL_STALE): the bus
-  fetched it, as a 030 would have filled it.
-- CIIN: sampled into `CIIN_LAT` on the same CLK_F edge that latches the data (IN_MUX condition), OR-ed over the
-  portions of the long (`PF_CI`).
+- Misaligned stream start (branch to 4n+2: F62 fetches words 4n+2 and 4n+4 on the bus, and the stream stays
+  misaligned, 4n+6/4n+8 and so on): lookup of long n; a hit appends only word 4n+2 and F_ADR moves to 4n+4
+  (aligned from then on).
+- Fill, aligned fetch: at `PF_DONE` with both words OK the long goes into the cache at F_CUR.
+- Fill, misaligned stream: each fetch holds the second half of one long and the first half of the next. The
+  cache keeps the second word (`PH_W`, with its long address and FC2; valid only if that word was OK) and stores
+  the long when the next fetch of the stream brings its other half (`PH_W` & first word). So every long word the
+  bus has read in full is cached, as a 68030 caches every long it reads. Only the first long of a 4n+2 stream
+  (its first word was never read) is not; see Q1. `BREAK` (Q_MISS), reset, CI and CEI drop the kept word.
+- Fills also happen when the queue drops the long (INFL_STALE): the bus read it, so a 030 would have filled it.
+- CIIN: sampled into `CIIN_LAT` on the same CLK_F edge that latches the data (IN_MUX condition), kept per word
+  (`PF_CI0`/`PF_CI1`, like the fault flags `PF_FLT0`/`PF_FLT1`).
 - The queue's flush on writes (F62) stays: that is the pipe, not the cache.
 
 In the top (`wf68k30L_top.vhd`):
@@ -83,20 +89,55 @@ the bus path is the hit mask; it is 0. This is checked with the full regression 
 
 ## 4. Tests
 
-- `sim/rtl/prog_icache.s` with tb030 `CIMODE=1` (CIIN negated for ROM $FC0000–$FEFFFF and RAM $8000–$FFFF,
-  a fake cacheable region) and a tb control register at $3500 for CDIS. Cases: EI off, cold fill then hits,
-  EI off keeps the entries, freeze, CEI on one long word, CI, user vs supervisor tag, CDIS, no snoop on a code
-  write in RAM (stale result until CI), CACR read-back. The checker counts program-space bus cycles inside each
-  loop between marker writes, and checks the results at $5000.
+- `sim/rtl/prog_icache.s` with tb030 `CIMODE=1` (CIIN negated for ROM $FD0000–$FEFFFF, RAM $8000–$FFFF and the
+  BERR range $20000–$2FFFF: a fake cacheable region) and a tb control register at $3500 for CDIS. The driver code
+  sits at $FC0000 (uncached), so it cannot evict the loop lines of the direct-mapped cache. The checker
+  (`check_icache.py`) counts program-space bus cycles inside each loop's 16-byte line between marker writes
+  ($3600), and the results at $5000. `run_icache.sh` runs WS 0/1/3/7 × FAST_HANDOFF 0/1 × CIMODE 1/0 against
+  `expect_icache_ci1.txt` / `expect_icache_ci0.txt`; `run_rtl.sh` calls it.
 - The same program with `CIMODE=0` (CIIN asserted, as the ST bridge): no hits at all.
 - Full regression cycle-identical (§3), run_rtl.sh PASS.
 
+### Results (17 Oct 2026, RTL, GHDL)
+
+Bus cycles inside the loop line, 8 passes of `subq.l #1,d1; bne.s` (identical for every WS and FAST_HANDOFF):
+
+| case | what | CIMODE=1 (cacheable) | CIMODE=0 (CIIN asserted) |
+|---|---|---|---|
+| 1 | EI = 0 | 48 | 48 |
+| 2 | CI + EI, cold | 6 (first pass only) | 48 |
+| 3 | warm | 0 | 48 |
+| 4 | EI = 0 again | 48 (no hits) | 48 |
+| 5 | EI = 1, no CI | 0 (entries kept) | 48 |
+| 6 | FI + EI, new loop B | 48 (no fill) | 48 |
+| 7 | FI + EI, loop A | 0 (hits while frozen) | 48 |
+| 8 | CAAR = loop A, CEI | 2 (one long refetched) | 48 |
+| 9 | CI | 6 (refill) | 48 |
+| 10 | user mode (FC2) | 6 (supervisor entries do not hit) | 48 |
+| 11 | supervisor again | 6 (user fill replaced the line) | 48 |
+| 12 | CDIS asserted | 48 | 48 |
+| 13 | CDIS negated | 0 (contents kept) | 48 |
+| 16 | loop at 4n+2 via a branch | 24 (2 per pass: its first long) | 49 |
+| 17 | loop at 4n+2 entered from 4n | 8 (first pass only) | 49 |
+| 18 | case 16 with EI = 0 | 49 | 49 |
+
+Results at $5000: case 14 (code rewritten in RAM without CI) returns the **old** code's D0 = 1 with CIMODE=1 (no
+snooping, as a 68030) and 2 with CIMODE=0; after CI it returns 2. CACR read-back of $FFFFFFFF = $00003313. Case 19:
+a bus error on a cacheable prefetch fills nothing (the second jump faults again: 2 bus errors in both modes).
+
+Regression (`cmp_full.sh`, whole bench log: every bus cycle with its clock, every exception), `fault-fixes` 667fcca
+vs `caches`, all 22 programs × WS 0/1/3/7 (+ prog_fpbr with TAKEN 0 and 1, IRQ programs with periodic level 4/6):
+**92 of 92 SAME**. That includes prog_icache.s itself, which sets EI, FI, CEI, CI and CDIS: with CIIN asserted the
+new core is cycle-identical to the old one. `run_rtl.sh`: PASS (prog_loop WS=5 DONE at clk 40289, unchanged).
+
 ## 5. Open questions
 
-- Q1: F62 starts a stream at 4n+2 with a misaligned long (4n+2, 4n+4) instead of the aligned long a 030 fetches.
-  Those fetches cannot fill the cache, so a loop whose first long word starts at 4n+2 keeps one bus long per
-  pass in a cacheable region. Making cacheable stream starts aligned changes timing only in cacheable memory,
-  but the core cannot know CIIN before the cycle ends. Decide when fast RAM exists.
+- Q1: F62 starts a stream at 4n+2 with a misaligned long (4n+2, 4n+4) instead of the aligned long a 030 fetches
+  (4n, 4n+2). The rest of the stream is cached (assembled fills), but its first long word never is, so a loop
+  whose target is at 4n+2 and that is entered only by the branch costs one bus long (2 ST-size cycles) per pass in
+  a cacheable region; a 030 would cost none. Fetching aligned at a cacheable 4n+2 target would fix it, but the
+  core only knows CIIN at the end of the cycle (and F62 exists because the aligned fetch made the TOS 2.06 vblank
+  loop too slow on the ST side). Decide when fast RAM exists (e.g. an address decode that says "030-side" early).
 - Q2: CDIS tied negated in the bridge (cache usable, CIIN keeps it empty on the ST side). A jumper/OSD
   equivalent can drive it later.
 - Q3: Burst fill (IBE, CBREQ/CBACK, STERM) waits for the fast RAM controller.

@@ -99,7 +99,9 @@ the SDC line change. For a truly asynchronous CPU clock:
   68000 for bus-bound code. Raising clk_cpu reduces the CPU-side overhead.
 - Read-modify-write (TAS/CAS): grants are blocked while RMCn is low, but the
   ST-side AS is released between the read and the write.
-- The core has no MMU, FPU or caches. All $Fxxx opcodes take a Line-F trap.
+- The core has no MMU or FPU. All $Fxxx opcodes take a Line-F trap. It has the 68030 instruction cache
+  (branch `caches`, docs/ICACHE_DESIGN.md); the bridge asserts CIIN on every ST-side cycle, so it stays empty
+  on the ST. No data cache yet.
   TOS 3.x/4.x (which use PMOVE) will not work; EmuTOS or TOS 1.04 are the
   targets.
 - There is no address error on odd word accesses: the 030 does misaligned

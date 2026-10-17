@@ -101,6 +101,11 @@ behaviour, one simple rule in the bridge, no coherency questions with stock TOS 
 
 ## 6. Order of work
 
+Status (17 Oct 2026): **step 1 (I cache) built on branch `caches`**, not merged, not on the board. Design and
+results: [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md). CIIN, CDIS, CBACK in and CBREQ, CIOUT out are now pins of
+WF68K30L_TOP; the bridge asserts CIIN on every cycle (TF536 rule) and the ST build is cycle-identical to
+`fault-fixes`. The old F59 modules are no longer instantiated (the D cache, step 2, replaces wf68k30L_dcache.vhd).
+
 1. **Instruction cache first.** Bus trace (`branch bus-trace`, `BUSTRACE.md`):
    instruction fetches are about 72–87% of ST cycles on the weak display
    tests (VDI Graphics, GEM Dialog/Window). Biggest ST-bus cycle cut once

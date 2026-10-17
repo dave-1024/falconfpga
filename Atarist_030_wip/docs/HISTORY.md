@@ -66,3 +66,7 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
    030-correct (only after the previous DATA_RDY; ADR_IN_USE and write priority unchanged). Tests `prog_movemw.s`,
    `prog_movemr.s`. MOVEM gaps 4 -> 3 and 7 -> 6 clocks; whole-ST bench unchanged; GEMBENCH 132 -> 133%. A3 (requests
    ahead of data) deferred to the caches. Details: OPTION_A_DESIGN.md.
+14. **68030 instruction cache (branch `caches`, 17 Oct 2026, not merged).** 256 B, 16 lines × 4 longs, tag A31:8 + FC2,
+    per-long valid, EI/FI/CEI/CI + CAAR, CDIS, CIIN sampled with the data, on the F62 prefetch queue (a hit costs no bus
+    cycle); misaligned streams filled from consecutive fetches; no snooping (as a 030). CIIN asserted on all ST-side
+    cycles (TF536 rule), so the ST build is cycle-identical to `fault-fixes` (92/92 whole-log SAME). ICACHE_DESIGN.md.

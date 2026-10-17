@@ -58,7 +58,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_SD_WRITE_FIX` | on | sd_rw waits for DAT0 not busy before CMD17/CMD24, bounded CMD24 retry, a failed write completes instead of jamming in state 13 |
 | `ST_FLOPPY_MEDIACH` | on | holds floppy write-protect ~0.75 s after each image insert/eject, so TOS sees a runtime disk swap. Without it TOS writes the old disk's FAT/directory into the new image (the gb403 corruption) |
 | `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
-| `ST_030_CACHES` | off | experimental 030 I/D caches; incomplete (no CIIN, burst, DMA snoop) |
+| `ST_030_CACHES` | off | no effect since the `caches` branch (17 Oct 2026): the 68030 I cache is always built and CIIN (asserted by the bridge on all ST-side cycles) keeps it empty; the old experimental modules are gone |
 | `ST_CPU_68000` | off (`build_st_68000.tcl`, `build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
 | `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn/mch/sdlog.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
 | `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |

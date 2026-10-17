@@ -36,6 +36,11 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,
 no cache in the path when disabled; I then D; keep clk_cpu030 19–22 MHz headroom). Old attempt a7ccf76/e9a4fd9
 stays out until that plan is followed.
+- **Step 1, I cache: built** on branch `caches` (17 Oct 2026, [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md)); RTL unit test
+  and full regression pass (ST build cycle-identical). Not merged, not on the board. Open: ICACHE_DESIGN Q1 (first
+  long of a 4n+2 stream never cached), Q2 (CDIS source), Q3 (burst), Q4 (A3 queue with the D cache).
+- **Step 2, D cache** (write-through, WA, CIIN, RMW rules; replaces wf68k30L_dcache.vhd), then 030-side fast RAM
+  (8-16 MB) so that something is cacheable.
 
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
 - **Symptom:** intermittent "System halted!" after the cartridge self-test, on FPGA reloads (op 1) and warm resets (`w`).

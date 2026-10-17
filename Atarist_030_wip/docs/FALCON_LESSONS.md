@@ -67,6 +67,17 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 
 - **Core-side cycle savings are masked by the ST bus (option (a), 17 Oct 2026).** Saving 1 clock per MOVEM transfer (writes 4 -> 3, reads 7 -> 6 clocks) left the whole-ST bench cycle-identical and moved GEMBENCH by 1%: the next AS still misses the same ST en1 slot. *Lesson:* before a core pipelining change, check against the bridge timing whether the saving crosses a 500 ns slot boundary; bigger core-side gains need the caches.
 
+- **The F62 misaligned stream and the I cache (17 Oct 2026, branch `caches`).** *Finding:* a stream that starts at a
+  4n+2 branch target stays misaligned for good (F_ADR steps by 4 from 4n+2), so every bus prefetch holds halves of two
+  long words. With per-long valid bits the first cache version filled nothing at all in such streams. *Fix:* the cache
+  keeps the second word of a misaligned fetch and stores the long when the next fetch brings its first half; only the
+  stream's first long is lost (ICACHE_DESIGN.md Q1). *Lesson:* a cache on the queue must handle every fetch shape the
+  queue makes, not only the aligned one a 68030 makes.
+- **Direct-mapped test layout (17 Oct 2026).** *Symptom:* the freeze case of the first I cache test missed although the
+  cache was right. *Cause:* the test's own driver code shared a 16-byte line index with the loop (256-byte
+  direct-mapped cache) and evicted it just before FI was set. *Fix:* driver code in an uncached area (prog_icache.s).
+  *Lesson:* in a cache test, check which other code maps to the same lines before calling a miss a bug.
+
 ### Debug tooling
 
 - **Decoder bit-18 mask.** *Symptom:* an apparent A23:16 address corruption. *Cause:* our overlay decoder masked bit 18 (row d, bit 20), so the address "corruption" was a decode error. *Fix:* `86882a8`, re-read in `5e855f4`. *Lesson:* check your probe before you believe it.
