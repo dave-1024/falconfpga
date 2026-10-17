@@ -118,7 +118,7 @@ A real 030 board decodes CIIN from the address of the running cycle (a PAL next 
 it for the cycle; the 030 latches it at S4. The bridge does the same, from the 030's own outputs:
 
     cpu_fast_sel = ~ASn & (FC != 7) & (A31:24 == $01)      // (* syn_keep *)
-    CIINn        = ~cpu_fast_sel
+    CIINn        = cpu_fast_sel     // active low: 0 = inhibit (ST side), 1 = cachable (fast RAM)
 
 - ST side (ROM, ST-RAM, I/O: every A31:24 other than $01) and CPU space: CIIN asserted, never cached (TF536 rule).
 - Reserved fast RAM $01000000–$01FFFFFF (TT-RAM layout, CACHE_PLAN.md): CIIN negated, cachable. Not fitted yet:
@@ -126,6 +126,12 @@ it for the cycle; the 030 latches it at S4. The bridge does the same, from the 0
   The only difference from a constant CIIN is that code *executed* from $01xxxxxx would be cached; TOS and ST
   software never run code there. When fast RAM is fitted, this select also routes the cycle to it.
 - No 030 cycle (AS negated, e.g. the ST side owns the bus): CIIN asserted (don't care for the core).
+- Gate-level check (`sim/run_icache_net.sh`, bridge + Gowin netlist on tb_bridge, where $01xxxxxx aliases the
+  ST space): a loop run via $01FC1000 fetches 8 times cold and 0 warm; the same code via $00FC1000 (ST side,
+  CIIN asserted) fetches 48 (no hit: other tag; no fill); via $01FC1000 again 0 (the entries are still there and
+  hit); with EI = 0, 48. `run_unit.sh` traces are identical to the constant-CIIN bridge. This test found that the
+  first version of the decode (616946e) had CIINn inverted (ST side cachable); fixed in 47eba71, that bitstream
+  was deleted unflashed.
 - CIIN never disables the cache: CACR EI enables it, CDIS (tied negated) is the only hardware disable, and lines
   already stored keep hitting whatever CIIN is on other cycles.
 
