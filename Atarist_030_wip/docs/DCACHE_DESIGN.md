@@ -181,7 +181,8 @@ independent of the cache correctness above. Proposed as its own branch step afte
 
 ## 6. Open questions
 - D-Q1: partial hits of misaligned operands go to the bus for the whole operand (correct data, not 030 timing).
-- D-Q2: WA write allocation of ST-side writes with TOS 2.06's $3919 (§3): board test before use.
+- D-Q2: WA write allocation of ST-side writes with TOS 2.06's $3919 (§3): board test before use. Resolved later by
+  the planned 68030 PMMU (tables mark I/O and ST-RAM cache-inhibited, as on TT/Falcon); until then CDIS is the fallback.
 - D-Q3: no burst (DBE) until fast RAM.
 - D-Q4: A3 (two requests in flight) deferred (§4).
 - D-Q5: any bus error seen on an operand or fill word clears that entry's valid bit (the manual only requires it
@@ -190,5 +191,7 @@ independent of the cache correctness above. Proposed as its own branch step afte
   differs; data and final cache state are the same).
 - D-Q7: no fill cycles inside a locked RMC sequence (TAS/CAS/CAS2); the RMC read is forced to miss as the manual
   requires and still updates/creates the entry from its own data.
-- D-Q8: the data arrays map to flip-flops, not RAM16 (each bank is written through two index ports, I0/I1, for
-  misaligned operands). Functionally complete and kept; a one-write-port restructure would save ~6k LUTs.
+- D-Q8 (resolved 17 Oct 2026, approved by David): each data bank now has one write port. E0 and E1 of an operand
+  always sit in different banks (A2 differs), so the two entries are muxed onto per-bank index/data/byte-enable
+  signals and written in the same clock as before; no write split, no timing change (regression incl. prog_dcache
+  cycle-identical to 706a0aa). The tag banks get the same single-port treatment.

@@ -40,7 +40,10 @@ stays out until that plan is followed.
   and full regression pass (ST build cycle-identical). Not merged, not on the board. Open: ICACHE_DESIGN Q1 (first
   long of a 4n+2 stream never cached), Q2 (CDIS source), Q3 (burst), Q4 (A3 queue with the D cache).
 - **Step 2, D cache** (write-through, WA, CIIN, RMW rules; replaces wf68k30L_dcache.vhd), then 030-side fast RAM
-  (8-16 MB) so that something is cacheable.
+  (8-16 MB) so that something is cacheable. Built on `caches` (17 Oct 2026,
+  [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md)), not merged, not on the board; A3 queue deferred (D-Q4).
+- **Later step, 68030 PMMU:** page tables mark I/O and ST-RAM cache-inhibited like TT/Falcon (CI/CIOUT), which
+  resolves D-Q2 (WA allocating D cache entries on ST-side writes). Until then CDIS is the fallback.
 
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
 - **Symptom:** intermittent "System halted!" after the cartridge self-test, on FPGA reloads (op 1) and warm resets (`w`).

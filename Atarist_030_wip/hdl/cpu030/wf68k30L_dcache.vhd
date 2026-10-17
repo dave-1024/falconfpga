@@ -96,6 +96,12 @@ architecture RTL of WF68K30L_DCACHE is
     signal SV0, SV1, CV0, CV1 : std_logic; -- Set / clear the valid bit.
     signal WWIN : std_logic_vector(63 downto 0); -- Write data placed at its byte offset.
     signal WBEW : std_logic_vector(7 downto 0);
+    signal BI0, BI1 : unsigned(4 downto 0); -- Data bank write index.
+    signal BB0, BB1 : std_logic_vector(3 downto 0); -- Data bank byte enables.
+    signal BD0, BD1 : std_logic_vector(31 downto 0); -- Data bank write data.
+    signal TI0, TI1 : unsigned(2 downto 0); -- Tag bank write index.
+    signal TV0, TV1 : std_logic_vector(26 downto 0);
+    signal TE0, TE1 : std_logic;
     attribute syn_keep : integer;
     attribute syn_preserve : integer;
     attribute syn_keep of D00, D01, D02, D03, D10, D11, D12, D13 : signal is 1;
@@ -223,44 +229,38 @@ begin
         end if;
     end process P_OP;
 
-    -- Storage without reset (distributed RAM, asynchronous read).
+    -- Per-bank write port: E0 and E1 are always in different data banks (A2 differs), so each bank takes at most
+    -- one entry per operation. Muxing the entry onto the bank's single address/data/byte-enable port lets each
+    -- 32 x 8 lane array map to distributed RAM (RAM16SDP4) instead of flip-flops; same clock, same contents.
+    BI0 <= OA0(5 downto 1) when OA0(0) = '0' else OA1(5 downto 1);
+    BI1 <= OA1(5 downto 1) when OA0(0) = '0' else OA0(5 downto 1);
+    BB0 <= BE0 when OA0(0) = '0' else BE1;
+    BB1 <= BE1 when OA0(0) = '0' else BE0;
+    BD0 <= WD0 when OA0(0) = '0' else WD1;
+    BD1 <= WD1 when OA0(0) = '0' else WD0;
+    -- Per-bank tag port: E0 and E1 are in the same line (same tag, same address) or in adjacent lines (different
+    -- tag banks), so each tag bank also takes at most one distinct write.
+    TI0 <= OA0(5 downto 3) when OA0(2) = '0' and TW0 = '1' else OA1(5 downto 3);
+    TI1 <= OA0(5 downto 3) when OA0(2) = '1' and TW0 = '1' else OA1(5 downto 3);
+    TV0 <= tag(OA0, OFC) when OA0(2) = '0' and TW0 = '1' else tag(OA1, OFC);
+    TV1 <= tag(OA0, OFC) when OA0(2) = '1' and TW0 = '1' else tag(OA1, OFC);
+    TE0 <= '1' when (TW0 = '1' and OA0(2) = '0') or (TW1 = '1' and OA1(2) = '0') else '0';
+    TE1 <= '1' when (TW0 = '1' and OA0(2) = '1') or (TW1 = '1' and OA1(2) = '1') else '0';
+
+    -- Storage without reset (distributed RAM, asynchronous read), one write port per array.
     P_RAM: process(CLK)
-        variable I0, I1 : integer range 0 to 31;
     begin
         if CLK = '1' and CLK'event then
-            -- E0 and E1 are in different data banks.
-            if OA0(0) = '0' then
-                I0 := to_integer(OA0(5 downto 1));
-                if BE0(3) = '1' then D00(I0) <= WD0(31 downto 24); end if;
-                if BE0(2) = '1' then D01(I0) <= WD0(23 downto 16); end if;
-                if BE0(1) = '1' then D02(I0) <= WD0(15 downto 8); end if;
-                if BE0(0) = '1' then D03(I0) <= WD0(7 downto 0); end if;
-                I1 := to_integer(OA1(5 downto 1));
-                if BE1(3) = '1' then D10(I1) <= WD1(31 downto 24); end if;
-                if BE1(2) = '1' then D11(I1) <= WD1(23 downto 16); end if;
-                if BE1(1) = '1' then D12(I1) <= WD1(15 downto 8); end if;
-                if BE1(0) = '1' then D13(I1) <= WD1(7 downto 0); end if;
-            else
-                I0 := to_integer(OA0(5 downto 1));
-                if BE0(3) = '1' then D10(I0) <= WD0(31 downto 24); end if;
-                if BE0(2) = '1' then D11(I0) <= WD0(23 downto 16); end if;
-                if BE0(1) = '1' then D12(I0) <= WD0(15 downto 8); end if;
-                if BE0(0) = '1' then D13(I0) <= WD0(7 downto 0); end if;
-                I1 := to_integer(OA1(5 downto 1));
-                if BE1(3) = '1' then D00(I1) <= WD1(31 downto 24); end if;
-                if BE1(2) = '1' then D01(I1) <= WD1(23 downto 16); end if;
-                if BE1(1) = '1' then D02(I1) <= WD1(15 downto 8); end if;
-                if BE1(0) = '1' then D03(I1) <= WD1(7 downto 0); end if;
-            end if;
-            -- Tags: E0 and E1 share a line (same tag) or are in adjacent lines (different banks).
-            if TW0 = '1' then
-                if OA0(2) = '0' then TAG0(to_integer(OA0(5 downto 3))) <= tag(OA0, OFC);
-                else TAG1(to_integer(OA0(5 downto 3))) <= tag(OA0, OFC); end if;
-            end if;
-            if TW1 = '1' then
-                if OA1(2) = '0' then TAG0(to_integer(OA1(5 downto 3))) <= tag(OA1, OFC);
-                else TAG1(to_integer(OA1(5 downto 3))) <= tag(OA1, OFC); end if;
-            end if;
+            if BB0(3) = '1' then D00(to_integer(BI0)) <= BD0(31 downto 24); end if;
+            if BB0(2) = '1' then D01(to_integer(BI0)) <= BD0(23 downto 16); end if;
+            if BB0(1) = '1' then D02(to_integer(BI0)) <= BD0(15 downto 8); end if;
+            if BB0(0) = '1' then D03(to_integer(BI0)) <= BD0(7 downto 0); end if;
+            if BB1(3) = '1' then D10(to_integer(BI1)) <= BD1(31 downto 24); end if;
+            if BB1(2) = '1' then D11(to_integer(BI1)) <= BD1(23 downto 16); end if;
+            if BB1(1) = '1' then D12(to_integer(BI1)) <= BD1(15 downto 8); end if;
+            if BB1(0) = '1' then D13(to_integer(BI1)) <= BD1(7 downto 0); end if;
+            if TE0 = '1' then TAG0(to_integer(TI0)) <= TV0; end if;
+            if TE1 = '1' then TAG1(to_integer(TI1)) <= TV1; end if;
         end if;
     end process P_RAM;
 

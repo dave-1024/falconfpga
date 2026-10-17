@@ -121,6 +121,12 @@ needs a request queue in the bus interface, DATA_RDY/BERR tagged per request (a 
 the current one faults) and an undo of the (An)+/offset step on a fault. The cache line fills and the cache-miss path
 need the same queue, so build it once with the caches. See OPTION_A_DESIGN.md (A3 assessment).
 
+Planned later step (17 Oct 2026): **68030 PMMU.** Its page tables will mark I/O and ST-RAM cache-inhibited, as TOS
+does on the TT and Falcon (the CI bit in the page descriptors, driven out on CIOUT). That resolves DCACHE_DESIGN D-Q2:
+with WA set (TOS 2.06 writes CACR=$3919), aligned long writes to ST addresses would otherwise allocate D cache
+entries, because CIIN is ignored on writes. Until the PMMU is in, hardware CDIS is the fallback if the board test shows
+a problem.
+
 ## 7. Falcon
 
 TOS on the Falcon enables the caches. Same cache logic and pins; different
