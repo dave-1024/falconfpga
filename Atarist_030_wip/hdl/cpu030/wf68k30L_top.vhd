@@ -288,6 +288,7 @@ signal AR_WR_1                  : bit;
 signal AR_WR_2                  : bit;
 signal AVECn_BUSIF              : std_logic;
 signal BERR_MAIN                : bit;
+signal BERR_IBOUND              : bit; -- [FLT2]
 signal BITPOS                   : std_logic_vector(4 downto 0);
 signal BF_BYTES_CTL             : integer range 0 to 5; -- F21/H29.
 signal BIW_0                    : std_logic_vector(15 downto 0);
@@ -1273,6 +1274,7 @@ begin
             BRANCH_ATN              => BRANCH_ATN,
             RESET_STRB              => RESET_STRB,
             BERR                    => BERR_MAIN,
+            BERR_IBOUND             => BERR_IBOUND,
             STATUSn                 => STATUSn_MAIN,
             EX_TRACE                => EX_TRACE,
             TRAP_cc                 => TRAP_cc,
@@ -1368,6 +1370,7 @@ begin
 
             TRAP_AERR               => TRAP_AERR,
             TRAP_BERR               => BERR_MAIN,
+            BERR_IBOUND             => BERR_IBOUND,
             TRAP_CHK                => TRAP_CHK,
             TRAP_DIVZERO            => TRAP_DIVZERO,
             TRAP_ILLEGAL            => TRAP_ILLEGAL,

@@ -424,6 +424,7 @@ component WF68K30L_CONTROL
         BRANCH_ATN          : in bit;
         RESET_STRB          : out bit;
         BERR                : out bit;
+        BERR_IBOUND         : out bit;
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;
@@ -508,6 +509,7 @@ component WF68K30L_EXCEPTION_HANDLER
         IVECT_OFFS          : out std_logic_vector(9 downto 0);
         TRAP_AERR           : in bit;
         TRAP_BERR           : in bit;
+        BERR_IBOUND         : in bit;
         TRAP_CHK            : in bit;
         TRAP_DIVZERO        : in bit;
         TRAP_ILLEGAL        : in bit;
