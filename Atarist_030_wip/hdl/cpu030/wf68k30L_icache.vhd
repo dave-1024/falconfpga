@@ -55,10 +55,9 @@ end entity WF68K30L_ICACHE;
 architecture RTL of WF68K30L_ICACHE is
     type data_t is array (0 to 63) of std_logic_vector(31 downto 0);
     type tag_t is array (0 to 15) of std_logic_vector(24 downto 0);
-    type val_t is array (0 to 15) of std_logic_vector(3 downto 0);
     signal DATA_RAM : data_t := (others => (others => '0'));
     signal TAG_RAM  : tag_t := (others => (others => '0'));
-    signal VALID    : val_t := (others => (others => '0'));
+    signal VALID    : std_logic_vector(63 downto 0) := (others => '0'); -- Bit line*4 + long word.
     signal LK_LINE  : integer range 0 to 15;
     signal LK_LW    : integer range 0 to 3;
     signal FL_LINE  : integer range 0 to 15;
@@ -84,7 +83,7 @@ begin
     FL_GO   <= (FA_GO or FM_GO) and EI and not FI and not CDIS;
     FL_DATA <= PH_W & FILL_DATA(31 downto 16) when FILL_MIS = '1' else FILL_DATA;
 
-    HIT <= '1' when EI = '1' and CDIS = '0' and VALID(LK_LINE)(LK_LW) = '1' and
+    HIT <= '1' when EI = '1' and CDIS = '0' and VALID(LK_LINE * 4 + LK_LW) = '1' and
                     TAG_RAM(LK_LINE) = LK_ADR(31 downto 8) & LK_FC2 else '0';
     HIT_DATA <= DATA_RAM(LK_LINE * 4 + LK_LW);
 
@@ -118,24 +117,25 @@ begin
     end process P_HALF;
 
     P_VALID: process(CLK)
-        variable V : std_logic_vector(3 downto 0);
+        variable CI : integer range 0 to 63;
     begin
         if CLK = '1' and CLK'event then
+            CI := to_integer(unsigned(CLR_IDX(7 downto 2)));
             if RESET = '1' or CLR_ALL = '1' then
-                VALID <= (others => (others => '0'));
+                VALID <= (others => '0');
             else
-                if FL_GO = '1' then
-                    if TAG_RAM(FL_LINE) = FL_TAG then
-                        V := VALID(FL_LINE);
-                    else
-                        V := "0000"; -- New tag: the other long words of the line are not valid.
+                for i in 0 to 63 loop
+                    if FL_GO = '1' and i / 4 = FL_LINE then
+                        if i mod 4 = FL_LW then
+                            VALID(i) <= '1';
+                        elsif TAG_RAM(FL_LINE) /= FL_TAG then
+                            VALID(i) <= '0'; -- New tag: the other long words of the line are not valid.
+                        end if;
                     end if;
-                    V(FL_LW) := '1';
-                    VALID(FL_LINE) <= V;
-                end if;
-                if CLR_ENT = '1' then -- After the fill: a clear in the same clock wins.
-                    VALID(to_integer(unsigned(CLR_IDX(7 downto 4))))(to_integer(unsigned(CLR_IDX(3 downto 2)))) <= '0';
-                end if;
+                    if CLR_ENT = '1' and i = CI then -- After the fill: a clear in the same clock wins.
+                        VALID(i) <= '0';
+                    end if;
+                end loop;
             end if;
         end if;
     end process P_VALID;
