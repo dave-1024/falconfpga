@@ -36,50 +36,88 @@ OPTION_A_DESIGN.md "A3").
 No snooping: nothing in ch. 6 updates or clears the data cache for another master's writes (DMA, blitter); software
 clears it (CD/CED). There is no PMMU in the core, so CIOUT and "the MMU validates the access" are always true.
 
-## 2. Design
+## 2. Design (as built, commit 706a0aa)
 
 ### 2.1 Storage (`WF68K30L_DCACHE`, replaces the old F59 `wf68k30L_dcache.vhd`)
-- Data 64 × 32 bits with byte enables (index A7:4 & long select A3:2), tag 16 × 27 (A31:8 & FC2:0), valid 64 flat
-  bits (flat vector: lesson from the I cache Gowin crash). `syn_keep` on arrays, `syn_preserve` on valid bits.
-- Two read ports for the lookup (entry of the first byte and of the last byte of the operand) and one write port.
-- Reset, CD: all valid bits cleared. CED: valid bit CAAR(7:2) cleared, whatever ED/FD.
+- An operand touches entry E0 (A31:2) and, when it crosses a long word boundary, E1 = E0 + 1.
+- Data: two banks by A2 (E0 and E1 are always in different banks), each 32 entries x 4 byte lanes (8 arrays of
+  32 x 8, distributed RAM, one write and one read address each), so both entries are read or written in one clock.
+- Tags: two banks by A4 (lines with A4 = 0 / 1), 8 x 27 bits (A31:8 & FC2:0) each; E0 and E1 are in the same line
+  or in adjacent lines. Valid: 64 flat flip-flops (lesson from the I cache Gowin crash).
+- `syn_keep` on every data and tag array and on VALID, `syn_preserve` on VALID (and on the bus interface's fill
+  buffer and FILL_ACC). Nothing is tied constant: ED/FD/WA come from CACR, CIIN from the bridge decode per cycle.
+- Reset and CD clear every valid bit; CED clears the bit at CAAR 7:2, whatever ED and FD are.
 
-### 2.2 Reads
-- Lookup with the live operand request (address, FC, size) in the bus interface.
-- **Hit** (ED, CDIS negated, not RMC, FC /= 7, every entry the operand touches valid with a matching tag): the
-  operand comes from the cache, no bus cycle; DATA_RDY one clock after the request, data aligned as from the bus.
-  The request is masked from the bus FSM and from every chain (as the I cache masks PF_REQ).
-- **Partial hit** (misaligned operand, one entry hits, the other misses): the 030 serves the hit half from the cache
-  and runs bus cycles only for the missing half. Here: the whole operand goes to the bus (both halves), and both
-  entries are refilled from it. Same data, a few clocks more; documented deviation (D-Q1).
-- **Miss**: bus cycles as now. CIIN is latched per portion (as the I cache). The 16-bit port gives a full aligned
-  word with each portion (6.1.3.1), so each portion fills one word of its entry.
-  - The fill writes an entry only when both words of the long word were read with CIIN and BERR negated, and the
-    tag is written with the first word (other valid bits of the line cleared on a tag change).
-  - Words of a touched entry that the operand did not read are fetched by extra fill cycles, as Fig. 6-6/6-9, only
-    when the operand's first portion had CIIN negated and the cache is enabled, not frozen, and CDIS negated.
-    With CIIN asserted (every ST cycle) there are no extra cycles, so the ST bus is unchanged.
-  - A bus error on a fill-only cycle: no exception, the entry stays invalid (6.1.3.1).
-- RMC read portion: forced miss (no hit), but it fills/updates if CIIN is negated (6.1.2.2).
+### 2.2 Reads (bus interface)
+- **Lookup is registered.** Every clock the cache looks up the live request (ADR_NXT, FC_NXT, operand size, the
+  values the address latch takes in IDLE) and the bus interface keeps hit + operand in flip-flops (DC_PH, DC_PD,
+  DC_PV = a read was pending without DATA_RDY). A cache update in that clock cancels the registered hit. So no
+  path goes from the address logic through the cache RAM into the bus state machine.
+- **Hit** (ED set, CDIS negated, FC /= 7, not RMC, every touched entry valid with a matching tag):
+  - in START_CYCLE (the request came while the bus was idle): DATA_RDY on the edge that ends START_CYCLE, no bus
+    cycle; START_CYCLE goes to IDLE or straight into a waiting queue prefetch (the bus is free for it);
+  - on the S5 edge of a prefetch (the read waited for it, the OP_CHAIN case): DATA_RDY on that edge instead of the
+    chained read cycle.
+  - So a hit costs the request clock plus one clock, a bus read on the ST at least six.
+- **Not looked up:** a read presented in the IDLE clock right after a posted write (PW_GO) has no registered lookup
+  yet. With ED set it goes through START_CYCLE (one clock more than the PW_GO chain, and it can hit there); with ED
+  clear PW_GO is unchanged.
+- **Partial hit** (misaligned operand, one entry hits): the whole operand goes to the bus and both entries are
+  refreshed from it (the 030 reads only the missing half). Same data, more clocks. Deviation D-Q1.
+- **Miss:** the bus cycles run as before. Each portion's whole port word (16-bit port: the aligned word; 32-bit
+  port: the long word, 6.1.3.1) is kept for E0 or E1 with "CIIN negated (CIIN latched as for the I cache) and no
+  bus error" (FB_D0/FB_D1, FB_OK0/FB_OK1, FB_BE0/FB_BE1).
+- **Fill cycles** (`FILL_ACC`): when every operand portion was cachable, no bus error, not RMC, not CPU space and
+  the cache is enabled and not frozen, word cycles read the missing words of the touched entries after the
+  operand's DATA_RDY (the core goes on; its next request waits for the bus). Order: E0 offset 0, E0 offset 2, E1
+  offset 0, E1 offset 2, skipping words already read. Figure 6-6 (byte at $03 -> word $00) is the same; Figure 6-9
+  (long at $06: $06, $04, $08, $0A) runs here as $06, $08, $04, $0A (D-Q6, order only).
+  A fill cycle with a bus error, CIIN asserted or an 8-bit port ends the fill of its entry: no exception, the
+  entry is not validated (6.1.3.1). A read that may need fill cycles does not chain into a prefetch (DP_CHAIN).
+  Fill cycles do not touch DATA_VALID, the SSW staging, the fault snapshot or DBUFFER; FC/address come from the
+  read (DC_OFC, FILL_WADR).
+- **Cache update** (`DC_FL_GO`), in the clock after the read's last cycle, only when something was read cachable
+  or a bus error hit an entry, and ED set / CDIS negated, per entry:
+  - both words OK: a valid matching entry is updated; otherwise, when not frozen, the entry is replaced (a new tag
+    clears the line's other valid bits);
+  - a bus error on the entry: valid bit cleared (also for a bus error on the operand itself, which takes its
+    exception as before; clearing a valid bit can never return stale data, D-Q5);
+  - some words OK and the entry valid with a matching tag: those words updated.
+  The bus stays idle in that clock (the next read is looked up after the update). With CIIN asserted (every ST
+  cycle) nothing is read cachable, so there is no such clock and no fill cycle.
+- **RMC** (TAS, CAS, CAS2): the read never hits (6.1.2.2, 11.4); words it reads with CIIN negated update/create
+  entries as above, but no fill cycles run inside the locked sequence (D-Q7).
 
 ### 2.3 Writes (write-through)
-- Every write runs its bus cycles as now (posted writes unchanged). The cache is updated when the write's first bus
-  cycle starts (the 030 writes the cache before the external write), from the operand's data and byte lanes.
-- Per touched entry, with ED set and CDIS negated (CIIN is not looked at: ignored on writes):
-  - tag match and entry valid (hit): bytes updated, even when FD is set;
-  - otherwise WA = 1 and FD = 0: aligned long word with a tag miss: tag replaced, the long written and marked valid,
-    the other three entries of the line invalid; aligned long word, tag match, entry invalid: written and validated;
-    any other write (byte, word, misaligned long) that misses: the entry's valid bit cleared, tag and data unchanged
-    (for a misaligned long, both touched entries; Fig. 6-4 example 5 lists only "V2 <- 0" because in its
-    starting state V1 is already invalid, example 2: "b6-b7 result in a cache miss");
+- Every write runs its bus cycles as before (posted writes unchanged). The cache is updated in the clock after the
+  write's first bus cycle started (START_CYCLE, or the OP_CHAIN/PW_GO chain edge), from WP_BUFFER (the write data,
+  right-justified), the address and FC of the cycle, i.e. before the external write ends.
+- Per touched entry, with ED set, CDIS negated, FC /= 7 (CIIN is not looked at):
+  - valid with a matching tag (hit): bytes updated, also when FD is set;
+  - otherwise WA = 1 and FD = 0: an aligned long word is written and validated (tag miss: tag replaced, the line's
+    other three valid bits cleared); a byte, word or misaligned long miss clears the entry's valid bit (for a
+    misaligned long both touched entries; Fig. 6-4 example 5 lists only "V2 <- 0" because in its starting state
+    V1 is already invalid, example 2: "b6-b7 result in a cache miss");
   - otherwise (WA = 0, or FD set): no change.
-- RMC write portion: as any write (updates a matching entry, WA for allocation).
-- CPU space (FC = 7): never looked up, filled or updated.
+- RMC write portion: as any write. CPU space: never.
 
 ### 2.4 CACR
 ED (8), FD (9), CED (10), CD (11), DBE (12), WA (13): ED/FD/DBE/WA are stored and read back (the mask $3313 already
 keeps them), CED/CD are strobes and read as zero. DBE has no effect (no burst until a burst-capable fast RAM
-exists; CBREQ stays negated).
+exists; CBREQ stays negated). CDIS (registered pin) disables lookups, fills and updates of both caches and keeps
+the contents.
+
+### 2.5 Timing with the data cache disabled
+With ED = 0 (reset value, every regression program except prog_dcache) every added path is inactive: no lookup is
+used, no fill cycle, no update clock, PW_GO and the chains unchanged. The 92-run regression is clock-identical.
+
+### 2.6 Timing changes with ED = 1 (intended)
+- Read hits: no bus cycle (see 2.2).
+- A read right after a posted write goes through START_CYCLE (+1 clock when it misses).
+- After a cachable read (CIIN negated) or a read with a bus error: one idle clock for the cache update, and the
+  fill cycles; a read that may need fill cycles does not chain into a prefetch.
+- On the ST (CIIN asserted on every read) only the first point and hits on entries created by WA write allocation
+  remain (section 3).
 
 ## 3. What this means on the ST build
 - With ED = 0 (reset, and every regression program) nothing changes.
@@ -96,15 +134,26 @@ exists; CBREQ stays negated).
   This needs a board test before the D cache is used with TOS's Cache option; CDIS (a hardware disable, today tied
   negated) is the safe fallback. D-Q2.
 
-## 4. A3: the request queue (two requests in flight)
-Separate step after the D cache works (OPTION_A_DESIGN.md A3 assessment):
-- A one-deep queue behind the running operand request in the bus interface: the control unit may present the next
-  operand request (address computed, (An)+ step done) before the current read's DATA_RDY.
-- DATA_RDY/BERR tagged per request; a queued request is cancelled, not run, when the running one faults, and the
-  (An)+/-(An)/offset step of the cancelled request is undone so the fault frame and registers are those of the
-  faulting access.
-- A read hit in the D cache completes the queued request without a bus cycle.
-Scope decided in its own design checkpoint once the D cache is in (§6).
+## 4. A3: the request queue (two requests in flight): not built in this run
+
+Status 17 Oct 2026: designed, not implemented. The D cache above does not need it: hits, fills and write updates
+work with one outstanding request, and the fill cycles run behind the operand's DATA_RDY.
+
+What A3 needs (OPTION_A_DESIGN.md "A3" assessment, and the code read for this run):
+- Control unit (wf68k30L_control.vhd, 2753 lines): the MOVEM read loop is DATA_RDY -> INIT_EXEC_WB -> SWITCH_STATE ->
+  CALC_AEFF (request). To present read n+1 before read n's DATA_RDY, MOVEM_PNTR / ADDRESS_OFFSET / the (An)+ step
+  must advance at the request, not at ALU_INIT, and RD_RDY / the ALU load in INIT_EXEC_WB must take the data of the
+  oldest request (a tag per request). CYCLECONTROL / READ_CYCLE assume one request.
+- Top (P_BUSREQ) drops requests while BUS_BSY; it must pass a second one to the bus interface.
+- Bus interface: a one-deep queue (address, FC, size, RMC, tag) behind the running operand cycle, started on the
+  S5 edge like OP_CHAIN (or served by the D cache); DATA_RDY/BERR returned with the tag; when the running cycle
+  takes a bus error the queued request is cancelled, not run, and the control unit undoes its address step
+  ((An)+ increment, MOVEM offset) so the frame and the registers show the faulting access only.
+- Tests: prog_movemr/prog_berrwb/prog_fault variants with a bus error on read n (queued n+1 must never appear on
+  the bus), regression timing documented per program (A3 changes MOVEM read timing on purpose).
+Why not now: it is a control-unit rework with a fault/undo path (OPTION_A: "a control-unit and bus-interface
+rework, not a small step"), measured gain on the ST bench was nil for steps 2/3 (bridge-bound), and it is
+independent of the cache correctness above. Proposed as its own branch step after the D cache board test.
 
 ## 5. Tests
 - `sim/rtl/prog_dcache.s` + `check_dcache.py` + `run_dcache.sh` (tb030 CIMODE=1: $8000–$FFFF RAM and
@@ -114,10 +163,20 @@ Scope decided in its own design checkpoint once the D cache is in (§6).
   supervisor (FC in the tag), CIIN asserted mid-run (hits kept, no fills, writes still allocate with WA), TAS/CAS
   read portion never hits, bus errors on operand and on fill-only cycles, CPU space never cached; CIMODE 0 and 1,
   WS 0/1/3/7, FAST_HANDOFF 0/1.
-- Full regression (`cmp_full.sh`, 92 runs) vs the I cache head: must be identical (ED is never set there).
+- Full regression (92 runs + prog_dcache) vs the I cache head cd7b70c: 92/92 cycle-identical (ED is never set by
+  those programs). A3 is not built, so no intended timing change exists on ST with CACR ED=0.
+- Result (commit 706a0aa): `run_dcache.sh` PASS in all 16 configs (CIMODE 0/1 x WS 0/1/3/7 x FAST_HANDOFF 0/1);
+  I cache unit test PASS.
 - Gate level: `run_icache_net.sh`-style test through the bridge with the netlist (`run_dcache_net.sh`).
 
 ## 6. Open questions
 - D-Q1: partial hits of misaligned operands go to the bus for the whole operand (correct data, not 030 timing).
 - D-Q2: WA write allocation of ST-side writes with TOS 2.06's $3919 (§3): board test before use.
 - D-Q3: no burst (DBE) until fast RAM.
+- D-Q4: A3 (two requests in flight) deferred (§4).
+- D-Q5: any bus error seen on an operand or fill word clears that entry's valid bit (the manual only requires it
+  for the fill-only cycle; clearing more can never return stale data).
+- D-Q6: fill order for a misaligned operand follows the operand cycles, then the missing words (Fig. 6-9 order
+  differs; data and final cache state are the same).
+- D-Q7: no fill cycles inside a locked RMC sequence (TAS/CAS/CAS2); the RMC read is forced to miss as the manual
+  requires and still updates/creates the entry from its own data.
