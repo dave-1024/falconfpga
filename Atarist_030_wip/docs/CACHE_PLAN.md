@@ -83,6 +83,12 @@ Source: `rtl/fastram.v` on the TF534 (and the matching TF536 SDRAM path).
    set EI/ED, even if the caches are compiled out — that is expected and must
    not be treated as proof that caches are live.
 
+**Decision (David, 17 Oct 2026): TF536 style.** CIIN inhibits everything on the ST side: ROM, ST-RAM and I/O. Only a
+future 030-side fast RAM region is cacheable. ROM is deliberately not cached even though TT/Falcon/EmuTOS and the
+Mega STE cache it (research in `/workspace/rom_cache_research.md` on the box, 17 Oct 2026: ROM caching is safe; the
+TOS 1.x ROM at $FC0000 sits inside the $F00000 block the TT tree inhibits). Reason: period-correct ST accelerator
+behaviour, one simple rule in the bridge, no coherency questions with stock TOS 1.x/2.06.
+
 ## 5. Timing and resources
 
 - Tag compare and hit/miss mux land on the **clk_cpu030** critical path.

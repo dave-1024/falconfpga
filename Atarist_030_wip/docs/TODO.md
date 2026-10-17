@@ -16,11 +16,12 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
    early read request; GEMBENCH 133%, see [`OPTION_A_DESIGN.md`](OPTION_A_DESIGN.md)). **A3** (issue the next request
    before the current data: request queue, per-request BERR, undo of the (An)+ step) is **deferred to the cache work**
    (CACHE_PLAN.md section 6); no gain while the ST bus dominates.
-2. **Data-fault timing and the $A/$B frame.** After a data bus error the core still runs the next instruction's operand
-   cycle before it takes the exception, and always stacks format $B with the faulting PC. MC68030UM 8.1.2: the fault is
-   taken right after its bus cycle; a fault on an instruction's last write gives a format $A frame. Pre-existing.
+2. ~~**Data-fault timing and the $A/$B frame.**~~ Fixed on branch `fault-fixes` (FLT1/FLT2, 17 Oct 2026, not on the
+   board yet): no program bus cycle after a data write fault, short $A frame for a write fault at an instruction
+   boundary. See [`FAULT_FIXES.md`](FAULT_FIXES.md).
 3. **Stale bus-fault flag on a chained late BERR.** A BERR at S5 on a cycle that chained into the next updates BUS_FLT
    after VALIDATION used it; the flag can stay stale into the chained cycle. Pre-existing PH2 corner, no bench yet.
+   Checked 17 Oct 2026: not the FLT1/FLT2 path (bus interface P_SYNC vs control unit); still open (FAULT_FIXES.md §3).
 4. **Halt on a reload without a cold boot.** A bare op 1 reload (no `c`) can stop at "System halted!" after the
    cartridge self-test; 5246d00 and de35f5f alike, `c` clears it. Related to the pinned warm-reset halt below.
 5. **clk_cpu030: tighten the decoder -> ADR_EFF path before caches.** Opcode decoder -> I_CONTROL fetch state -> AR
@@ -48,6 +49,16 @@ stays out until that plan is followed.
 - **Evidence:** branch `warm-reset` @ 65e8b32, `docs/RESET_PATHS.md` sections 7-9 (on that branch), frames in `/workspace/gb`
   on the box (f67, f68, drp, f66base, diag).
 - **Next step:** a seed/place_option sweep of the plain F67+F68 build, or more clk32 margin, then re-run the stress test.
+
+## Pinned: remaining GEMBENCH display gap (pinned 17 Oct 2026)
+- **Symptom:** GEMBENCH Display is 89% of a stock STE (CPU 252%): about 10% short on the screen tests (GEM Dialog Box
+  80%, VDI Graphics 72%, GEM Window 81%, New Dialogs 81%).
+- **Cause (working theory):** the 030 makes extra fetch cycles on the ST bus compared with a 68000: long-word prefetches
+  split into two ST word cycles, queue prefetches beyond what the 68000 would fetch, and bridge hand-over slots. On the
+  500 ns ST bus every extra cycle costs a full slot, and the display tests are bus-bound.
+- **Next step:** count ST-bus cycles per GEMBENCH display loop (whole-ST bench / board bus trace) against a 68000 run;
+  then trim fetches the 68000 would not make. Caches do not help here: by the CIIN decision (CACHE_PLAN.md) everything
+  on the ST side stays uncached, so only 030-side fast RAM would.
 
 ## Pinned: final stage
 - **Remove the ST/STE chipset switch.** The helper's ST/STE option misbehaves because the compile default
