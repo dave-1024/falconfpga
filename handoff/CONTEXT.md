@@ -31,12 +31,15 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-16, 22:00 UK)
-- Core: `st_helper_hdn_pfcofvchain_db04754_p3.fs` (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b;
-  main + prefetch stop at change of flow, merged), location 4193. 10 reloads + 3 `w` clean, GEMBENCH 89/251/132.
-  Rollback: `st_helper_hdn_ph2wp_de35f5f_p3.fs` (SHA256 273083f29f4529f53e62ba29006948a937aeab706038b2ba22a1839a2e601285),
-  then `st_helper_hdn_ph2fmax_5246d00_p3.fs` (c74d9676...).
+## Board state (2026-10-17, 01:05 UK)
+- Core: `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6;
+  main + option (a) steps 2/3, merged), location 4193. c + 10 reloads 10/10, 3 `w` clean, GEMBENCH 89/252/133.
+  Rollback order: `st_helper_hdn_oa_08e1cf8_p3.fs` (SHA256 3996f7cacab88d607d4d7c313b9fab28a0581248582a6b3537311951e48ae1fb,
+  step 2 only, 132%), then `st_helper_hdn_pfcofvchain_db04754_p3.fs` (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b),
+  then `st_helper_hdn_ph2wp_de35f5f_p3.fs` (273083f2...).
   **Always `c` after a flash/reload before testing.** Board checks: `hc.sh s` first; halt = 5 black grabs over ~40 s.
+  Count a warm reset only if `w` answers "ST reset via sysctrl" (the first command after reloads can come back as the
+  help text or the serial can go silent; op 1 reload restores it; TODO item 7).
 - Previous board (de35f5f) results kept below.
 - GEMBENCH 6 (gbref.st, ST Medium, STE reference, Blitter/FPU off), 16 Oct 2026:
 

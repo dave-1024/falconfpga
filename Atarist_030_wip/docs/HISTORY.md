@@ -13,6 +13,8 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
 | F66 BERR no-writeback 7e3660e (board build) | 98 / 98 / 80 / 240 / 123 |
 | PH2 handoff + Fmax 5246d00 | 115 / 115 / 89 / 251 / 132 |
 | PH2-WP posted writes de35f5f (board build) | 115 / 115 / 89 / 251 / 132 |
+| prefetch stop at change of flow db04754 | 115 / 115 / 89 / 251 / 132 |
+| option (a) steps 2/3 039c710 (board build) | 115 / 115 / 89 / 252 / 133 |
 
 8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
@@ -57,3 +59,10 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
     in the pipe/queue (step 2); Bcc/DBcc are not predicted; a hand-over already decided at S3 still completes (vchain).
     -2.7% ST cycles on prog_cof, GEMBENCH 132% unchanged. Blocking the decided S5 hand-over (step 1 as first built) halted
     reloads (FALCON_LESSONS.md). Board: st_helper_hdn_pfcofvchain_db04754_p3.fs. Shelved: prefetch-cof-qg.
+13. **Option (a) steps 2/3, MOVEM overlap (08e1cf8, 039c710, option-a, merged 17 Oct 2026).** Symptom: after a MOVEM
+   transfer's DATA_RDY the control unit took 3 (write) or 4 (read) clocks before the next request. Fix: register to
+   memory loads the next register in the clock the current write completes (`ALU_BSY_M`, WRITE_DEST -> EXECUTE); memory
+   to register requests the 2nd and later reads in CALC_AEFF, where the effective address is already valid. Both stay
+   030-correct (only after the previous DATA_RDY; ADR_IN_USE and write priority unchanged). Tests `prog_movemw.s`,
+   `prog_movemr.s`. MOVEM gaps 4 -> 3 and 7 -> 6 clocks; whole-ST bench unchanged; GEMBENCH 132 -> 133%. A3 (requests
+   ahead of data) deferred to the caches. Details: OPTION_A_DESIGN.md.

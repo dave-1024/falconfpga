@@ -105,6 +105,11 @@ Source: `rtl/fastram.v` on the TF534 (and the matching TF536 SDRAM path).
 3. Match the 030 exactly: CACR, CAAR, CIIN, CDIS, CIOUT (with PMMU), burst
    only with CBREQ/CBACK/STERM. No behaviour switches beyond hardware CDIS.
 
+Note (17 Oct 2026): option (a) **A3** belongs here. Issuing the next operand request before the current data arrives
+needs a request queue in the bus interface, DATA_RDY/BERR tagged per request (a queued read is cancelled, not run, when
+the current one faults) and an undo of the (An)+/offset step on a fault. The cache line fills and the cache-miss path
+need the same queue, so build it once with the caches. See OPTION_A_DESIGN.md (A3 assessment).
+
 ## 7. Falcon
 
 TOS on the Falcon enables the caches. Same cache logic and pins; different

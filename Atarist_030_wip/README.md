@@ -4,7 +4,7 @@
 WF68K30L) behind a TerribleFire-style bus bridge, on a Sipeed Tang Console 138K, with a Gowin AE350 RISC-V helper for
 SD card, disks, keyboard/mouse and OSD. It should behave like a real 68030/TF board on an ST bus (no compatibility hacks,
 no write buffer beyond the cycle on the bus: a write ends for the control unit at S3 of its last portion, once DSACK
-has decided it, as on a 68030). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 132% of a stock STE.
+has decided it, as on a 68030). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 133% of a stock STE.
 
 **Start here:** [docs/BUILD.md](docs/BUILD.md) (building the core and the helper on Windows or Linux, every switch and its
 default, timing checks, flash addresses and rules), [docs/FALCON_LESSONS.md](docs/FALCON_LESSONS.md) (lessons and the
@@ -14,10 +14,10 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (16 Oct 2026, main)
+## Status (17 Oct 2026, main)
 
-Board build: `st_helper_hdn_pfcofvchain_db04754_p3.fs` (main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
-writes + prefetch stop at change of flow, place 3), helper
+Board build: `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6; main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
+writes + prefetch stop at change of flow + option (a) MOVEM overlap, place 3; clk_cpu030 21.7 MHz), helper
 `helper_companion_sdwlog_3ec6e20.bin`.
 
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
@@ -30,6 +30,10 @@ GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 | p3 (early AS + F65 handoff + SD fixes) | 98 | 98 | 80 | 240 | 123 |
 | phase 2 (S5->S0 handoff, Fmax, posted writes) | 115 | 115 | 89 | 251 | **132** |
 | prefetch stop at change of flow (vchain) | 115 | 115 | 89 | 251 | **132** |
+| option (a) steps 2/3, MOVEM overlap (oa_039c710) | 115 | 115 | 89 | 252 | **133** |
+
+Option (a): MOVEM register writes load the next register in the clock the write completes, MOVEM reads request the next
+read one clock earlier ([docs/OPTION_A_DESIGN.md](docs/OPTION_A_DESIGN.md)); A3 (requests ahead of data) is deferred to the cache work.
 
 Prefetch: the queue no longer fetches past a taken/unconditional change of flow (as a 68030; [docs/PREFETCH_COF.md](docs/PREFETCH_COF.md)),
 -2.7% ST cycles on branch-heavy code, GEMBENCH unchanged (ST-bus bound). Float Math: OK (12.37 s, 107%). Phase 2: [docs/PHASE2_DESIGN.md](docs/PHASE2_DESIGN.md). The old "float panic" was a corrupt test image, not the CPU

@@ -12,9 +12,10 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 
 ## Phase 2 follow-ups (open, 16 Oct 2026)
 0. **Bridge timing left from the 32 MHz CPU clock**: reviewed 16 Oct 2026, see [`BRIDGE_REVIEW.md`](BRIDGE_REVIEW.md) (no bridge leftovers that cost speed; options 1-2 cleanup, gains are core-side).
-1. **Option (a): pipelined control unit.** After DATA_RDY the control unit needs 3 clk_cpu before a MOVEM presents its
-   next request, so posted writes (option b) save only 1 clock; back-to-back operand cycles need the control unit to
-   issue the next request during the current cycle.
+1. **Option (a): pipelined control unit.** Steps 2/3 **done** 17 Oct 2026 (08e1cf8 MOVEM write overlap, 039c710 MOVEM
+   early read request; GEMBENCH 133%, see [`OPTION_A_DESIGN.md`](OPTION_A_DESIGN.md)). **A3** (issue the next request
+   before the current data: request queue, per-request BERR, undo of the (An)+ step) is **deferred to the cache work**
+   (CACHE_PLAN.md section 6); no gain while the ST bus dominates.
 2. **Data-fault timing and the $A/$B frame.** After a data bus error the core still runs the next instruction's operand
    cycle before it takes the exception, and always stacks format $B with the faulting PC. MC68030UM 8.1.2: the fault is
    taken right after its bus cycle; a fault on an instruction's last write gives a format $A frame. Pre-existing.
