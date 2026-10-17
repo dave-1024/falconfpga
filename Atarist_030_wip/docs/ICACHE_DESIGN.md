@@ -227,3 +227,13 @@ new core is cycle-identical to the old one. `run_rtl.sh`: PASS (prog_loop WS=5 D
 - Q3: Burst fill (IBE, CBREQ/CBACK, STERM) waits for the fast RAM controller.
 - Q4: The A3 request queue (CACHE_PLAN §6 note) is not needed for the I cache (hits do not use the bus); it comes
   with the D cache / fast RAM work.
+
+## Board results: ic_47eba71_p3, 17 Oct 2026
+
+- Flashed st_helper_hdn_ic_47eba71_p3.fs (sha256 da5f2238...6ce034, checked on linserver) with op 53 --fsFile at location 4193, after a cable rescan. core rc=0, reload rc=0.
+- Cold boot `c`: the desktop came up on the first grab and the helper link was OK. No halt, so no reload or recovery was needed. The reload series was not run, as instructed.
+- GEMBENCH "All Tests" (ST Medium, STE ref). The scripted run lost its first DISK A double-click, so I drove the same steps by hand. The capture was black now and then while GEM was busy, but the system did not halt.
+  - Overall 133%, Display 89%, CPU 252%. This matches oa_039c710 exactly (133 / 89 / 252).
+  - Per-test results match oa within timer noise: RAM Access 5.480 vs 5.475 s, VDI Scroll 13.525 vs 13.530 s, and every other test identical.
+- Result grab (1920x1080): docs/prefetch_cof/board/gb_ic_47eba71_result.png.
+- Reading: no measurable gain. Either the cache is not enabled by TOS 2.06 (CACR left at 0), or, under the TF536 rule, CIIN inhibits everything on the ST side, so nothing it runs is cacheable. To be checked before the next cache board run.
