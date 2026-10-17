@@ -149,3 +149,19 @@ Split "the cycle is accepted" from "the data is here":
   r4 desktop at the 4th grab, the earlier grabs non-desktop, within the 5-grab rule; no "System halted!").
   Warm resets: the first `w` got the helper help line instead of a reset (not counted, see FALCON_LESSONS); then 3 `w`
   answered "ST reset via sysctrl R=1", 3/3 DESK, serial OK after each. GEMBENCH running.
+- 01:05 UK, **GEMBENCH on 039c710**: Display 89%, CPU 252%, Average 133% (vchain / 08e1cf8: 89/251/132). Most lines
+  0.005-0.01 s faster (Integer Division 669% vs 667%). No halts. Screenshot `prefetch_cof/board/gb_oa_039c710.png`.
+  **Board left on st_helper_hdn_oa_039c710_p3.fs (all board tests passed). Rollback: oa_08e1cf8, then vchain db04754.**
+- **A3 (issue the next request before the current data): assessed, not implemented.**
+  - Why: after steps 2 and 3, the remaining MOVEM read loop is DATA_RDY → INIT_EXEC_WB → SWITCH_STATE → CALC_AEFF
+    (request). Removing more needs the next address before the current data arrives, i.e. two requests in flight. The
+    core holds one: P_BUSREQ drops requests while BUS_BSY, CYCLECONTROL keeps one READ_CYCLE/WRITE_CYCLE, and RD_RDY /
+    the ALU load in INIT_EXEC_WB assume the DATA_RDY belongs to the only outstanding request. A3 means a request
+    queue in the bus interface, per-request tagging of DATA_RDY/BERR (a queued read must be cancelled, not run, when
+    the current one takes a BERR, or the fault frame would be wrong), and moving the (An)+ increment/offset ahead of
+    the data with an undo path on fault. That is a control-unit and bus-interface rework, not a small step.
+  - Expected gain is small: the whole-ST bench showed steps 2 and 3 cycle-identical on prog_bus/prog_cof; GEMBENCH
+    moved 132 → 133%. The ST bus (500 ns slots, en1 alignment) dominates; the large 719 ns gaps (1149 in prog_bus)
+    are not operand-to-operand gaps.
+  - Recommendation: don't do A3 before the caches. With caches/fast RAM the CPU side stops being masked by the ST
+    bus; revisit A3 then as part of CACHE_PLAN (a bus-interface request queue is needed there anyway).
