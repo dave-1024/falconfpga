@@ -163,7 +163,10 @@ entity WF68K30L_BUS_INTERFACE is
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
         IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
-        IC_FILL             : out std_logic; -- [IC] Strobe: a cacheable prefetch long word arrived.
+        IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
+        IC_FILL_MIS         : out std_logic; -- [IC] ... it started at 4n+2 (stream start at a misaligned word).
+        IC_FILL_OK          : out std_logic_vector(1 downto 0); -- [IC] Per word (1 = first): no bus error, CIIN negated.
+        IC_BREAK            : out std_logic; -- [IC] The stream restarts (Q_MISS).
         IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
         IC_FILL_FC2         : out std_logic; -- [IC]
         IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
@@ -300,7 +303,8 @@ signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opco
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
 signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn sampled with the data of the running portion.
-signal PF_CI                : std_logic := '0'; -- [IC] A finished portion of the running prefetch long had CIIN asserted.
+signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
+signal PF_CI1               : std_logic := '0'; -- [IC] of the running prefetch long (as PF_FLT0/PF_FLT1).
 begin
 
     P_SYNC_N: process(CLK_F)
@@ -759,10 +763,17 @@ begin
     IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
     IC_LK_ADR <= F_ADR(31 downto 2);
     IC_LK_FC2 <= Q_FC(2);
-    -- [IC] Fill: the last portion of an aligned bus prefetch long, no bus error on either word, CIIN negated
-    -- on every portion (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache checks EI, FI and CDIS.
-    IC_FILL <= '1' when PF_DONE = '1' and F_CUR(1) = '0' and PF_FLT0 = '0' and PF_FLT1 = '0' and BUS_FLT = '0'
-                        and PF_CI = '0' and CIIN_LAT = '1' and RESET_CPU_I = '0' else '0';
+    -- [IC] Fill: every bus prefetch long reports its end with, per word, "no bus error and CIIN negated on its
+    -- portion" (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache fills aligned longs whose two words are
+    -- OK, assembles the longs of a misaligned stream (4n+2 start) from consecutive fetches, and checks EI, FI
+    -- and CDIS. Word 0 is the portion at offset 0 (ADR_OFFSET(1) = 0); the last portion always carries word 1.
+    IC_FILL <= '1' when PF_DONE = '1' and RESET_CPU_I = '0' else '0';
+    IC_FILL_MIS <= F_CUR(1);
+    IC_FILL_OK(1) <= '1' when PF_FLT0 = '0' and PF_FLT1 = '0' and BUS_FLT = '0' and PF_CI0 = '0'
+                             and PF_CI1 = '0' and CIIN_LAT = '1' else '0';
+    IC_FILL_OK(0) <= '1' when PF_FLT0 = '0' and not (BUS_FLT = '1' and ADR_OFFSET(1) = '0') and PF_CI0 = '0'
+                             and not (CIIN_LAT = '0' and ADR_OFFSET(1) = '0') else '0';
+    IC_BREAK <= To_StdULogic(Q_MISS);
     IC_FILL_ADR <= F_CUR(31 downto 2);
     IC_FILL_FC2 <= F_FC(2);
     IC_FILL_DATA <= DATA_INMUX;
@@ -911,10 +922,11 @@ begin
             end if;
             -- [IC] CIIN of every finished portion of the running prefetch long.
             if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and CIIN_LAT = '0' then
-                PF_CI <= '1';
+                if ADR_OFFSET(1) = '0' then PF_CI0 <= '1'; else PF_CI1 <= '1'; end if;
             end if;
             if PF_START = '1' or DP_CHAIN_GO = '1' then
-                PF_CI <= '0';
+                PF_CI0 <= '0';
+                PF_CI1 <= '0';
             end if;
             -- [IC] Instruction cache hit: the long word (or, for a stream start at 4n+2, its second word) goes
             -- into the queue in this clock without a bus cycle. PF_REQ_RAW needs Q_CNT <= 1, so at most 3 words.
@@ -979,7 +991,8 @@ begin
                 F_ADR <= F_ADR + "10";
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
-                PF_CI <= '0'; -- [IC]
+                PF_CI0 <= '0'; -- [IC]
+                PF_CI1 <= '0';
             end if;
             if RESET_CPU_I = '1' then
                 S_VALID <= '0';

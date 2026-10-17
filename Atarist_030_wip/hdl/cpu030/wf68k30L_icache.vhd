@@ -11,8 +11,12 @@
 -- 256 bytes: 16 lines x 4 long words, direct-mapped. Index A7:4, long select A3:2.
 -- Tag per line: A31:8 and FC2. One valid bit per long word.
 -- The bus interface's prefetch queue looks up the long word it is about to fetch
--- (LK_ADR) and fills the long word a bus prefetch brought in (FILL) when CIIN was
--- negated on every portion and the long had no bus error.
+-- (LK_ADR) and reports every bus prefetch long (FILL) with, per word, "no bus error
+-- and CIIN negated" (FILL_OK). An aligned long with both words OK is stored. A stream
+-- that starts at 4n+2 fetches misaligned longs (4n+2, 4n+4): the second word of one
+-- fetch is kept (PH_*) and stored with the first word of the next fetch, so every
+-- long word the bus read in full is cached, as on a 68030 (its first, half-read long
+-- is not; docs/ICACHE_DESIGN.md Q1).
 -- EI enables hits and fills, FI freezes (hits only), CDIS (pin) disables both and
 -- keeps the contents. CLR_ALL (CACR CI) clears every valid bit, CLR_ENT (CACR CEI)
 -- the long word at CLR_IDX (CAAR 7:2), both whatever EI and FI are. Reset clears
@@ -39,6 +43,9 @@ entity WF68K30L_ICACHE is
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
         FILL      : in std_logic;
+        FILL_MIS  : in std_logic;
+        FILL_OK   : in std_logic_vector(1 downto 0);
+        BREAK     : in std_logic;
         FILL_ADR  : in std_logic_vector(31 downto 2);
         FILL_FC2  : in std_logic;
         FILL_DATA : in std_logic_vector(31 downto 0)
@@ -58,13 +65,24 @@ architecture RTL of WF68K30L_ICACHE is
     signal FL_LW    : integer range 0 to 3;
     signal FL_TAG   : std_logic_vector(24 downto 0);
     signal FL_GO    : std_logic;
+    signal FL_DATA  : std_logic_vector(31 downto 0);
+    signal FA_GO    : std_logic; -- Aligned long, both words OK.
+    signal FM_GO    : std_logic; -- Misaligned stream: kept word + first word of this fetch.
+    signal PH_V     : std_logic := '0';
+    signal PH_W     : std_logic_vector(15 downto 0) := (others => '0');
+    signal PH_L     : std_logic_vector(31 downto 2) := (others => '0');
+    signal PH_FC2   : std_logic := '0';
 begin
     LK_LINE <= to_integer(unsigned(LK_ADR(7 downto 4)));
     LK_LW   <= to_integer(unsigned(LK_ADR(3 downto 2)));
     FL_LINE <= to_integer(unsigned(FILL_ADR(7 downto 4)));
     FL_LW   <= to_integer(unsigned(FILL_ADR(3 downto 2)));
     FL_TAG  <= FILL_ADR(31 downto 8) & FILL_FC2;
-    FL_GO   <= FILL and EI and not FI and not CDIS;
+    FA_GO   <= '1' when FILL = '1' and FILL_MIS = '0' and FILL_OK = "11" else '0';
+    FM_GO   <= '1' when FILL = '1' and FILL_MIS = '1' and FILL_OK(0) = '1' and PH_V = '1' and
+                        PH_L = FILL_ADR and PH_FC2 = FILL_FC2 else '0';
+    FL_GO   <= (FA_GO or FM_GO) and EI and not FI and not CDIS;
+    FL_DATA <= PH_W & FILL_DATA(31 downto 16) when FILL_MIS = '1' else FILL_DATA;
 
     HIT <= '1' when EI = '1' and CDIS = '0' and VALID(LK_LINE)(LK_LW) = '1' and
                     TAG_RAM(LK_LINE) = LK_ADR(31 downto 8) & LK_FC2 else '0';
@@ -75,11 +93,29 @@ begin
     begin
         if CLK = '1' and CLK'event then
             if FL_GO = '1' then
-                DATA_RAM(FL_LINE * 4 + FL_LW) <= FILL_DATA;
+                DATA_RAM(FL_LINE * 4 + FL_LW) <= FL_DATA;
                 TAG_RAM(FL_LINE) <= FL_TAG;
             end if;
         end if;
     end process P_RAM;
+
+    -- Second word of a misaligned fetch: the first half of the next long word of the stream.
+    P_HALF: process(CLK)
+    begin
+        if CLK = '1' and CLK'event then
+            if FILL = '1' and FILL_MIS = '1' then
+                PH_W <= FILL_DATA(15 downto 0);
+                PH_L <= std_logic_vector(unsigned(FILL_ADR) + 1);
+                PH_FC2 <= FILL_FC2;
+                PH_V <= FILL_OK(1);
+            elsif FILL = '1' then
+                PH_V <= '0';
+            end if;
+            if RESET = '1' or CLR_ALL = '1' or CLR_ENT = '1' or BREAK = '1' then
+                PH_V <= '0';
+            end if;
+        end if;
+    end process P_HALF;
 
     P_VALID: process(CLK)
         variable V : std_logic_vector(3 downto 0);

@@ -17,11 +17,14 @@ entity tb030 is
            RAMFILE  : string := "";       -- ST=1: initial RAM image (hex words from $0), e.g. a Hatari snapshot
            RSSP     : integer := 0;       -- nonzero: reset SSP/PC read at 0..7 instead of the ROM vectors
            RPC      : integer := 0;
-           VEC6     : integer := 0;
+           VEC6     : integer := 0;       -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
            TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
            WSRND    : integer := 0;        -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)
-           GAPLOG   : integer := 0;
-           FASTH    : integer := 1);       -- [PH2] FAST_HANDOFF generic of the core (the board builds use 1)       -- [PH2] 1: log the clocks between AS negation and the next AS assertion -- (was:) extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)      -- nonzero: level 6 IACK returns this vector number (MFP-like) instead of AVEC
+           GAPLOG   : integer := 0;        -- [PH2] 1: log the clocks between AS negation and the next AS assertion
+           FASTH    : integer := 1;        -- [PH2] FAST_HANDOFF generic of the core (the board builds use 1)
+           CIMODE   : integer := 0);       -- [IC] 0: CIINn asserted on every cycle (as the ST bridge). 1: negated for ROM
+                                           -- $FD0000-$FEFFFF, RAM $8000-$FFFF and the BERR range $20000-$2FFFF (a fake cacheable region); log marks them " C".
+                                           -- A word write to $3500 drives CDISn = not D16 (both modes).
 end;
 architecture sim of tb030 is
   signal clk : std_logic := '0';
@@ -51,6 +54,8 @@ architecture sim of tb030 is
   signal clkn : integer := 0;
   signal trig_at : integer := -1;
   signal iack_clr : boolean := false;
+  signal ciinn : std_logic := '0'; -- [IC]
+  signal cdisn : std_logic := '1'; -- [IC]
 begin
   clk <= not clk after 62.5 ns when not done;
   dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => FASTH) port map (
@@ -58,7 +63,8 @@ begin
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
     ASn => asn, RWn => rwn, RMCn => open, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
-    BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1');
+    BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1',
+    CIINn => ciinn, CDISn => cdisn, CBACKn => '1', CBREQn => open, CIOUTn => open); -- [IC]
 
   process
     variable fired : boolean := false; variable last : boolean := false;
@@ -104,6 +110,13 @@ begin
         isram := (a >= 8 and a < x"00010000") or (ST = 1 and a >= 8 and a < x"00400000");
         isio  := ST = 1 and ((a >= x"00FF8000" and a <= x"00FFFFFF" and a(23 downto 4) /= x"FF8C8") or (a >= x"00FA0000" and a < x"00FC0000"));
         wi := to_integer(a(21 downto 1));
+        -- [IC] cache inhibit for this cycle
+        if CIMODE = 1 and ((a >= x"00FD0000" and a < x"00FF0000") or (a >= x"00008000" and a < x"00010000") or
+                            (a >= x"00020000" and a < x"00030000")) then -- (the last range is BERR: a faulting cacheable fetch)
+          ciinn <= '1';
+        else
+          ciinn <= '0';
+        end if;
         -- data
         if isrom then
           if a < 8 and RSSP /= 0 then
@@ -130,6 +143,7 @@ begin
             if a(0) = '0' then ram(wi) := to_integer(unsigned(dout(31 downto 24))) * 256 + (ram(wi) mod 256);
             else ram(wi) := (ram(wi) / 256) * 256 + to_integer(unsigned(dout(23 downto 16))); end if;
           else ram(wi) := to_integer(unsigned(dout(31 downto 16))); end if;
+          if a = x"00003500" then cdisn <= not dout(16); end if; -- [IC]
           if a = x"00003400" then
             if IPL_MODE = 2 then trig_at <= clkn + IRQ_DLY; end if;
           end if;
@@ -151,9 +165,10 @@ begin
         if rwn = '1' then write(l, string'(" D=")); hwrite(l, w); else write(l, string'(" W=")); hwrite(l, dout); end if;
         write(l, string'(" IPL=")); write(l, to_integer(unsigned(not ipl)));
         if not (isrom or isram or iack or isio) then write(l, string'(" BERR")); end if;
+        if CIMODE /= 0 and ciinn = '1' then write(l, string'(" C")); end if; -- [IC] (signal set before the wait clocks)
         if QUIET = 0 or not (fc(1 downto 0) = "10" and (a >= x"00FC0000" or QUIET = 2)) then writeline(output, l); else deallocate(l); end if;
         wait until asn = '1';
-        dsackn <= "11"; berrn <= '1'; avecn <= '1';
+        dsackn <= "11"; berrn <= '1'; avecn <= '1'; ciinn <= '0';
       end if;
     end loop;
   end process;

@@ -77,4 +77,7 @@ python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_loop
 $G -r $O tb030 -gROMFILE=prog_loop.hex -gWS=5 -gMAXCLK=200000 2>/dev/null > r.log || true
 lc=$(awk '/DONE/{print $NF}' r.log); echo "prog_loop WS=5: DONE at clk ${lc:-none}"
 [ -n "$lc" ] && [ "$lc" -le 45885 ] || { echo "FAIL prog_loop slower than the original core"; fail=1; }
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok"
+# [IC] Instruction cache unit test (prog_icache.s, CIMODE 1 and 0, expect_icache_ci*.txt).
+ic=$(bash $H/run_icache.sh $W || true); echo "$ic" | grep FAIL || true
+echo "$ic" | grep -q "^PASS" || { echo "FAIL run_icache"; fail=1; }
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok"

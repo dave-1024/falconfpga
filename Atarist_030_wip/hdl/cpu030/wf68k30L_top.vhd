@@ -418,6 +418,9 @@ signal IC_LK_FC2                : std_logic;
 signal IC_HIT                   : std_logic;
 signal IC_HIT_DATA              : std_logic_vector(31 downto 0);
 signal IC_FILL                  : std_logic;
+signal IC_FILL_MIS              : std_logic;
+signal IC_FILL_OK               : std_logic_vector(1 downto 0);
+signal IC_BREAK                 : std_logic;
 signal IC_FILL_ADR              : std_logic_vector(31 downto 2);
 signal IC_FILL_FC2              : std_logic;
 signal IC_FILL_DATA             : std_logic_vector(31 downto 0);
@@ -949,6 +952,9 @@ begin
             HIT       => IC_HIT,
             HIT_DATA  => IC_HIT_DATA,
             FILL      => IC_FILL,
+            FILL_MIS  => IC_FILL_MIS,
+            FILL_OK   => IC_FILL_OK,
+            BREAK     => IC_BREAK,
             FILL_ADR  => IC_FILL_ADR,
             FILL_FC2  => IC_FILL_FC2,
             FILL_DATA => IC_FILL_DATA
@@ -1126,6 +1132,9 @@ begin
             IC_HIT              => IC_HIT,
             IC_HIT_DATA         => IC_HIT_DATA,
             IC_FILL             => IC_FILL,
+            IC_FILL_MIS         => IC_FILL_MIS,
+            IC_FILL_OK          => IC_FILL_OK,
+            IC_BREAK            => IC_BREAK,
             IC_FILL_ADR         => IC_FILL_ADR,
             IC_FILL_FC2         => IC_FILL_FC2,
             IC_FILL_DATA        => IC_FILL_DATA,

@@ -94,6 +94,9 @@ component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
         FILL      : in std_logic;
+        FILL_MIS  : in std_logic;
+        FILL_OK   : in std_logic_vector(1 downto 0);
+        BREAK     : in std_logic;
         FILL_ADR  : in std_logic_vector(31 downto 2);
         FILL_FC2  : in std_logic;
         FILL_DATA : in std_logic_vector(31 downto 0)
@@ -278,7 +281,10 @@ component WF68K30L_BUS_INTERFACE
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
         IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
-        IC_FILL             : out std_logic; -- [IC] Strobe: a cacheable prefetch long word arrived.
+        IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
+        IC_FILL_MIS         : out std_logic; -- [IC] ... it started at 4n+2 (stream start at a misaligned word).
+        IC_FILL_OK          : out std_logic_vector(1 downto 0); -- [IC] Per word (1 = first): no bus error, CIIN negated.
+        IC_BREAK            : out std_logic; -- [IC] The stream restarts (Q_MISS).
         IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
         IC_FILL_FC2         : out std_logic; -- [IC]
         IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
