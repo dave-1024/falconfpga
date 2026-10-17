@@ -169,6 +169,16 @@ independent of the cache correctness above. Proposed as its own branch step afte
   I cache unit test PASS.
 - Gate level: `run_icache_net.sh`-style test through the bridge with the netlist (`run_dcache_net.sh`).
 
+- Gate level (Gowin netlist wf030.vg of 706a0aa, sha256 31ced2c0...cdef6): run_unit.sh ERRORS=0 in all 6 phases,
+  traces byte-identical to cd7b70c; run_icache_net.sh PASS; run_dcache_net.sh PASS
+  (`c1:2/0 c2:2/0 c3:4/0 c4:0/0 c5:0/1 c6:0/2 c7:2/0 c8:0/0 | ... 3706:beef 3708:1234 370a:5678`).
+- ST build 706a0aa (st_helper_hdn_dc_706a0aa_p3.fs, sha256 ae5651ee46db1b606c3368a687e9e2ed6061871dffd7173965aa81a3d4a9ffb8):
+  LUT 42093 / ALU 4815 / Reg 18086 / RAM16 246 / BSRAM 172 (47eba71: 35955 / 4590 / 15347 / 246 / 172);
+  Fmax clk_cpu030 22.393 MHz (16 MHz target; 47eba71 23.069), clk32_core 33.509 MHz (32; 47eba71 35.537), TNS 0 on both.
+  WF68K30L_DCACHE is present: 2048 DFFCE (the 256 data bytes) + 496 DFFRE (tags, valid) + ~5.8k LUT/MUX.
+  Slowest clk_cpu030 path is opcode decoder -> exception handler (slack 17.8 ns); no D cache cell in the
+  reported worst paths.
+
 ## 6. Open questions
 - D-Q1: partial hits of misaligned operands go to the bus for the whole operand (correct data, not 030 timing).
 - D-Q2: WA write allocation of ST-side writes with TOS 2.06's $3919 (§3): board test before use.
@@ -180,3 +190,5 @@ independent of the cache correctness above. Proposed as its own branch step afte
   differs; data and final cache state are the same).
 - D-Q7: no fill cycles inside a locked RMC sequence (TAS/CAS/CAS2); the RMC read is forced to miss as the manual
   requires and still updates/creates the entry from its own data.
+- D-Q8: the data arrays map to flip-flops, not RAM16 (each bank is written through two index ports, I0/I1, for
+  misaligned operands). Functionally complete and kept; a one-write-port restructure would save ~6k LUTs.
