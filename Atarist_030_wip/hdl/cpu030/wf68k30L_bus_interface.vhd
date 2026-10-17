@@ -359,6 +359,7 @@ signal DCW_ADR              : std_logic_vector(31 downto 0) := (others => '0');
 signal DCW_FC               : std_logic_vector(2 downto 0) := "000";
 signal DCW_SZ               : std_logic_vector(2 downto 0) := "001";
 signal DC_FL_GO_I           : std_logic;
+signal DC_FIN               : std_logic; -- [DC] The read (and its fill cycles) is complete.
 signal DC_PH                : std_logic := '0'; -- [DC] Registered lookup of the request of the last clock: hit,
 signal DC_PD                : std_logic_vector(31 downto 0) := (others => '0'); -- its operand,
 signal DC_PV                : std_logic := '0'; -- a read request was pending (no DATA_RDY).
@@ -1058,8 +1059,11 @@ begin
                  DC_OA(31 downto 2) & '1' when DC_MISS(2) = '1' else
                  (DC_OA(31 downto 2) + '1') & '0' when DC_MISS(1) = '1' else
                  (DC_OA(31 downto 2) + '1') & '1';
-    DC_FL_GO_I <= '1' when RESET_CPU_I = '0' and ((DC_DECIDE = '1' and (DC_NEED = '0' or DC_MISS = "0000")) or
-                         (FILL_PEND = '1' and DC_MISS = "0000" and FILL_ACC = '0')) else '0';
+    DC_FIN <= '1' when (DC_DECIDE = '1' and (DC_NEED = '0' or DC_MISS = "0000")) or
+                       (FILL_PEND = '1' and DC_MISS = "0000" and FILL_ACC = '0') else '0';
+    -- Only when the cache can change: something was read cachable, or a bus error hit an entry.
+    DC_FL_GO_I <= '1' when RESET_CPU_I = '0' and DC_FIN = '1' and DC_ON = '1' and
+                           (FB_OK0 /= "00" or FB_OK1 /= "00" or FB_BE0 = '1' or FB_BE1 = '1') else '0';
     DC_DPBLK <= '1' when READ_ACCESS = '1' and DC_TRK = '1' and DC_FILL_EN = '1' and FB_CA = '1' and CIIN_LAT = '1' and
                          DC_ORMC = '0' and DC_OFC /= "111" else '0';
     DC_FL_GO <= DC_FL_GO_I;
@@ -1079,7 +1083,7 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         DC_DECIDE <= '0';
-        if DC_FL_GO_I = '1' then
+        if DC_FIN = '1' then
             FILL_PEND <= '0';
         elsif DC_DECIDE = '1' and DC_NEED = '1' and DC_MISS /= "0000" then
             FILL_PEND <= '1';
