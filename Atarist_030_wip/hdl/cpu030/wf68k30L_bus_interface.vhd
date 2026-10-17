@@ -82,6 +82,9 @@
 --   2026-10-16 PH2-WP: posted writes: DATA_RDY of a write on the S3 edge of its last portion (option b).
 --   2026-10-16 PH2-WP: a faulted write's data is held in OUTBUFFER (frame DOB) until the exception.
 --   2026-10-16 PH2-WP: PW_GO: the operand request in the IDLE clock after a posted write starts without START_CYCLE.
+--   2026-10-17 IC: 68030 instruction cache on the prefetch queue: a queue long that hits is taken from the cache
+--     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
+--     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
 -- 
 
 library work;
@@ -156,6 +159,15 @@ entity WF68K30L_BUS_INTERFACE is
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX] Its registered function code.
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
+        IC_LK_FC2           : out std_logic; -- [IC]
+        IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
+        IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
+        IC_FILL             : out std_logic; -- [IC] Strobe: a cacheable prefetch long word arrived.
+        IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
+        IC_FILL_FC2         : out std_logic; -- [IC]
+        IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
+        CIINn               : in std_logic; -- [IC] Cache inhibit in (MC68030UM 5.7.1).
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -285,6 +297,10 @@ signal DP_CHAIN_GO          : bit; -- [PH2] S5 decision: the operand cycle rolls
 signal CH_WR                : bit; -- [PH2] The chained operand cycle is a write.
 signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle starts on this S5 edge.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
+signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
+signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
+signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn sampled with the data of the running portion.
+signal PF_CI                : std_logic := '0'; -- [IC] A finished portion of the running prefetch long had CIIN asserted.
 begin
 
     P_SYNC_N: process(CLK_F)
@@ -736,7 +752,20 @@ begin
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
-    PF_REQ <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
+    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
+    -- [IC] A long word the instruction cache holds is taken from the cache (P_QUEUE) and never starts a bus
+    -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
+    PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT);
+    IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
+    IC_LK_ADR <= F_ADR(31 downto 2);
+    IC_LK_FC2 <= Q_FC(2);
+    -- [IC] Fill: the last portion of an aligned bus prefetch long, no bus error on either word, CIIN negated
+    -- on every portion (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache checks EI, FI and CDIS.
+    IC_FILL <= '1' when PF_DONE = '1' and F_CUR(1) = '0' and PF_FLT0 = '0' and PF_FLT1 = '0' and BUS_FLT = '0'
+                        and PF_CI = '0' and CIIN_LAT = '1' and RESET_CPU_I = '0' else '0';
+    IC_FILL_ADR <= F_CUR(31 downto 2);
+    IC_FILL_FC2 <= F_FC(2);
+    IC_FILL_DATA <= DATA_INMUX;
     PF_START <= '1' when BUS_CTRL_STATE = START_CYCLE and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and
                          RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
     PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
@@ -816,7 +845,7 @@ begin
     -- offset, width and OCS updates. RMC and a bus fault can appear after
     -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
     -- INFL, so PF_REQ never fires again.
-    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
+    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000" and IC_HIT = '0' -- [IC]
                    and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' -- [PFCOF vchain] hold not applied at the S5 decision
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
@@ -880,6 +909,25 @@ begin
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
             end if;
+            -- [IC] CIIN of every finished portion of the running prefetch long.
+            if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and CIIN_LAT = '0' then
+                PF_CI <= '1';
+            end if;
+            if PF_START = '1' or DP_CHAIN_GO = '1' then
+                PF_CI <= '0';
+            end if;
+            -- [IC] Instruction cache hit: the long word (or, for a stream start at 4n+2, its second word) goes
+            -- into the queue in this clock without a bus cycle. PF_REQ_RAW needs Q_CNT <= 1, so at most 3 words.
+            if IC_TAKE = '1' then
+                if F_ADR(1) = '0' then
+                    W(CNT) := IC_HIT_DATA(31 downto 16); F(CNT) := '0'; CNT := CNT + 1;
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    F_ADR <= F_ADR + "10";
+                else
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    F_ADR <= F_ADR + '1';
+                end if;
+            end if;
             if PF_DONE = '1' then
                 F0 := PF_FLT0 or (To_Bit(BUS_FLT) and not To_Bit(ADR_OFFSET(1)));
                 F1 := F0 or PF_FLT1 or (To_Bit(BUS_FLT) and To_Bit(ADR_OFFSET(1)));
@@ -931,6 +979,7 @@ begin
                 F_ADR <= F_ADR + "10";
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
+                PF_CI <= '0'; -- [IC]
             end if;
             if RESET_CPU_I = '1' then
                 S_VALID <= '0';
@@ -994,6 +1043,7 @@ begin
     wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
         --
         if ((T_SLICE = S2 or T_SLICE = S3) and STERMn = '0') or T_SLICE = S4 then
+            CIIN_LAT <= CIINn; -- [IC] CIIN is sampled with the data (MC68030UM 5.7.1).
             case BUS_WIDTH is
                 when BYTE =>
                     case SIZE_I is

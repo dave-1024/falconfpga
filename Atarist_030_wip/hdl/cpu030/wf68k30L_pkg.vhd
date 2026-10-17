@@ -79,23 +79,24 @@ type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, AND
 type TRAPTYPE_OPC is(NONE, T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV, T_RTE); -- None is the first entry and default.
 
 
-component WF68K30L_ICACHE
+component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
     port (
         CLK       : in std_logic;
         RESET     : in bit;
         EI        : in std_logic;
         FI        : in std_logic;
-        CI        : in std_logic;
-        REQ       : in bit;
-        ADR       : in std_logic_vector(31 downto 0);
-        FC        : in std_logic_vector(2 downto 0);
-        WR        : in bit;
-        WR_ADR    : in std_logic_vector(31 downto 0);
-        BUS_RDY   : in bit;
-        BUS_WORD  : in std_logic_vector(15 downto 0);
-        BUS_REQ   : out bit;
-        RDY       : out bit;
-        WORD      : out std_logic_vector(15 downto 0)
+        CDIS      : in std_logic;
+        CLR_ALL   : in std_logic;
+        CLR_ENT   : in std_logic;
+        CLR_IDX   : in std_logic_vector(7 downto 2);
+        LK_ADR    : in std_logic_vector(31 downto 2);
+        LK_FC2    : in std_logic;
+        HIT       : out std_logic;
+        HIT_DATA  : out std_logic_vector(31 downto 0);
+        FILL      : in std_logic;
+        FILL_ADR  : in std_logic_vector(31 downto 2);
+        FILL_FC2  : in std_logic;
+        FILL_DATA : in std_logic_vector(31 downto 0)
     );
 end component;
 
@@ -273,6 +274,15 @@ component WF68K30L_BUS_INTERFACE
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX]
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
+        IC_LK_FC2           : out std_logic; -- [IC]
+        IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
+        IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
+        IC_FILL             : out std_logic; -- [IC] Strobe: a cacheable prefetch long word arrived.
+        IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
+        IC_FILL_FC2         : out std_logic; -- [IC]
+        IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
+        CIINn               : in std_logic; -- [IC] Cache inhibit in (MC68030UM 5.7.1).
         INBUFFER            : out std_logic_vector(31 downto 0);
         OUTBUFFER           : out std_logic_vector(31 downto 0);
         SSW_80              : out std_logic_vector(8 downto 0);

@@ -159,6 +159,9 @@
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
 --   2026-10-16 PH2: address/FC latches also load on OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: ADR_LATCH/FC_LATCH drive the bus interface's ADR_LAT/FC_LAT (address pins).
+--   2026-10-17 IC: 68030 instruction cache (WF68K30L_ICACHE) on the prefetch queue, unconditional; cache pins
+--     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
+--     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --
 
 library work;
@@ -176,11 +179,9 @@ entity WF68K30L_TOP is
         -- [F58] 1: the falling-edge registers are clocked by CLK_N (a 180 degree copy of CLK,
         -- e.g. a second PLL output on a global clock) instead of an inverted CLK.
         CLK_N_EXT       : integer := 0;
-        -- [F59] 1: instantiate the experimental instruction and data caches
-        -- (WF68K30L_ICACHE/DCACHE, enabled by CACR EI/ED). 0 (default): no
-        -- caches, every opcode and data access goes to the bus, exactly as
-        -- with CACR EI = ED = 0. CACR/CAAR stay MOVEC read/write either way.
-        -- The caches are incomplete (no CIIN, burst fill, WA or DMA snoop).
+        -- [F59] Was: 1 = the experimental 4 Oct I/D cache modules. [IC] Ignored since
+        -- 2026-10-17: the 68030 instruction cache is always built (CIINn decides what
+        -- is cacheable); kept so old build scripts and bridge parameters still elaborate.
         CACHES          : integer := 0;
         -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
         -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
@@ -228,6 +229,14 @@ entity WF68K30L_TOP is
 
         -- Synchronous bus control:
         STERMn          : in std_logic;
+
+        -- [IC] Cache control (MC68030UM 5.7, 5.11.1). The defaults keep a bench that
+        -- does not drive them uncached: CIINn asserted, CDISn negated, no burst.
+        CIINn           : in std_logic := '0'; -- Cache inhibit in, sampled with the data.
+        CDISn           : in std_logic := '1'; -- Cache disable (emulator / jumper).
+        CBACKn          : in std_logic := '1'; -- Cache burst acknowledge (no burst yet: unused).
+        CBREQn          : out std_logic; -- Cache burst request (no burst yet: always negated).
+        CIOUTn          : out std_logic; -- Cache inhibit out (no PMMU: always negated).
 
         -- Status controls:
         STATUSn         : out std_logic;
@@ -402,8 +411,16 @@ signal IC_CI                    : std_logic;
 signal BUS_DATA_RDY             : bit;
 signal BUS_DATA_WORD            : std_logic_vector(31 downto 0);
 signal DC_BUS_REQ               : bit;
-signal DC_CD                    : std_logic;
-signal DC_LONG                  : std_logic;
+signal IC_CEI                   : std_logic; -- [IC]
+signal CDIS_R                   : std_logic := '0'; -- [IC] Registered CDIS (asserted = '1').
+signal IC_LK_ADR                : std_logic_vector(31 downto 2); -- [IC]
+signal IC_LK_FC2                : std_logic;
+signal IC_HIT                   : std_logic;
+signal IC_HIT_DATA              : std_logic_vector(31 downto 0);
+signal IC_FILL                  : std_logic;
+signal IC_FILL_ADR              : std_logic_vector(31 downto 2);
+signal IC_FILL_FC2              : std_logic;
+signal IC_FILL_DATA             : std_logic_vector(31 downto 0);
 signal OW_VALID                 : std_logic;
 signal OPD_ACK_MAIN             : bit;
 signal OP                       : OP_68K;
@@ -442,7 +459,7 @@ signal SP_ADD_DISPL_EXH         : bit;
 signal SP_ADD_DISPL_MAIN        : bit;
 signal SBIT                     : std_logic;
 signal OPC_FC                   : std_logic_vector(2 downto 0); -- [F62]
-constant PREFETCH_Q_EN          : integer := 1 - CACHES; -- [F62] Opcode prefetch queue when the caches are not built.
+constant PREFETCH_Q_EN          : integer := 1; -- [F62] Opcode prefetch queue. [IC] Always on: the instruction cache sits on it.
 signal SSW_80                   : std_logic_vector(8 downto 0);
 signal BFLT_SSW                 : std_logic_vector(8 downto 0); -- F1
 signal BFLT_ADR                 : std_logic_vector(31 downto 0); -- F1
@@ -904,64 +921,50 @@ begin
             "001" when DATA_RD = '1' or DATA_WR = '1' else
             "110" when OPCODE_RD = '1' and SBIT = '1' else "010"; -- Default is OPCODE_RD and SBIT = '0'.
 
+    -- [IC] 68030 instruction cache (MC68030UM ch. 6, docs/ICACHE_DESIGN.md). The prefetch queue in the bus
+    -- interface looks up and fills it. CACR CI (bit 3) clears every entry, CEI (bit 2) the long word at
+    -- CAAR 7:2; both are MOVEC write strobes and read as zero (P_CACHE_REGS mask).
     IC_CI <= '1' when CACR_WR = '1' and DATA_IN_EXH(3) = '1' else '0';
+    IC_CEI <= '1' when CACR_WR = '1' and DATA_IN_EXH(2) = '1' else '0';
 
-    G_CACHES: if CACHES /= 0 generate
+    P_CDIS: process(CLK) -- [IC] CDIS is an asynchronous pin.
+    begin
+        if CLK = '1' and CLK' event then
+            CDIS_R <= not CDISn;
+        end if;
+    end process P_CDIS;
+
     I_ICACHE: WF68K30L_ICACHE
         port map(
             CLK       => CLK,
             RESET     => RESET_CPU,
             EI        => CACR(0),
             FI        => CACR(1),
-            CI        => IC_CI,
-            REQ       => OPCODE_REQ,
-            ADR       => ADR_P,
-            FC        => FC_I,
-            WR        => WR_REQ,
-            WR_ADR    => ADR_P,
-            BUS_RDY   => BUS_OPCODE_RDY,
-            BUS_WORD  => BUS_OPCODE_WORD,
-            BUS_REQ   => IC_BUS_REQ,
-            RDY       => OPCODE_RDY,
-            WORD      => OPCODE_TO_CORE
+            CDIS      => CDIS_R,
+            CLR_ALL   => IC_CI,
+            CLR_ENT   => IC_CEI,
+            CLR_IDX   => CAAR(7 downto 2),
+            LK_ADR    => IC_LK_ADR,
+            LK_FC2    => IC_LK_FC2,
+            HIT       => IC_HIT,
+            HIT_DATA  => IC_HIT_DATA,
+            FILL      => IC_FILL,
+            FILL_ADR  => IC_FILL_ADR,
+            FILL_FC2  => IC_FILL_FC2,
+            FILL_DATA => IC_FILL_DATA
         );
 
-    DC_CD <= '1' when CACR_WR = '1' and DATA_IN_EXH(11) = '1' else '0';
-    DC_LONG <= '1' when OP_SIZE = LONG and ADR_P(1 downto 0) = "00" else '0';
+    CBREQn <= '1'; -- [IC] No burst fill until a burst-capable fast RAM exists (CACR IBE has no effect).
+    CIOUTn <= '1'; -- [IC] No PMMU, so no page or TT register can ask for cache inhibit.
 
-    I_DCACHE: WF68K30L_DCACHE
-        port map(
-            CLK       => CLK,
-            RESET     => RESET_CPU,
-            ED        => CACR(8),
-            FD        => CACR(9),
-            CD        => DC_CD,
-            REQ       => RD_REQ,
-            LONG_OK   => DC_LONG,
-            ADR       => ADR_P,
-            FC        => FC_I,
-            WR        => WR_REQ,
-            WR_ADR    => ADR_P,
-            WR_FC     => FC_I,
-            BUS_RDY   => BUS_DATA_RDY,
-            BUS_DATA  => BUS_DATA_WORD,
-            BUS_REQ   => DC_BUS_REQ,
-            RDY       => DATA_RDY,
-            DATA      => DATA_TO_CORE
-        );
-    end generate G_CACHES;
-
-    -- [F59] No caches: the core talks to the bus interface directly. This is
-    -- what the cache modules do on every access while EI/ED are clear
-    -- (hit = 0, served = 0: BUS_REQ = REQ, RDY = BUS_RDY, data = bus data).
-    G_NO_CACHES: if CACHES = 0 generate
-        IC_BUS_REQ     <= OPCODE_REQ;
-        OPCODE_RDY     <= BUS_OPCODE_RDY;
-        OPCODE_TO_CORE <= BUS_OPCODE_WORD;
-        DC_BUS_REQ     <= RD_REQ;
-        DATA_RDY       <= BUS_DATA_RDY;
-        DATA_TO_CORE   <= BUS_DATA_WORD;
-    end generate G_NO_CACHES;
+    -- The core talks to the bus interface directly for data (no data cache yet; step 2 of CACHE_PLAN.md).
+    -- Instruction words come from the prefetch queue, which the instruction cache feeds.
+    IC_BUS_REQ     <= OPCODE_REQ;
+    OPCODE_RDY     <= BUS_OPCODE_RDY;
+    OPCODE_TO_CORE <= BUS_OPCODE_WORD;
+    DC_BUS_REQ     <= RD_REQ;
+    DATA_RDY       <= BUS_DATA_RDY;
+    DATA_TO_CORE   <= BUS_DATA_WORD;
 
 
     I_ADDRESSREGISTERS: WF68K30L_ADDRESS_REGISTERS
@@ -1118,6 +1121,15 @@ begin
             ADR_LAT             => ADR_LATCH, -- [PH2-FMAX]
             FC_LAT              => FC_LATCH, -- [PH2-FMAX]
             OP_CHAIN_LD         => OP_CHAIN_LD, -- [PH2]
+            IC_LK_ADR           => IC_LK_ADR, -- [IC]
+            IC_LK_FC2           => IC_LK_FC2,
+            IC_HIT              => IC_HIT,
+            IC_HIT_DATA         => IC_HIT_DATA,
+            IC_FILL             => IC_FILL,
+            IC_FILL_ADR         => IC_FILL_ADR,
+            IC_FILL_FC2         => IC_FILL_FC2,
+            IC_FILL_DATA        => IC_FILL_DATA,
+            CIINn               => CIINn,
             SSW_80              => SSW_80,
             BFLT_SSW            => BFLT_SSW,
             BFLT_ADR            => BFLT_ADR,
