@@ -170,6 +170,21 @@ module cpu030_st_bridge #(
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;
     wire [104:0] cpu_dbg_exc;          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
+    // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
+    // on a bus-cycle-by-bus-cycle basis"; the core latches it at the start of S4, or with STERM).
+    // Decoded from the cycle the 030 is running (AS asserted, its own A31:0 and FC2:0):
+    //   - every ST-side cycle (ROM, ST-RAM, I/O, all of A31:24 other than $01) and every CPU-space
+    //     cycle (FC = 7): CIINn asserted (TF536 rule, CACHE_PLAN.md: the ST side is never cached);
+    //   - the reserved 030-side fast-RAM range $01000000-$01FFFFFF (TT-RAM style, CACHE_PLAN.md):
+    //     CIINn negated (cachable). Nothing is fitted there yet: those cycles still go to the ST bus
+    //     like any other address (A31:24 are ignored on it), and no ST software runs code there.
+    //   - no cycle of the 030 (AS negated, e.g. while the ST side owns the bus): CIINn asserted.
+    // CIIN only stops the current cycle's data from being cached; it never disables the cache, and
+    // entries already in it still hit (MC68030UM 6.1). CDISn is the only hardware disable.
+    // CIINn is active low: asserted (0) = do not cache this cycle, negated (1) = cachable.
+    (* syn_keep = 1 *) wire cpu_fast_sel;
+    assign cpu_fast_sel = ~cpu_asn & (cpu_fc != 3'b111) & (cpu_adr[31:24] == 8'h01);
+    wire cpu_cii_n = cpu_fast_sel;      // negated only for the reserved fast-RAM range
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
@@ -180,11 +195,7 @@ module cpu030_st_bridge #(
 `else
     WF68K30L_TOP #(
         .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
-`ifdef ST_030_CACHES
-        .CACHES    ( 1             ),    // experimental I/D caches (incomplete), CACR EI/ED
-`else
-        .CACHES    ( 0             ),    // no caches, as a TF534/TF536 with ST-RAM (default)
-`endif
+        .CACHES    ( 0             ),    // [IC] ignored: the 68030 I cache is always built; CIINn below decides
 `ifdef WF030_FAST_HANDOFF
         .FAST_HANDOFF ( 1          )     // [F65] prefetch S5 rolls into the next prefetch S0
 `else
@@ -218,6 +229,14 @@ module cpu030_st_bridge #(
         .DBENn     (               ),
         .BUS_EN    (               ),
         .STERMn    ( 1'b1          ),
+        // [IC] 68030 cache pins. CIINn from the per-cycle address decode above (cpu_cii_n), never a
+        // constant: ST-side cycles inhibited (TF536 rule, CACHE_PLAN.md §4), the reserved fast-RAM
+        // range cachable. The cache is always built and enabled by CACR EI.
+        .CIINn     ( cpu_cii_n     ),
+        .CDISn     ( 1'b1          ),   // no hard cache-off (CIIN keeps ST-side code out of the cache)
+        .CBACKn    ( 1'b1          ),   // no burst-capable memory
+        .CBREQn    (               ),
+        .CIOUTn    (               ),
 `ifndef WF030_NETLIST
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)

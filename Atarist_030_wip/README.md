@@ -4,7 +4,8 @@
 WF68K30L) behind a TerribleFire-style bus bridge, on a Sipeed Tang Console 138K, with a Gowin AE350 RISC-V helper for
 SD card, disks, keyboard/mouse and OSD. It should behave like a real 68030/TF board on an ST bus (no compatibility hacks,
 no write buffer beyond the cycle on the bus: a write ends for the control unit at S3 of its last portion, once DSACK
-has decided it, as on a 68030). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 133% of a stock STE.
+has decided it, as on a 68030). TOS 2.06 boots to the desktop; GEMBENCH 6 runs all tests at 133% of a
+stock STE. The 68030 I and D caches are built as in the MC68030 manual (TOS 2.06 turns them on at boot).
 
 **Start here:** [docs/BUILD.md](docs/BUILD.md) (building the core and the helper on Windows or Linux, every switch and its
 default, timing checks, flash addresses and rules), [docs/FALCON_LESSONS.md](docs/FALCON_LESSONS.md) (lessons and the
@@ -16,9 +17,26 @@ All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmwa
 
 ## Status (17 Oct 2026, main)
 
-Board build: `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6; main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted
-writes + prefetch stop at change of flow + option (a) MOVEM overlap, place 3; clk_cpu030 21.7 MHz), helper
-`helper_companion_sdwlog_3ec6e20.bin`.
+Board build: `st_helper_hdn_dc_ff6af03_p3.fs` (SHA256 c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e;
+main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted writes + prefetch stop at change of flow + option (a)
+MOVEM overlap + data-fault fixes + 68030 I and D caches, place 3; LUT 37,662 / ALU 4,817 / Reg 15,637 / RAM16 320 /
+BSRAM 172; Fmax clk_cpu030 22.79 MHz, clk32_core 33.78 MHz, TNS 0), helper `helper_companion_sdwlog_3ec6e20.bin`.
+Rollback order: `st_helper_hdn_ic_47eba71_p3.fs` (I cache only), then `st_helper_hdn_oa_039c710_p3.fs`
+(SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6).
+
+Caches (merged on main 17 Oct 2026; [docs/ICACHE_DESIGN.md](docs/ICACHE_DESIGN.md), [docs/DCACHE_DESIGN.md](docs/DCACHE_DESIGN.md)):
+- I and D cache per MC68030UM ch. 6: 256 B each, 16 lines x 4 long words, direct-mapped, tag = logical address + FC;
+  CACR (EI/FI/CEI/CI, ED/FD/CED/CD/WA; burst bits stubbed) and CAAR; D cache write-through with write allocate; TAS/CAS
+  read forced to miss; bus errors on fill-only cycles mark the entry invalid; no snooping (as a 030). D cache data
+  and tags in RAM16; nothing swept by synthesis (syn_keep).
+- CIIN is sampled per bus cycle and only stops that cycle's fill; hits keep working. It comes from a per-cycle decode
+  in the bridge, TF536-style: every ST ROM/RAM/IO cycle is inhibited, only the reserved 030-side fast-RAM range
+  `$01000000-$01FFFFFF` (not fitted yet) is cachable. CDIS (negated) and CACR are the only disables.
+- GEMBENCH 133 / Display 89 / CPU 252 is unchanged with the caches on, as expected: nothing on the ST side is cachable
+  until fast RAM exists. Open: D-Q2 (write allocate creating entries for ST-side writes; board check with a CACR-read
+  program pending; the planned PMMU will mark I/O and ST-RAM cache-inhibited), A3 request queue deferred.
+- Data-fault fixes ([docs/FAULT_FIXES.md](docs/FAULT_FIXES.md)): no program bus cycle after a data write fault; a write
+  fault at an instruction boundary stacks the short $A frame.
 
 GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 
@@ -31,9 +49,11 @@ GEMBENCH 6.31, ST Medium, ratio to a stock STE:
 | phase 2 (S5->S0 handoff, Fmax, posted writes) | 115 | 115 | 89 | 251 | **132** |
 | prefetch stop at change of flow (vchain) | 115 | 115 | 89 | 251 | **132** |
 | option (a) steps 2/3, MOVEM overlap (oa_039c710) | 115 | 115 | 89 | 252 | **133** |
+| fault fixes + I cache (ic_47eba71) | 115 | 115 | 89 | 252 | **133** |
+| + D cache, RAM16 data (dc_ff6af03) | 115 | 115 | 89 | 252 | **133** |
 
 Option (a): MOVEM register writes load the next register in the clock the write completes, MOVEM reads request the next
-read one clock earlier ([docs/OPTION_A_DESIGN.md](docs/OPTION_A_DESIGN.md)); A3 (requests ahead of data) is deferred to the cache work.
+read one clock earlier ([docs/OPTION_A_DESIGN.md](docs/OPTION_A_DESIGN.md)); A3 (requests ahead of data) is deferred (DCACHE_DESIGN.md §4).
 
 Prefetch: the queue no longer fetches past a taken/unconditional change of flow (as a 68030; [docs/PREFETCH_COF.md](docs/PREFETCH_COF.md)),
 -2.7% ST cycles on branch-heavy code, GEMBENCH unchanged (ST-bus bound). Float Math: OK (12.37 s, 107%). Phase 2: [docs/PHASE2_DESIGN.md](docs/PHASE2_DESIGN.md). The old "float panic" was a corrupt test image, not the CPU
@@ -47,8 +67,8 @@ Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
 - Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; cold boot (`c`) clears it
   (pinned in TODO.md). Always `c` after a flash.
 - The blitter shows as disabled under EmuTOS.
-- A data bus error is taken one operand cycle late and always as a format $B frame (TODO.md phase 2 follow-ups);
-  no working caches yet; the control unit still needs 3 clocks between operand requests (option a).
+- GEMBENCH Display is ~10% short of a stock STE (89%; pinned in TODO.md): extra 030 fetch cycles on the ST bus.
+- The caches give no gain until 030-side fast RAM is fitted; A3 (requests ahead of data) is deferred.
 - Placement sensitivity: always check TNS and recovery/removal before flashing.
 
 ## Credits and thanks: Stephen J. Leary (TerribleFire)
@@ -183,13 +203,11 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
   (flash 0x500000) instead of the MiSTeryNano STE offset. Extra 8 MB RAM stays
   on its own OSD setting. The SD switches (`ST_SD_WRITE_FIX`, `ST_FLOPPY_MEDIACH`,
   `ST_SD_HARDEN`, all on) are described in docs/BUILD.md.
-- **030 caches:** `ST_030_CACHES` (off; commented out in
-  `build_st_helper.tcl`) builds in the experimental WF68K30L instruction and
-  data caches (`wf68k30L_icache.vhd`, `wf68k30L_dcache.vhd`, CACHES generic on
-  `WF68K30L_TOP`). They are incomplete (no CIIN, burst fill, write-allocate or
-  DMA/blitter snoop), and a TF534/TF536 does not cache ST-RAM, so by default
-  the core has no caches: every access goes to the bus. CACR/CAAR stay MOVEC
-  readable/writable either way. See docs/ST_HELPER.md 7g.
+- **030 caches:** always built (since 17 Oct 2026); `ST_030_CACHES` has no effect any more and the old
+  experimental modules are gone. The 68030 I and D caches live inside WF68K30L (`wf68k30L_icache.vhd`,
+  `wf68k30L_dcache.vhd`), CACR/CAAR via MOVEC as on a 030. The bridge drives CIIN from a per-cycle decode: every ST-side
+  cycle is cache-inhibited, only the reserved fast-RAM range `$01000000-$01FFFFFF` is cachable. CDIS stays negated.
+  See docs/ICACHE_DESIGN.md and docs/DCACHE_DESIGN.md.
 - **Colour monitor:** `ST_COLOUR_MONITOR` (on in this build) holds the ST's
   mono-detect line high, so TOS boots in colour (low res; medium via
   Options > Change resolution). Delete its line in `build_st_helper.tcl` to
@@ -236,7 +254,8 @@ the original `misterynano_tc138k` upload.
 
 ## Core limits
 
-No MMU, no FPU, no working caches, and no address error on odd word accesses, so it is not yet a complete 68030.
+No MMU (a 68030 PMMU in HDL is planned), no FPU, no cache burst fills, and no address error on odd word accesses, so it
+is not yet a complete 68030. The I and D caches are built but have nothing cachable until 030-side fast RAM is fitted.
 TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl/cpu030/README.md` for the bridge.
 
 ## Board

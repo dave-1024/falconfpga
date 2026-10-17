@@ -161,6 +161,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         -- Trap signals:
         TRAP_AERR           : in bit;
         TRAP_BERR           : in bit;
+        BERR_IBOUND         : in bit; -- [FLT2] From the control unit, with TRAP_BERR.
         TRAP_CHK            : in bit;
         TRAP_DIVZERO        : in bit;
         TRAP_ILLEGAL        : in bit;
@@ -279,6 +280,8 @@ begin
             IBOUND <= false;
         elsif OPD_ACK = '1' and OW_VALID = '0' then
             IBOUND <= true;
+        elsif TRAP_BERR = '1' and BERR_IBOUND = '1' then
+            IBOUND <= true; -- [FLT2] Data write fault taken at an instruction boundary: short frame (MC68030UM 8.1.2, table 8-6).
         elsif EX_STATE = BUILD_STACK then
             IBOUND <= false;
         end if;

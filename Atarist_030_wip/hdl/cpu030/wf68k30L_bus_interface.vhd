@@ -82,6 +82,9 @@
 --   2026-10-16 PH2-WP: posted writes: DATA_RDY of a write on the S3 edge of its last portion (option b).
 --   2026-10-16 PH2-WP: a faulted write's data is held in OUTBUFFER (frame DOB) until the exception.
 --   2026-10-16 PH2-WP: PW_GO: the operand request in the IDLE clock after a posted write starts without START_CYCLE.
+--   2026-10-17 IC: 68030 instruction cache on the prefetch queue: a queue long that hits is taken from the cache
+--     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
+--     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
 -- 
 
 library work;
@@ -133,8 +136,8 @@ entity WF68K30L_BUS_INTERFACE is
         OP_SIZE             : in OP_SIZETYPE; -- Used for bus access control.
 
         -- Control signals:
-        RD_REQ              : in bit; -- Read data.
-        WR_REQ              : in bit; -- Write data.
+        RD_REQ_IN           : in bit; -- Read data.
+        WR_REQ_IN           : in bit; -- Write data.
         DATA_RDY            : out bit; -- Indicates 'new data available' (this is a strobe).
         DATA_VALID          : out std_logic; -- The data buffer contains valid data when '1'.
         OPCODE_REQ          : in bit; -- Read opcode.
@@ -156,6 +159,40 @@ entity WF68K30L_BUS_INTERFACE is
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX] Its registered function code.
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
+        IC_LK_FC2           : out std_logic; -- [IC]
+        IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
+        IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
+        IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
+        IC_FILL_MIS         : out std_logic; -- [IC] ... it started at 4n+2 (stream start at a misaligned word).
+        IC_FILL_OK          : out std_logic_vector(1 downto 0); -- [IC] Per word (1 = first): no bus error, CIIN negated.
+        IC_BREAK            : out std_logic; -- [IC] The stream restarts (Q_MISS).
+        IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
+        IC_FILL_FC2         : out std_logic; -- [IC]
+        IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
+        CIINn               : in std_logic; -- [IC] Cache inhibit in (MC68030UM 5.7.1).
+        DC_FILL_EN          : in std_logic; -- [DC] ED set, FD clear, CDIS negated: a cachable read miss fills.
+        DC_ON               : in std_logic; -- [DC] ED set, CDIS negated: reads are looked up.
+        DC_LK_ADR           : out std_logic_vector(31 downto 0); -- [DC] Lookup of the read request in START_CYCLE.
+        DC_LK_FC            : out std_logic_vector(2 downto 0);
+        DC_LK_SZ            : out std_logic_vector(2 downto 0);
+        DC_HIT              : in std_logic;
+        DC_HIT_DATA         : in std_logic_vector(31 downto 0);
+        DC_WR_GO            : out std_logic; -- [DC] A write started (registered, the clock after).
+        DC_WR_ADR           : out std_logic_vector(31 downto 0);
+        DC_WR_FC            : out std_logic_vector(2 downto 0);
+        DC_WR_SZ            : out std_logic_vector(2 downto 0);
+        DC_WR_DATA          : out std_logic_vector(31 downto 0);
+        DC_FL_GO            : out std_logic; -- [DC] A read and its fill cycles ended.
+        DC_FL_A0            : out std_logic_vector(31 downto 2);
+        DC_FL_FC            : out std_logic_vector(2 downto 0);
+        DC_FL_U1            : out std_logic;
+        DC_FL_D0            : out std_logic_vector(31 downto 0);
+        DC_FL_D1            : out std_logic_vector(31 downto 0);
+        DC_FL_OK0           : out std_logic_vector(1 downto 0);
+        DC_FL_OK1           : out std_logic_vector(1 downto 0);
+        DC_FL_BE0           : out std_logic;
+        DC_FL_BE1           : out std_logic;
         INBUFFER            : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame type B.
         OUTBUFFER           : out std_logic_vector(31 downto 0); -- Used by the exception handler for stack frame types A and B.
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -285,6 +322,58 @@ signal DP_CHAIN_GO          : bit; -- [PH2] S5 decision: the operand cycle rolls
 signal CH_WR                : bit; -- [PH2] The chained operand cycle is a write.
 signal CHAIN_GO             : bit; -- [PH2] PF_, OP_ or DP_CHAIN_GO: a new cycle starts on this S5 edge.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
+signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
+signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
+signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
+signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
+signal PF_CI1               : std_logic := '0'; -- [IC] of the running prefetch long (as PF_FLT0/PF_FLT1).
+-- [IC] Cache-inhibit state of the running prefetch: keep it through synthesis (see WF68K30L_ICACHE).
+signal RD_REQ               : bit; -- [DC] RD_REQ_IN without a read the data cache serves.
+signal WR_REQ               : bit; -- [DC] WR_REQ_IN, held while a fill cycle starts.
+signal DC_RHIT              : bit; -- [DC] START_CYCLE of a read the data cache holds: no bus cycle.
+signal FILL_ACC             : bit := '0'; -- [DC] The running cycle is a data cache fill cycle (6.1.3.1).
+signal FILL_REQ             : bit; -- [DC] A fill cycle is wanted.
+signal FILL_START           : bit; -- [DC] START_CYCLE of a fill cycle.
+signal FILL_WADR            : std_logic_vector(31 downto 1); -- [DC] Its word address.
+signal DC_PORT              : std_logic_vector(31 downto 0); -- [DC] The data bus, sampled with IN_MUX.
+signal DC_TRK               : bit := '0'; -- [DC] The running read is tracked for the fill.
+signal DC_OA                : std_logic_vector(31 downto 0) := (others => '0'); -- [DC] Its address, FC, size, RMC.
+signal DC_OFC               : std_logic_vector(2 downto 0) := "000";
+signal DC_OSZ               : std_logic_vector(2 downto 0) := "000";
+signal DC_ORMC              : bit := '0';
+signal DC_OX                : std_logic; -- [DC] It touches two entries.
+signal FB_D0, FB_D1         : std_logic_vector(31 downto 0) := (others => '0'); -- [DC] Words read, entry E0/E1.
+signal FB_OK0, FB_OK1       : std_logic_vector(1 downto 0) := "00"; -- [DC] ... with CIIN negated, no bus error.
+signal FB_BE0, FB_BE1       : std_logic := '0'; -- [DC] A bus error on the entry.
+signal FB_AB0, FB_AB1       : std_logic := '0'; -- [DC] No fill for the entry (bus error, CIIN, 8-bit port).
+signal FB_CA                : std_logic := '0'; -- [DC] Every operand portion so far was cachable.
+signal FB_PF                : std_logic := '0'; -- [DC] Bus error seen in the running portion.
+signal DC_DECIDE            : bit := '0'; -- [DC] The clock after a tracked read's last portion.
+signal DC_NEED              : std_logic; -- [DC] ... and its entries are to be completed by fill cycles.
+signal DC_MISS              : std_logic_vector(3 downto 0); -- [DC] Words still to fill: E0 w0, E0 w1, E1 w0, E1 w1.
+signal FILL_PEND            : bit := '0'; -- [DC] Fill cycles of the last read are pending.
+signal DC_DPBLK             : bit; -- [DC] The read may need fill cycles: no chain into a prefetch.
+signal DC_WSTB              : bit; -- [DC] A write starts on this edge.
+signal DC_WR_GO_I           : std_logic := '0';
+signal DCW_ADR              : std_logic_vector(31 downto 0) := (others => '0');
+signal DCW_FC               : std_logic_vector(2 downto 0) := "000";
+signal DCW_SZ               : std_logic_vector(2 downto 0) := "001";
+signal DC_FL_GO_I           : std_logic;
+signal DC_FIN               : std_logic; -- [DC] The read (and its fill cycles) is complete.
+signal DC_PH                : std_logic := '0'; -- [DC] Registered lookup of the request of the last clock: hit,
+signal DC_PD                : std_logic_vector(31 downto 0) := (others => '0'); -- its operand,
+signal DC_PV                : std_logic := '0'; -- a read request was pending (no DATA_RDY).
+signal DC_CHIT              : bit; -- [DC] S5 of a prefetch: the waiting read hits instead of chaining.
+signal OP_CHAIN_RAW         : bit; -- [DC] The chain decision before the hit.
+attribute syn_preserve : integer;
+attribute syn_preserve of CIIN_LAT : signal is 1;
+attribute syn_preserve of FB_D0 : signal is 1;
+attribute syn_preserve of FB_D1 : signal is 1;
+attribute syn_preserve of FB_OK0 : signal is 1;
+attribute syn_preserve of FB_OK1 : signal is 1;
+attribute syn_preserve of FILL_ACC : signal is 1;
+attribute syn_preserve of PF_CI0 : signal is 1;
+attribute syn_preserve of PF_CI1 : signal is 1;
 begin
 
     P_SYNC_N: process(CLK_F)
@@ -338,8 +427,10 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         if BUS_CTRL_STATE = START_CYCLE then
-            if READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' then
+            if READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' or FILL_ACC = '1' then
                 null; -- Do not start either new cycle.
+            elsif FILL_START = '1' then
+                FILL_ACC <= '1'; -- [DC]
             elsif RD_REQ = '1' then
                 READ_ACCESS <= '1';
             elsif WR_REQ = '1' then
@@ -351,6 +442,7 @@ begin
                 PF_ACC <= '1';
             end if;
         elsif OP_CHAIN_GO = '1' then -- [PH2] The prefetch ends, the waiting operand cycle starts.
+            FILL_ACC <= '0';
             READ_ACCESS <= not CH_WR;
             WRITE_ACCESS <= CH_WR;
             OPCODE_ACCESS <= '0';
@@ -361,11 +453,13 @@ begin
             OPCODE_ACCESS <= '1';
             PF_ACC <= '1';
         elsif AERR = '1' then -- Reject due to address error.
+            FILL_ACC <= '0';
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
             OPCODE_ACCESS <= '0';
             PF_ACC <= '0';
         elsif BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE and SIZE_N = "000" then
+            FILL_ACC <= '0';
             READ_ACCESS <= '0';
             WRITE_ACCESS <= '0';
             OPCODE_ACCESS <= '0';
@@ -394,7 +488,7 @@ begin
                 when BYTE => SIZEVAR := "01";
             end case;
             --
-            if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
+            if BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 and FILL_START = '0' then
                 SSW_80 <= To_StdLogicVector('0' & RMC & not WR_REQ) & SIZEVAR & '0' & FC_IN;
             elsif DP_CHAIN_GO = '1' then -- [PH2] As START_CYCLE writes it for a prefetch.
                 SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_NXT;
@@ -544,7 +638,9 @@ begin
                 when BYTE => SIZE_N <= "001";
             end case;
         elsif BUS_CTRL_STATE /= DATA_C1C4 and NEXT_BUS_CTRL_STATE = DATA_C1C4 then
-            if RD_REQ = '1' or WR_REQ = '1' then
+            if FILL_START = '1' then
+                SIZE_N <= "010"; -- [DC] Fill cycle: one word.
+            elsif RD_REQ = '1' or WR_REQ = '1' then
                 case OP_SIZE is
                     when LONG => SIZE_N <= "100";
                     when WORD => SIZE_N <= "010";
@@ -604,7 +700,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I)
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -617,6 +713,10 @@ begin
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- This is the 'HALT' condition.
                 elsif (BR_In = '0' and RMC = '0') or ARB_STATE /= IDLE or BGACK_In = '0' then
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- Arbitration, wait!
+                elsif FILL_REQ = '1' and SIZE_N = "000" then
+                    NEXT_BUS_CTRL_STATE <= START_CYCLE; -- [DC] Data cache fill cycle.
+                elsif DC_FL_GO_I = '1' then
+                    NEXT_BUS_CTRL_STATE <= IDLE; -- [DC] The cache is updated: look the next read up after it.
                 elsif PW_GO = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [PH2-WP] Operand cycle after a posted write, S0 next.
                 elsif RD_REQ = '1' and SIZE_N = "000" then
@@ -627,13 +727,15 @@ begin
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
                 elsif PF_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- [F62] New prefetch cycle.
-                elsif READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' then
+                elsif READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' or FILL_ACC = '1' then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- Pending (split) bus cycles.
                 else
                     NEXT_BUS_CTRL_STATE <= IDLE;
                 end if;
             when START_CYCLE =>
-                if RD_REQ = '1' then
+                if FILL_START = '1' then
+                    NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [DC]
+                elsif RD_REQ = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif WR_REQ = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
@@ -703,7 +805,8 @@ begin
     -- [PH2-FMAX] The bus address comes from the address register (ADR_LATCH) instead of ADR_IN_P:
     -- they differ only in IDLE, where AS is negated and ADR_OUT_I is not used, so the
     -- control unit's address logic no longer reaches the address pins (and the ST bridge).
-    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62]
+    ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else
+                 (FILL_WADR & '0') + ADR_OFFSET when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -714,7 +817,7 @@ begin
     end process P_ADR_10;
 
     -- Address and bus errors:
-    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
+    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_START = '0' and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
 
     -- [F62] Opcode prefetch queue. The decoder requests one word at a time (OPC_RD, address
     -- OPC_ADR = PC_L). The queue fetches the instruction stream as long words in its own
@@ -736,9 +839,29 @@ begin
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
-    PF_REQ <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
+    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
+    -- [IC] A long word the instruction cache holds is taken from the cache (P_QUEUE) and never starts a bus
+    -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
+    PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT);
+    IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
+    IC_LK_ADR <= F_ADR(31 downto 2);
+    IC_LK_FC2 <= Q_FC(2);
+    -- [IC] Fill: every bus prefetch long reports its end with, per word, "no bus error and CIIN negated on its
+    -- portion" (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache fills aligned longs whose two words are
+    -- OK, assembles the longs of a misaligned stream (4n+2 start) from consecutive fetches, and checks EI, FI
+    -- and CDIS. Word 0 is the portion at offset 0 (ADR_OFFSET(1) = 0); the last portion always carries word 1.
+    IC_FILL <= '1' when PF_DONE = '1' and RESET_CPU_I = '0' else '0';
+    IC_FILL_MIS <= F_CUR(1);
+    IC_FILL_OK(1) <= '1' when PF_FLT0 = '0' and PF_FLT1 = '0' and BUS_FLT = '0' and PF_CI0 = '0'
+                             and PF_CI1 = '0' and CIIN_LAT = '1' else '0';
+    IC_FILL_OK(0) <= '1' when PF_FLT0 = '0' and not (BUS_FLT = '1' and ADR_OFFSET(1) = '0') and PF_CI0 = '0'
+                             and not (CIIN_LAT = '0' and ADR_OFFSET(1) = '0') else '0';
+    IC_BREAK <= To_StdULogic(Q_MISS);
+    IC_FILL_ADR <= F_CUR(31 downto 2);
+    IC_FILL_FC2 <= F_FC(2);
+    IC_FILL_DATA <= DATA_INMUX;
     PF_START <= '1' when BUS_CTRL_STATE = START_CYCLE and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and
-                         RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' else '0';
+                         RD_REQ = '0' and WR_REQ = '0' and OPC_LEGACY = '0' and PF_REQ = '1' and FILL_START = '0' else '0';
     PF_DONE <= '1' when PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
 
     -- [F65] Arm the direct handoff one clock before the S5 edge. PF_REQ cannot
@@ -816,7 +939,7 @@ begin
     -- offset, width and OCS updates. RMC and a bus fault can appear after
     -- the S3 arm; without this, the FSM goes IDLE and the re-arm still sets
     -- INFL, so PF_REQ never fires again.
-    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
+    PF_CHAIN_GO <= '1' when FAST_HANDOFF /= 0 and PF_CHAIN = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000" and IC_HIT = '0' -- [IC]
                    and Q_MISS = '0' and OPC_DISMISS = '0' and RMC = '0' -- [PFCOF vchain] hold not applied at the S5 decision
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
@@ -824,10 +947,11 @@ begin
     -- [PH2] S5 decision for the operand handoff. The request must still be
     -- there on the S5 edge (it is registered in the control unit, so this is
     -- not a loop through BUS_BSY), and every cancel takes the old IDLE path.
-    OP_CHAIN_GO <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0'
+    OP_CHAIN_RAW <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
+                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0' and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
-                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else
+                   and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    OP_CHAIN_GO <= (OP_CHAIN_RAW and not DC_CHIT) or
                    PW_GO; -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
 
     -- [PH2-WP] The control unit sees a posted write's DATA_RDY in the S4/S5 clock and presents its
@@ -837,7 +961,7 @@ begin
     -- address/FC latches in IDLE anyway) and the slice counter goes straight to S0. Only operand
     -- requests (no RMC, no exception processing), and every IDLE hold (reset, halt, arbitration)
     -- takes precedence.
-    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and (OP_RD = '1' or OP_WR = '1')
+    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and ((OP_RD = '0' and OP_WR = '1') or (OP_RD = '1' and DC_ON = '0')) -- [DC]
                       and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
@@ -845,11 +969,187 @@ begin
     CH_WR <= OP_WR and not OP_RD; -- Read has priority, as in START_CYCLE.
     DP_CHAIN_GO <= '1' when DP_CHAIN = '1' and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_CYC_RDY = '1'
                    and SIZE_N = "000" and PF_REQ = '1' and Q_MISS = '0' and OPC_DISMISS = '0'
-                   and RMC = '0' and BUSY_EXH = '0'
+                   and RMC = '0' and BUSY_EXH = '0' and DC_DPBLK = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     CHAIN_GO <= PF_CHAIN_GO or OP_CHAIN_GO or DP_CHAIN_GO;
     OP_CHAIN_LD <= OP_CHAIN_GO or DP_CHAIN_GO; -- The top level loads its address/FC latches as in IDLE.
+
+    -- [DC] Data cache (MC68030UM 6.1.2, docs/DCACHE_DESIGN.md). A read request is looked up in its
+    -- START_CYCLE clock (address and FC latched, as on the pins): a hit delivers the operand from the
+    -- cache with DATA_RDY on that edge and starts no bus cycle; the bus is free for the queue. RMC reads
+    -- always miss (6.1.2.2). Chained reads (OP_CHAIN, PW_GO) are not looked up and use the bus.
+    DC_RHIT <= '1' when BUS_CTRL_STATE = START_CYCLE and RD_REQ_IN = '1' and DC_PH = '1' and DC_PV = '1' and RMC = '0' and
+                        READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0' and
+                        FILL_REQ = '0' and RESET_CPU_I = '0' else '0';
+    FILL_START <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_REQ = '1' and READ_ACCESS = '0' and
+                           WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0' else '0';
+    RD_REQ <= RD_REQ_IN and not DC_RHIT and not FILL_START;
+    WR_REQ <= WR_REQ_IN and not FILL_START;
+    -- The lookup is registered: the request's address, FC and size of each clock (ADR_NXT, the value the
+    -- address latch takes in IDLE) are looked up and the result kept for the next clock (DC_PH, DC_PD), so
+    -- START_CYCLE and the S5 chain decision use a flip-flop. A cache update in that clock cancels it.
+    DC_LK_ADR <= ADR_NXT;
+    DC_LK_FC <= FC_NXT;
+    P_DCP: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        DC_PH <= DC_HIT and not DC_WR_GO_I and not DC_FL_GO_I;
+        DC_PD <= DC_HIT_DATA;
+        DC_PV <= To_StdULogic(OP_RD and not DATA_RDY_I);
+    end process P_DCP;
+    -- A read waiting for the end of a prefetch: a hit is delivered on the S5 edge instead of the chained cycle.
+    DC_CHIT <= '1' when OP_CHAIN_RAW = '1' and CH_WR = '0' and DC_PH = '1' and DC_PV = '1' and DATA_RDY_I = '0' else '0';
+    DC_LK_SZ <= "100" when OP_SIZE = LONG else "010" when OP_SIZE = WORD else "001";
+
+    -- [DC] Writes: the cache is updated from the write's data (WP_BUFFER) in the clock after its first bus
+    -- cycle started, before the external write ends (6.1.2: "the cache contains the new value even if the
+    -- external write terminates in a bus error"). The bus write runs as without the cache.
+    DC_WSTB <= '1' when (BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 and WR_REQ = '1' and
+                         RD_REQ = '0' and FILL_START = '0') or (OP_CHAIN_GO = '1' and CH_WR = '1') else '0';
+    P_DCW: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        DC_WR_GO_I <= To_StdULogic(DC_WSTB and not RESET_CPU_I);
+        if DC_WSTB = '1' then
+            if OP_CHAIN_GO = '1' then
+                DCW_ADR <= ADR_NXT; DCW_FC <= FC_NXT;
+            else
+                DCW_ADR <= ADR_LAT; DCW_FC <= FC_LAT;
+            end if;
+            case OP_SIZE is
+                when LONG => DCW_SZ <= "100";
+                when WORD => DCW_SZ <= "010";
+                when BYTE => DCW_SZ <= "001";
+            end case;
+        end if;
+    end process P_DCW;
+    DC_WR_DATA <= WP_BUFFER;
+    DC_WR_GO <= DC_WR_GO_I;
+    DC_WR_ADR <= DCW_ADR;
+    DC_WR_FC <= DCW_FC;
+    DC_WR_SZ <= DCW_SZ;
+
+    -- [DC] Reads: every 16-bit port portion delivers a whole aligned word, a 32-bit port a whole long word
+    -- (6.1.3.1). Each word is kept for the entry it belongs to (E0 = operand A31:2, E1 = the next long word)
+    -- with "CIIN negated and no bus error". When every operand portion was cachable, the cache enabled and
+    -- not frozen, not RMC and not CPU space, fill cycles (one word each, FILL_ACC) read the words of the
+    -- touched entries the operand did not read: a byte at $03 is followed by a word at $00, as Figure 6-6.
+    -- They run after the operand's DATA_RDY. A fill cycle with a bus error, CIIN asserted or an 8-bit port
+    -- ends the fill of its entry: no exception, the entry is not validated. The cache is updated in the
+    -- clock after the last cycle (DC_FL_GO). With CIIN asserted (every ST cycle) no fill cycle runs.
+    P_DC_CAP: process
+    begin
+        wait until CLK_F = '1' and CLK_F' event;
+        if ((T_SLICE = S2 or T_SLICE = S3) and STERMn = '0') or T_SLICE = S4 then
+            DC_PORT <= DATA_PORT_IN; -- Same sample as IN_MUX.
+        end if;
+    end process P_DC_CAP;
+
+    DC_OX <= '1' when (DC_OSZ = "100" and DC_OA(1 downto 0) /= "00") or (DC_OSZ = "010" and DC_OA(1 downto 0) = "11") else '0';
+    DC_NEED <= '1' when DC_FILL_EN = '1' and FB_CA = '1' and FB_BE0 = '0' and FB_BE1 = '0' and DC_ORMC = '0' and
+                        DC_OFC /= "111" else '0';
+    DC_MISS(3) <= not FB_OK0(1) and not FB_AB0;
+    DC_MISS(2) <= not FB_OK0(0) and not FB_AB0;
+    DC_MISS(1) <= DC_OX and not FB_OK1(1) and not FB_AB1;
+    DC_MISS(0) <= DC_OX and not FB_OK1(0) and not FB_AB1;
+    FILL_REQ <= '1' when (FILL_PEND = '1' or (DC_DECIDE = '1' and DC_NEED = '1')) and DC_MISS /= "0000" and
+                         RESET_CPU_I = '0' else '0';
+    FILL_WADR <= DC_OA(31 downto 2) & '0' when DC_MISS(3) = '1' else
+                 DC_OA(31 downto 2) & '1' when DC_MISS(2) = '1' else
+                 (DC_OA(31 downto 2) + '1') & '0' when DC_MISS(1) = '1' else
+                 (DC_OA(31 downto 2) + '1') & '1';
+    DC_FIN <= '1' when (DC_DECIDE = '1' and (DC_NEED = '0' or DC_MISS = "0000")) or
+                       (FILL_PEND = '1' and DC_MISS = "0000" and FILL_ACC = '0') else '0';
+    -- Only when the cache can change: something was read cachable, or a bus error hit an entry.
+    DC_FL_GO_I <= '1' when RESET_CPU_I = '0' and DC_FIN = '1' and DC_ON = '1' and
+                           (FB_OK0 /= "00" or FB_OK1 /= "00" or FB_BE0 = '1' or FB_BE1 = '1') else '0';
+    DC_DPBLK <= '1' when READ_ACCESS = '1' and DC_TRK = '1' and DC_FILL_EN = '1' and FB_CA = '1' and CIIN_LAT = '1' and
+                         DC_ORMC = '0' and DC_OFC /= "111" else '0';
+    DC_FL_GO <= DC_FL_GO_I;
+    DC_FL_A0 <= DC_OA(31 downto 2);
+    DC_FL_FC <= DC_OFC;
+    DC_FL_U1 <= DC_OX;
+    DC_FL_D0 <= FB_D0;
+    DC_FL_D1 <= FB_D1;
+    DC_FL_OK0 <= FB_OK0;
+    DC_FL_OK1 <= FB_OK1;
+    DC_FL_BE0 <= FB_BE0;
+    DC_FL_BE1 <= FB_BE1;
+
+    P_DCF: process
+        variable E1 : boolean;
+        variable OK : std_logic_vector(1 downto 0);
+    begin
+        wait until CLK = '1' and CLK' event;
+        DC_DECIDE <= '0';
+        if DC_FIN = '1' then
+            FILL_PEND <= '0';
+        elsif DC_DECIDE = '1' and DC_NEED = '1' and DC_MISS /= "0000" then
+            FILL_PEND <= '1';
+        end if;
+        if (BUS_CTRL_STATE = START_CYCLE and NEXT_BUS_CTRL_STATE = DATA_C1C4 and RD_REQ = '1' and FILL_START = '0' and
+            READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0') or
+           (OP_CHAIN_GO = '1' and CH_WR = '0') then
+            DC_TRK <= '1'; -- A new read.
+            if OP_CHAIN_GO = '1' then
+                DC_OA <= ADR_NXT; DC_OFC <= FC_NXT;
+            else
+                DC_OA <= ADR_LAT; DC_OFC <= FC_LAT;
+            end if;
+            case OP_SIZE is
+                when LONG => DC_OSZ <= "100";
+                when WORD => DC_OSZ <= "010";
+                when BYTE => DC_OSZ <= "001";
+            end case;
+            DC_ORMC <= RMC;
+            FB_OK0 <= "00"; FB_OK1 <= "00"; FB_BE0 <= '0'; FB_BE1 <= '0'; FB_AB0 <= '0'; FB_AB1 <= '0';
+            FB_CA <= '1'; FB_PF <= '0';
+        elsif BUS_CTRL_STATE = DATA_C1C4 and ((READ_ACCESS = '1' and DC_TRK = '1') or FILL_ACC = '1') then
+            E1 := ADR_OUT_I(31 downto 2) /= DC_OA(31 downto 2);
+            if BUS_FLT = '1' then
+                FB_PF <= '1';
+                if HALT_In = '1' then -- A bus error (BERR with HALT is a retry).
+                    if E1 then FB_BE1 <= '1'; FB_AB1 <= '1'; else FB_BE0 <= '1'; FB_AB0 <= '1'; end if;
+                    if READ_ACCESS = '1' then FB_CA <= '0'; end if;
+                end if;
+            end if;
+            if BUS_CYC_RDY = '1' then
+                FB_PF <= '0';
+                if BUS_FLT = '0' and FB_PF = '0' then
+                    if BUS_WIDTH = LONG_32 then
+                        OK := "11";
+                        if E1 then FB_D1 <= DC_PORT; else FB_D0 <= DC_PORT; end if;
+                    elsif BUS_WIDTH = WORD and ADR_OUT_I(1) = '0' then
+                        OK := "10";
+                        if E1 then FB_D1(31 downto 16) <= DC_PORT(31 downto 16); else FB_D0(31 downto 16) <= DC_PORT(31 downto 16); end if;
+                    elsif BUS_WIDTH = WORD then
+                        OK := "01";
+                        if E1 then FB_D1(15 downto 0) <= DC_PORT(31 downto 16); else FB_D0(15 downto 0) <= DC_PORT(31 downto 16); end if;
+                    else
+                        OK := "00"; -- 8-bit port: not filled.
+                    end if;
+                    if CIIN_LAT = '1' and OK /= "00" then
+                        if E1 then FB_OK1 <= FB_OK1 or OK; else FB_OK0 <= FB_OK0 or OK; end if;
+                    else
+                        if READ_ACCESS = '1' then FB_CA <= '0'; end if;
+                        if FILL_ACC = '1' then
+                            if E1 then FB_AB1 <= '1'; else FB_AB0 <= '1'; end if;
+                        end if;
+                    end if;
+                end if;
+                if READ_ACCESS = '1' and SIZE_N = "000" then
+                    DC_TRK <= '0';
+                    DC_DECIDE <= '1'; -- The operand is complete (or faulted).
+                end if;
+            end if;
+        end if;
+        if RESET_CPU_I = '1' then
+            DC_TRK <= '0';
+            DC_DECIDE <= '0';
+            FILL_PEND <= '0';
+        end if;
+    end process P_DCF;
 
     P_QUEUE: process
     variable W      : QWORDS_T;
@@ -879,6 +1179,26 @@ begin
                 F_ADR <= F_ADR + "10";
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
+            end if;
+            -- [IC] CIIN of every finished portion of the running prefetch long.
+            if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and CIIN_LAT = '0' then
+                if ADR_OFFSET(1) = '0' then PF_CI0 <= '1'; else PF_CI1 <= '1'; end if;
+            end if;
+            if PF_START = '1' or DP_CHAIN_GO = '1' then
+                PF_CI0 <= '0';
+                PF_CI1 <= '0';
+            end if;
+            -- [IC] Instruction cache hit: the long word (or, for a stream start at 4n+2, its second word) goes
+            -- into the queue in this clock without a bus cycle. PF_REQ_RAW needs Q_CNT <= 1, so at most 3 words.
+            if IC_TAKE = '1' then
+                if F_ADR(1) = '0' then
+                    W(CNT) := IC_HIT_DATA(31 downto 16); F(CNT) := '0'; CNT := CNT + 1;
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    F_ADR <= F_ADR + "10";
+                else
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    F_ADR <= F_ADR + '1';
+                end if;
             end if;
             if PF_DONE = '1' then
                 F0 := PF_FLT0 or (To_Bit(BUS_FLT) and not To_Bit(ADR_OFFSET(1)));
@@ -931,6 +1251,8 @@ begin
                 F_ADR <= F_ADR + "10";
                 PF_FLT0 <= '0';
                 PF_FLT1 <= '0';
+                PF_CI0 <= '0'; -- [IC]
+                PF_CI1 <= '0';
             end if;
             if RESET_CPU_I = '1' then
                 S_VALID <= '0';
@@ -948,7 +1270,7 @@ begin
     Q_STREAM <= Q_W(0) & Q_W(1) & Q_W(2) & Q_W(3); -- [PFCOF2]
     Q_COUNT <= Q_CNT;
 
-    FC_OUT <= F_FC when PF_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] registered, as ADR_OUT_I
+    FC_OUT <= F_FC when PF_ACC = '1' else DC_OFC when FILL_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] [DC] registered, as ADR_OUT_I
 
     -- The output multiplexer is as follows:
     -- SIZE    ADR    Bytes (L = long word port, W = word port, B = Byte port, x = not used by either port)
@@ -987,6 +1309,18 @@ begin
         WP_BUFFER(15 downto 8) & WP_BUFFER(15 downto 0) & WP_BUFFER(15 downto 8) when SIZE_I = "10" and ADR_OUT_I(1 downto 0) = "11" else
         -- Byte: 
         WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0) & WP_BUFFER(7 downto 0); -- SIZE = "01".
+
+    -- [IC] CIIN sampling as MC68030UM 7.2.8/7.2.9/7.2.10: "For asynchronous read cycles, the value of CIIN
+    -- is internally latched on the rising edge of bus cycle state 4" (here the rising edge that ends S3,
+    -- the last one with wait states) and for STERM cycles on the rising edge at which STERM is recognized.
+    -- The value is held until the same edge of the next cycle, past the data latch and the fill.
+    P_CIIN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if T_SLICE = S3 or (T_SLICE = S1 and STERMn = '0') then
+            CIIN_LAT <= CIINn;
+        end if;
+    end process P_CIIN;
 
     IN_MUX: process
     -- This is the input multiplexer which can handle up to four bytes.
@@ -1132,7 +1466,10 @@ begin
             OPCODE_RDY_I <= RDY_VAR;
         end if;
         -- Data cycle:
-        if WP_GO = '1' then
+        if DC_RHIT = '1' or DC_CHIT = '1' then
+            DBUFFER <= DC_PD; -- [DC] Served by the data cache: no bus cycle.
+            DATA_RDY_I <= '1';
+        elsif WP_GO = '1' then
             DATA_RDY_I <= RDY_VAR; -- [PH2-WP] Posted: the outcome of the last portion is final here.
         elsif WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
             if WP_DONE = '0' then
@@ -1192,7 +1529,7 @@ begin
                   '1' when RESET_OUT_I = '1' else -- No bus fault during RESET instruction.
                   '0' when DSACK_In /= "11" else -- For asynchronous bus cycles.
                   '0' when STERM_In = '0' else -- For synchronous bus cycles.
-                  '0' when PF_ACC = '0' and FC_IN = "111" and ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' else -- F6/H12: AVEC terminates CPU-space IACK ONLY; ordinary cycles at $xFxxxx (grounded-AVECn systems, slow memory) must not be cut short.
+                  '0' when PF_ACC = '0' and FILL_ACC = '0' and FC_IN = "111" and ADR_IN_P(19 downto 16) = x"F" and AVEC_In = '0' else -- F6/H12: AVEC terminates CPU-space IACK ONLY; ordinary cycles at $xFxxxx (grounded-AVECn systems, slow memory) must not be cut short.
                   '0' when BUS_FLT = '1' else -- In case of a bus error;
                   '0' when RESET_CPU_I = '1' else '1'; -- A CPU reset terminates the current bus cycle.
 

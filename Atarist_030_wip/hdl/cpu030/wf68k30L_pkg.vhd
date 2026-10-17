@@ -79,46 +79,62 @@ type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, AND
 type TRAPTYPE_OPC is(NONE, T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV, T_RTE); -- None is the first entry and default.
 
 
-component WF68K30L_ICACHE
+component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
     port (
         CLK       : in std_logic;
         RESET     : in bit;
         EI        : in std_logic;
         FI        : in std_logic;
-        CI        : in std_logic;
-        REQ       : in bit;
-        ADR       : in std_logic_vector(31 downto 0);
-        FC        : in std_logic_vector(2 downto 0);
-        WR        : in bit;
-        WR_ADR    : in std_logic_vector(31 downto 0);
-        BUS_RDY   : in bit;
-        BUS_WORD  : in std_logic_vector(15 downto 0);
-        BUS_REQ   : out bit;
-        RDY       : out bit;
-        WORD      : out std_logic_vector(15 downto 0)
+        CDIS      : in std_logic;
+        CLR_ALL   : in std_logic;
+        CLR_ENT   : in std_logic;
+        CLR_IDX   : in std_logic_vector(7 downto 2);
+        LK_ADR    : in std_logic_vector(31 downto 2);
+        LK_FC2    : in std_logic;
+        HIT       : out std_logic;
+        HIT_DATA  : out std_logic_vector(31 downto 0);
+        FILL      : in std_logic;
+        FILL_MIS  : in std_logic;
+        FILL_OK   : in std_logic_vector(1 downto 0);
+        BREAK     : in std_logic;
+        FILL_ADR  : in std_logic_vector(31 downto 2);
+        FILL_FC2  : in std_logic;
+        FILL_DATA : in std_logic_vector(31 downto 0)
     );
 end component;
 
 
-component WF68K30L_DCACHE
+component WF68K30L_DCACHE -- [DC] 68030 data cache (rewritten 2026-10-17)
     port (
         CLK       : in std_logic;
         RESET     : in bit;
         ED        : in std_logic;
         FD        : in std_logic;
-        CD        : in std_logic;
-        REQ       : in bit;
-        LONG_OK   : in std_logic;
-        ADR       : in std_logic_vector(31 downto 0);
-        FC        : in std_logic_vector(2 downto 0);
-        WR        : in bit;
+        WA        : in std_logic;
+        CDIS      : in std_logic; -- '1': disabled (registered CDIS pin).
+        CLR_ALL   : in std_logic;
+        CLR_ENT   : in std_logic;
+        CLR_IDX   : in std_logic_vector(7 downto 2);
+        LK_ADR    : in std_logic_vector(31 downto 0);
+        LK_FC     : in std_logic_vector(2 downto 0);
+        LK_SZ     : in std_logic_vector(2 downto 0); -- Bytes: 1, 2 or 4.
+        LK_HIT    : out std_logic;
+        LK_DATA   : out std_logic_vector(31 downto 0);
+        WR_GO     : in std_logic;
         WR_ADR    : in std_logic_vector(31 downto 0);
         WR_FC     : in std_logic_vector(2 downto 0);
-        BUS_RDY   : in bit;
-        BUS_DATA  : in std_logic_vector(31 downto 0);
-        BUS_REQ   : out bit;
-        RDY       : out bit;
-        DATA      : out std_logic_vector(31 downto 0)
+        WR_SZ     : in std_logic_vector(2 downto 0);
+        WR_DATA   : in std_logic_vector(31 downto 0); -- Right-justified.
+        FL_GO     : in std_logic;
+        FL_A0     : in std_logic_vector(31 downto 2);
+        FL_FC     : in std_logic_vector(2 downto 0);
+        FL_U1     : in std_logic; -- E1 touched.
+        FL_D0     : in std_logic_vector(31 downto 0);
+        FL_D1     : in std_logic_vector(31 downto 0);
+        FL_OK0    : in std_logic_vector(1 downto 0); -- Bit 1: word at offset 0 (D 31:16), bit 0: offset 2.
+        FL_OK1    : in std_logic_vector(1 downto 0);
+        FL_BE0    : in std_logic;
+        FL_BE1    : in std_logic
     );
 end component;
 
@@ -250,8 +266,8 @@ component WF68K30L_BUS_INTERFACE
         BUS_EN              : out std_logic;
         SIZE                : out std_logic_vector(1 downto 0);
         OP_SIZE             : in OP_SIZETYPE;
-        RD_REQ              : in bit;
-        WR_REQ              : in bit;
+        RD_REQ_IN           : in bit;
+        WR_REQ_IN           : in bit;
         DATA_RDY            : out bit;
         DATA_VALID          : out std_logic;
         OPCODE_REQ          : in bit;
@@ -273,6 +289,40 @@ component WF68K30L_BUS_INTERFACE
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX]
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
+        IC_LK_FC2           : out std_logic; -- [IC]
+        IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
+        IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
+        IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
+        IC_FILL_MIS         : out std_logic; -- [IC] ... it started at 4n+2 (stream start at a misaligned word).
+        IC_FILL_OK          : out std_logic_vector(1 downto 0); -- [IC] Per word (1 = first): no bus error, CIIN negated.
+        IC_BREAK            : out std_logic; -- [IC] The stream restarts (Q_MISS).
+        IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
+        IC_FILL_FC2         : out std_logic; -- [IC]
+        IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
+        CIINn               : in std_logic; -- [IC] Cache inhibit in (MC68030UM 5.7.1).
+        DC_FILL_EN          : in std_logic; -- [DC] ED set, FD clear, CDIS negated: a cachable read miss fills.
+        DC_ON               : in std_logic; -- [DC] ED set, CDIS negated: reads are looked up.
+        DC_LK_ADR           : out std_logic_vector(31 downto 0); -- [DC] Lookup of the read request in START_CYCLE.
+        DC_LK_FC            : out std_logic_vector(2 downto 0);
+        DC_LK_SZ            : out std_logic_vector(2 downto 0);
+        DC_HIT              : in std_logic;
+        DC_HIT_DATA         : in std_logic_vector(31 downto 0);
+        DC_WR_GO            : out std_logic; -- [DC] A write started (registered, the clock after).
+        DC_WR_ADR           : out std_logic_vector(31 downto 0);
+        DC_WR_FC            : out std_logic_vector(2 downto 0);
+        DC_WR_SZ            : out std_logic_vector(2 downto 0);
+        DC_WR_DATA          : out std_logic_vector(31 downto 0);
+        DC_FL_GO            : out std_logic; -- [DC] A read and its fill cycles ended.
+        DC_FL_A0            : out std_logic_vector(31 downto 2);
+        DC_FL_FC            : out std_logic_vector(2 downto 0);
+        DC_FL_U1            : out std_logic;
+        DC_FL_D0            : out std_logic_vector(31 downto 0);
+        DC_FL_D1            : out std_logic_vector(31 downto 0);
+        DC_FL_OK0           : out std_logic_vector(1 downto 0);
+        DC_FL_OK1           : out std_logic_vector(1 downto 0);
+        DC_FL_BE0           : out std_logic;
+        DC_FL_BE1           : out std_logic;
         INBUFFER            : out std_logic_vector(31 downto 0);
         OUTBUFFER           : out std_logic_vector(31 downto 0);
         SSW_80              : out std_logic_vector(8 downto 0);
@@ -424,6 +474,7 @@ component WF68K30L_CONTROL
         BRANCH_ATN          : in bit;
         RESET_STRB          : out bit;
         BERR                : out bit;
+        BERR_IBOUND         : out bit;
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;
@@ -508,6 +559,7 @@ component WF68K30L_EXCEPTION_HANDLER
         IVECT_OFFS          : out std_logic_vector(9 downto 0);
         TRAP_AERR           : in bit;
         TRAP_BERR           : in bit;
+        BERR_IBOUND         : in bit;
         TRAP_CHK            : in bit;
         TRAP_DIVZERO        : in bit;
         TRAP_ILLEGAL        : in bit;

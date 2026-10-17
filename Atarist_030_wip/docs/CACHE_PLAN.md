@@ -83,6 +83,12 @@ Source: `rtl/fastram.v` on the TF534 (and the matching TF536 SDRAM path).
    set EI/ED, even if the caches are compiled out — that is expected and must
    not be treated as proof that caches are live.
 
+**Decision (David, 17 Oct 2026): TF536 style.** CIIN inhibits everything on the ST side: ROM, ST-RAM and I/O. Only a
+future 030-side fast RAM region is cacheable. ROM is deliberately not cached even though TT/Falcon/EmuTOS and the
+Mega STE cache it (research in `/workspace/rom_cache_research.md` on the box, 17 Oct 2026: ROM caching is safe; the
+TOS 1.x ROM at $FC0000 sits inside the $F00000 block the TT tree inhibits). Reason: period-correct ST accelerator
+behaviour, one simple rule in the bridge, no coherency questions with stock TOS 1.x/2.06.
+
 ## 5. Timing and resources
 
 - Tag compare and hit/miss mux land on the **clk_cpu030** critical path.
@@ -94,6 +100,13 @@ Source: `rtl/fastram.v` on the TF534 (and the matching TF536 SDRAM path).
   164/340 (49%).
 
 ## 6. Order of work
+
+Status (17 Oct 2026): **steps 1 and 2 done and merged on `main`** (branch `caches`, which contains `fault-fixes`).
+I cache: [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md); D cache: [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md). CIIN, CDIS, CBACK in
+and CBREQ, CIOUT out are pins of WF68K30L_TOP. The bridge drives CIIN from a per-cycle decode (TF536 rule: every ST
+ROM/RAM/IO cycle inhibited, only the reserved fast-RAM range $01000000-$01FFFFFF cachable). With the caches off the ST
+build is cycle-identical to `fault-fixes`. Board build dc_ff6af03: TOS 2.06 enables the caches at boot, GEMBENCH 133%
+unchanged. The old F59 modules are gone. Still to do: 030-side fast RAM, burst, A3 (deferred), PMMU (below).
 
 1. **Instruction cache first.** Bus trace (`branch bus-trace`, `BUSTRACE.md`):
    instruction fetches are about 72–87% of ST cycles on the weak display
@@ -109,6 +122,12 @@ Note (17 Oct 2026): option (a) **A3** belongs here. Issuing the next operand req
 needs a request queue in the bus interface, DATA_RDY/BERR tagged per request (a queued read is cancelled, not run, when
 the current one faults) and an undo of the (An)+/offset step on a fault. The cache line fills and the cache-miss path
 need the same queue, so build it once with the caches. See OPTION_A_DESIGN.md (A3 assessment).
+
+Planned later step (17 Oct 2026): **68030 PMMU.** Its page tables will mark I/O and ST-RAM cache-inhibited, as TOS
+does on the TT and Falcon (the CI bit in the page descriptors, driven out on CIOUT). That resolves DCACHE_DESIGN D-Q2:
+with WA set (TOS 2.06 writes CACR=$3919), aligned long writes to ST addresses would otherwise allocate D cache
+entries, because CIIN is ignored on writes. Until the PMMU is in, hardware CDIS is the fallback if the board test shows
+a problem.
 
 ## 7. Falcon
 

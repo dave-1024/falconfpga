@@ -313,6 +313,7 @@ entity WF68K30L_CONTROL is
         BRANCH_ATN          : in bit;
         RESET_STRB          : out bit;
         BERR                : out bit;
+        BERR_IBOUND         : out bit; -- [FLT2] Data write fault at an instruction boundary (format $A).
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;
@@ -340,6 +341,13 @@ signal NEXT_EXEC_WB_STATE   : EXEC_WB_STATES := IDLE;  -- [F54] measured warm-bo
 signal ADR_MARK_USED_I		: bit := '0';  -- [F54] measured warm-boot value
 signal ADR_MODE_I           : std_logic_vector(2 downto 0) := "100";  -- [F54] measured warm-boot value
 signal ALU_INIT_I           : bit := '0';  -- [F54] measured warm-boot value
+signal AR_INC_S           : bit; -- [FLT2] internal copy of the AR_INC output.
+signal AR_DEC_S           : bit; -- [FLT2] internal copy of the AR_DEC output.
+signal SP_ADD_DISPL_S     : bit; -- [FLT2] internal copy of the SP_ADD_DISPL output.
+signal WR_FLT               : bit; -- [FLT1] The control unit's data write ends with a bus error (this clock).
+signal WFLT                 : bit := '0'; -- [FLT1] Held from a data write fault until the exception handler runs.
+signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed an address register in this instruction.
+signal WR_LAST              : boolean; -- [FLT2] The running write is its instruction's last bus cycle.
 signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
@@ -393,7 +401,7 @@ begin
     -- overlaps the next MOVEM transfer set-up with the current bus cycle).
     ALU_BSY_M <= '0' when ALU_BSY = '0' else
                  '0' when OP = MOVEM and OP_WB_I = MOVEM and BIW_0(10) = '0' and BIW_0_WB(10) = '0' and
-                          EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' else '1';
+                          EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' else '1';
     BUSY <= '1' when OPD_ACK = '1' else -- Early indication.
             '1' when LOOP_BSY = '1' else -- Finish the DBcc loop.
             '1' when ALU_BSY = '1' else -- Busy, wait.
@@ -490,7 +498,8 @@ begin
     INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else '0';
     
     DATA_RD <= DATA_RD_I;
-    DATA_RD_I <= '0' when DATA_WR_I = '1' and READ_CYCLE = '0' and WRITE_CYCLE = '0' else -- Write is prioritized.
+    DATA_RD_I <= '0' when WFLT = '1' else -- [FLT1] No operand cycle after a data write fault (MC68030: exception straight after the faulted cycle).
+                 '0' when DATA_WR_I = '1' and READ_CYCLE = '0' and WRITE_CYCLE = '0' else -- Write is prioritized.
                  '0' when WRITE_CYCLE = '1' else -- Do not read during a write cycle.
                  '0' when ADR_IN_USE = '1' else -- Avoid data hazards.
                  '0' when DATA_RDY = '1' or MEMADR_RDY = '1' else
@@ -502,7 +511,8 @@ begin
                  '1' when FETCH_STATE = CALC_AEFF and OP = MOVEM and BIW_0(10) = '1' and MOVEM_FIRST_RD = true else '0';
 
     DATA_WR <= DATA_WR_I;
-    DATA_WR_I <= '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
+    DATA_WR_I <= '0' when WFLT = '1' else -- [FLT1]
+                 '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
                  '0' when DATA_RDY = '1' else
                  '1' when EXEC_WB_STATE = WRITE_DEST else '0';
 
@@ -700,7 +710,7 @@ begin
     AR_WR_II <= '1' when OP_WB_I = UNLK and EXEC_WB_STATE = WRITEBACK else -- Write (SP) to An.
                 '1' when OP_WB_I = EXG and EXEC_WB_STATE = WRITEBACK and BIW_0_WB(7 downto 3) = "01001" else '0'; -- Two address registers.
 
-    AR_INC <= '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
+    AR_INC_S <= '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY = '1' else
               '1' when (OP = ADDI or OP = CMPI or OP = SUBI) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDQ or OP = SUBQ) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
@@ -728,7 +738,7 @@ begin
                              DIVS | DIVU | EOR | EORI | LSL | LSR | MOVE | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | MOVES | MULS | MULU | NBCD | NEG | NEGX | 
                              NOT_B | OR_B | ORI | ROTL | ROTR | ROXL | ROXR | SBCD | SUB | SUBA | SUBI | SUBQ | SUBX | TAS | TST, '0' when others;
 
-    AR_DEC <= AR_DEC_I when ADR_MODE_I = "100" and FETCH_STATE /= CALC_AEFF and NEXT_FETCH_STATE = CALC_AEFF else
+    AR_DEC_S <= AR_DEC_I when ADR_MODE_I = "100" and FETCH_STATE /= CALC_AEFF and NEXT_FETCH_STATE = CALC_AEFF else
               '1' when (OP = BSR or OP = JSR or OP = LINK) and FETCH_STATE = START_OP and NEXT_FETCH_STATE /= START_OP else
               '1' when (OP = CLR or OP = Scc) and ADR_MODE_I = "100" and INIT_ENTRY = '1' else
               '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and BIW_0(5 downto 3) /= "011" and INIT_ENTRY = '1' else -- (An)+, -(An)
@@ -1120,10 +1130,11 @@ begin
                      '1' when OP = MOVEC and BIW_0(0) = '1' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else -- Writing control registers.
                      '1' when (OP = RTD or OP = RTR or OP = RTS) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else '0';
 
-    SP_ADD_DISPL <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else 
+    SP_ADD_DISPL_S <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else 
                     '1' when OP = RTD and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' else '0';
 
     ALU_TRIG <= '0' when ALU_BSY_M = '1' or FETCH_STATE /= INIT_EXEC_WB else
+                '0' when WR_FLT = '1' or WFLT = '1' else -- [FLT1] Nothing new after a data write fault.
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
                 '0' when OP = MOVE and PHASE2 = true else -- no ALU required after second portion of address calculation.
                 '0' when OP = MOVEM and MOVEM_COND = false else
@@ -1245,7 +1256,8 @@ begin
                     '1' when (OP = NBCD or OP = NEG or OP = NEGX or OP = NOT_B) and BIW_0(5 downto 3) = "000" else
                     '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else '0';
 
-    UNMARK <= '1' when EXEC_WB_STATE /= IDLE and NEXT_EXEC_WB_STATE = IDLE else '0'; -- Release a pending write cycle when done.
+    UNMARK <= '1' when WR_FLT = '1' else -- [FLT1] The aborted write-back releases its address.
+              '1' when EXEC_WB_STATE /= IDLE and NEXT_EXEC_WB_STATE = IDLE else '0'; -- Release a pending write cycle when done.
 
     -- These signals indicates, that two registers are prepared to be written. In this case, the values
     -- in both of these registers are invalidated before the writeback.
@@ -1522,10 +1534,56 @@ begin
         end if;
     end process PHASE2_CONTROL;
 
+    -- [FLT1] Data write fault: the bus interface ends the write with DATA_RDY and DATA_VALID = '0'.
+    AR_INC <= AR_INC_S;
+    AR_DEC <= AR_DEC_S;
+    SP_ADD_DISPL <= SP_ADD_DISPL_S;
+    WR_FLT <= '1' when WR_RDY = '1' and DATA_VALID = '0' else '0';
+
+    P_WFLT: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET_CPU = '1' or BUSY_EXH = '1' then
+            WFLT <= '0';
+        elsif WR_FLT = '1' then
+            WFLT <= '1';
+        end if;
+    end process P_WFLT;
+
+    -- [FLT2] MC68030UM 8.1.2 and table 8-6: the short bus fault frame (format $A, PC = next instruction) is used
+    -- when the exception is taken with the execution unit at an instruction boundary; data read faults and faults
+    -- inside an instruction use the long frame ($B). Here: a data write fault on its instruction's last bus cycle,
+    -- while the fetch side has not yet changed any register for the following instruction (it is aborted by FLT1
+    -- and runs again after RTE). Read-modify-write (CAS, CAS2, TAS) and multi-cycle bit field writes stay long.
+    WR_LAST <= false when OP_WB_I = CAS or OP_WB_I = CAS2 or OP_WB_I = TAS else
+               false when (OP_WB_I = BFCHG or OP_WB_I = BFCLR or OP_WB_I = BFINS or OP_WB_I = BFSET) and BF_BYTES = 5 else
+               false when OP_WB_I = MOVEM and OP = MOVEM and FETCH_STATE /= START_OP and FETCH_STATE /= SLEEP else
+               false when OP_WB_I = MOVEP and OP = MOVEP and FETCH_STATE /= START_OP else
+               true;
+
+    P_FI_DIRTY: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if AR_INC_S = '1' or AR_DEC_S = '1' or SP_ADD_DISPL_S = '1' then
+            FI_DIRTY <= true;
+        elsif FETCH_STATE = START_OP then
+            FI_DIRTY <= false;
+        end if;
+    end process P_FI_DIRTY;
+
+    BERR_IBOUND <= '1' when WR_FLT = '1' and EXEC_WB_STATE = WRITE_DEST and WR_LAST = true and FI_DIRTY = false and
+                            AR_INC_S = '0' and AR_DEC_S = '0' and SP_ADD_DISPL_S = '0' else '0';
+
     STATE_REGs: process
     begin
         wait until CLK = '1' and CLK' event;
         if RESET_CPU = '1' then
+            FETCH_STATE <= START_OP;
+            EXEC_WB_STATE <= IDLE;
+        elsif WR_FLT = '1' or WFLT = '1' then
+            -- [FLT1] A data write fault ends the write-back and stops the fetch side at once: the next
+            -- instruction (already decoded, maybe in its address calculation) does not run its operand
+            -- cycles; the exception handler takes the fault right after the faulted cycle (MC68030UM 8.1.2).
             FETCH_STATE <= START_OP;
             EXEC_WB_STATE <= IDLE;
         elsif EW_ACK = '1' and OW_VALID = '0' then

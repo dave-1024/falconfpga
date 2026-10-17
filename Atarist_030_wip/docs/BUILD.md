@@ -58,7 +58,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_SD_WRITE_FIX` | on | sd_rw waits for DAT0 not busy before CMD17/CMD24, bounded CMD24 retry, a failed write completes instead of jamming in state 13 |
 | `ST_FLOPPY_MEDIACH` | on | holds floppy write-protect ~0.75 s after each image insert/eject, so TOS sees a runtime disk swap. Without it TOS writes the old disk's FAT/directory into the new image (the gb403 corruption) |
 | `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
-| `ST_030_CACHES` | off | experimental 030 I/D caches; incomplete (no CIIN, burst, DMA snoop) |
+| `ST_030_CACHES` | off | no effect since 17 Oct 2026: the 68030 I and D caches are always built (no switch, CACR enables them as on a 030); the bridge drives CIIN from a per-cycle decode (ST ROM/RAM/IO inhibited, only `$01000000-$01FFFFFF` cachable); the old experimental modules are gone |
 | `ST_CPU_68000` | off (`build_st_68000.tcl`, `build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
 | `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn/mch/sdlog.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
 | `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |
@@ -123,7 +123,13 @@ reset, `ls`, `mount a <img>`, `eject`, `save` (atarist.ini), `crc <file>`, `scrc
 0-byte file).
 
 ## 9. Tests
-- `bash hdl/cpu030/sim/rtl/run_rtl.sh` must print PASS; `run_bus.sh` for the whole ST.
+- `bash hdl/cpu030/sim/rtl/run_rtl.sh` must print PASS (includes the I and D cache unit tests `run_icache.sh`,
+  `run_dcache.sh`); `run_bus.sh` for the whole ST.
+- Gate level (CPU netlist): `gw_sh hdl/cpu030/sim/wf030_syn.tcl` makes `impl/gwsynthesis/wf030.vg`; then
+  `hdl/cpu030/sim/run_unit.sh` (bridge + netlist, ERRORS=0), `run_icache_net.sh <wf030.vg>` and
+  `run_dcache_net.sh <wf030.vg>` (cache hits through the bridge at the fast-RAM alias) must PASS.
+- After a Gowin build, check the syn log has "Extracting RAM for identifier" for the cache arrays (D00..D13, TAG0/1,
+  DATA_RAM, TAG_RAM): an array that falls back to flip-flops costs thousands of LUTs.
 - SD/FDC: `iverilog` benches in `hdl/misc/sim/` and `hdl/fdc1772/sim/run_sim.sh`.
 - Board: cold boot (4096 KB memory test, desktop), ST Medium, GEMBENCH 6 All Tests from a known-good image
   (check its CRC first: a corrupt image once looked like a CPU bug for days), a runtime image swap with a desktop save.
