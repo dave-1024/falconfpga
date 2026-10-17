@@ -180,11 +180,7 @@ module cpu030_st_bridge #(
 `else
     WF68K30L_TOP #(
         .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
-`ifdef ST_030_CACHES
-        .CACHES    ( 1             ),    // experimental I/D caches (incomplete), CACR EI/ED
-`else
-        .CACHES    ( 0             ),    // no caches, as a TF534/TF536 with ST-RAM (default)
-`endif
+        .CACHES    ( 0             ),    // [IC] ignored: the 68030 I cache is always built; CIINn below decides
 `ifdef WF030_FAST_HANDOFF
         .FAST_HANDOFF ( 1          )     // [F65] prefetch S5 rolls into the next prefetch S0
 `else
@@ -218,6 +214,14 @@ module cpu030_st_bridge #(
         .DBENn     (               ),
         .BUS_EN    (               ),
         .STERMn    ( 1'b1          ),
+        // [IC] 68030 cache pins. TF536 rule (CACHE_PLAN.md §4, David 17 Oct 2026): every cycle
+        // through this bridge is ST side (ROM, ST-RAM, I/O), so CIIN is asserted on all of them
+        // and nothing is ever cached. Only a future 030-side fast RAM leaves CIIN negated.
+        .CIINn     ( 1'b0          ),
+        .CDISn     ( 1'b1          ),   // no hard cache-off (CIIN already keeps the caches empty)
+        .CBACKn    ( 1'b1          ),   // no burst-capable memory
+        .CBREQn    (               ),
+        .CIOUTn    (               ),
 `ifndef WF030_NETLIST
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
