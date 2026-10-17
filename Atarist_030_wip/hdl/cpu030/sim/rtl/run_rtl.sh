@@ -80,4 +80,7 @@ lc=$(awk '/DONE/{print $NF}' r.log); echo "prog_loop WS=5: DONE at clk ${lc:-non
 # [IC] Instruction cache unit test (prog_icache.s, CIMODE 1 and 0, expect_icache_ci*.txt).
 ic=$(bash $H/run_icache.sh $W || true); echo "$ic" | grep FAIL || true
 echo "$ic" | grep -q "^PASS" || { echo "FAIL run_icache"; fail=1; }
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok"
+# [DC] Data cache unit test (prog_dcache.s, 16 configs, expect_dcache_ci*.txt).
+dc=$(bash $H/run_dcache.sh $W || true); echo "$dc" | grep FAIL || true
+echo "$dc" | grep -q "^PASS" || { echo "FAIL run_dcache"; fail=1; }
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok"

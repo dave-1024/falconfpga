@@ -1,6 +1,6 @@
 # 68030 data cache and the A3 request queue: design (step 2 of CACHE_PLAN.md)
 
-Written 17 Oct 2026, before the RTL, on branch `caches` (after the I cache, head cd7b70c).
+Written 17 Oct 2026, before the RTL, on branch `caches` (after the I cache, head cd7b70c). Merged on `main` 17 Oct 2026.
 Goal: an on-chip data cache that behaves like the MC68030's (MC68030UM/AD Rev. 2, ch. 6 and 11.4), on the same pins
 and rules as the I cache (ICACHE_DESIGN.md): always built, kept through synthesis (`syn_keep`/`syn_preserve`),
 enabled only by CACR ED, disabled by ED = 0 or the CDIS pin, CIIN per bus cycle from the bridge decode (only

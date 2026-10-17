@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-16 22:00 (prefetch stop at change of flow merged and on the board; CACHE_PLAN.md added). Owner: David Dunne (dave-1024).
+Last update: 2026-10-17 21:30 (fault fixes + 68030 I and D caches merged on main; board dc_ff6af03). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -31,12 +31,15 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-17, 01:05 UK)
-- Core: `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6;
-  main + option (a) steps 2/3, merged), location 4193. c + 10 reloads 10/10, 3 `w` clean, GEMBENCH 89/252/133.
-  Rollback order: `st_helper_hdn_oa_08e1cf8_p3.fs` (SHA256 3996f7cacab88d607d4d7c313b9fab28a0581248582a6b3537311951e48ae1fb,
-  step 2 only, 132%), then `st_helper_hdn_pfcofvchain_db04754_p3.fs` (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b),
-  then `st_helper_hdn_ph2wp_de35f5f_p3.fs` (273083f2...).
+## Board state (2026-10-17, evening UK)
+- Core: `st_helper_hdn_dc_ff6af03_p3.fs` (SHA256 c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e;
+  main = fault fixes + 68030 I and D caches, merged 17 Oct 2026), location 4193. Cold boot `c` clean, TOS 2.06 shows
+  "Cache" ticked, GEMBENCH 133 / Display 89 / CPU 252 (unchanged as expected: only $01000000-$01FFFFFF is cachable,
+  no fast RAM fitted). LUT 37,662, Fmax clk_cpu030 22.79 / clk32_core 33.78 MHz, TNS 0.
+  Rollback order: `st_helper_hdn_ic_47eba71_p3.fs` (fault fixes + I cache, SHA256 da5f2238...6ce034, 133%), then
+  `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6;
+  option (a) steps 2/3, 133%), then `st_helper_hdn_oa_08e1cf8_p3.fs` (SHA256 3996f7cacab88d607d4d7c313b9fab28a0581248582a6b3537311951e48ae1fb),
+  then `st_helper_hdn_pfcofvchain_db04754_p3.fs` (SHA256 f9f3742a50d56b6e1badce02fcbbb985e4de45cd67c079c6b36ba1e86ddff08b).
   **Always `c` after a flash/reload before testing.** Board checks: `hc.sh s` first; halt = 5 black grabs over ~40 s.
   Count a warm reset only if `w` answers "ST reset via sysctrl" (the first command after reloads can come back as the
   help text or the serial can go silent; op 1 reload restores it; TODO item 7).
@@ -68,7 +71,8 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   (SHA256SUMS). Helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`.
 
 ## Branches
-`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
+`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct, `option-a` and
+`caches` (contains `fault-fixes`) merged 17 Oct). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;
@@ -79,16 +83,21 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 
 ## Doc map
 README.md (top) · Atarist_030_wip/README.md (status) · docs/BUILD.md (build, switches, flash) · docs/TODO.md (order) ·
-docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/CACHE_PLAN.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
+docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/CACHE_PLAN.md · docs/ICACHE_DESIGN.md · docs/DCACHE_DESIGN.md · docs/FAULT_FIXES.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
 docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
-## Next-fix order (docs/TODO.md, updated 2026-10-16)
-1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`.
+## Next-fix order (docs/TODO.md, updated 2026-10-17)
+1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`, and
+   the one-off halt noted during the fault-fixes testing (not reproduced).
 2. EmuTOS blitter greyed out.
 3. Helper port (AE350 companion).
-4. Phase 2 follow-ups: option (a) pipelined control unit; data-fault timing + $A/$B frame; stale bus-fault flag on a
-   chained late BERR; clk_cpu030 decoder -> ADR_EFF path (before caches); clk32 blitter falling-edge path.
-5. Caches (later): full plan in `Atarist_030_wip/docs/CACHE_PLAN.md` — I then D, CIIN on ST-side, CDIS hard off,
-   match real MC68030; no cache logic in the bus path when disabled.
-Pinned, final stage: remove the ST/STE switch, STE only.
+4. D-Q2: board check of D cache write allocate (CACR-read program; with WA, ST-side aligned long writes allocate
+   entries). Fallback CDIS.
+5. 030-side fast RAM ($01000000-$01FFFFFF) so the caches have something to cache; then burst.
+6. A3 request queue: deferred (DCACHE_DESIGN.md §4).
+7. 68030 PMMU: planned later step, in HDL inside the core (not on the AE350); its tables mark I/O and ST-RAM
+   cache-inhibited like TT/Falcon, which resolves D-Q2.
+8. Phase 2 follow-ups still open: stale bus-fault flag on a chained late BERR; clk_cpu030 decoder -> ADR_EFF path;
+   clk32 blitter falling-edge path.
+Pinned: the ~10% GEMBENCH display gap (Display 89%). Final stage: remove the ST/STE switch, STE only.

@@ -15,6 +15,8 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
 | PH2-WP posted writes de35f5f (board build) | 115 / 115 / 89 / 251 / 132 |
 | prefetch stop at change of flow db04754 | 115 / 115 / 89 / 251 / 132 |
 | option (a) steps 2/3 039c710 (board build) | 115 / 115 / 89 / 252 / 133 |
+| fault fixes + I cache 47eba71 (board build ic_47eba71) | 115 / 115 / 89 / 252 / 133 |
+| + D cache, RAM16 data ff6af03 (board build dc_ff6af03) | 115 / 115 / 89 / 252 / 133 |
 
 8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
@@ -66,7 +68,28 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
    030-correct (only after the previous DATA_RDY; ADR_IN_USE and write priority unchanged). Tests `prog_movemw.s`,
    `prog_movemr.s`. MOVEM gaps 4 -> 3 and 7 -> 6 clocks; whole-ST bench unchanged; GEMBENCH 132 -> 133%. A3 (requests
    ahead of data) deferred to the caches. Details: OPTION_A_DESIGN.md.
-14. **68030 instruction cache (branch `caches`, 17 Oct 2026, not merged).** 256 B, 16 lines × 4 longs, tag A31:8 + FC2,
-    per-long valid, EI/FI/CEI/CI + CAAR, CDIS, CIIN sampled with the data, on the F62 prefetch queue (a hit costs no bus
-    cycle); misaligned streams filled from consecutive fetches; no snooping (as a 030). CIIN asserted on all ST-side
-    cycles (TF536 rule), so the ST build is cycle-identical to `fault-fixes` (92/92 whole-log SAME). ICACHE_DESIGN.md.
+14. **Data-fault fixes FLT1/FLT2 (f045aa9, branch `fault-fixes`, merged on main with `caches` 17 Oct 2026).** Symptom:
+    after a data write bus error the next instruction still ran (operand reads, register and CCR updates) before the
+    exception, the frame PC pointed at it (RTE ran it twice), a MOVEM kept writing after the first fault, and a write
+    fault always stacked format $B. Cause: the exception handler waited for the control unit to go idle while the
+    faulting write ran in the write-back stage. Fix: no program bus cycle after a faulted data write (exception right
+    after the faulted cycle); a write fault at an instruction boundary stacks the short $A frame (MC68030UM 8.1.2,
+    Table 8-6). Unconditional. Bench prog_fault.s; regression otherwise identical. FAULT_FIXES.md.
+15. **68030 instruction cache (fcb8673..47eba71, merged on main 17 Oct 2026).** 256 B, 16 lines × 4 longs, tag A31:8 + FC2,
+    per-long valid, EI/FI/CEI/CI + CAAR, CDIS, CIIN latched per cycle (MC68030UM 7.2.8-7.2.10) and only inhibiting that
+    cycle's fill, on the F62 prefetch queue (a hit costs no bus cycle); misaligned streams filled from consecutive
+    fetches; no snooping (as a 030); syn_keep so Gowin keeps it. CIINn from a per-cycle decode in the bridge (TF536
+    style): ST ROM/RAM/IO inhibited, reserved fast RAM $01000000-$01FFFFFF cachable (616946e had the polarity inverted,
+    fixed in 47eba71). ST build cycle-identical (92/92). Board ic_47eba71: GEMBENCH 133% unchanged. ICACHE_DESIGN.md.
+16. **68030 data cache (1cbfdcf, 706a0aa, merged on main 17 Oct 2026).** 256 B direct-mapped, tag = logical address +
+    FC, write-through, write allocate (WA), CACR ED/FD/CED/CD/DBE (burst stubbed), CAAR, CIIN per cycle (ignored on
+    writes), CDIS; TAS/CAS read forced to miss, single-entry fills on the 16-bit port, a bus error on a fill-only cycle
+    marks the entry invalid without an exception. Regression 92/92 identical with ED off; new unit test prog_dcache.s
+    (16 configs), gate-level run_dcache_net.sh. Deviations D-Q1..D-Q7 and the TOS 2.06 WA risk (D-Q2) in
+    DCACHE_DESIGN.md; A3 queue deferred.
+17. **D cache data in RAM16 (cbfcedb, ff6af03).** The first D cache build put the 256 data bytes in 2048 flip-flops
+    (~6k LUTs): each bank had two write index ports and the lanes were read through a function taking whole arrays.
+    Fix: one write port per data and tag bank (E0/E1 of an operand are always in different banks, so no write split
+    and no timing change) and direct indexed reads. Now 74 RAM16SDP4; LUT 42.1k -> 37.7k, Reg 18.1k -> 15.6k, Fmax
+    clk_cpu030 22.79 MHz, clk32_core 33.78 MHz. Behaviour cycle-identical (96/96 incl. cache-on prog_dcache). Board
+    dc_ff6af03: TOS 2.06 boots with Cache on, GEMBENCH 133 / 89 / 252.

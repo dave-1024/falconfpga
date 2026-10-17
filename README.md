@@ -43,7 +43,7 @@ The long goal is a Falcon-class machine in FPGA: Motorola **68030** guest, ST-co
 
 The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes. It was also **heavily audited for CPU instruction errors** against a real 68030: opcode by opcode, including cases where the tests passed and the silicon still disagreed. What lives in `rigsdram/` is that tree, not an unmodified download. It is not a Musashi rewrite and it is not fx68k.
 
-PMMU is a later fabric + RISC-V walk, not inside the CPU core. First silicon for this core does not turn cache or PMMU on.
+The 68030 instruction and data caches are now built into the core per the MC68030 manual (17 Oct 2026). A 68030 PMMU is a planned later step, in HDL inside the CPU core (not a walk on the AE350 RISC-V).
 
 ## Where it started
 
@@ -83,9 +83,11 @@ The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by
 ### `Atarist_030_wip/`: 68030 ST (status 17 Oct 2026)
 
 - TOS 2.06 boots to the GEM desktop from cold; 4 MB, low/medium res.
-- **GEMBENCH 6: 133% of a stock STE** (RAM 115 / ROM 115 / Display 89 / CPU 252), all tests, after CPU rework phase 2 (the next bus cycle starts straight after S5; writes complete at S3) and option (a) steps 2/3 (MOVEM overlap, [`OPTION_A_DESIGN.md`](Atarist_030_wip/docs/OPTION_A_DESIGN.md)). Board build `st_helper_hdn_oa_039c710_p3.fs`. **Float Math OK** (12.37 s). Phase 2: [`PHASE2_DESIGN.md`](Atarist_030_wip/docs/PHASE2_DESIGN.md).
+- **68030 I and D caches built** per the MC68030 manual (MC68030UM ch. 6): 256 B each, CACR/CAAR, write-through D cache with WA, CDIS. CIIN comes from a per-cycle address decode in the bridge, TF536-style: only the reserved 030-side fast-RAM range `$01000000-$01FFFFFF` is cachable, every ST ROM/RAM/IO cycle is cache-inhibited. The data-fault fixes (no program cycle after a write fault, short $A frame) are included. Merged on `main` 17 Oct 2026. Design: [`ICACHE_DESIGN.md`](Atarist_030_wip/docs/ICACHE_DESIGN.md), [`DCACHE_DESIGN.md`](Atarist_030_wip/docs/DCACHE_DESIGN.md), [`FAULT_FIXES.md`](Atarist_030_wip/docs/FAULT_FIXES.md).
+- Board build **`st_helper_hdn_dc_ff6af03_p3.fs`** (SHA256 `c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e`): LUT ~37.7k, Fmax clk_cpu030 22.79 MHz / clk32_core 33.78 MHz. TOS 2.06 switches the caches on at boot.
+- **GEMBENCH 6: 133% of a stock STE** (RAM 115 / ROM 115 / Display 89 / CPU 252), all tests, unchanged with the caches, as expected: with no fast RAM fitted nothing on the ST side is cachable. The gains so far came from CPU rework phase 2 (the next bus cycle starts straight after S5; writes complete at S3) and option (a) steps 2/3 (MOVEM overlap, [`OPTION_A_DESIGN.md`](Atarist_030_wip/docs/OPTION_A_DESIGN.md)). **Float Math OK**. Phase 2: [`PHASE2_DESIGN.md`](Atarist_030_wip/docs/PHASE2_DESIGN.md).
 - SD floppy images work at power-up and at runtime, including desktop saves; the SD path recovers from card errors and reports a lost sector to TOS as a disk error.
-- Open (in order): warm-reset halt (pinned), EmuTOS blitter greyed out, helper port, then the phase 2 follow-ups (A3 request queue deferred to the caches, data-fault timing/frame format, clk_cpu030 and clk32 margin before caches). See [`TODO.md`](Atarist_030_wip/docs/TODO.md).
+- Open (in order): warm-reset halt (pinned), EmuTOS blitter greyed out, helper port, the D-Q2 write-allocate check on the board (a CACR-read program), 030-side fast RAM, then the A3 request queue (deferred) and the PMMU. Pinned: the ~10% GEMBENCH display gap. See [`TODO.md`](Atarist_030_wip/docs/TODO.md).
 - Docs: [`README`](Atarist_030_wip/README.md), [`BUILD.md`](Atarist_030_wip/docs/BUILD.md) (switches, defaults, Linux builds, flash map and rules), [`FALCON_LESSONS.md`](Atarist_030_wip/docs/FALCON_LESSONS.md) (lessons and every bug found), [`SD_WRITE_DEBUG.md`](Atarist_030_wip/docs/SD_WRITE_DEBUG.md), [`handoff/`](handoff/README.md).
 
 The two older vehicles below are kept as references. They do not share a top. `Hybrid030/` is frozen history.
@@ -119,8 +121,8 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 ## Where it is headed
 
 1. ~~Clone MiSTeryNano~~ (`Atarist_030_wip/`), ~~splice the wf68k30L via TF534-style bus arbitration~~, ~~8 then 16 MHz CPU on the stock 8 MHz ST bus~~, ~~AE350 as the helper (OSD, floppy images from microSD, USB keyboard/mouse; the BL616 stays the JTAG/serial bridge)~~. Done as of October 2026.
-2. **Now:** finish the 030 on the ST bus (the open list in `Atarist_030_wip/docs/TODO.md`), then the full request-handoff rework and caches.
-3. Then move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map). PMMU walks on the AE350 come later, only when MiNT is next.
+2. **Now:** finish the 030 on the ST bus (the open list in `Atarist_030_wip/docs/TODO.md`). ~~Request-handoff rework~~ and ~~I/D caches~~ done (17 Oct 2026); next 030-side fast RAM so the caches have something to cache, then the 68030 PMMU in HDL.
+3. Then move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map). The PMMU is planned in HDL (not on the AE350).
 
 Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolated 030+SDRAM check.
 

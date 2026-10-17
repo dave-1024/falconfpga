@@ -1,6 +1,6 @@
 # 68030 instruction cache: design (step 1 of CACHE_PLAN.md)
 
-Written 17 Oct 2026 before the RTL, on branch `caches` (off `fault-fixes` 667fcca).
+Written 17 Oct 2026 before the RTL, on branch `caches` (off `fault-fixes` 667fcca). Merged on `main` 17 Oct 2026.
 Goal: an on-chip instruction cache that behaves like the MC68030's (MC68030UM ch. 6), with the real cache pins.
 Unconditional (no switch): a 68030 has the cache, it is always built in full and kept through synthesis, and it
 is enabled only by CACR EI (disabled only by CACR EI = 0 or the CDIS pin). CIIN never disables it: CIIN only stops

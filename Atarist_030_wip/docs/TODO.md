@@ -1,5 +1,25 @@
 # TODO (in priority order)
 
+## Status 17 Oct 2026
+The 68030 I and D caches (MC68030UM ch. 6) and the data-fault fixes are merged on `main` (branch `caches`, which
+contains `fault-fixes`). Board build `st_helper_hdn_dc_ff6af03_p3.fs` (sha256 c9a160b6...41c39e): TOS 2.06 boots with
+"Cache" ticked, GEMBENCH 133 / Display 89 / CPU 252, unchanged as expected (only $01000000-$01FFFFFF is cachable and
+no fast RAM is fitted). Open from that work, in order:
+1. **D-Q2 write-allocate check on the board** (DCACHE_DESIGN.md §3/§6): a small program that reads CACR with MOVEC
+   and shows it (does TOS 2.06 set WA, i.e. $3919?), then a long-write/read-back test on an ST I/O register and a
+   DMA buffer with WA on. With WA, aligned long writes allocate D cache entries even though CIIN is asserted (CIIN
+   is ignored on writes), so a later read can hit stale data. Fallback: CDIS. Resolved for good by the PMMU (item 4).
+2. **030-side fast RAM** (8-16 MB at $01000000), so that the caches have something to cache; then burst (IBE/DBE,
+   CBREQ/CBACK/STERM).
+3. **A3 request queue: deferred** (DCACHE_DESIGN.md §4, D-Q4): two requests in flight, per-request BERR, undo of
+   the (An)+ step on a fault. A control-unit rework with no gain while the ST bus dominates.
+4. **68030 PMMU: planned later step, in HDL inside WF68K30L (not a table walk on the AE350).** Its tables mark I/O
+   and ST-RAM cache-inhibited as on the TT/Falcon (CI, CIOUT), which resolves D-Q2. Needed for TOS 3/4 (PMOVE).
+- **Fault-fixes one-off halt (noted 17 Oct 2026):** a single "System halted!" was seen once while testing the
+  fault-fixes build and has not come back; the ic_47eba71 and dc_ff6af03 cold boots were clean. Treated as the
+  pinned warm-reset/bare-reload halt below until it shows a different pattern.
+- **Pinned: the ~10% GEMBENCH display gap** (Display 89%), see below; the caches do not change it.
+
 ## Next fixes, in order (set by David, 15 Oct 2026)
 
 Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS.md) (SD hardening + FDC error status,
@@ -14,10 +34,10 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 0. **Bridge timing left from the 32 MHz CPU clock**: reviewed 16 Oct 2026, see [`BRIDGE_REVIEW.md`](BRIDGE_REVIEW.md) (no bridge leftovers that cost speed; options 1-2 cleanup, gains are core-side).
 1. **Option (a): pipelined control unit.** Steps 2/3 **done** 17 Oct 2026 (08e1cf8 MOVEM write overlap, 039c710 MOVEM
    early read request; GEMBENCH 133%, see [`OPTION_A_DESIGN.md`](OPTION_A_DESIGN.md)). **A3** (issue the next request
-   before the current data: request queue, per-request BERR, undo of the (An)+ step) is **deferred to the cache work**
-   (CACHE_PLAN.md section 6); no gain while the ST bus dominates.
-2. ~~**Data-fault timing and the $A/$B frame.**~~ Fixed on branch `fault-fixes` (FLT1/FLT2, 17 Oct 2026, not on the
-   board yet): no program bus cycle after a data write fault, short $A frame for a write fault at an instruction
+   before the current data: request queue, per-request BERR, undo of the (An)+ step) is **deferred** (it was planned
+   with the cache work; the caches went in without it, DCACHE_DESIGN.md §4); no gain while the ST bus dominates.
+2. ~~**Data-fault timing and the $A/$B frame.**~~ Fixed (FLT1/FLT2, 17 Oct 2026, merged on main with `caches`, on the
+   board since ic_47eba71): no program bus cycle after a data write fault, short $A frame for a write fault at an instruction
    boundary. See [`FAULT_FIXES.md`](FAULT_FIXES.md).
 3. **Stale bus-fault flag on a chained late BERR.** A BERR at S5 on a cycle that chained into the next updates BUS_FLT
    after VALIDATION used it; the flag can stay stale into the chained cycle. Pre-existing PH2 corner, no bench yet.
@@ -36,13 +56,14 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
 Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,
 no cache in the path when disabled; I then D; keep clk_cpu030 19–22 MHz headroom). Old attempt a7ccf76/e9a4fd9
 stays out until that plan is followed.
-- **Step 1, I cache: built** on branch `caches` (17 Oct 2026, [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md)); RTL unit test
-  and full regression pass (ST build cycle-identical). Not merged, not on the board. Open: ICACHE_DESIGN Q1 (first
+- **Step 1, I cache: done** (17 Oct 2026, [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md)); RTL unit test and full regression
+  pass (ST build cycle-identical). Merged on main; board build ic_47eba71, GEMBENCH unchanged. Open: ICACHE_DESIGN Q1 (first
   long of a 4n+2 stream never cached), Q2 (CDIS source), Q3 (burst), Q4 (A3 queue with the D cache).
 - **Step 2, D cache** (write-through, WA, CIIN, RMW rules; replaces wf68k30L_dcache.vhd), then 030-side fast RAM
-  (8-16 MB) so that something is cacheable. Built on `caches` (17 Oct 2026,
-  [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md)), not merged, not on the board; A3 queue deferred (D-Q4).
-- **Later step, 68030 PMMU:** page tables mark I/O and ST-RAM cache-inhibited like TT/Falcon (CI/CIOUT), which
+  (8-16 MB) so that something is cacheable. **Done** (17 Oct 2026,
+  [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md)), data/tags in RAM16 (D-Q8), merged on main, board build dc_ff6af03
+  (GEMBENCH unchanged); A3 queue deferred (D-Q4). Fast RAM still to do.
+- **Later step, 68030 PMMU (in HDL, not on the AE350):** page tables mark I/O and ST-RAM cache-inhibited like TT/Falcon (CI/CIOUT), which
   resolves D-Q2 (WA allocating D cache entries on ST-side writes). Until then CDIS is the fallback.
 
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)
@@ -86,7 +107,7 @@ stays out until that plan is followed.
    - Skipping only IDLE (156 -> 94 ns) gives nothing; the request must reach the bridge within 62.5 ns.
 2. ~~**Prefetch queue fetches past taken branches**~~: **done** 16 Oct 2026 (vchain merged, PREFETCH_COF.md).
    Shelved: `prefetch-cof-qg` (look-ahead at real opcode positions, no extra gain, clk_cpu030 17.2 MHz).
-3. **Caches** (`ST_030_CACHES`): plan ready in [`CACHE_PLAN.md`](CACHE_PLAN.md). Needs CIIN (bridge asserts
+3. ~~**Caches**~~ (**done** 17 Oct 2026: I and D cache merged, see the status at the top; text below is the old plan) (`ST_030_CACHES`): plan ready in [`CACHE_PLAN.md`](CACHE_PLAN.md). Needs CIIN (bridge asserts
    on all ST-side cycles), CDIS hard off, CIOUT from PMMU later, burst only for future 030-side fast RAM;
    no cache logic in the bus path when disabled. I-cache first, then D. Match real MC68030 (CACR/CAAR).
    GEMBENCH may show CACHE D=ON I=ON from CACR bits even with caches compiled out.

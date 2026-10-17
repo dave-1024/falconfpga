@@ -101,10 +101,12 @@ behaviour, one simple rule in the bridge, no coherency questions with stock TOS 
 
 ## 6. Order of work
 
-Status (17 Oct 2026): **step 1 (I cache) built on branch `caches`**, not merged, not on the board. Design and
-results: [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md). CIIN, CDIS, CBACK in and CBREQ, CIOUT out are now pins of
-WF68K30L_TOP; the bridge asserts CIIN on every cycle (TF536 rule) and the ST build is cycle-identical to
-`fault-fixes`. The old F59 modules are no longer instantiated (the D cache, step 2, replaces wf68k30L_dcache.vhd).
+Status (17 Oct 2026): **steps 1 and 2 done and merged on `main`** (branch `caches`, which contains `fault-fixes`).
+I cache: [`ICACHE_DESIGN.md`](ICACHE_DESIGN.md); D cache: [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md). CIIN, CDIS, CBACK in
+and CBREQ, CIOUT out are pins of WF68K30L_TOP. The bridge drives CIIN from a per-cycle decode (TF536 rule: every ST
+ROM/RAM/IO cycle inhibited, only the reserved fast-RAM range $01000000-$01FFFFFF cachable). With the caches off the ST
+build is cycle-identical to `fault-fixes`. Board build dc_ff6af03: TOS 2.06 enables the caches at boot, GEMBENCH 133%
+unchanged. The old F59 modules are gone. Still to do: 030-side fast RAM, burst, A3 (deferred), PMMU (below).
 
 1. **Instruction cache first.** Bus trace (`branch bus-trace`, `BUSTRACE.md`):
    instruction fetches are about 72–87% of ST cycles on the weak display

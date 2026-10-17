@@ -1,6 +1,12 @@
 # cpu030: WF68K30L (68030) in place of fx68k (first integration, Atarist_030_wip)
 
-Status: first integration test, **not yet run on hardware**. No add-ons (no
+Current status (17 Oct 2026, main): runs on the board (TOS 2.06 desktop, GEMBENCH 133% of a stock STE, board build
+`st_helper_hdn_dc_ff6af03_p3.fs`). Since this file was first written the core gained the prefetch queue, the S5 bus
+handoff, posted writes, MOVEM overlap, the data-fault fixes (docs/FAULT_FIXES.md) and the 68030 I and D caches
+(docs/ICACHE_DESIGN.md, docs/DCACHE_DESIGN.md); every change is marked in the files' revision blocks, and the CPU
+clock is no longer 8 MHz (see Atarist_030_wip/README.md). The text below is the first-integration description.
+
+Original status: first integration test, **not yet run on hardware**. No add-ons (no
 TT-RAM, IDE, SPI or autoconfig): the 68030 simply replaces the 68000 on the ST
 bus. CPU and chipset run at stock speed: the 030 is clocked at 8 MHz, locked to
 the ST bus.
@@ -13,7 +19,7 @@ then unused.
 
 | File | Origin / licence |
 |---|---|
-| `wf68k30L_*.vhd` (9 files) | WF68K30L IP core, (C) Wolfgang Foerster / Inventronik, CERN OHL 1.2. Unmodified copies of `rigsdram/src/wf68k30L_*.vhd` at commit 73ea60b (the audited core with the rigsdram fixes); byte-identical, sha256-checked. |
+| `wf68k30L_*.vhd` | WF68K30L IP core, (C) Wolfgang Foerster / Inventronik, CERN OHL 1.2. Started as copies of `rigsdram/src/wf68k30L_*.vhd` at commit 73ea60b (the audited core with the rigsdram fixes); since modified here (Fnn tags and dated revision blocks in each file). `wf68k30L_icache.vhd` and `wf68k30L_dcache.vhd` are the MC68030 caches (rewritten 17 Oct 2026, same CERN OHL 1.2 header). |
 | `cpu030_st_bridge.v` | New for FalconFPGA. GPL-2.0-only, modelled on TerribleFire's TF534 (C) Stephen J. Leary: `rtl/bus_top.v`, `arb.v`, `m6800.v`, `bus_delay.v`, ATARI build. |
 | `LICENSE-GPL2-TF534` | GPL v2 text, copied from the TF534 source tree. |
 | `sim/` | Test benches, the test program and scripts (no ROMs, netlists or vvp files). |
@@ -99,9 +105,10 @@ the SDC line change. For a truly asynchronous CPU clock:
   68000 for bus-bound code. Raising clk_cpu reduces the CPU-side overhead.
 - Read-modify-write (TAS/CAS): grants are blocked while RMCn is low, but the
   ST-side AS is released between the read and the write.
-- The core has no MMU or FPU. All $Fxxx opcodes take a Line-F trap. It has the 68030 instruction cache
-  (branch `caches`, docs/ICACHE_DESIGN.md); the bridge asserts CIIN on every ST-side cycle, so it stays empty
-  on the ST. No data cache yet.
+- The core has no MMU or FPU. All $Fxxx opcodes take a Line-F trap. It has the 68030 instruction and data caches
+  (merged on main 17 Oct 2026, docs/ICACHE_DESIGN.md, docs/DCACHE_DESIGN.md). The bridge drives CIIN from a per-cycle
+  decode: every ST-side cycle is inhibited, only the reserved fast-RAM range $01000000-$01FFFFFF is cachable. A 68030
+  PMMU in HDL is a planned later step.
   TOS 3.x/4.x (which use PMOVE) will not work; EmuTOS or TOS 1.04 are the
   targets.
 - There is no address error on odd word accesses: the 030 does misaligned
