@@ -181,9 +181,10 @@ module cpu030_st_bridge #(
     //   - no cycle of the 030 (AS negated, e.g. while the ST side owns the bus): CIINn asserted.
     // CIIN only stops the current cycle's data from being cached; it never disables the cache, and
     // entries already in it still hit (MC68030UM 6.1). CDISn is the only hardware disable.
+    // CIINn is active low: asserted (0) = do not cache this cycle, negated (1) = cachable.
     (* syn_keep = 1 *) wire cpu_fast_sel;
     assign cpu_fast_sel = ~cpu_asn & (cpu_fc != 3'b111) & (cpu_adr[31:24] == 8'h01);
-    wire cpu_cii_n = ~cpu_fast_sel;
+    wire cpu_cii_n = cpu_fast_sel;      // negated only for the reserved fast-RAM range
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
