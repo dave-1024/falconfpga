@@ -205,3 +205,16 @@ independent of the cache correctness above. Proposed as its own branch step afte
   always sit in different banks (A2 differs), so the two entries are muxed onto per-bank index/data/byte-enable
   signals and written in the same clock as before; no write split, no timing change (regression incl. prog_dcache
   cycle-identical to 706a0aa). The tag banks get the same single-port treatment.
+
+## Board results: dc_ff6af03_p3, 17 Oct 2026
+
+- Flashed st_helper_hdn_dc_ff6af03_p3.fs (sha256 c9a160b6...41c39e, checked on linserver) with op 53 --fsFile at location 4193, after a cable rescan. core rc=0, reload rc=0.
+- Cold boot `c`: the desktop came up on the first grab and the helper link was OK. There was no halt, so no reload or recovery was done.
+- TOS 2.06 default: the desktop Options menu shows **"✓ Cache"** straight after a cold boot. So TOS 2.06 switches the caches on itself at boot, and the default state is cache on. The helper cannot read CACR back, so the exact value was not checked.
+- Run 1, default (Cache ✓). GEMBENCH All Tests, ST Medium, STE ref:
+  - Overall 133%, Display 89%, CPU 252%, the same as ic_47eba71 and oa_039c710.
+  - GEM Dialog 9.805, VDI Text 14.200, Text Effects 25.725, Small Text 14.020, VDI Graphics 25.935, GEM Window 4.025, Int Div 2.690, Float 12.030, RAM 5.475, ROM 5.475, Blitting 9.795, Scroll 13.530, Justified 14.165, Enquire 2.720, New Dialogs 11.620. These are within 5 ms of ic_47eba71.
+  - No crash, no screen corruption, no wrong results, no disk errors. The floppy directory and GEMBENCH loaded correctly.
+  - Grab: docs/prefetch_cof/board/gb_dc_ff6af03_run1.png.
+- Run 2, Cache toggled off and back on to force a CACR rewrite: **not done**. The desktop never registered a menu-item click from the helper, so the tick stayed as it was after 3 attempts. Since the option is already on by default, run 1 already covers "cache option on".
+- Reading: no measurable gain with caches on. This fits CIIN inhibiting every ST-side access (TF536 rule): with no 030-side fast RAM, nothing GEMBENCH touches is cacheable. The D-Q2 stale-data risk was not seen in this run, but the cache is probably not caching anything.
