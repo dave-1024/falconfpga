@@ -142,6 +142,8 @@ entity WF68K30L_BUS_INTERFACE is
         WR_REQ_IN           : in bit; -- Write data.
         DATA_RDY            : out bit; -- Indicates 'new data available' (this is a strobe).
         DATA_VALID          : out std_logic; -- The data buffer contains valid data when '1'.
+        WR_EARLY            : out bit; -- [F3] S3 of a posted write's last portion: its outcome is final (WP_GO).
+        WR_TAKE             : in bit; -- [F3] The control unit took WR_EARLY for the next MOVEM register: no DATA_RDY.
         OPCODE_REQ          : in bit; -- Read opcode.
         OPCODE_RDY          : out bit; -- Indicates 'new opcode available' (this is a strobe).
         OPCODE_VALID        : out std_logic; -- The opcode buffer contains valid data when '1'.
@@ -284,6 +286,7 @@ signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
 signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
 signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
 signal WP_LAST              : bit := '0'; -- [PH2-WP] The bus is idle since a posted write ended.
+signal WW_GO                : bit; -- [F3] Write-to-write chain on the S5 edge.
 signal PW_GO                : bit; -- [PH2-WP] IDLE clock after a posted write: start the operand cycle now.
 signal SLICE_CNT_N          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal SLICE_CNT_P          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
@@ -1001,7 +1004,20 @@ begin
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     OP_CHAIN_GO <= (OP_CHAIN_RAW and not DC_CHIT) or
-                   PW_GO; -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
+                   PW_GO or -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
+                   WW_GO; -- [F3] Same start actions, on the S5 edge of the posted write before it.
+
+    -- [F3] MOVEM register-to-memory, back-to-back writes (MC68030UM 11.6: the sequencer has the next MOVEM
+    -- operand ready while the current one is on the bus). The control unit took the outcome of a posted
+    -- write in its S3 clock (WR_EARLY/WR_TAKE: final there, no fault can follow) and presents the next
+    -- register's write in the S4/S5 clock. The S5 edge rolls into it like the second portion of a long
+    -- word (GAP 1) under the conditions of every other chain. Operand before a waiting prefetch.
+    WW_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000"
+                      and WP_DONE = '1' and OP_WR = '1' and OP_RD = '0'
+                      and RMC = '0' and BUSY_EXH = '0'
+                      and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                      and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    WR_EARLY <= WP_GO;
 
     -- [PH2-WP] The control unit sees a posted write's DATA_RDY in the S4/S5 clock and presents its
     -- next operand request in the clock after S5 (IDLE). That request starts here without the
@@ -1022,7 +1038,7 @@ begin
                    and RMC = '0' and BUSY_EXH = '0' and DC_DPBLK = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
-    DP_CHAIN_GO <= DP_CHAIN_RAW and not RA_GO; -- [F2] The next MOVEM operand comes before the queue (operand priority).
+    DP_CHAIN_GO <= DP_CHAIN_RAW and not RA_GO and not WW_GO; -- [F2] [F3] The next MOVEM operand comes before the queue (operand priority).
 
     -- [F2] MOVEM read-ahead. S3 of the last portion of a MOVEM read while the control unit waits for it and the
     -- register list has a further register (RA_MORE): arm; the S5 edge rolls into the read of the next operand
@@ -1567,7 +1583,7 @@ begin
             DBUFFER <= DC_PD; -- [DC] Served by the data cache: no bus cycle.
             DATA_RDY_I <= '1';
         elsif WP_GO = '1' then
-            DATA_RDY_I <= RDY_VAR; -- [PH2-WP] Posted: the outcome of the last portion is final here.
+            DATA_RDY_I <= RDY_VAR and not WR_TAKE; -- [PH2-WP] Posted: the outcome of the last portion is final here. [F3] Taken early.
         elsif WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
             if WP_DONE = '0' then
                 DATA_RDY_I <= RDY_VAR;

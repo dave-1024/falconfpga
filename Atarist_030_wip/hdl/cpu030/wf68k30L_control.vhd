@@ -291,6 +291,10 @@ entity WF68K30L_CONTROL is
         ALU_BSY             : in bit;
         ALU_REQ             : in bit;
         ALU_ACK             : out bit;
+        WR_EARLY            : in bit; -- [F3]
+        WR_TAKE             : out bit; -- [F3]
+        F3_BYP              : out bit; -- [F3]
+        ADR_FAST            : out bit; -- [F3]
 
         BKPT_CYCLE          : out bit;
         BKPT_INSERT         : out bit;
@@ -349,6 +353,8 @@ signal WR_FLT               : bit; -- [FLT1] The control unit's data write ends 
 signal WFLT                 : bit := '0'; -- [FLT1] Held from a data write fault until the exception handler runs.
 signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed an address register in this instruction.
 signal WR_LAST              : boolean; -- [FLT2] The running write is its instruction's last bus cycle.
+signal F3_EARLY             : bit; -- [F3] Next MOVEM register taken in the S3 clock of the running write.
+signal F3_BYP_I             : bit := '0';
 signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
@@ -402,7 +408,26 @@ begin
     -- overlaps the next MOVEM transfer set-up with the current bus cycle).
     ALU_BSY_M <= '0' when ALU_BSY = '0' else
                  '0' when OP = MOVEM and OP_WB_I = MOVEM and BIW_0(10) = '0' and BIW_0_WB(10) = '0' and
-                          EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' else '1';
+                          EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' else
+                 '0' when F3_EARLY = '1' else '1';
+    -- [F3] Back-to-back MOVEM register-to-memory writes. The outcome of a posted write is final in the S3 clock
+    -- of its last portion (WR_EARLY = WP_GO: DSACK, no bus error, no retry), and its data and address are in the
+    -- bus latches. The next register is loaded there (the same set-up as in the DATA_RDY clock, one clock earlier,
+    -- only when it is certain: register-to-memory, list continues, no write fault pending), the bus interface
+    -- drops that write's DATA_RDY, and the next write is presented in the S4/S5 clock (S5 chain, GAP 1). Its
+    -- data comes straight from the loaded ALU operand in that clock (F3_BYP) and its address skips the
+    -- one-clock calculation delay (ADR_FAST). A bus error can only hit the next write, never the taken one.
+    F3_EARLY <= '1' when WR_EARLY = '1' and EXEC_WB_STATE = WRITE_DEST and OP_WB_I = MOVEM and BIW_0_WB(10) = '0' and
+                         OP = MOVEM and BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = true and
+                         WRITE_CYCLE = '1' and WFLT = '0' and ALU_BSY = '1' else '0';
+    WR_TAKE <= F3_EARLY and ALU_INIT_I;
+    ADR_FAST <= F3_EARLY and ALU_INIT_I;
+    F3_BYP <= F3_BYP_I;
+    P_F3: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        F3_BYP_I <= F3_EARLY and ALU_INIT_I;
+    end process P_F3;
     BUSY <= '1' when OPD_ACK = '1' else -- Early indication.
             '1' when LOOP_BSY = '1' else -- Finish the DBcc loop.
             '1' when ALU_BSY = '1' else -- Busy, wait.
@@ -530,7 +555,8 @@ begin
                '1' when EXEC_WB_STATE = WRITEBACK else
                '0' when (OP_WB_I = BFCHG or OP_WB_I = BFCLR) and EXEC_WB_STATE = WRITE_DEST and BF_BYTES = 5 else
                '0' when (OP_WB_I = BFINS or OP_WB_I = BFSET) and EXEC_WB_STATE = WRITE_DEST and BF_BYTES = 5 else
-               '1' when EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' else '0';
+               '1' when EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' else
+               '1' when F3_EARLY = '1' and ALU_INIT_I = '1' else '0'; -- [F3]
 
     FETCH_MEM_ADR <= '1' when FETCH_STATE = FETCH_MEMADR else '0';
     STORE_MEM_ADR <= '1' when FETCH_STATE = FETCH_MEMADR and RD_RDY = '1' and DATA_VALID = '1' else '0';
