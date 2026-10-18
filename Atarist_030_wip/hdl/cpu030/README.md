@@ -1,11 +1,12 @@
 # cpu030: WF68K30L (68030) in place of fx68k (first integration, Atarist_030_wip)
 
-Current status (18 Oct 2026, main): runs on the board (TOS 2.06 desktop, GEMBench 4.03 134% of a stock STE,
-GEMBENCH 6.08 RAM 91% / ROM 104%, board build `st_helper_hdn_f2_c4de2ec_p3.fs`). Since this file was first written
+Current status (18 Oct 2026, main): runs on the board (TOS 2.06 desktop, GEMBench 4.03 135% of a stock STE,
+GEMBENCH 6.08 RAM 101% / ROM 104%, board build `st_helper_hdn_f3a_7919eb3_p3.fs`). Since this file was first written
 the core gained the prefetch queue, the S5 bus handoff, posted writes, MOVEM overlap, the data-fault fixes
 (docs/FAULT_FIXES.md), the 68030 I and D caches (docs/ICACHE_DESIGN.md, docs/DCACHE_DESIGN.md) and the MOVEM timing
 work (docs/MOVEM_TIMING_F1_F2.md: priority encoder for the register list in `wf68k30L_control.vhd`, MOVEM
-memory-to-register read-ahead `RA_*` in `wf68k30L_bus_interface.vhd`; test `sim/rtl/prog_movemx.s` from
+memory-to-register read-ahead `RA_*` in `wf68k30L_bus_interface.vhd`; F3 back-to-back MOVEM writes `WR_EARLY`/`WR_TAKE`/`WW_GO`
+(bus interface), `F3_EARLY`/`F3_BYP`/`ADR_FAST` (control), `RESULT_MV` (ALU); test `sim/rtl/prog_movemx.s` from
 `gen_movemx.py`); every change is marked in the files' revision blocks, and the CPU
 clock is no longer 8 MHz (see Atarist_030_wip/README.md). The text below is the first-integration description.
 

@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-18 10:30 (MOVEM timing F1/F2 merged on main; board f2_c4de2ec; F3 started on branch f3-write-queue). Owner: David Dunne (dave-1024).
+Last update: 2026-10-18 13:00 (F3 back-to-back MOVEM writes done on f3-write-queue, merge to main approved by David; board f3a_7919eb3). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -31,7 +31,16 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-18, UK)
+## Board state (2026-10-18 midday, UK)
+- Core: `st_helper_hdn_f3a_7919eb3_p3.fs` (SHA256 56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e; F1/F2 + F3
+  back-to-back MOVEM writes, branch f3-write-queue 304b885 = same HDL as 7919eb3), location 4193. Cold boot `c` clean
+  (2/2). GEMBENCH 6.08 vs STE20608: RAM 101%, ROM 104%, Display 46, CPU 186, Average 92; vs STFM1048: Display 94,
+  CPU 186, Average 132. GEMBench 4.03: 135 / Display 91 / CPU 255. LUT 37,870, Fmax clk_cpu030 20.94 / clk32_core
+  34.02 MHz, TNS 0.
+  **Rollback order: F3a `st_helper_hdn_f3a_7919eb3_p3.fs`, then F2 `st_helper_hdn_f2_c4de2ec_p3.fs`, then
+  `st_helper_hdn_dc_ff6af03_p3.fs`**.
+
+## Previous board state (2026-10-18 morning, UK)
 - Core: `st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb;
   main = caches + MOVEM timing F1/F2, merged 18 Oct 2026; built from c4de2ec, same HDL tree), location 4193. Cold boot
   `c` clean (3/3). GEMBENCH 6.08 (gb608.st) vs STE20608: RAM 91%, ROM 104%, Display 46, CPU 180, Average 91; vs
@@ -83,7 +92,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 
 ## Branches
 `main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct, `option-a` and
-`caches` (contains `fault-fixes`) merged 17 Oct, `f1-movem-timing` merged 18 Oct). Open: `f3-write-queue` (F3). Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
+`caches` (contains `fault-fixes`) merged 17 Oct, `f1-movem-timing` merged 18 Oct). `f3-write-queue` (F3): done, merge approved by David 18 Oct. Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
 - Core: `cd Atarist_030_wip && QT_QPA_PLATFORM=offscreen /opt/gowin/IDE/bin/gw_sh build_st_helper.tcl` -> `impl/pnr/st_helper.fs`;
@@ -106,8 +115,8 @@ hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, t
 4. D-Q2: board check of D cache write allocate (CACR-read program; with WA, ST-side aligned long writes allocate
    entries). Fallback CDIS.
 5. 030-side fast RAM ($01000000-$01FFFFFF) so the caches have something to cache; then burst.
-6. F3: MOVEM/operand writes back to back (write queue in the control unit), in work on `f3-write-queue`;
-   the general A3 request queue stays deferred (DCACHE_DESIGN.md §4).
+6. ~~F3~~ done (MOVEM writes back to back, f3-write-queue). Open from it: bus-error frame stage B ($0E) holds a
+   stale BIW_2 (TODO.md); read->write gaps in copy loops; the general A3 request queue stays deferred.
 7. 68030 PMMU: planned later step, in HDL inside the core (not on the AE350); its tables mark I/O and ST-RAM
    cache-inhibited like TT/Falcon, which resolves D-Q2.
 8. Phase 2 follow-ups still open: stale bus-fault flag on a chained late BERR; clk_cpu030 decoder -> ADR_EFF path;
