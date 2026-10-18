@@ -1,4 +1,4 @@
-# MOVEM timing: F1 priority encoder, F2 read-ahead (branch f1-movem-timing)
+# MOVEM timing: F1 priority encoder, F2 read-ahead (merged on main 18 Oct 2026)
 
 Goal: GEMBENCH 6.x RAM/ROM Access (back-to-back `MOVEM.L` loops) closer to a 68000 STE, with 68030 behaviour.
 Analysis: `gb608_ramrom_analysis` (lab notes): our core left the ST bus idle between MOVEM transfers. RAM catches its
@@ -54,3 +54,38 @@ Commits: the board builds were made from local commits d696318 (F1) and c4de2ec 
 GitHub as ab1f3ec (HDL) + 890fbea (sim) with the identical tree (`git diff c4de2ec 890fbea` is empty).
 Board build `st_helper_hdn_f2_c4de2ec_p3.fs`, sha256 f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb.
 F1 build `st_helper_hdn_f1_d696318_p3.fs`, sha256 2c8154c197b0d31a08f0db46c8140d8fb9925b3c8cd4d1e98c0c0e2c00a64d2b.
+
+Rollback order on the board: F2 `st_helper_hdn_f2_c4de2ec_p3.fs`, then `st_helper_hdn_dc_ff6af03_p3.fs`
+(SHA256 c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e).
+
+## GEMBENCH 6.08 per test (gb608.st, ST Medium, All Tests; time in s, ratio ref/ours)
+| Test | dc_ff6af03 (vs STE20608) | F1 d696318 (STE20608 / STFM1048) | F2 c4de2ec (STE20608 / STFM1048) |
+|---|---|---|---|
+| GEM Dialog Box | 24.490 (54%) | 24.385 (53 / 88%) | 24.025 (54 / 89%) |
+| VDI Text | 33.195 (44%) | 33.125 (44 / 100%) | 32.875 (44 / 100%) |
+| VDI Text Effects | 43.230 (50%) | 42.815 (50 / 96%) | 42.400 (50 / 97%) |
+| VDI Small Text | 46.640 (48%) | 46.550 (48 / 98%) | 46.140 (49 / 99%) |
+| VDI Graphics | 43.415 (64%) | 43.365 (64 / 70%) | 43.180 (64 / 70%) |
+| GEM Window | 21.215 (47%) | 21.215 (47 / 90%) | 20.395 (49 / 94%) |
+| Integer Division | 5.135 (613%) | 5.135 (612 / 612%) | 5.135 (612 / 612%) |
+| RAM Access | 51.135 (71%) | 47.430 (76 / 76%) | 39.685 (91 / 91%) |
+| ROM Access | 102.580 (73%) | 95.215 (78 / 78%) | 71.570 (104 / 104%) |
+| Blitting | 22.705 (16%) | 22.700 (15 / 90%) | 22.685 (15 / 90%) |
+| VDI Scroll | 27.260 (35%) | 27.235 (35 / 97%) | 27.115 (35 / 97%) |
+| Justified Text | 26.590 (44%) | 26.545 (43 / 99%) | 26.365 (44 / 100%) |
+| VDI Enquire | 21.155 (98%) | 21.005 (98 / 98%) | 20.625 (100 / 100%) |
+| Display / CPU / Average | 46 / 147 / 82 | 45 / 154 / 83 and 92 / 154 / 119 | 46 / 180 / 91 and 93 / 180 / 129 |
+
+Float Math and ALT RAM are not run (no FPU, no fast RAM).
+
+Reference machines: STE20608 = Atari STE, 68000 at 8 MHz on the 16-bit ST bus, TOS 2.06, blitter enabled.
+STFM1048 = Atari ST(FM), 68000 at 8 MHz on the 16-bit ST bus, TOS 1.04, no blitter. Ours: 68030 core at 16 MHz on the
+same 8 MHz 16-bit ST bus, TOS 2.06, caches on (nothing cachable). Other 6.08 sets compared earlier (gb608_compare,
+from the set names; their panels were not re-read): PAK030 (PAK68/3 68030 card in an ST), TTNOCACH and TT16MED
+(TT030, 68030 at 32 MHz; caches off / ST Medium), FALCON30 (Falcon030, 68030 at 16 MHz, 16-bit bus), MSTEB16 /
+MSTEB16C (Mega STE, 68000 at 16 MHz, without / with its cache).
+
+**Blitter finding:** GEMBENCH 6 shows "BLiTTER NP" for our system. Against the blitter STE the Display group is 46%
+(Blitting 15%); against the blitter-less STFM1048 it is 93% (Blitting 90%). The Display gap to STE20608 is mostly the
+blitter, not the CPU (TODO.md status). RAM/ROM are the same against both sets: both are 68000s at 8 MHz on the ST bus.
+

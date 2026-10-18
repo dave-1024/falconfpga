@@ -165,3 +165,14 @@ Split "the cycle is accepted" from "the data is here":
     are not operand-to-operand gaps.
   - Recommendation: don't do A3 before the caches. With caches/fast RAM the CPU side stops being masked by the ST
     bus; revisit A3 then as part of CACHE_PLAN (a bus-interface request queue is needed there anyway).
+
+## Update 18 Oct 2026: MOVEM timing F1/F2 (merged on main)
+The MOVEM figures above (register gaps 3 for writes, 6 for reads) are superseded by docs/MOVEM_TIMING_F1_F2.md:
+- F1: the register list is walked by a priority encoder (no clock per unused list position, 8+4n like a 68030);
+  `MOVEM_END` replaces `MOVEM_LAST_WR` for the -(An) last decrement. `ALU_BSY_M` (step 2) is kept.
+- F2: MOVEM memory-to-register reads now run back to back (GAP 1): the bus interface rolls from S5 into the next
+  register's read (`RA_*`), handing data or bus error over on the matching request. This replaces the step 3
+  "request in CALC_AEFF" as the limit for reads.
+- MOVEM register-to-memory writes are still gap 3 (WR_RDY -> EXECUTE -> WRITE_DEST): F3, branch f3-write-queue.
+- GEMBENCH 6.08 (gb608.st) RAM 71 -> 91%, ROM 73 -> 104%; the "GEMBENCH" numbers in this file are GEMBench 4.03
+  (gbref.st), where MOVEM is rare (133 -> 134%).
