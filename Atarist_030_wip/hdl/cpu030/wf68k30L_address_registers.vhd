@@ -14,7 +14,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+---- Copyright Â© 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
 ----                                                                ----
 ---- This documentation describes Open Hardware and is licensed     ----
 ---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
@@ -87,6 +87,7 @@ entity WF68K30L_ADDRESS_REGISTERS is
 
         ADR_OFFSET          : in std_logic_vector(31 downto 0);
         ADR_MARK_USED       : in bit;
+        ADR_FAST            : in bit; -- [F3] Load the write address without the calculation delay.
         USE_APAIR           : in boolean;
         ADR_IN_USE          : out bit;
 
@@ -202,6 +203,9 @@ begin
         --
         if RESET = '1' or UNMARK = '1' then
             ADR_WB(32) <= '0';
+            DELAY := false;
+        elsif ADR_MARK_USED = '1' and ADR_FAST = '1' then
+            ADR_WB <= '1' & ADR_EFF_I; -- [F3] MOVEM: the next register's address is already calculated.
             DELAY := false;
         elsif ADR_MARK_USED = '1' then
             DELAY := true; -- One clock cycle address calculation delay.

@@ -22,7 +22,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+---- Copyright Â© 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
 ----                                                                ----
 ---- This documentation describes Open Hardware and is licensed     ----
 ---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
@@ -92,6 +92,7 @@ entity WF68K30L_ALU is
         BF_BYTES_IN         : in integer range 0 to 5; -- F21/H29: from the control unit.
 
         RESULT              : out Std_Logic_Vector(63 downto 0);
+        RESULT_MV           : out Std_Logic_Vector(31 downto 0); -- [F3] MOVEM operand, unregistered.
 
         ADR_MODE_IN         : in Std_Logic_Vector(2 downto 0);
         OP_SIZE_IN          : in OP_SIZETYPE;
@@ -789,6 +790,7 @@ begin
         end case;
         RESULT_OTHERS <= Std_Logic_Vector(RESULT);
     end process P_OTHERS;
+    RESULT_MV <= RESULT_OTHERS; -- [F3]
 
     SHFT_LOAD <= '1' when ALU_INIT = '1' and (OP_IN = ASL or OP_IN = ASR) else
                  '1' when ALU_INIT = '1' and (OP_IN = LSL or OP_IN = LSR) else
