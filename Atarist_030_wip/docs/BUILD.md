@@ -140,4 +140,7 @@ reset, `ls`, `mount a <img>`, `eject`, `save` (atarist.ini), `crc <file>`, `scrc
   The disk-A double-click often needs a second `click 2`; GEMBENCH 6.08 All Tests is started with the `a` key.
 - CPU changes to MOVEM or the bus interface: `sim/rtl/prog_movemx.s` (regenerate with `gen_movemx.py`) must be
   identical old vs new in `cmp_wr.sh` at WS 0/1/3/7 (`FILT=5000` for handler-recorded frames), plus prog_movemr/w,
-  prog_berrwb, prog_fault, prog_wpberr.
+  prog_berrwb, prog_fault, prog_wpberr. Expected leftovers: frame $2C (DIB) and $0E (stage B = stale BIW_2,
+  TODO.md) move with bus-cycle order; everything the handlers record must stay identical.
+- Pushing through the GitHub connector: it re-encodes latin-1 bytes to UTF-8 and drops CRLF (wf68k30L_alu.vhd);
+  check `git fetch` + `git diff -w` after a push.
