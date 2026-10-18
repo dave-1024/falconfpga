@@ -1,5 +1,20 @@
 # TODO (in priority order)
 
+## Status 18 Oct 2026 (midday)
+F3 (MOVEM register-to-memory writes back to back) is done on `f3-write-queue` (304b885; merge to main approved by
+David). Board build `st_helper_hdn_f3a_7919eb3_p3.fs` (sha256 56556195...e211d78e): GEMBENCH 6.08 RAM 101% / ROM
+104% of a stock STE, Average 92% (STE20608) / 132% (STFM1048); GEMBench 4.03 135%. Rollback: F3a 7919eb3, then F2
+c4de2ec, then dc_ff6af03.
+- **New correctness item: bus-error frame stage B ($0E).** The long ($B) frame takes $0C/$0E from BIW_1/BIW_2
+  (`top`, STACK_POS 8). For an instruction without a third word BIW_2 is a stale word from an earlier instruction,
+  whose value depends on prefetch timing (seen in prog_movemx: F2 stacked $6000, F3 $0536, for `4CDA 142A` at
+  $FCFF10 where the next word is $48F8). A 68030 stacks the pipe contents (stage B = the word after stage C, here
+  PC+4). Fix: load stage B from the prefetch queue (the word following the instruction's last decoded word) instead
+  of BIW_2, check against the A1200 oracle (FALCON_LESSONS: real silicon decides), and add a frame check to
+  prog_fault/prog_movemx. Independent of F3; handler-recorded fields are unaffected.
+- Remaining display gap vs STFM1048 (Dialog 90, Graphics 70, Window 94): see the instruction timing analysis
+  (box notes `gb608_ramrom/INSN_TIMING.md`).
+
 ## Status 18 Oct 2026
 MOVEM timing F1 (priority encoder) and F2 (MOVEM read-ahead) are merged on `main` (branch `f1-movem-timing`).
 Board build `st_helper_hdn_f2_c4de2ec_p3.fs` (sha256 f7d2672c...a796fb): GEMBENCH 6.08 RAM 91% / ROM 104% of a stock
@@ -32,7 +47,10 @@ no fast RAM is fitted). Open from that work, in order:
 ## MOVEM timing (f1-movem-timing merged on main 18 Oct 2026)
 F1 (priority encoder) and F2 (MOVEM M->R read-ahead) are on main and on the board (MOVEM_TIMING_F1_F2.md).
 Open:
-1. **F3: MOVEM R->M (and other operand) writes back to back.** Writes still have a 3-clock register gap
+1. ~~**F3: MOVEM R->M writes back to back.**~~ **Done 18 Oct 2026** (f3-write-queue, MOVEM_TIMING_F1_F2.md "F3"):
+   the next register is taken in the S3 clock of the running posted write (outcome final there), S5 chain into its
+   write, GAP 1; no queue/undo needed. 6.08 RAM 91 -> 101%. The original analysis kept below for reference:
+   Writes still have a 3-clock register gap
    (WRITE_DEST WR_RDY -> EXECUTE -> WRITE_DEST), so 6.08 RAM write stays below a 68000. A bus chain can't help (no
    write request is pending at S5). Needs the control unit to present the next write before S5 (write queue or
    early posting), which must keep the synchronous write-fault model (WR_FLT = WR_RDY, DATA_VALID=0), the DOB of the
