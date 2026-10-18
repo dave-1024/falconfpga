@@ -1,7 +1,8 @@
 # Bug-fix history (68030 on the ST bus)
 
 Each entry: symptom, cause, fix, commit. More detail: ST_HELPER.md (sections 7g-7m), notes/DEBUG2.md (lab log),
-notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers are ratios to a stock STE.
+notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. The table is GEMBench 4.03 (`gbref.st`; called "GEMBENCH 6.31" here before 18 Oct 2026), ratios to a stock STE.
+GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md.
 
 | step | GEMBENCH RAM / ROM / Display / CPU / Average |
 |---|---|
@@ -105,4 +106,5 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
     13-program write/exception compare at WS 0/1/3/7 identical except frame left-over buffers (DIB/DOB of read faults),
     new prog_movemx.s (2154 cases, results identical). GEMBENCH 6.08 vs STE20608: RAM 71 -> 76 (F1) -> 91% (F2),
     ROM 73 -> 78 -> 104%, CPU 147 -> 154 -> 180%, Average 82 -> 83 -> 91%. Fmax clk_cpu030 22.33 MHz, clk32_core
-    32.44 MHz (F2), timing closed. F3 (writes back to back) deferred, TODO.md.
+    32.44 MHz (F2), timing closed. 4.03: 133 -> 134%. Merged on main 18 Oct 2026. F3 (writes back to back): TODO.md,
+    branch f3-write-queue.
