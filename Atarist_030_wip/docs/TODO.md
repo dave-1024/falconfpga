@@ -20,6 +20,17 @@ no fast RAM is fitted). Open from that work, in order:
   pinned warm-reset/bare-reload halt below until it shows a different pattern.
 - **Pinned: the ~10% GEMBENCH display gap** (Display 89%), see below; the caches do not change it.
 
+## MOVEM timing (branch f1-movem-timing, 18 Oct 2026)
+F1 (priority encoder) and F2 (MOVEM M->R read-ahead) are on the branch and on the board (MOVEM_TIMING_F1_F2.md).
+Open:
+1. **F3: MOVEM R->M (and other operand) writes back to back.** Writes still have a 3-clock register gap
+   (WRITE_DEST WR_RDY -> EXECUTE -> WRITE_DEST), so 6.08 RAM write stays below a 68000. A bus chain can't help (no
+   write request is pending at S5). Needs the control unit to present the next write before S5 (write queue or
+   early posting), which must keep the synchronous write-fault model (WR_FLT = WR_RDY, DATA_VALID=0), the DOB of the
+   faulted write and the (An)/-(An) state on a fault. Size it against the A3 queue (DCACHE_DESIGN.md §4).
+2. **Read -> write gaps in copy loops** (RMW and MOVE (An)+,(An)+ read->write gap 6): same mechanism as F3.
+3. **Merge decision** for f1-movem-timing (not merged; David decides).
+
 ## Next fixes, in order (set by David, 15 Oct 2026)
 
 Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS.md) (SD hardening + FDC error status,
