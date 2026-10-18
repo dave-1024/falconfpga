@@ -28,6 +28,12 @@ Open:
    write request is pending at S5). Needs the control unit to present the next write before S5 (write queue or
    early posting), which must keep the synchronous write-fault model (WR_FLT = WR_RDY, DATA_VALID=0), the DOB of the
    faulted write and the (An)/-(An) state on a fault. Size it against the A3 queue (DCACHE_DESIGN.md §4).
+   Measured on F2 (p608w, WS5): register-to-register write gap 3 (PW_GO from the second IDLE clock); the long's two
+   word halves are already gap 1. Gap 1 needs WR_REQ(k+1) at S5 of write k, two clocks earlier: the ALU must be
+   released when write k *starts* (data already in WP_BUFFER) instead of at WR_RDY (option A), so EXECUTE(k+1) runs
+   during write k, and EXEC_WB must hold a second WRITE_DEST in flight; plus a write->write chain at S5 (OP_CHAIN
+   only chains from prefetches today). A fault on write k then arrives with k+1 already set up: that is the queue
+   and the undo the A3 item describes. 6.08 RAM is now 91% (reads at gap 1, writes at gap 3); ROM 104%.
 2. **Read -> write gaps in copy loops** (RMW and MOVE (An)+,(An)+ read->write gap 6): same mechanism as F3.
 3. **Merge decision** for f1-movem-timing (not merged; David decides).
 
