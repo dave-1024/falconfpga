@@ -314,6 +314,7 @@ entity WF68K30L_CONTROL is
         RESET_STRB          : out bit;
         BERR                : out bit;
         BERR_IBOUND         : out bit; -- [FLT2] Data write fault at an instruction boundary (format $A).
+        MOVEM_RA            : out bit; -- [F2] MOVEM memory to register waits for a read and more registers follow.
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;
@@ -372,9 +373,9 @@ signal MEMADR_RDY           : bit := '0';  -- [F54] measured warm-boot value
 signal MOVEM_ADn_I          : bit := '1';  -- [F54] measured warm-boot value
 signal MOVEM_ADn_WB         : bit := '0';  -- [F54] measured warm-boot value
 signal MOVEM_COND           : boolean := false;  -- [F54] measured warm-boot value
+signal MOVEM_END            : boolean := false;  -- [F1] no register-list bit set above MOVEM_PVAR
 signal MOVEM_FIRST_RD       : boolean := false;  -- [F54] measured warm-boot value
 signal MOVEM_INH_WR         : boolean := false;  -- [F54] measured warm-boot value
-signal MOVEM_LAST_WR        : boolean := false;  -- [F54] measured warm-boot value
 signal MOVEM_PNTR           : std_logic_vector(3 downto 0) := x"F";  -- [F54] measured warm-boot value
 signal MOVEP_PNTR_I         : integer range 0 to 3 := 0;  -- [F54] measured warm-boot value
 signal OD_REQ_16            : std_logic;
@@ -509,6 +510,13 @@ begin
                  -- CALC_AEFF already (AR increment / offset update at ALU_INIT, one registered calculation clock in
                  -- SWITCH_STATE), so the read is requested there instead of one clock later in FETCH_OPERAND.
                  '1' when FETCH_STATE = CALC_AEFF and OP = MOVEM and BIW_0(10) = '1' and MOVEM_FIRST_RD = true else '0';
+
+    -- [F2] The bus interface may start the next register's read right behind this one (MC68030UM 7.3: the next
+    -- cycle starts after S5 when a request is pending; the 68030 sequencer has the next MOVEM operand queued).
+    -- The control unit is waiting in FETCH_OPERAND and the register list has a further bit set (MOVEM_END), so
+    -- that read is certain to be requested next, at the next address. The control unit still requests it as
+    -- before; the bus interface hands it the data read ahead (or the bus error) only on a matching request.
+    MOVEM_RA <= '1' when OP = MOVEM and BIW_0(10) = '1' and FETCH_STATE = FETCH_OPERAND and MOVEM_END = false else '0';
 
     DATA_WR <= DATA_WR_I;
     DATA_WR_I <= '0' when WFLT = '1' else -- [FLT1]
@@ -744,7 +752,9 @@ begin
               '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and BIW_0(5 downto 3) /= "011" and INIT_ENTRY = '1' else -- (An)+, -(An)
               '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and FETCH_STATE = SWITCH_STATE else -- Needed for source (An)+ mode.
               '1' when OP = MOVEM and ADR_MODE_I = "100" and INIT_ENTRY = '1' else -- Decrement before the first bus access. 
-              '1' when OP = MOVEM and ADR_MODE_I = "100" and ALU_INIT_I = '1' and MOVEM_LAST_WR = false else -- After the last bus access the address register is not decremented.
+              -- [F1] After the last bus access the address register is not decremented. The last register is the one with no list bit above it
+              -- (MOVEM_END); the old clock-counted MOVEM_LAST_WR came one clock too late once unused list positions take no clocks.
+              '1' when OP = MOVEM and ADR_MODE_I = "100" and ALU_INIT_I = '1' and MOVEM_END = false else
               '1' when (OP = MOVE_FROM_CCR or OP = MOVE_FROM_SR) and ADR_MODE_I = "100" and INIT_ENTRY = '1' else
               '1' when OP = MOVES and ADR_MODE_I = "100" and BIW_1(11) = '1' and INIT_ENTRY = '1' else
               '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '1' and INIT_ENTRY = '1' else
@@ -1405,17 +1415,37 @@ begin
     MOVEM_CONTROL: process(ADR_MODE_I, CLK, BIW_0, BIW_1, OP, RESET_CPU, FETCH_STATE, NEXT_FETCH_STATE, ALU_BSY, ALU_BSY_M, MOVEM_PNTR)
     variable INDEX      : integer range 0 to 15 := 0;
     variable MOVEM_PVAR : std_logic_vector(3 downto 0) := x"0";
-    variable BITS       : std_logic_vector(4 downto 0);
+    variable MOVEM_NXT  : std_logic_vector(3 downto 0); -- [F1] Next set register-list bit above MOVEM_PVAR (x"F" if none).
+    variable MOVEM_1ST  : std_logic_vector(3 downto 0); -- [F1] Lowest set register-list bit (x"0" if the list is empty).
+    variable PIDX       : integer range 0 to 15;
     begin
         if CLK = '1' and CLK' event then
-            if FETCH_STATE = START_OP then
+            -- [F1] Like the real 68030 (8+4n clocks, independent of the mask), MOVEM does not spend clocks on
+            -- registers that are not in the list: MOVEM_PVAR starts at the first set bit and jumps to the next
+            -- set bit (priority encoder) instead of stepping through all 16 positions. The scan order (and the
+            -- -(An) reversal via MOVEM_PNTR = not MOVEM_PVAR) is unchanged.
+            PIDX := To_Integer(unsigned(MOVEM_PVAR));
+            MOVEM_NXT := x"F";
+            MOVEM_1ST := x"0";
+            for i in 15 downto 0 loop
+                if i > PIDX and BIW_1(i) = '1' then
+                    MOVEM_NXT := std_logic_vector(to_unsigned(i, 4));
+                end if;
+                if BIW_1(i) = '1' then
+                    MOVEM_1ST := std_logic_vector(to_unsigned(i, 4));
+                end if;
+            end loop;
+
+            if FETCH_STATE = START_OP and OP = MOVEM and NEXT_FETCH_STATE /= START_OP then
+                MOVEM_PVAR := MOVEM_1ST; -- [F1] Start at the first register in the list.
+            elsif FETCH_STATE = START_OP then
                 MOVEM_PVAR := x"0";
             elsif FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = false and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
-                MOVEM_PVAR := MOVEM_PVAR + '1'; -- No data to write.
+                MOVEM_PVAR := MOVEM_NXT; -- No data to write.
             elsif BIW_0(10) = '1' and MOVEM_FIRST_RD = true and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
-                MOVEM_PVAR := MOVEM_PVAR + '1'; -- Data has not been read.
+                MOVEM_PVAR := MOVEM_NXT; -- Data has not been read.
             elsif BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_PVAR < x"F" and ALU_BSY_M = '0' then
-                MOVEM_PVAR := MOVEM_PVAR + '1'; -- Data has been written.
+                MOVEM_PVAR := MOVEM_NXT; -- Data has been written.
             end if;
 
             if OP = MOVEM and ALU_INIT_I = '1' and ADR_MODE_I = "011" and MOVEM_ADn_I = '1' and MOVEM_PNTR(2 downto 0) = BIW_0(2 downto 0) then
@@ -1430,20 +1460,6 @@ begin
                 MOVEM_FIRST_RD <= true;
             end if;
             
-            if RESET_CPU = '1' or (FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP) then
-                BITS := "00000";
-                MOVEM_LAST_WR <= false;
-            elsif OP = MOVEM and FETCH_STATE = START_OP and NEXT_FETCH_STATE /= START_OP and ADR_MODE_I = "100" then -- -(An).
-                for i in 0 to 15 loop
-                    BITS := BITS + BIW_1(i); -- Count number of '1's.
-                end loop;
-                MOVEM_LAST_WR <= false;
-            elsif OP = MOVEM and ALU_INIT_I = '1' and BITS > "00001" then
-                BITS := BITS - '1';
-            elsif OP = MOVEM and BITS = "00001" then
-                MOVEM_LAST_WR <= true;
-            end if;
-
             -- During the MOVEM instruction in memory to register operation and addressing modes "010", "101","110" the effective address might be
             -- affected, if the addressing register is active in the register list mask. To deal with it, the effective address is stored until the
             -- MOVEM has read all registers from memory addressed by the initial addressing register (old value).
@@ -1467,6 +1483,14 @@ begin
         end if;
 
         INDEX := To_Integer(unsigned(MOVEM_PVAR));
+
+        -- [F1] True when no register-list bit is set above the current position: the current register is the last one.
+        MOVEM_END <= true;
+        for i in 0 to 15 loop
+            if i > INDEX and BIW_1(i) = '1' then
+                MOVEM_END <= false;
+            end if;
+        end loop;
 
         -- The following signal determines if a register is affected or not, depending
         -- on the status of the register list bit. 
@@ -1626,7 +1650,7 @@ begin
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
     FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
-                       EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
+                       EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY)
     -- ADH: avoid data hazard.
     -- ASH: avoid structural hazard.
@@ -2494,12 +2518,11 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVEM =>
-                        if ALU_BSY_M = '0' and BIW_0(10) = '0' and ADR_MODE_I = "100" and MOVEM_PNTR = x"0" then -- -(An), register to memory.
+                        -- [F1] Finish on the last register in the list (MOVEM_END) instead of at position 15 (-(An): 0).
+                        if ALU_BSY_M = '0' and BIW_0(10) = '0' and MOVEM_END = true then -- Register to memory, all modes.
                             NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
-                        elsif ALU_BSY_M = '0' and BIW_0(10) = '0' and ADR_MODE_I /= "100" and MOVEM_PNTR = x"F"  then -- Register to memory
-                            NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
-                        elsif ALU_BSY_M = '0' and BIW_0(10) = '1' and MOVEM_PNTR = x"F"  then -- Memory to register.
-                            NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU.
+                        elsif ALU_BSY_M = '0' and BIW_0(10) = '1' and MOVEM_END = true and (MOVEM_FIRST_RD = true or MOVEM_COND = false) then -- Memory to register.
+                            NEXT_FETCH_STATE <= SLEEP; -- Data completely transfered to the ALU (or empty list).
                         elsif ALU_BSY_M = '0' and BIW_0(10) = '1' then -- Memory to register.
                             NEXT_FETCH_STATE <= SWITCH_STATE;
                         else

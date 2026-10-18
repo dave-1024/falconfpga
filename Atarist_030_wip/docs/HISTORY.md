@@ -1,7 +1,8 @@
 # Bug-fix history (68030 on the ST bus)
 
 Each entry: symptom, cause, fix, commit. More detail: ST_HELPER.md (sections 7g-7m), notes/DEBUG2.md (lab log),
-notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers are ratios to a stock STE.
+notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. The table is GEMBench 4.03 (`gbref.st`; called "GEMBENCH 6.31" here before 18 Oct 2026), ratios to a stock STE.
+GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md.
 
 | step | GEMBENCH RAM / ROM / Display / CPU / Average |
 |---|---|
@@ -17,6 +18,8 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
 | option (a) steps 2/3 039c710 (board build) | 115 / 115 / 89 / 252 / 133 |
 | fault fixes + I cache 47eba71 (board build ic_47eba71) | 115 / 115 / 89 / 252 / 133 |
 | + D cache, RAM16 data ff6af03 (board build dc_ff6af03) | 115 / 115 / 89 / 252 / 133 |
+| F1 MOVEM priority encoder d696318 (board build f1_d696318) | 115 / 115 / 90 / 252 / 133 |
+| F2 MOVEM read-ahead c4de2ec (board build f2_c4de2ec) | 115 / 115 / 90 / 254 / 134 |
 
 8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
@@ -93,3 +96,15 @@ notes/RAM_PATH.md, notes/TF536_NOTES.md, notes/SPI_SDC.md. GEMBENCH 6.31 numbers
     and no timing change) and direct indexed reads. Now 74 RAM16SDP4; LUT 42.1k -> 37.7k, Reg 18.1k -> 15.6k, Fmax
     clk_cpu030 22.79 MHz, clk32_core 33.78 MHz. Behaviour cycle-identical (96/96 incl. cache-on prog_dcache). Board
     dc_ff6af03: TOS 2.06 boots with Cache on, GEMBENCH 133 / 89 / 252.
+18. **MOVEM timing F1/F2 (branch `f1-movem-timing`: ab1f3ec, 890fbea; board builds f1_d696318, f2_c4de2ec; 18 Oct 2026; design note MOVEM_TIMING_F1_F2.md).** Symptom:
+    GEMBENCH 6.x RAM/ROM Access at ~71-73% of a 68000 STE (back-to-back MOVEM.L loops), while 4.03 is at 115%.
+    Cause: the core left the ST bus idle between MOVEM transfers: it walked all 16 list positions one clock each,
+    and every MOVEM read started from IDLE after the control unit took the previous one, so RAM missed its ST slot.
+    F1: register-list priority encoder (8+4n like a 68030; `MOVEM_END` ends the list and drives the -(An) last
+    decrement). F2: MOVEM M->R read-ahead from S5 of the previous read (bus interface; data or bus error handed over
+    on the matching request, CIIN-gated with the D cache on; DIB kept on a faulted read-ahead). Sim: run_rtl PASS,
+    13-program write/exception compare at WS 0/1/3/7 identical except frame left-over buffers (DIB/DOB of read faults),
+    new prog_movemx.s (2154 cases, results identical). GEMBENCH 6.08 vs STE20608: RAM 71 -> 76 (F1) -> 91% (F2),
+    ROM 73 -> 78 -> 104%, CPU 147 -> 154 -> 180%, Average 82 -> 83 -> 91%. Fmax clk_cpu030 22.33 MHz, clk32_core
+    32.44 MHz (F2), timing closed. 4.03: 133 -> 134%. Merged on main 18 Oct 2026. F3 (writes back to back): TODO.md,
+    branch f3-write-queue.

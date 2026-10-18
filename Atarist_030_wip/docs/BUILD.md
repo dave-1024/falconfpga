@@ -131,8 +131,13 @@ reset, `ls`, `mount a <img>`, `eject`, `save` (atarist.ini), `crc <file>`, `scrc
 - After a Gowin build, check the syn log has "Extracting RAM for identifier" for the cache arrays (D00..D13, TAG0/1,
   DATA_RAM, TAG_RAM): an array that falls back to flip-flops costs thousands of LUTs.
 - SD/FDC: `iverilog` benches in `hdl/misc/sim/` and `hdl/fdc1772/sim/run_sim.sh`.
-- Board: cold boot (4096 KB memory test, desktop), ST Medium, GEMBENCH 6 All Tests from a known-good image
+- Board: cold boot (4096 KB memory test, desktop), ST Medium, GEMBench 4.03 All Tests (`gbref.st`) and GEMBENCH 6.08
+  All Tests (`gb608.st`, key `a`; reference sets STE20608 default and STFM1048 via File > Open Test) from known-good images
   (check its CRC first: a corrupt image once looked like a CPU bug for days), a runtime image swap with a desktop save.
 - Board scripts (box, from `docs/prefetch_cof/board/`, run in a dir with `../hc.sh`): `rl.sh tag` = `c` + 10 reloads with the
   5-grab halt rule; `gembench.sh tag` = GEMBENCH All Tests (ST Medium, STE ref) from a fresh low-res desktop, result
   image `gb_<tag>_result.png`; `go.sh`/`gg.sh`/`grab2.sh`/`cls.py` helpers. Check the serial with `hc.sh s` first.
+  The disk-A double-click often needs a second `click 2`; GEMBENCH 6.08 All Tests is started with the `a` key.
+- CPU changes to MOVEM or the bus interface: `sim/rtl/prog_movemx.s` (regenerate with `gen_movemx.py`) must be
+  identical old vs new in `cmp_wr.sh` at WS 0/1/3/7 (`FILT=5000` for handler-recorded frames), plus prog_movemr/w,
+  prog_berrwb, prog_fault, prog_wpberr.

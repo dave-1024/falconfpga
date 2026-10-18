@@ -289,6 +289,8 @@ component WF68K30L_BUS_INTERFACE
         ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
         FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX]
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        RA_MORE             : in bit; -- [F2] MOVEM memory to register: the running read is not the last register.
+        RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
@@ -475,6 +477,7 @@ component WF68K30L_CONTROL
         RESET_STRB          : out bit;
         BERR                : out bit;
         BERR_IBOUND         : out bit;
+        MOVEM_RA            : out bit; -- [F2]
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;

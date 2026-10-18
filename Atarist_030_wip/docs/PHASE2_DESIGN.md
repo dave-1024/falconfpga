@@ -293,3 +293,9 @@ Work log (kept current so an interrupted run loses little):
 - Open (TODO.md "Phase 2 follow-ups"): option (a) pipelined control unit; data-fault timing and the $A/$B frame; stale
   bus-fault flag on a chained late BERR; halt on a reload without `c`; clk_cpu030 decoder -> ADR_EFF path before the
   caches; clk32 blitter falling-edge path.
+
+## Update 18 Oct 2026
+- The "GEMBENCH 6" runs in this file used `gbref.st`, which is GEMBench 4.03. GEMBENCH 6.08 is `gb608.st`.
+- The MOVEM gaps measured here (control needs 3 clocks after DATA_RDY before the next MOVEM write; reads 6) are
+  updated in docs/MOVEM_TIMING_F1_F2.md: reads are now back to back (F2 read-ahead), writes still gap 3 (F3 open,
+  needs the request ahead of data that this file's "next independent request" note describes).

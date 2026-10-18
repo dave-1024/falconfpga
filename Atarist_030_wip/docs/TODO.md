@@ -1,5 +1,14 @@
 # TODO (in priority order)
 
+## Status 18 Oct 2026
+MOVEM timing F1 (priority encoder) and F2 (MOVEM read-ahead) are merged on `main` (branch `f1-movem-timing`).
+Board build `st_helper_hdn_f2_c4de2ec_p3.fs` (sha256 f7d2672c...a796fb): GEMBENCH 6.08 RAM 91% / ROM 104% of a stock
+STE (was 71 / 73), GEMBench 4.03 134%. Rollback: F2 c4de2ec, then dc_ff6af03. Next: F3 (below), on `f3-write-queue`.
+- **GEMBENCH 6 sees no blitter (new, 18 Oct 2026):** its System panel shows "BLiTTER NP" under TOS 2.06, so the
+  Display group compares software drawing with a blitter STE (46%; Blitting 15%), while against the blitter-less
+  STFM1048 set it is 93% (Blitting 90%). Check how GEMBENCH 6 detects the blitter (Blitmode / cookie / register
+  probe) and whether TOS 2.06 uses ours; ties in with "EmuTOS blitter greyed out" below.
+
 ## Status 17 Oct 2026
 The 68030 I and D caches (MC68030UM ch. 6) and the data-fault fixes are merged on `main` (branch `caches`, which
 contains `fault-fixes`). Board build `st_helper_hdn_dc_ff6af03_p3.fs` (sha256 c9a160b6...41c39e): TOS 2.06 boots with
@@ -19,6 +28,23 @@ no fast RAM is fitted). Open from that work, in order:
   fault-fixes build and has not come back; the ic_47eba71 and dc_ff6af03 cold boots were clean. Treated as the
   pinned warm-reset/bare-reload halt below until it shows a different pattern.
 - **Pinned: the ~10% GEMBENCH display gap** (Display 89%), see below; the caches do not change it.
+
+## MOVEM timing (f1-movem-timing merged on main 18 Oct 2026)
+F1 (priority encoder) and F2 (MOVEM M->R read-ahead) are on main and on the board (MOVEM_TIMING_F1_F2.md).
+Open:
+1. **F3: MOVEM R->M (and other operand) writes back to back.** Writes still have a 3-clock register gap
+   (WRITE_DEST WR_RDY -> EXECUTE -> WRITE_DEST), so 6.08 RAM write stays below a 68000. A bus chain can't help (no
+   write request is pending at S5). Needs the control unit to present the next write before S5 (write queue or
+   early posting), which must keep the synchronous write-fault model (WR_FLT = WR_RDY, DATA_VALID=0), the DOB of the
+   faulted write and the (An)/-(An) state on a fault. Size it against the A3 queue (DCACHE_DESIGN.md §4).
+   Measured on F2 (p608w, WS5): register-to-register write gap 3 (PW_GO from the second IDLE clock); the long's two
+   word halves are already gap 1. Gap 1 needs WR_REQ(k+1) at S5 of write k, two clocks earlier: the ALU must be
+   released when write k *starts* (data already in WP_BUFFER) instead of at WR_RDY (option A), so EXECUTE(k+1) runs
+   during write k, and EXEC_WB must hold a second WRITE_DEST in flight; plus a write->write chain at S5 (OP_CHAIN
+   only chains from prefetches today). A fault on write k then arrives with k+1 already set up: that is the queue
+   and the undo the A3 item describes. 6.08 RAM is now 91% (reads at gap 1, writes at gap 3); ROM 104%.
+2. **Read -> write gaps in copy loops** (RMW and MOVE (An)+,(An)+ read->write gap 6): same mechanism as F3.
+3. ~~Merge decision~~: merged 18 Oct 2026 (David).
 
 ## Next fixes, in order (set by David, 15 Oct 2026)
 
