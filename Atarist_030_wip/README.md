@@ -17,21 +17,26 @@ All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmwa
 
 ## Status (18 Oct 2026, main)
 
-Board build: `st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb;
+Board build: `st_helper_hdn_f3a_7919eb3_p3.fs` (SHA256 56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e;
 main switches + `SD_WRITE_DEBUG` + CPU rework phase 2 with posted writes + prefetch stop at change of flow + option (a)
-MOVEM overlap + data-fault fixes + 68030 I and D caches + MOVEM timing F1 (register-list priority encoder) and F2
-(MOVEM memory-to-register read-ahead), place 3; LUT 38,034 / ALU 4,946 / Reg 15,639 / BSRAM 172; Fmax clk_cpu030
-22.33 MHz, clk32_core 32.44 MHz, TNS 0), helper `helper_companion_sdwlog_3ec6e20.bin`. Built from c4de2ec, whose
-tree is the merged HDL. Rollback order: `st_helper_hdn_dc_ff6af03_p3.fs` (SHA256
+MOVEM overlap + data-fault fixes + 68030 I and D caches + MOVEM timing F1 (register-list priority encoder), F2
+(MOVEM memory-to-register read-ahead) and F3 (MOVEM register-to-memory writes back to back), place 3; LUT 37,870 /
+ALU 4,949 / Reg 15,663 / BSRAM 172; Fmax clk_cpu030 20.94 MHz, clk32_core 34.02 MHz, TNS 0), helper
+`helper_companion_sdwlog_3ec6e20.bin`. Built from 7919eb3 (same HDL as f3-write-queue 304b885; the connector only
+re-encoded two comment lines and the ALU file's line ends). Rollback order: F3a (this), then
+`st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb, 134%), then
+`st_helper_hdn_dc_ff6af03_p3.fs` (SHA256
 c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e, caches, 133%), then `st_helper_hdn_ic_47eba71_p3.fs`,
 then `st_helper_hdn_oa_039c710_p3.fs` (SHA256 f543ebe4737b5d45abdbffecd211b418eacdf5528a6ec5ea2a6c57f001923ba6).
 
-MOVEM timing (merged on main 18 Oct 2026; [docs/MOVEM_TIMING_F1_F2.md](docs/MOVEM_TIMING_F1_F2.md)):
+MOVEM timing (F1/F2 merged on main 18 Oct 2026, F3 on `f3-write-queue`; [docs/MOVEM_TIMING_F1_F2.md](docs/MOVEM_TIMING_F1_F2.md)):
 - F1: the register list is walked by a priority encoder (8+4n like a 68030), no clocks for unused list positions.
 - F2: a MOVEM read with more registers to come rolls from S5 straight into the next register's read; data or bus
   error is handed over only on the matching request (one request on the bus, as before). Reads now run back to back
   (GAP 1) so ST RAM catches every slot.
-- F3 (writes back to back) is open: it needs a write queue in the control unit (TODO.md).
+- F3: a MOVEM register-to-memory write's outcome is final in the S3 clock of its last portion (posted write); the
+  control unit loads the next register there and the S5 edge rolls into its write (GAP 1, like the two words of a
+  long). No queue or undo: a bus error can only hit the next write. 6.08 RAM 91 -> 101%.
 
 Caches (merged on main 17 Oct 2026; [docs/ICACHE_DESIGN.md](docs/ICACHE_DESIGN.md), [docs/DCACHE_DESIGN.md](docs/DCACHE_DESIGN.md)):
 - I and D cache per MC68030UM ch. 6: 256 B each, 16 lines x 4 long words, direct-mapped, tag = logical address + FC;
@@ -63,6 +68,7 @@ with Blitter and FPU unticked, ratio to a stock STE:
 | + D cache, RAM16 data (dc_ff6af03) | 115 | 115 | 89 | 252 | **133** |
 | + MOVEM F1 priority encoder (f1_d696318) | 115 | 115 | 90 | 252 | **133** |
 | + MOVEM F2 read-ahead (f2_c4de2ec) | 115 | 115 | 90 | 254 | **134** |
+| + MOVEM F3 writes back to back (f3a_7919eb3) | 115 | 115 | 91 | 255 | **135** |
 
 GEMBENCH 6.08 (`gb608.st`, exxos 2017; its title bar reads "GEMBENCH 6.31"), ST Medium, All Tests, ratio
 ref/ours (per-test table in [docs/MOVEM_TIMING_F1_F2.md](docs/MOVEM_TIMING_F1_F2.md)):
@@ -72,12 +78,13 @@ ref/ours (per-test table in [docs/MOVEM_TIMING_F1_F2.md](docs/MOVEM_TIMING_F1_F2
 | dc_ff6af03 | 71 | 73 | 16 | 46 | 147 | 82 | not measured |
 | f1_d696318 | 76 | 78 | 15 | 45 | 154 | 83 | 92 / 154 / 119 |
 | f2_c4de2ec | 91 | 104 | 15 | 46 | 180 | 91 | 93 / 180 / 129 |
+| f3a_7919eb3 | 101 | 104 | 15 | 46 | 186 | 92 | 94 / 186 / 132 |
 
 Reference machines (6.08 sets): STE20608 = Atari STE, 68000 at 8 MHz on the 16-bit ST bus, TOS 2.06, blitter
 enabled; STFM1048 = Atari ST(FM), 68000 at 8 MHz on the 16-bit ST bus, TOS 1.04, no blitter. Ours: 68030 core at
 16 MHz on the same 8 MHz 16-bit ST bus (TF534-style bridge), TOS 2.06, caches on but nothing cachable.
 **Blitter finding:** GEMBENCH 6 reports "BLiTTER NP" on our system, so TOS draws in software: against the blitter
-STE the Display group is 46% (Blitting 15%), against the blitter-less ST it is 93% (Blitting 90%). The Display gap to
+STE the Display group is 46% (Blitting 15%), against the blitter-less ST it is 94% (Blitting 90%). The Display gap to
 the STE reference is mostly the missing blitter, not the CPU (TODO.md).
 
 Option (a): MOVEM register writes load the next register in the clock the write completes, MOVEM reads request the next
@@ -95,9 +102,9 @@ Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
 - Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; cold boot (`c`) clears it
   (pinned in TODO.md). Always `c` after a flash.
 - The blitter shows as disabled under EmuTOS.
-- GEMBench 4.03 Display is ~10% short of a stock STE (90%; pinned in TODO.md): extra 030 fetch cycles on the ST bus.
-  GEMBENCH 6 finds no blitter ("BLiTTER NP"), so its Display group is 46% of a blitter STE but 93% of an ST.
-- The caches give no gain until 030-side fast RAM is fitted; F3 (writes back to back) is in work, A3 deferred.
+- GEMBench 4.03 Display is ~10% short of a stock STE (91%; pinned in TODO.md): extra 030 fetch cycles on the ST bus.
+  GEMBENCH 6 finds no blitter ("BLiTTER NP"), so its Display group is 46% of a blitter STE but 94% of an ST.
+- The caches give no gain until 030-side fast RAM is fitted; F3 done (writes back to back), A3 deferred.
 - Placement sensitivity: always check TNS and recovery/removal before flashing.
 
 ## Credits and thanks: Stephen J. Leary (TerribleFire)

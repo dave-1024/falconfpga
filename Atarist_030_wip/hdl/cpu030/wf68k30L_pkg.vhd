@@ -164,6 +164,7 @@ component WF68K30L_ADDRESS_REGISTERS
         OP_SIZE             : in OP_SIZETYPE;
         ADR_OFFSET          : in std_logic_vector(31 downto 0);
         ADR_MARK_USED       : in bit;
+        ADR_FAST            : in bit;
         ADR_IN_USE          : out bit;
         ADR_MODE            : in std_logic_vector(2 downto 0);
         AMODE_SEL           : in std_logic_vector(2 downto 0);
@@ -223,6 +224,7 @@ component WF68K30L_ALU
         BF_BYTES_IN         : in integer range 0 to 5;
         BITPOS_IN           : in Std_Logic_Vector(4 downto 0);
         RESULT              : out std_logic_vector(63 downto 0);
+        RESULT_MV           : out std_logic_vector(31 downto 0);
         ADR_MODE_IN         : in std_logic_vector(2 downto 0);
         OP_SIZE_IN          : in OP_SIZETYPE;
         OP_IN               : in OP_68K;
@@ -270,6 +272,8 @@ component WF68K30L_BUS_INTERFACE
         WR_REQ_IN           : in bit;
         DATA_RDY            : out bit;
         DATA_VALID          : out std_logic;
+        WR_EARLY            : out bit;
+        WR_TAKE             : in bit;
         OPCODE_REQ          : in bit;
         OPCODE_RDY          : out bit;
         OPCODE_VALID        : out std_logic;
@@ -458,6 +462,10 @@ component WF68K30L_CONTROL
         ALU_BSY             : in bit;
         ALU_REQ             : in bit;
         ALU_ACK             : out bit;
+        WR_EARLY            : in bit;
+        WR_TAKE             : out bit;
+        F3_BYP              : out bit;
+        ADR_FAST            : out bit;
         BKPT_CYCLE          : out bit;
         BKPT_INSERT         : out bit;
         LOOP_BSY            : in bit;

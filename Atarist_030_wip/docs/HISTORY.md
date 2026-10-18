@@ -20,6 +20,7 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
 | + D cache, RAM16 data ff6af03 (board build dc_ff6af03) | 115 / 115 / 89 / 252 / 133 |
 | F1 MOVEM priority encoder d696318 (board build f1_d696318) | 115 / 115 / 90 / 252 / 133 |
 | F2 MOVEM read-ahead c4de2ec (board build f2_c4de2ec) | 115 / 115 / 90 / 254 / 134 |
+| F3 MOVEM writes back to back 7919eb3 (board build f3a_7919eb3; branch 304b885) | 115 / 115 / 91 / 255 / 135 |
 
 8. **Prefetch handoff (F65, this tree, `WF030_FAST_HANDOFF` off).** A completing queue prefetch whose stream is still valid rolls S5 straight into S0 of the next long, when no operand request is waiting. Armed only at Q_CNT = 0 (this long's two words are not in the count yet; the queue is words 0 to 3). The next long starts only if the count after this long is queued is <= 2. An earlier arm at Q_CNT <= 2 overflowed the queue when the decoder stalled. Default off: the build define is commented out in `build_st_helper.tcl`. Operand cycles still take IDLE then START_CYCLE.
 
@@ -108,3 +109,16 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     ROM 73 -> 78 -> 104%, CPU 147 -> 154 -> 180%, Average 82 -> 83 -> 91%. Fmax clk_cpu030 22.33 MHz, clk32_core
     32.44 MHz (F2), timing closed. 4.03: 133 -> 134%. Merged on main 18 Oct 2026. F3 (writes back to back): TODO.md,
     branch f3-write-queue.
+19. **MOVEM timing F3: register-to-memory writes back to back (branch `f3-write-queue`: b33c140, 304b885; board build
+    f3a_7919eb3; 18 Oct 2026; design note MOVEM_TIMING_F1_F2.md "F3").** Symptom: after F2, GEMBENCH 6.08 RAM Access
+    stayed at 91%: MOVEM writes had a register-to-register gap of 3 clocks (AS high 2 clocks), so ST RAM missed slots.
+    Cause: the control unit loaded the next register only on the write's DATA_RDY (S4/S5 clock), ran EXECUTE, and
+    presented the write from IDLE (PW_GO). Fix: a posted write's outcome is final in the S3 clock of its last portion
+    (WP_GO: DSACK, no BERR/retry); the control unit loads the next register there (`WR_EARLY`/`WR_TAKE`, same set-up
+    as before, one clock earlier and only when certain), the bus interface drops that DATA_RDY and the S5 edge rolls
+    into the next write (`WW_GO`, operand before a waiting prefetch). Data from the loaded ALU operand in that clock
+    (`RESULT_MV`/`F3_BYP`), address without the calculation delay (`ADR_FAST`). No queue/undo: a fault can only hit
+    the next write. Sim: run_rtl PASS; 13-program compare at WS 0/1/3/7 identical except frame $2C (DIB, undefined
+    for write faults) and $0E (stale BIW_2, TODO.md item); FILT=5000 identical for prog_fault/wpberr/movemx;
+    prog_movemx -9.5% clocks. Board: 2 cold boots clean; 6.08 RAM 91 -> 101%, CPU 180 -> 186%, Average 91 -> 92%
+    (STE20608), 129 -> 132% (STFM1048); 4.03 134 -> 135%. Fmax clk_cpu030 20.94 MHz, clk32_core 34.02, LUT 37,870.

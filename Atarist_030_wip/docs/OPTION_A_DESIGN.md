@@ -173,6 +173,7 @@ The MOVEM figures above (register gaps 3 for writes, 6 for reads) are superseded
 - F2: MOVEM memory-to-register reads now run back to back (GAP 1): the bus interface rolls from S5 into the next
   register's read (`RA_*`), handing data or bus error over on the matching request. This replaces the step 3
   "request in CALC_AEFF" as the limit for reads.
-- MOVEM register-to-memory writes are still gap 3 (WR_RDY -> EXECUTE -> WRITE_DEST): F3, branch f3-write-queue.
+- MOVEM register-to-memory writes: gap 1 since F3 (18 Oct 2026, f3-write-queue): the next register is loaded in the
+  S3 clock of the running posted write (`F3_EARLY`, which also releases `ALU_BSY_M`), and the bus chains at S5.
 - GEMBENCH 6.08 (gb608.st) RAM 71 -> 91%, ROM 73 -> 104%; the "GEMBENCH" numbers in this file are GEMBench 4.03
   (gbref.st), where MOVEM is rare (133 -> 134%).

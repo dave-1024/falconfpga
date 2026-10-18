@@ -268,6 +268,11 @@ signal ADR_MARK_UNUSED_MAIN     : bit;
 signal ADR_MARK_USED            : bit;
 signal AERR                     : bit;
 signal ALU_ACK                  : bit;
+signal WR_EARLY                 : bit; -- [F3]
+signal WR_TAKE                  : bit;
+signal F3_BYP                   : bit;
+signal ADR_FAST                 : bit;
+signal ALU_RESULT_MV            : std_logic_vector(31 downto 0);
 signal ALU_BSY                  : bit;
 signal ALU_COND                 : boolean;
 signal ALU_INIT                 : bit;
@@ -662,6 +667,7 @@ begin
 
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
+                      ALU_RESULT_MV when F3_BYP = '1' else -- [F3] Next MOVEM register, in the clock its write is presented.
                       ALU_RESULT(31 downto 0);
 
     SP_ADD_DISPL <= SP_ADD_DISPL_MAIN or SP_ADD_DISPL_EXH;
@@ -1083,6 +1089,7 @@ begin
             AR_SEL_WR_2             => AR_SEL_WR_2,
             ADR_OFFSET              => ADR_OFFSET, -- Byte aligned.
             ADR_MARK_USED           => ADR_MARK_USED,
+            ADR_FAST                => ADR_FAST,
             ADR_IN_USE              => ADR_IN_USE,
             ADR_MODE                => ADR_MODE,
             AMODE_SEL               => AMODE_SEL,
@@ -1135,6 +1142,7 @@ begin
             BITPOS_IN               => BITPOS,
             BF_BYTES_IN             => BF_BYTES_CTL,
             RESULT                  => ALU_RESULT,
+            RESULT_MV               => ALU_RESULT_MV,
             ADR_MODE_IN             => ADR_MODE,
             USE_DREG                => USE_DREG,
             HILOn                   => HILOn,
@@ -1186,6 +1194,8 @@ begin
             WR_REQ_IN           => WR_REQ,
             DATA_RDY            => BUS_DATA_RDY,
             DATA_VALID          => DATA_VALID,
+            WR_EARLY            => WR_EARLY,
+            WR_TAKE             => WR_TAKE,
             OPCODE_REQ          => IC_BUS_REQ,
             OPCODE_RDY          => BUS_OPCODE_RDY,
             OPCODE_VALID        => OPCODE_VALID,
@@ -1379,6 +1389,10 @@ begin
             ALU_BSY                 => ALU_BSY,
             ALU_REQ                 => ALU_REQ,
             ALU_ACK                 => ALU_ACK,
+            WR_EARLY                => WR_EARLY,
+            WR_TAKE                 => WR_TAKE,
+            F3_BYP                  => F3_BYP,
+            ADR_FAST                => ADR_FAST,
             BKPT_CYCLE              => BKPT_CYCLE,
             BKPT_INSERT             => BKPT_INSERT,
             LOOP_BSY                => LOOP_BSY,
