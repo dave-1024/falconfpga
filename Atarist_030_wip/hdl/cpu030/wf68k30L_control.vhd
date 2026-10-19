@@ -360,7 +360,9 @@ signal FIX1_W               : bit := '0';
 signal FIX1_HOLD            : bit := '0';
 signal FIX1_OPOK            : bit;
 signal WR_GEN               : bit; -- [FIX1] Any posted write's outcome taken in its S3 clock (WR_EARLY).
-signal DATA_RDY_X           : bit; -- [FIX1] DATA_RDY as the control unit sees it.
+signal DATA_RDY_X           : bit;
+signal WR_GEN_D             : bit := '0'; -- [FIX1D] WR_GEN one clock later (= the S5 DATA_RDY that WR_TAKE drops).
+signal DATA_RDY_L           : bit; -- [FIX1D] DATA_RDY at the old (S5) time, for uses the early hand-off does not need. -- [FIX1] DATA_RDY as the control unit sees it.
 signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
@@ -437,6 +439,12 @@ begin
     WR_GEN <= '1' when WR_EARLY = '1' and EXEC_WB_STATE = WRITE_DEST and WRITE_CYCLE = '1' and OP_WB_I /= MOVEM and
                        BUSY_EXH = '0' and WFLT = '0' and RMC = '0' else '0';
     DATA_RDY_X <= DATA_RDY or WR_GEN;
+    DATA_RDY_L <= DATA_RDY or WR_GEN_D;
+    P_WRGD: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        WR_GEN_D <= WR_GEN;
+    end process P_WRGD;
     -- [FIX1] W->W: when the next instruction is a plain register-to-memory write (MOVE Dn/An,(An)/(An)+,
     -- CLR (An)/(An)+) already waiting in INIT_EXEC_WB (its address settled for a clock), it is loaded in the
     -- S3 clock of the running write, exactly as F3 loads the next MOVEM register: its write is presented in the
@@ -509,7 +517,7 @@ begin
             MEMADR_RDY <= '0';
         elsif FETCH_STATE = FETCH_MEMADR and NEXT_FETCH_STATE /= FETCH_MEMADR then
             MEMADR_RDY <= '0';
-        elsif FETCH_STATE = FETCH_MEMADR and DATA_RDY_X = '1' then
+        elsif FETCH_STATE = FETCH_MEMADR and DATA_RDY_L = '1' then
             MEMADR_RDY <= '1';
         end if;
     end process DATA_AVAILABLE;
@@ -549,7 +557,7 @@ begin
         end if;
     end process CYCLECONTROL;
 
-    RD_RDY <= DATA_RDY_X when READ_CYCLE = '1' else '0';
+    RD_RDY <= DATA_RDY_L when READ_CYCLE = '1' else '0';
     WR_RDY <= DATA_RDY_X when WRITE_CYCLE = '1' else '0';
 
     INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else '0';
@@ -778,7 +786,7 @@ begin
                 '1' when OP_WB_I = EXG and EXEC_WB_STATE = WRITEBACK and BIW_0_WB(7 downto 3) = "01001" else '0'; -- Two address registers.
 
     AR_INC_S <= '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
-              '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY_X = '1' else
+              '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY_L = '1' else
               '1' when (OP = ADDI or OP = CMPI or OP = SUBI) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDQ or OP = SUBQ) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = AND_B or OP = EOR or OP = OR_B) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
@@ -1090,7 +1098,7 @@ begin
             '1' when EW_ACK = '1' and OW_VALID = '0' else
             '0' when FETCH_STATE = START_OP and EXEC_WB_STATE = IDLE else -- Disable when controller is not active.
             '0' when OP = BKPT else
-            '1' when DATA_RDY_X = '1' and DATA_VALID = '0' else '0';
+            '1' when DATA_RDY_L = '1' and DATA_VALID = '0' else '0';
 
     SFC_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"000" else '0';
     SFC_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1(11 downto 0) = x"000" and EXEC_WB_STATE = WRITEBACK else '0';

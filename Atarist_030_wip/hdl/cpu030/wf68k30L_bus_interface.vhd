@@ -282,7 +282,8 @@ signal SIZE_D               : std_logic_vector(1 downto 0) := "00";  -- [F54] me
 signal SIZE_I               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_N               : std_logic_vector(2 downto 0) := "000";
 signal SIZE_DEC             : std_logic_vector(2 downto 0); -- [PH2-WP] SIZE_N after this portion.
-signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
+signal WP_GO                : bit;
+signal WP_IN                : bit := '0'; -- [FIX1D] CLK_F: DSACK asserted, no STERM, HALT, BERR. -- [PH2-WP] Post the write on this S3 edge.
 signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
 signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
 signal WP_LAST              : bit := '0'; -- [PH2-WP] The bus is idle since a posted write ended.
@@ -412,6 +413,8 @@ begin
     begin
         if CLK_F = '1' and CLK_F' event then
             DSACK_In <= DSACKn;
+            WP_IN <= '0'; -- [FIX1D]
+            if DSACKn /= "11" and STERMn = '1' and HALTn = '1' and BERRn = '1' then WP_IN <= '1'; end if;
             HALT_In <= To_Bit(HALTn);
             BUS_FLT_N <= not BERRn;
             STERM_In <= STERMn; -- Delayed.
@@ -1018,7 +1021,8 @@ begin
                                              (OP_RD = '1' and RA_HELD = '0' and FILL_PEND = '0' and DC_DECIDE = '0' and (DC_ON = '0' or CIIN_LAT = '0')
                                               -- [FIX1] and the read is not held by the data cache: WA (or a write hit) can have
                                               -- made an entry even behind CIIN; only a valid registered miss lookup chains.
-                                              and (DC_ON = '0' or (DC_PV = '1' and DC_PH = '0' and DC_PX = '0'))))
+                                              and (DC_ON = '0' or (DC_HIT = '0' and DC_WR_GO_I = '0' and DC_FL_GO_I = '0' and DC_PX = '0'))))
+                                              -- [FIX1D] this clock's lookup of the presented read (ADR_NXT): a miss chains.
                       and RMC = '0' and BUSY_EXH = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
@@ -1625,9 +1629,10 @@ begin
     -- not used; a late retry needs SIZE_N /= 0). A clean ending reports DATA_RDY here, one clock
     -- before S5, so the control unit can present its next request for the S5 edge. Bus errors,
     -- retry, halt, RMC and STERM cycles are never posted and keep the S5 DATA_RDY.
+    -- [FIX1D] The sampled pin terms come from one CLK_F flop (WP_IN = DSACK_In /= "11", STERM_In, HALT_In,
+    -- not BUS_FLT_N, same edge); WAITSTATES = '0' follows from DSACK with RESET_OUT_I = '0' in S3.
     WP_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
-                      WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
-                      BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
+                      WP_IN = '1' and BUS_FLT = '0' and RETRY = '0' and
                       RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
 
     P_WP_DONE: process
