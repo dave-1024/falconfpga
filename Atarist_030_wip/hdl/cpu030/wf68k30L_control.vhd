@@ -1312,7 +1312,7 @@ begin
     ADR_MARK_USED_W <= '1' when (OP_WB_I = BFCHG or OP_WB_I = BFCLR) and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and BF_BYTES = 5 else
                      '1' when (OP_WB_I = BFINS or OP_WB_I = BFSET) and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and BF_BYTES = 5 else
                      '1' when OP_WB_I = CAS and EXEC_WB_STATE = EXECUTE and ALU_COND = true else
-                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = ADR_PIPELINE and ALU_COND = true else
+                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE and FETCH_STATE = SLEEP and ALU_COND = true else
                      '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and PHASE2 = false else ADR_MARK_USED_I;
 
     AR_MARK_USED <= '1' when OP = UNLK and FETCH_STATE /= SWITCH_STATE and NEXT_FETCH_STATE = SWITCH_STATE else -- This is for An to SP.

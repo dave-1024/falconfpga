@@ -193,6 +193,10 @@ signal STATUS_REG           : Std_Logic_Vector(15 downto 0) := x"2700";  -- [F49
 -- '1' out of cold reset regardless of F46.  $2700 = reset SR with V clear.
 signal VFLAG_DIV            : std_logic;
 signal XFLAG_SHFT           : std_logic;
+-- [SH1] One-clock barrel shifter (result and C/V/X for the whole count), replaces the 1 bit/clock loop.
+constant FAST_SHIFT         : boolean := true;
+signal FS_R                 : std_logic_vector(31 downto 0);
+signal FS_C, FS_V, FS_X     : std_logic;
 signal XNZVC                : Std_Logic_Vector(4 downto 0);
 
 -- F26: MINIMUM and MAXIMUM are VHDL-2008 built-ins. GHDL was being run with
@@ -345,7 +349,7 @@ begin
             when ANDI_TO_SR | EORI_TO_SR | ORI_TO_SR => K := 3; T := 14;
             when ANDI_TO_CCR | EORI_TO_CCR | ORI_TO_CCR => K := 2; T := 14;
             when LSL | LSR | ASR =>
-                K := 3;
+                K := 4; -- [SH1] barrel: shift done one clock earlier.
                 if BIW_0(7 downto 6) = "11" then T := 0; -- Memory, not padded.
                 elsif BIW_0(5) = '0' then T := 4; -- Immediate count.
                 elsif To_Integer(unsigned(SHIFT_WIDTH)) < SZ then T := 6; -- Dx, count below the size.
@@ -353,9 +357,9 @@ begin
                 else T := 8;
                 end if;
             when ASL =>
-                K := 3; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if;
+                K := 4; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if;
             when ROTL | ROTR =>
-                K := 3; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if;
+                K := 4; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if; -- [SH1] K 3 -> 4 for the barrel shifter.
             when ROXL | ROXR =>
                 K := 4; if BIW_0(7 downto 6) = "11" then T := 0; else T := 12; end if;
             when BFTST =>
@@ -940,7 +944,7 @@ begin
                 SHFT_RDY <= '1';
             elsif SHFT_LOAD = '1' then
                 SHIFT_STATE <= RUN;
-                BIT_CNT := SHIFT_WIDTH_IN;
+                if FAST_SHIFT then BIT_CNT := "000001"; else BIT_CNT := SHIFT_WIDTH_IN; end if; -- [SH1]
                 SHFT_EN <= '1';
             else
                 SHIFT_STATE <= IDLE;
@@ -960,11 +964,78 @@ begin
         end if;
     end process P_SHFT_CTRL;
 
+    -- [SH1] Barrel shifter: the whole count in one clock, from registered operand (RESULT_SHIFTOP after
+    -- SHFT_LOAD), count (SHIFT_WIDTH, 1..63) and X (XFLAG_SHFT = X at load). Same result and C/V/X as
+    -- the bit-serial loop: LSx/ASL C = last bit out (0 beyond the size), ASR fills with the sign,
+    -- ASL V = any MSB change, ROx modulo size, ROXx modulo size+1 through X.
+    P_FAST_SHIFT: process(RESULT_SHIFTOP, SHIFT_WIDTH, OP, OP_SIZE, XFLAG_SHFT)
+        variable SZ, N, M  : natural;
+        variable D, SM, R, X1, HM : unsigned(31 downto 0);
+        variable E, F       : unsigned(32 downto 0);
+        variable ES, FSG    : signed(32 downto 0);
+        variable W          : unsigned(64 downto 0);
+        variable L, LR, LM  : unsigned(32 downto 0);
+        variable C, V, X    : std_logic;
+    begin
+        case OP_SIZE is
+            when LONG => SZ := 32; SM := x"FFFFFFFF";
+            when WORD => SZ := 16; SM := x"0000FFFF";
+            when others => SZ := 8; SM := x"000000FF";
+        end case;
+        N := To_Integer(unsigned(SHIFT_WIDTH));
+        D := unsigned(RESULT_SHIFTOP) and SM;
+        R := D; C := '0'; V := '0'; X := XFLAG_SHFT;
+        case OP is
+            when ASL | LSL =>
+                W := shift_left(resize(D, 65), N);
+                R := W(31 downto 0) and SM;
+                C := W(SZ);
+                X1 := (D xor shift_left(D, 1)) and SM;
+                HM := SM and not shift_right(SM, N);
+                if OP = ASL and (X1 and HM) /= 0 then V := '1'; end if;
+                X := C;
+            when LSR =>
+                E := D & '0';
+                F := shift_right(E, N);
+                R := F(32 downto 1); C := F(0); X := C;
+            when ASR =>
+                case OP_SIZE is
+                    when LONG => ES := signed(D) & '0';
+                    when WORD => ES := resize(signed(D(15 downto 0)), 32) & '0';
+                    when others => ES := resize(signed(D(7 downto 0)), 32) & '0';
+                end case;
+                FSG := shift_right(ES, N);
+                R := unsigned(FSG(32 downto 1)) and SM; C := FSG(0); X := C;
+            when ROTL =>
+                M := N mod SZ;
+                R := (shift_left(D, M) or shift_right(D, SZ - M)) and SM;
+                C := R(0);
+            when ROTR =>
+                M := N mod SZ;
+                R := (shift_right(D, M) or shift_left(D, SZ - M)) and SM;
+                C := R(SZ - 1);
+            when ROXL | ROXR =>
+                L := resize(D, 33); L(SZ) := XFLAG_SHFT;
+                LM := resize(SM, 33); LM(SZ) := '1';
+                M := N mod (SZ + 1);
+                if OP = ROXL then
+                    LR := (shift_left(L, M) or shift_right(L, SZ + 1 - M)) and LM;
+                else
+                    LR := (shift_right(L, M) or shift_left(L, SZ + 1 - M)) and LM;
+                end if;
+                R := LR(31 downto 0) and SM; C := LR(SZ); X := C;
+            when others => null;
+        end case;
+        FS_R <= std_logic_vector(R); FS_C <= C; FS_V <= V; FS_X <= X;
+    end process P_FAST_SHIFT;
+
     SHIFTER: process
     begin
         wait until CLK = '1' and CLK' event;
         if SHFT_LOAD = '1' then -- Load data in the shifter unit.
             RESULT_SHIFTOP <= OP2_IN; -- Load data for the shift or rotate operations.
+        elsif SHFT_EN = '1' and FAST_SHIFT then
+            RESULT_SHIFTOP <= FS_R; -- [SH1]
         elsif SHFT_EN = '1' then -- Shift and rotate operations:
             case OP is
                 when ASL =>
@@ -1138,6 +1209,8 @@ begin
         if CLK = '1' and CLK' event then
             if SHFT_LOAD = '1' or SHIFT_WIDTH = "000000" then
                 XFLAG_SHFT <= STATUS_REG(4);
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                XFLAG_SHFT <= FS_X; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ROTL | ROTR => 
@@ -1160,6 +1233,8 @@ begin
                 CFLAG_SHFT := STATUS_REG(4);
             elsif SHIFT_WIDTH = "000000" then
                 CFLAG_SHFT := '0';
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                CFLAG_SHFT := FS_C; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ASL | LSL | ROTL | ROXL =>
@@ -1181,6 +1256,8 @@ begin
             -- operations, the V flag is always zero.
             if SHFT_LOAD = '1' or SHIFT_WIDTH = "000000" then
                 VFLAG_SHFT := '0';
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                VFLAG_SHFT := FS_V; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ASL => -- ASR MSB is always unchanged.
