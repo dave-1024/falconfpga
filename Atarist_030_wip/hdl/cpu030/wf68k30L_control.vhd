@@ -194,6 +194,7 @@ entity WF68K30L_CONTROL is
         RMC                 : out bit;
 
         FETCH_MEM_ADR       : out bit;
+        MI_HOLD             : out bit; -- [MI1] Memory indirect: hold queue prefetches for the pointer/operand reads.
         LOAD_OP1            : out bit;
         LOAD_OP2            : out bit;
         LOAD_OP3            : out bit;
@@ -1269,6 +1270,19 @@ begin
             MEMADR_IN <= '0';
         end if;
     end process P_MEMADR_IN;
+
+    -- [MI1] Memory indirect: the pointer read (FETCH_MEMADR) and, right after it, the operand read
+    -- (CALC_AEFF one clock, the address calculation) come before further queue prefetches. Before,
+    -- the bus rolled the pointer read into a queue prefetch (DP_CHAIN) or started one from IDLE in
+    -- the CALC_AEFF clock, and the operand read waited a whole long-word prefetch (8 clocks on the
+    -- 16-bit port). Registered state decode only; the bus interface ANDs it into PF_REQ.
+    MI_HOLD <= '1' when FETCH_STATE = FETCH_MEMADR else
+               '1' when FETCH_STATE = CALC_AEFF and MEMADR_IN = '1' else
+               -- [CS1] CAS2 is one read-modify-write sequence (RMC, the bus is locked from the first
+               -- read to the last write on a 68030): no queue prefetch between the two reads and the
+               -- two writes once the first operand is in. All extension words are fetched by then.
+               '1' when OP = CAS2 and PHASE2 = true and FETCH_STATE /= START_OP else
+               '1' when OP = CAS2 and (FETCH_STATE = INIT_EXEC_WB or FETCH_STATE = SLEEP) else '0';
 
     with OP_WB_I select
     CC_UPDT <= UPDT_CC when ABCD | ADD | ADDI | ADDQ | ADDX | AND_B | ANDI | ANDI_TO_CCR | ASL | ASR | BCHG | BCLR |

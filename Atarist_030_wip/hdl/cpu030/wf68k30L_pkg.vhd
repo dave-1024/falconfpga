@@ -382,6 +382,7 @@ component WF68K30L_CONTROL
         DATA_VALID          : in std_logic;
         RMC                 : out bit;
         FETCH_MEM_ADR       : out bit;
+        MI_HOLD             : out bit; -- [MI1]
         LOAD_OP2            : out bit;
         LOAD_OP3            : out bit;
         LOAD_OP1            : out bit;

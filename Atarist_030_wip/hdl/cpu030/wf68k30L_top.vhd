@@ -387,6 +387,8 @@ signal IPIPE_FLUSH              : bit;
 signal OPC_DISMISS              : bit; -- [F62c]
 signal COF_PEND                 : bit; -- [PFCOF]
 signal PF_HOLD                  : bit; -- [PFCOF]
+signal MI_HOLD                  : bit; -- [MI1]
+signal PF_HOLD_BI               : bit; -- [MI1]
 signal Q_STREAM                 : std_logic_vector(63 downto 0); -- [PFCOF2]
 signal Q_COUNT                  : integer range 0 to 4; -- [PFCOF2]
 signal IPIPE_FLUSH_EXH          : bit;
@@ -828,6 +830,8 @@ begin
                   '1' when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" and IBUFFER(13 downto 12) /= STATUS_REG(13 downto 12) else
                   '1' when OP = MOVE_TO_SR and DATA_TO_CORE(13 downto 12) /= STATUS_REG(13 downto 12) else '0';
 
+    PF_HOLD_BI <= PF_HOLD or (MI_HOLD and not BUSY_EXH); -- [MI1] Not during exception processing.
+
     DATA_RD <= DATA_RD_EXH or DATA_RD_MAIN;
     DATA_WR <= DATA_WR_EXH or DATA_WR_MAIN;
 
@@ -1206,7 +1210,7 @@ begin
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
-            PF_HOLD             => PF_HOLD, -- [PFCOF]
+            PF_HOLD             => PF_HOLD_BI, -- [PFCOF] [MI1]
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
@@ -1309,6 +1313,7 @@ begin
             DATA_RDY                => DATA_RDY,
             DATA_VALID              => DATA_VALID,
             RMC                     => RMC,
+            MI_HOLD                 => MI_HOLD,
             FETCH_MEM_ADR           => FETCH_MEM_ADR,
             LOAD_OP1                => ALU_LOAD_OP1,
             LOAD_OP2                => ALU_LOAD_OP2,
