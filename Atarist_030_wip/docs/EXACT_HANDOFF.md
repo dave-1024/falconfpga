@@ -77,3 +77,13 @@ XH1 does not change the cache case (no idle to remove; prefetch comes from the c
 - TRAP/RTE: +14 over the bound. Gaps: 3 clocks between stack longs, 3 before the vector read, 4 between RTE frame reads, 5 before the refill. Cause: the exception handler drops DATA_WR/RD in the DATA_RDY clock and re-requests one clock after ISP_DEC because ADR_EFF is registered (P_D). Fix needs the SP step one clock earlier (at WP_GO / cycle start), which touches the DSACK->WR_EARLY path (Fmax) and the SP value after a fault while stacking. Not done.
 - W->R residual +2.4 at WS0 in one of two alignments: queue full while the control unit executes LEA (about 5 clocks per instruction), not a hand-off.
 - MOVEM.L reads 14 below the 8+4n bound: internal clocks hidden behind the bus; flagged for the A1200/ACA1230 oracle.
+
+## XH2 (19 Oct night, shelved, branch exact-handoff-xh2)
+Exception handler: ISP-4 taken into the registered effective address in the ISP_DEC clock (address section,
+M = 0 only), P_D as a plain flip flop masked by DATA_RDY, next stack long / vector read / RTE frame reads
+requested in the DATA_RDY clock. The SP still steps only on DATA_RDY. TRAP/RTE 108.12 -> 104.12 (WS0),
+128.91 -> 124.91 (WS1); everything else unchanged. Sim: run_rtl, dcache, icache PASS, cmpall = XH1,
+FILT 36/36, audit identical to XH1, prog_stkflt (fault while stacking) identical to F3a WS0/1/3/7.
+Build clk_cpu030 20.356 MHz. Board: 2 of 6 cold boots halted (black 4/5); XH1 6/6. Not accepted: the cause
+is not reproduced in RTL (candidates: an early request meeting bus arbitration (floppy DMA) or a DATA_RDY
+of another cycle in BUILD_STACK on the real ST bus).
