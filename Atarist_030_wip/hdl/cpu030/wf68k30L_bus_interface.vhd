@@ -381,6 +381,7 @@ signal DCW_FC               : std_logic_vector(2 downto 0) := "000";
 signal DCW_SZ               : std_logic_vector(2 downto 0) := "001";
 signal DC_FL_GO_I           : std_logic;
 signal DC_FIN               : std_logic; -- [DC] The read (and its fill cycles) is complete.
+signal DC_PX                : std_logic := '0'; -- [FIX1] DC_PH was cancelled by a cache update.
 signal DC_PH                : std_logic := '0'; -- [DC] Registered lookup of the request of the last clock: hit,
 signal DC_PD                : std_logic_vector(31 downto 0) := (others => '0'); -- its operand,
 signal DC_PV                : std_logic := '0'; -- a read request was pending (no DATA_RDY).
@@ -1013,7 +1014,11 @@ begin
     -- register's write in the S4/S5 clock. The S5 edge rolls into it like the second portion of a long
     -- word (GAP 1) under the conditions of every other chain. Operand before a waiting prefetch.
     WW_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                      and WP_DONE = '1' and OP_WR = '1' and OP_RD = '0'
+                      and WP_DONE = '1' and ((OP_WR = '1' and OP_RD = '0') or -- [FIX1] or the next operand read:
+                                             (OP_RD = '1' and RA_HELD = '0' and FILL_PEND = '0' and DC_DECIDE = '0' and (DC_ON = '0' or CIIN_LAT = '0')
+                                              -- [FIX1] and the read is not held by the data cache: WA (or a write hit) can have
+                                              -- made an entry even behind CIIN; only a valid registered miss lookup chains.
+                                              and (DC_ON = '0' or (DC_PV = '1' and DC_PH = '0' and DC_PX = '0'))))
                       and RMC = '0' and BUSY_EXH = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
@@ -1104,6 +1109,7 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         DC_PH <= DC_HIT and not DC_WR_GO_I and not DC_FL_GO_I;
+        DC_PX <= DC_WR_GO_I or DC_FL_GO_I;
         DC_PD <= DC_HIT_DATA;
         DC_PV <= To_StdULogic(OP_RD and not DATA_RDY_I);
     end process P_DCP;

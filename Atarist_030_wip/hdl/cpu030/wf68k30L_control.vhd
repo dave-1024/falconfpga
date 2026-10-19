@@ -355,6 +355,12 @@ signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed
 signal WR_LAST              : boolean; -- [FLT2] The running write is its instruction's last bus cycle.
 signal F3_EARLY             : bit; -- [F3] Next MOVEM register taken in the S3 clock of the running write.
 signal F3_BYP_I             : bit := '0';
+signal FIX1_B               : bit; -- [FIX1] Next instruction's register-to-memory write taken in the S3 clock.
+signal FIX1_W               : bit := '0';
+signal FIX1_HOLD            : bit := '0';
+signal FIX1_OPOK            : bit;
+signal WR_GEN               : bit; -- [FIX1] Any posted write's outcome taken in its S3 clock (WR_EARLY).
+signal DATA_RDY_X           : bit; -- [FIX1] DATA_RDY as the control unit sees it.
 signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
@@ -409,7 +415,8 @@ begin
     ALU_BSY_M <= '0' when ALU_BSY = '0' else
                  '0' when OP = MOVEM and OP_WB_I = MOVEM and BIW_0(10) = '0' and BIW_0_WB(10) = '0' and
                           EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' else
-                 '0' when F3_EARLY = '1' else '1';
+                 '0' when F3_EARLY = '1' else
+                 '0' when FIX1_B = '1' else '1'; -- [FIX1]
     -- [F3] Back-to-back MOVEM register-to-memory writes. The outcome of a posted write is final in the S3 clock
     -- of its last portion (WR_EARLY = WP_GO: DSACK, no bus error, no retry), and its data and address are in the
     -- bus latches. The next register is loaded there (the same set-up as in the DATA_RDY clock, one clock earlier,
@@ -420,13 +427,37 @@ begin
     F3_EARLY <= '1' when WR_EARLY = '1' and EXEC_WB_STATE = WRITE_DEST and OP_WB_I = MOVEM and BIW_0_WB(10) = '0' and
                          OP = MOVEM and BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = true and
                          WRITE_CYCLE = '1' and WFLT = '0' and ALU_BSY = '1' else '0';
-    WR_TAKE <= F3_EARLY and ALU_INIT_I;
-    ADR_FAST <= F3_EARLY and ALU_INIT_I;
+    -- [FIX1] Every posted write, not only MOVEM: its outcome is final in the S3 clock of its last portion
+    -- (WR_EARLY = WP_GO: DSACK, no bus error, no retry, no halt), so the control unit takes it there, one clock
+    -- before the bus interface's DATA_RDY (which WR_TAKE then drops). The instruction's next step (the next
+    -- instruction's operand read or write) is requested in the S5 clock and the bus interface rolls the S5 edge
+    -- into it (WW_GO), as a 68030 starts the next operand cycle right after S5 (MC68030UM 7.3, 11.6: no idle
+    -- clock between a write and the next operand cycle). Nothing starts before the write can no longer fault.
+    -- MOVEM keeps its F3 path; exception processing and RMC cycles keep the S5 DATA_RDY.
+    WR_GEN <= '1' when WR_EARLY = '1' and EXEC_WB_STATE = WRITE_DEST and WRITE_CYCLE = '1' and OP_WB_I /= MOVEM and
+                       BUSY_EXH = '0' and WFLT = '0' and RMC = '0' else '0';
+    DATA_RDY_X <= DATA_RDY or WR_GEN;
+    -- [FIX1] W->W: when the next instruction is a plain register-to-memory write (MOVE Dn/An,(An)/(An)+,
+    -- CLR (An)/(An)+) already waiting in INIT_EXEC_WB (its address settled for a clock), it is loaded in the
+    -- S3 clock of the running write, exactly as F3 loads the next MOVEM register: its write is presented in the
+    -- S5 clock (EXECUTE, FIX1_W) with bypassed data (F3_BYP) and the settled address (ADR_FAST), chaining at S5.
+    FIX1_OPOK <= '1' when OP = MOVE and PHASE2 = false and (BIW_0(8 downto 6) = "010" or BIW_0(8 downto 6) = "011") and
+                          (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") else
+                 '1' when OP = CLR and (BIW_0(5 downto 3) = "010" or BIW_0(5 downto 3) = "011") else '0';
+    FIX1_B <= '1' when WR_GEN = '1' and FETCH_STATE = INIT_EXEC_WB and FIX1_HOLD = '1' and FIX1_OPOK = '1' and ALU_BSY = '1' else '0';
+    WR_TAKE <= (F3_EARLY and ALU_INIT_I) or WR_GEN;
+    ADR_FAST <= (F3_EARLY or FIX1_B) and ALU_INIT_I;
     F3_BYP <= F3_BYP_I;
     P_F3: process
     begin
         wait until CLK = '1' and CLK' event;
-        F3_BYP_I <= F3_EARLY and ALU_INIT_I;
+        F3_BYP_I <= (F3_EARLY or FIX1_B) and ALU_INIT_I;
+        if FETCH_STATE = INIT_EXEC_WB then FIX1_HOLD <= '1'; else FIX1_HOLD <= '0'; end if;
+        if FIX1_B = '1' and ALU_INIT_I = '1' then
+            FIX1_W <= '1';
+        elsif EXEC_WB_STATE /= EXECUTE then
+            FIX1_W <= '0';
+        end if;
     end process P_F3;
     BUSY <= '1' when OPD_ACK = '1' else -- Early indication.
             '1' when LOOP_BSY = '1' else -- Finish the DBcc loop.
@@ -478,7 +509,7 @@ begin
             MEMADR_RDY <= '0';
         elsif FETCH_STATE = FETCH_MEMADR and NEXT_FETCH_STATE /= FETCH_MEMADR then
             MEMADR_RDY <= '0';
-        elsif FETCH_STATE = FETCH_MEMADR and DATA_RDY = '1' then
+        elsif FETCH_STATE = FETCH_MEMADR and DATA_RDY_X = '1' then
             MEMADR_RDY <= '1';
         end if;
     end process DATA_AVAILABLE;
@@ -506,7 +537,7 @@ begin
     -- not interrupted by a write cycle and vice versa.
     begin
         wait until CLK = '1' and CLK' event;
-        if DATA_RDY = '1' then
+        if DATA_RDY_X = '1' then
             WRITE_CYCLE <= '0';
             READ_CYCLE <= '0';
         elsif DATA_WR_I = '1' then
@@ -518,8 +549,8 @@ begin
         end if;
     end process CYCLECONTROL;
 
-    RD_RDY <= DATA_RDY when READ_CYCLE = '1' else '0';
-    WR_RDY <= DATA_RDY when WRITE_CYCLE = '1' else '0';
+    RD_RDY <= DATA_RDY_X when READ_CYCLE = '1' else '0';
+    WR_RDY <= DATA_RDY_X when WRITE_CYCLE = '1' else '0';
 
     INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else '0';
     
@@ -528,7 +559,7 @@ begin
                  '0' when DATA_WR_I = '1' and READ_CYCLE = '0' and WRITE_CYCLE = '0' else -- Write is prioritized.
                  '0' when WRITE_CYCLE = '1' else -- Do not read during a write cycle.
                  '0' when ADR_IN_USE = '1' else -- Avoid data hazards.
-                 '0' when DATA_RDY = '1' or MEMADR_RDY = '1' else
+                 '0' when DATA_RDY_X = '1' or MEMADR_RDY = '1' else
                  '1' when FETCH_STATE = FETCH_MEMADR else
                  '1' when FETCH_STATE = FETCH_OPERAND else
                  -- Option A step 3: MOVEM memory to register, 2nd and later reads: the effective address is valid in
@@ -546,8 +577,9 @@ begin
     DATA_WR <= DATA_WR_I;
     DATA_WR_I <= '0' when WFLT = '1' else -- [FLT1]
                  '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
-                 '0' when DATA_RDY = '1' else
-                 '1' when EXEC_WB_STATE = WRITE_DEST else '0';
+                 '0' when DATA_RDY_X = '1' else
+                 '1' when EXEC_WB_STATE = WRITE_DEST else
+                 '1' when EXEC_WB_STATE = EXECUTE and FIX1_W = '1' else '0'; -- [FIX1]
 
     RMC <= '1' when (OP = CAS or OP = CAS2 or OP = TAS) and FETCH_STATE /= START_OP else '0';
 
@@ -648,6 +680,7 @@ begin
                   -- The following two conditions change the address mode right in the end of the fetch phase. 
                   "010" when (OP = JSR or OP = PEA) and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else -- (A7).
                   BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else
+                  BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and FIX1_OPOK = '1' else -- [FIX1] Settle the destination address early.
                   BIW_0(8 downto 6) when OP = MOVE and PHASE2 = true else
                   BIW_0(5 downto 3); 
 
@@ -745,7 +778,7 @@ begin
                 '1' when OP_WB_I = EXG and EXEC_WB_STATE = WRITEBACK and BIW_0_WB(7 downto 3) = "01001" else '0'; -- Two address registers.
 
     AR_INC_S <= '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
-              '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY = '1' else
+              '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY_X = '1' else
               '1' when (OP = ADDI or OP = CMPI or OP = SUBI) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDQ or OP = SUBQ) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = AND_B or OP = EOR or OP = OR_B) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
@@ -1057,7 +1090,7 @@ begin
             '1' when EW_ACK = '1' and OW_VALID = '0' else
             '0' when FETCH_STATE = START_OP and EXEC_WB_STATE = IDLE else -- Disable when controller is not active.
             '0' when OP = BKPT else
-            '1' when DATA_RDY = '1' and DATA_VALID = '0' else '0';
+            '1' when DATA_RDY_X = '1' and DATA_VALID = '0' else '0';
 
     SFC_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"000" else '0';
     SFC_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1(11 downto 0) = x"000" and EXEC_WB_STATE = WRITEBACK else '0';
@@ -2523,7 +2556,7 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVE =>
-                        if ALU_BSY = '0' and PHASE2 = false then -- Load the Operand into the ALU here.
+                        if ALU_BSY_M = '0' and PHASE2 = false then -- Load the Operand into the ALU here ([FIX1]: ALU_BSY_M).
                             case BIW_0(8 downto 6) is -- Destination operand.
                                 when "101" => 
                                     NEXT_FETCH_STATE <= FETCH_DISPL;
@@ -2589,7 +2622,7 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when others =>
-                        if ALU_BSY = '0' then -- ASH.
+                        if ALU_BSY_M = '0' then -- ASH. [FIX1] ALU_BSY_M (= ALU_BSY except FIX1_B for CLR).
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- ASH.
@@ -2656,7 +2689,7 @@ begin
         end case;
     end process FETCH_DEC;
 
-    EXEC_WB_DEC: process(ALU_COND, ALU_INIT_I, ALU_REQ, BIW_0_WB, BIW_1_WB, BF_BYTES, EXEC_WB_STATE, FETCH_STATE, MOVEM_INH_WR, OP_WB_I, PHASE2, WR_RDY)
+    EXEC_WB_DEC: process(ALU_COND, ALU_INIT_I, ALU_REQ, BIW_0_WB, BIW_1_WB, BF_BYTES, EXEC_WB_STATE, FETCH_STATE, FIX1_B, MOVEM_INH_WR, OP_WB_I, PHASE2, WR_RDY)
     begin
         case EXEC_WB_STATE is
             when IDLE =>
@@ -2792,7 +2825,12 @@ begin
                             else
                                 NEXT_EXEC_WB_STATE <= IDLE;
                             end if;
-                        when others => NEXT_EXEC_WB_STATE <= IDLE;
+                        when others =>
+                            if ALU_INIT_I = '1' and FIX1_B = '1' then
+                                NEXT_EXEC_WB_STATE <= EXECUTE; -- [FIX1] Next instruction's write overlaps this one.
+                            else
+                                NEXT_EXEC_WB_STATE <= IDLE;
+                            end if;
                     end case;
                 else
                     NEXT_EXEC_WB_STATE <= WRITE_DEST;

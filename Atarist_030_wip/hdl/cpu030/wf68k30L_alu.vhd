@@ -22,7 +22,7 @@
 ----                                                                ----
 ------------------------------------------------------------------------
 ----                                                                ----
----- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+---- Copyright Â© 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
 ----                                                                ----
 ---- This documentation describes Open Hardware and is licensed     ----
 ---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
@@ -306,7 +306,7 @@ begin
             ALU_BSY_I <= '0';
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
-        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
+        if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or OP_IN = MOVE or OP_IN = CLR) then -- [FIX1] MOVE, CLR too.
             ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
@@ -790,7 +790,7 @@ begin
         end case;
         RESULT_OTHERS <= Std_Logic_Vector(RESULT);
     end process P_OTHERS;
-    RESULT_MV <= RESULT_OTHERS; -- [F3]
+    RESULT_MV <= (others => '0') when OP = CLR else RESULT_OTHERS; -- [F3] [FIX1] CLR.
 
     SHFT_LOAD <= '1' when ALU_INIT = '1' and (OP_IN = ASL or OP_IN = ASR) else
                  '1' when ALU_INIT = '1' and (OP_IN = LSL or OP_IN = LSR) else
