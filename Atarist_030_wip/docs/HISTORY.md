@@ -130,3 +130,12 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     CAS2_COND, wrong Dc selector order, CAS/CAS2 missing from the ALU flag case. Fix: registered gates (CAS2_WGAP,
     MEMADR_IN, CAS2_CCHOLD), MEMADR_RDY from reads only, one SWITCH_STATE address clock for CLR/JMP/JSR/Scc/MOVE
     from SR indirect. Nothing new on the DSACK path. Sim: run_rtl with prog_cas2/prog_memind, cmpall vs main.
+21. **T6: 68030 table timing for ALU ops, memory-indirect prefetch hold, CAS2 RMC lock (`t6-exact-timing`, 19 Oct 2026).**
+    Goal: per-instruction clocks of MC68030UM ch. 11 (worst-case / no-cache column for ST code) with realistic
+    bus placement for the Falcon DSP. ALU: registered pad table (T = table clocks, K = per-class overhead, down
+    counter, PAD_ZERO flag) holds ALU_BSY for MUL/DIV, register BCHG/BCLR/BSET/NBCD, ANDI/ORI/EORI to SR/CCR,
+    shifts/rotates (imm, Dx < size, Dx >= size), bit fields (reg, mem <5 / >=5 bytes). MUL/DIV use the table max
+    (data-dependent in the manual). CHK is not padded (trap decision at ALU_ACK; a parked CHK let the next instruction
+    run first). MI1: PF_HOLD during the pointer read and the following CALC_AEFF, so the operand read follows the
+    pointer read. CS1: no queue prefetch between the CAS2 reads and writes (RMC sequence, as on the 68030).
+    Sim: run_rtl PASS (incl. prog_cas2/prog_memind/prog_chk), cmpall 68/68 identical writes vs fix-c-indirect.

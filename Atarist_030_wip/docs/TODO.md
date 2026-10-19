@@ -168,3 +168,11 @@ stays out until that plan is followed.
    Present on F63 too: helper mouse/button injection or IKBD path.
 7. **Async reset / PR1014 leftovers:** PR1014 still reported for the clk_osc pad -> DCE hop.
 8. **AE350 flash MISO pad constraint (SPI_SDC part 2):** MISO at 20 ns fails in every placement; not in the TNS table.
+
+## T6 follow-ups (19 Oct 2026)
+- Shifts with large counts are 1 clock per bit (lsl Dx=40: 44 vs 8): needs a barrel/multi-bit shifter to hit the table.
+- RMW memory forms (bit ops, BFCHG/BFSET/BFINS mem, memory shifts) are slower than the table, not padded.
+- CHK is fast (4 vs 8): pad it without parking past the trap decision.
+- Memory-indirect still ~10 idle clocks after the operand read (INIT_EXEC_WB/START_OP/EXWORD states, C2 gate);
+  JSR ([bd,An]) 77 vs 28; move d0,([bd,An],Xn) 1.6 clocks slower with MI1.
+- CAS2: idle clocks inside the locked sequence (read1->read2 5, read2->write1 7, write1->write2 4).
