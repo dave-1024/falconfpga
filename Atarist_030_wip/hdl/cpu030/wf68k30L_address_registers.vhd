@@ -404,7 +404,12 @@ begin
         else
             case AR_PNTR_1 is
                 when 7 =>
-                    if SBIT = '1' and MBIT = '0' then
+                    if SBIT = '1' and MBIT = '0' and ISP_DEC = '1' then
+                        -- [XH2] The exception handler steps the ISP in this clock (ISP_DEC, always long):
+                        -- the registered effective address already takes the new value, so the next stack
+                        -- write can be requested one clock earlier. ISP_REG itself changes as before.
+                        ADR_MUX := ISP_REG - "100";
+                    elsif SBIT = '1' and MBIT = '0' then
                         ADR_MUX := ISP_REG;
                     elsif SBIT = '1' then
                         ADR_MUX := MSP_REG;

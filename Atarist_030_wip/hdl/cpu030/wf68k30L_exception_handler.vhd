@@ -190,7 +190,9 @@ type EXCEPTIONS is (EX_NONE, EX_1010, EX_1111, EX_AERR, EX_BERR, EX_CHK, EX_DIVZ
 signal ACCESS_ERR           : bit := '0';  -- [F54] measured warm-boot value
 signal AVEC                 : bit := '0';  -- [F54] measured warm-boot value
 signal DATA_RD_I            : bit := '0';  -- [F54] measured warm-boot value
-signal DATA_WR_I            : bit := '0';  -- [F54] measured warm-boot value
+signal DATA_WR_I            : bit := '0';
+signal DATA_RD_R            : bit := '0'; -- [XH2]
+signal DATA_WR_R            : bit := '0'; -- [XH2]  -- [F54] measured warm-boot value
 signal DOUBLE_BUSFLT        : bit := '0';  -- [F54] measured warm-boot value
 signal EXCEPTION            : EXCEPTIONS := EX_RESET;  -- [F52] was uninitialised.
 -- EXCEPTION selects WHICH vector is taken (VECT_No is a case on it).  With no
@@ -601,27 +603,32 @@ begin
  
     SP_ADD_DISPL <= '1' when EX_STATE = RESTORE_STATUS and DATA_RDY = '1' and DATA_VALID = '1' else '0';
 
-    P_D: process(CLK, DATA_RDY)
+    P_D: process
     -- These flip flops are necessary to delay
     -- the read and writes during BUILD_STACK
     -- and restoring the system because the
     -- address calculation in the address
     -- section requires one clock.
+    -- [XH2] Was an asynchronous clear by DATA_RDY; now a plain flip flop masked by the (registered) DATA_RDY,
+    -- same behaviour, but a request decided in the DATA_RDY clock (XH2 cases of DATA_RD_I/DATA_WR_I) is kept.
     begin
-        if DATA_RDY = '1' then
-            DATA_RD <= '0';
-        elsif CLK = '1' and CLK' event then
-            DATA_RD <= DATA_RD_I;
-        end if;
-
-        if DATA_RDY = '1' then
-            DATA_WR <= '0';
-        elsif CLK = '1' and CLK' event then
-            DATA_WR <= DATA_WR_I;
-        end if;
+        wait until CLK = '1' and CLK' event;
+        DATA_RD_R <= DATA_RD_I;
+        DATA_WR_R <= DATA_WR_I;
     end process P_D;
+    DATA_RD <= DATA_RD_R and not DATA_RDY;
+    DATA_WR <= DATA_WR_R and not DATA_RDY;
 
-    DATA_RD_I <= '0' when DATA_RDY = '1' else
+    -- [XH2] The vector read after the last stack long: its address (ADR_OFFSET) is loaded in the DATA_RDY clock
+    -- (RESTORE_ISP_PC), so the request need not wait one more clock.
+    -- [XH2] Same for the RTE frame reads: the next read's offset (ADR_OFFSET by NEXT_EX_STATE) and the
+    -- unchanged SP are in the effective address at the next edge. Only after a valid read (no bus error).
+    DATA_RD_I <= '1' when EX_STATE = BUILD_STACK and NEXT_EX_STATE = UPDATE_PC else
+                 '1' when DATA_RDY = '1' and DATA_VALID = '1' and
+                          (EX_STATE = VALIDATE_FRAME or EX_STATE = EXAMINE_VERSION or EX_STATE = READ_TOP or EX_STATE = READ_BOTTOM or EX_STATE = RESTORE_PC) and
+                          (NEXT_EX_STATE = RESTORE_PC or NEXT_EX_STATE = RESTORE_STATUS or NEXT_EX_STATE = EXAMINE_VERSION or
+                           NEXT_EX_STATE = READ_TOP or NEXT_EX_STATE = READ_BOTTOM) else
+                 '0' when DATA_RDY = '1' else
                  '1' when NEXT_EX_STATE = GET_VECTOR else 
                  '1' when NEXT_EX_STATE = VALIDATE_FRAME else 
                  '1' when NEXT_EX_STATE = EXAMINE_VERSION else 
@@ -632,7 +639,11 @@ begin
                  '1' when NEXT_EX_STATE = UPDATE_PC else
                  '1' when NEXT_EX_STATE = RESTORE_PC else '0';
 
-    DATA_WR_I <= '0' when DATA_RDY = '1' else
+    -- [XH2] The next stack long on the ISP (M = 0): its address is taken in the DATA_RDY clock (ISP_DEC with the
+    -- ISP - 4 effective address in the address section), its data by STACK_POS in the same edge. The ISP steps
+    -- only on DATA_RDY as before, so the SP after a fault while stacking is unchanged.
+    DATA_WR_I <= '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and NEXT_EX_STATE = BUILD_STACK and STATUS_REG_IN(12) = '0' else
+                 '0' when DATA_RDY = '1' else
                  '1' when EX_STATE = BUILD_STACK else
                  '1' when EX_STATE = BUILD_TSTACK else '0';
 
