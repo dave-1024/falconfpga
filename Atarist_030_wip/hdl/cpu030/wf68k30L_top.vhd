@@ -677,8 +677,9 @@ begin
     AR_IN_1 <= DATA_TO_CORE when BUSY_EXH = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
-               ADR_EFF when OP = JMP or OP = JSR else
+               -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
                DATA_TO_CORE when FETCH_MEM_ADR = '1' else
+               ADR_EFF when OP = JMP or OP = JSR else
                DR_OUT_1 when USE_DREG = '1' else -- CAS2: Address register from data register.
                AR_OUT_1 when OP = LINK or OP = UNLK else DATA_TO_CORE; -- Default used for RTD, RTR, RTS.
 

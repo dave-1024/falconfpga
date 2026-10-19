@@ -1084,7 +1084,10 @@ begin
 
         -- Integer operations:
         case OP is
-            when ADD | ADDI | ADDQ | ADDX | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
+            -- [C1] CAS and CAS2 were missing here: their N, V and C came from don't-care sign bits
+            -- (metavalue in simulation, whatever synthesis picked in hardware). MC68030UM CAS:
+            -- Destination - Dc sets N, Z, V, C like CMP.
+            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
                 RM := RESULT_INTOP(MSB);
                 SM := OP1_SIGNEXT(MSB);
                 DM := OP2_SIGNEXT(MSB);
