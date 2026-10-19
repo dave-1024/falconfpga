@@ -1,5 +1,12 @@
 # TODO (in priority order)
 
+## Status 19 Oct 2026 (evening): correctness fixes C1-C4 on `fix-c-indirect`
+The full ISA timing audit (`gb608_ramrom/FULL_ISA_TIMING.md`) found CAS2 and memory-indirect bugs (pre-existing).
+Fixed on `fix-c-indirect` (off main 7a5fe19), sim only, not built or flashed: C1 CAS2 operands/registers/CCR/hang,
+C2 back-to-back `([bd,An])` pointer reads, C3 JMP/JSR `([bd,An])`, C4 RMW `([bd,An])` pointer re-read. C5
+(interrupt one instruction late after a mask drop) matches the UM, no change. Regressions: `prog_cas2.s`,
+`prog_memind.s` in run_rtl. Next: board build of fix-c-indirect, then T6 (exact 030 timing) on `t6-exact-timing`.
+
 ## Status 18 Oct 2026 (midday)
 F3 (MOVEM register-to-memory writes back to back) is done on `f3-write-queue` (304b885; merge to main approved by
 David). Board build `st_helper_hdn_f3a_7919eb3_p3.fs` (sha256 56556195...e211d78e): GEMBENCH 6.08 RAM 101% / ROM

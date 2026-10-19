@@ -122,3 +122,11 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     for write faults) and $0E (stale BIW_2, TODO.md item); FILT=5000 identical for prog_fault/wpberr/movemx;
     prog_movemx -9.5% clocks. Board: 2 cold boots clean; 6.08 RAM 91 -> 101%, CPU 180 -> 186%, Average 91 -> 92%
     (STE20608), 129 -> 132% (STFM1048); 4.03 134 -> 135%. Fmax clk_cpu030 20.94 MHz, clk32_core 34.02, LUT 37,870.
+20. **C1-C4: CAS2 and memory-indirect correctness (`fix-c-indirect`, 19 Oct 2026; FULL_ISA_TIMING.md, FALCON_LESSONS).**
+    Symptom: CAS2 wrote Du1/Du2 to the swapped operands, hung when run back to back, loaded Dc1/Dc2 swapped on a
+    failed compare and left a wrong CCR; `([bd,An])` reads used a stale pointer address on an idle bus; JMP
+    `([bd,An])` hung, JSR jumped to the pointer address; RMW `([bd,An])` did not read its pointer. Cause: registered
+    ADR_EFF / ADR_EFF_WB used in the clock they were selected, MEMADR_RDY set by a write acknowledge, stale
+    CAS2_COND, wrong Dc selector order, CAS/CAS2 missing from the ALU flag case. Fix: registered gates (CAS2_WGAP,
+    MEMADR_IN, CAS2_CCHOLD), MEMADR_RDY from reads only, one SWITCH_STATE address clock for CLR/JMP/JSR/Scc/MOVE
+    from SR indirect. Nothing new on the DSACK path. Sim: run_rtl with prog_cas2/prog_memind, cmpall vs main.
