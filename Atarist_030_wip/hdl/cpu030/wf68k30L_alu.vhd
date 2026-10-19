@@ -341,7 +341,7 @@ begin
                 K := 3; if OP_SIZE = LONG then T := 90; else T := 56; end if;
             when BCHG | BCLR | BSET => K := 4; if REG then T := 6; end if;
             when NBCD => K := 4; if REG then T := 6; end if;
-            when CHK => K := 2; T := 8;
+            when CHK => K := 4; if REG then T := 8; end if; -- Memory CHK is already at the table.
             when ANDI_TO_SR | EORI_TO_SR | ORI_TO_SR => K := 3; T := 14;
             when ANDI_TO_CCR | EORI_TO_CCR | ORI_TO_CCR => K := 2; T := 14;
             when LSL | LSR | ASR =>
@@ -431,7 +431,9 @@ begin
             PAD_PEND <= '1';
         elsif REQ_SET then
             ALU_REQ <= '1';
-        elsif PAD_PEND = '1' and PAD_ZERO = '1' then
+        elsif PAD_PEND = '1' and (PAD_ZERO = '1' or (OP = CHK and CHK_CMP_COND = true)) then
+            -- [T6b] A trapping CHK is not padded (the trap is decided at ALU_ACK; the 68030 table
+            -- lists CHK-with-trap as exception processing); only the no-trap CHK is padded to 8.
             PAD_PEND <= '0';
             ALU_REQ <= '1';
         end if;
@@ -439,9 +441,7 @@ begin
     ALU_BSY <= ALU_BSY_I; -- F57
 
     with OP_IN select
-        -- CHK is not padded: its trap decision is taken from the ALU flags at ALU_ACK, and a parked
-        -- CHK let the next instruction run before the trap (prog_chk regression).
-        PAD_OP_A <= '1' when MULS | MULU | BFTST | BFEXTS | BFEXTU | BFFFO |
+        PAD_OP_A <= '1' when MULS | MULU | CHK | BFTST | BFEXTS | BFEXTU | BFFFO |
                              ANDI_TO_CCR | ANDI_TO_SR | EORI_TO_CCR | EORI_TO_SR | ORI_TO_CCR | ORI_TO_SR,
                     '0' when others; -- Padded in every addressing mode.
     with OP_IN select

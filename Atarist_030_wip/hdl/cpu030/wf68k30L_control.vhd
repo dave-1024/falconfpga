@@ -2708,7 +2708,9 @@ begin
                         else
                             NEXT_FETCH_STATE <= SLEEP; -- Wait for new processor context.
                         end if;
-                    when DBcc =>
+                    when CHK | DBcc =>
+                        -- [T6b] CHK: the ALU may be padded to the 68030 time; wait for its acknowledge
+                        -- (trap decision) before the next instruction starts.
                         -- DBcc: evaluate conditions.
                         if NEXT_EXEC_WB_STATE = IDLE then
                             NEXT_FETCH_STATE <= START_OP;
