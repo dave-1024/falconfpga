@@ -1,5 +1,17 @@
 # TODO (in priority order)
 
+## Status 19 Oct 2026: fix1 shelved, exact hand-offs started
+- **fix1 (write hand-off) SHELVED** on branch `fix1-write-handoff` (head f44934b, not merged; local fix1d 87d169e,
+  clk_cpu030 20.8 MHz). It removed idle clocks after writes but made RMW, `move (An)+,(An)+`, `bclr #,(An)` and
+  `d16->d16` faster than a 68030 (ST-model 83-100% vs 73-83% estimate). David's goal is now cycle-exact 68030 timing
+  (Falcon/DSP): per-instruction clocks as MC68030UM ch. 11 and the position of every bus cycle in the instruction.
+  Work continues on `exact-handoff` (off main 7a5fe19). Notes from fix1 worth keeping: the W->R chain must check
+  the D-cache (WA entries exist behind CIIN); SSW RB after a prefetch fault depends on pipe progress (see below).
+- **SSW RB after a prefetch bus error (prog_branch case 9):** both stage C ($10000) and B ($10002) come from the
+  faulted long word, so RB=1 is likely correct; the core latches RB from pipe progress (timing-dependent). Fix with
+  the stale bus-fault flag item (TODO 3).
+- Board: F3a 7919eb3 (flashed back 19 Oct 21:2x BST).
+
 ## Status 18 Oct 2026 (midday)
 F3 (MOVEM register-to-memory writes back to back) is done on `f3-write-queue` (304b885; merge to main approved by
 David). Board build `st_helper_hdn_f3a_7919eb3_p3.fs` (sha256 56556195...e211d78e): GEMBENCH 6.08 RAM 101% / ROM

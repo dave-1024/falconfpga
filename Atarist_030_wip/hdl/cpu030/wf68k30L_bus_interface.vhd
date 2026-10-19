@@ -882,7 +882,9 @@ begin
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
-    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and Q_CNT <= 1 and PF_HOLD = '0' else '0'; -- [PFCOF]
+    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and (Q_CNT <= 1 or (Q_CNT = 2 and BUSY_EXH = '0')) and PF_HOLD = '0' else '0'; -- [PFCOF]
+    -- [XH1] A long is requested while the queue still holds two words (was Q_CNT <= 1), so the stream keeps the
+    -- bus busy across operand cycles (W->R, R->R, MOVEM.W, stack). Exception processing keeps the old threshold.
     -- [IC] A long word the instruction cache holds is taken from the cache (P_QUEUE) and never starts a bus
     -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
     PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT);
