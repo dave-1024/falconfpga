@@ -141,3 +141,8 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - Holding OPCODE_REQ does nothing for memory-indirect; prefetches chain inside the bus interface. Hold PF_HOLD instead.
 - CAS2/CAS/TAS are RMC sequences on the 68030: no prefetch may sit between their reads and writes.
 - Rebuild sim benches into separate dirs; editing sources mid-run produced a spurious all-FAIL run_rtl.
+- A padded ALU op whose result decides control flow (CHK trap) needs the control unit to wait for ALU_ACK
+  (CHK now waits in SLEEP like DBcc), not just the ALU to hold BUSY.
+- Barrel shifter correctness: check against the old bit-serial core over every op x size x count (incl. 0,
+  size, size+1, 63) with CCR (prog_shift); ROXx period is size+1.
+- On linserver use `pgrep -x gw_sh`: `pgrep -f "gw_sh build"` matches its own ssh command line.

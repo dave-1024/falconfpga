@@ -139,3 +139,12 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     run first). MI1: PF_HOLD during the pointer read and the following CALC_AEFF, so the operand read follows the
     pointer read. CS1: no queue prefetch between the CAS2 reads and writes (RMC sequence, as on the 68030).
     Sim: run_rtl PASS (incl. prog_cas2/prog_memind/prog_chk), cmpall 68/68 identical writes vs fix-c-indirect.
+22. **T6 overnight (`t6-exact-timing`, 19/20 Oct 2026).** (1) CHK: register form padded to 8; the control unit
+    now waits in SLEEP for the CHK acknowledge (trap decision) before the next instruction (prog_chk OK).
+    (2) CS2: CAS2 marks the first write address in EXECUTE (ALU_COND valid there), -1 clock inside the locked
+    sequence. (3) Memory-indirect move/sub/lea are at the 16-bit bus floor (1 control clock between pointer and
+    operand read); JSR/JMP ([bd,An]) losses are queue fills the 68030 also does; left as is. (4) SH1: one-clock
+    barrel shifter (result + C/V/X for counts 1..63, ROx mod size, ROXx mod size+1), shift pads K=4; register
+    shifts/rotates now within 0.2 of the worst column for every count. New prog_shift regression (408 ops x CCR,
+    expect from the bit-serial core). Sim: run_rtl PASS, cmpall 72/72 identical. Synthesis (876ffc2): clk_cpu030
+    22.63 MHz, clk32_core 33.29 MHz, LUT 39,792 (+1,492 vs T6 28020c8), FF 15,637. Not flashed.
