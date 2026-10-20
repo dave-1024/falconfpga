@@ -66,6 +66,8 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `WF030_TRACE` | off (branch `diag-trace`) | in-fabric bus trace (how the JSR SP bug was found) |
 | `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out |
 
+All 13 `build_st_*.tcl` scripts set `BRIDGE_EARLY_AS` (20 Oct 2026: added to `build_st_68000.tcl` and `build_st_68000_st.tcl`, which only had the comment). `build_ae350_serial.tcl` and `build_tc138k.tcl` write their own `build_sel.vh` and are not ST builds.
+
 ## 5. place_option
 The same RTL can fail timing, or (once) give a bitstream whose helper didn't boot, depending on placement.
 `build_st_helper.tcl` uses `place_option 1`; the board builds (`*_p3.fs`, `build_st_helper_hdn.tcl`) use 3. If one

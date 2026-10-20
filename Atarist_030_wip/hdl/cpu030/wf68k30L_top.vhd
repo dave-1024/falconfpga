@@ -387,6 +387,10 @@ signal IPIPE_FLUSH              : bit;
 signal OPC_DISMISS              : bit; -- [F62c]
 signal COF_PEND                 : bit; -- [PFCOF]
 signal PF_HOLD                  : bit; -- [PFCOF]
+signal COF_ANY                  : bit; -- [XH3]
+signal PF_NOEARLY               : bit; -- [XH3]
+signal MI_HOLD                  : bit; -- [MI1]
+signal PF_HOLD_BI               : bit; -- [MI1]
 signal Q_STREAM                 : std_logic_vector(63 downto 0); -- [PFCOF2]
 signal Q_COUNT                  : integer range 0 to 4; -- [PFCOF2]
 signal IPIPE_FLUSH_EXH          : bit;
@@ -677,8 +681,9 @@ begin
     AR_IN_1 <= DATA_TO_CORE when BUSY_EXH = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
-               ADR_EFF when OP = JMP or OP = JSR else
+               -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
                DATA_TO_CORE when FETCH_MEM_ADR = '1' else
+               ADR_EFF when OP = JMP or OP = JSR else
                DR_OUT_1 when USE_DREG = '1' else -- CAS2: Address register from data register.
                AR_OUT_1 when OP = LINK or OP = UNLK else DATA_TO_CORE; -- Default used for RTD, RTR, RTS.
 
@@ -826,6 +831,9 @@ begin
                   '1' when OP = MOVE_TO_SR and BIW_0(5 downto 3) = "000" and DR_OUT_1(13 downto 12) /= STATUS_REG(13 downto 12) else
                   '1' when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" and IBUFFER(13 downto 12) /= STATUS_REG(13 downto 12) else
                   '1' when OP = MOVE_TO_SR and DATA_TO_CORE(13 downto 12) /= STATUS_REG(13 downto 12) else '0';
+
+    PF_NOEARLY <= COF_ANY or COF_PEND; -- [XH3]
+    PF_HOLD_BI <= PF_HOLD or (MI_HOLD and not BUSY_EXH); -- [MI1] Not during exception processing.
 
     DATA_RD <= DATA_RD_EXH or DATA_RD_MAIN;
     DATA_WR <= DATA_WR_EXH or DATA_WR_MAIN;
@@ -1205,7 +1213,8 @@ begin
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
-            PF_HOLD             => PF_HOLD, -- [PFCOF]
+            PF_HOLD             => PF_HOLD_BI, -- [PFCOF] [MI1]
+            PF_NOEARLY          => PF_NOEARLY, -- [XH3]
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
@@ -1308,6 +1317,7 @@ begin
             DATA_RDY                => DATA_RDY,
             DATA_VALID              => DATA_VALID,
             RMC                     => RMC,
+            MI_HOLD                 => MI_HOLD,
             FETCH_MEM_ADR           => FETCH_MEM_ADR,
             LOAD_OP1                => ALU_LOAD_OP1,
             LOAD_OP2                => ALU_LOAD_OP2,
@@ -1562,6 +1572,7 @@ begin
             PF_HOLD                 => PF_HOLD, -- [PFCOF]
             Q_STREAM                => Q_STREAM, -- [PFCOF2]
             Q_COUNT                 => Q_COUNT,
+            COF_ANY                 => COF_ANY, -- [XH3]
 
             -- Fault logic:
             OW_VALID                => OW_VALID,

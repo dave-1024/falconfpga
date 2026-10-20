@@ -115,6 +115,7 @@ entity WF68K30L_OPCODE_DECODER is
         PF_HOLD             : out bit := '0'; -- [PFCOF] Start no further instruction-stream fetches.
         Q_STREAM            : in std_logic_vector(63 downto 0); -- [PFCOF2] Prefetch queue words 0-3.
         Q_COUNT             : in integer range 0 to 4; -- [PFCOF2]
+        COF_ANY             : out bit; -- [XH3] A flow-change word may be among the valid words ahead (no early long prefetch).
 
         -- Fault logic:
         OW_VALID            : out std_logic; -- Operation words valid.
@@ -265,6 +266,7 @@ begin
         variable N   : integer range 0 to 7;
         variable L   : integer range 0 to 3;
         variable HIT : bit;
+        variable ANY : bit;
         variable W   : std_logic_vector(15 downto 0);
     begin
         S := (others => (others => '0')); -- No latch: every element assigned on every path.
@@ -277,9 +279,13 @@ begin
             end if;
         end loop;
         N := IPIPE_PNTR + Q_COUNT;
-        HIT := '0';
+        HIT := '0'; ANY := '0';
         for i in 0 to 5 loop
             W := S(i); L := 0;
+            -- [XH3] Broad match (no length needed): Bcc/BRA/BSR, DBcc, JMP/JSR any <ea>, RTS/RTE/RTR/RTD, TRAP, TRAPV.
+            if i < N and (W(15 downto 12) = "0110" or (W(15 downto 12) = "0101" and W(7 downto 3) = "11001") or
+                          W(15 downto 7) = "010011101" or W(15 downto 4) = x"4E4" or
+                          W = x"4E73" or W = x"4E74" or W = x"4E75" or W = x"4E76" or W = x"4E77") then ANY := '1'; end if;
             if W = x"4E75" or W = x"4E73" or W = x"4E77" then L := 2; -- RTS, RTE, RTR (+1: decoder takes two words).
             elsif W = x"4E74" then L := 2; -- RTD #d16.
             elsif W(15 downto 7) = "010011101" then -- JMP/JSR <ea>
@@ -298,6 +304,7 @@ begin
             if L /= 0 and i + L <= N then HIT := '1'; end if;
         end loop;
         COF_Q <= HIT;
+        COF_ANY <= ANY;
     end process P_COF_Q;
 
     P_PF_HOLD: process -- Registered: no combinational path from the control unit to the bus controller.

@@ -141,6 +141,17 @@ signal BF_WIDTH             : integer range 1 to 32;
 signal BIW_0                : Std_Logic_Vector(11 downto 0);
 signal BIW_1                : Std_Logic_Vector(15 downto 0);
 signal CAS2_COND            : boolean := false; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
+-- [T6] Exact MC68030 timing: registered padding of ALU_REQ (see P_PAD).
+signal PAD_PEND             : bit := '0';
+signal PAD_LD               : bit := '0';
+signal PAD_ZERO             : bit := '1';
+signal PAD_CNT              : unsigned(7 downto 0) := (others => '0');
+signal PAD_TGT              : unsigned(7 downto 0);
+signal BF_BYTES_R           : integer range 0 to 5 := 0;
+signal PAD_OP_IN            : bit;
+signal PAD_OP_A             : bit;
+signal PAD_OP_R             : bit;
+constant PAD_EN             : bit := '1'; -- [T6] '0' restores the old (faster) timing.
 signal ALU_BSY_I            : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal CB_BCD               : std_logic;
 signal CHK_CMP_COND         : boolean;
@@ -182,6 +193,10 @@ signal STATUS_REG           : Std_Logic_Vector(15 downto 0) := x"2700";  -- [F49
 -- '1' out of cold reset regardless of F46.  $2700 = reset SR with V clear.
 signal VFLAG_DIV            : std_logic;
 signal XFLAG_SHFT           : std_logic;
+-- [SH1] One-clock barrel shifter (result and C/V/X for the whole count), replaces the 1 bit/clock loop.
+constant FAST_SHIFT         : boolean := true;
+signal FS_R                 : std_logic_vector(31 downto 0);
+signal FS_C, FS_V, FS_X     : std_logic;
 signal XNZVC                : Std_Logic_Vector(4 downto 0);
 
 -- F26: MINIMUM and MAXIMUM are VHDL-2008 built-ins. GHDL was being run with
@@ -213,6 +228,7 @@ begin
             BIW_1 <= BIW_1_IN;
             BF_OFFSET <= BF_OFFSET_IN;
             BITPOS <= To_Integer(unsigned(BITPOS_IN));
+            BF_BYTES_R <= BF_BYTES_IN; -- [T6]
             BF_WIDTH <= To_Integer(unsigned(BF_WIDTH_IN));
             -- F21/H29: BF_DATA_IN is OP3 & OP2(7 downto 0), and OP3 holds the
             -- fetched bytes RIGHT justified -- a 1 byte fetch puts the data at
@@ -297,7 +313,91 @@ begin
         end if;
     end process OPERANDS;
 
+    -- [T6] Padding to the MC68030UM chapter 11 worst-case (no-cache) clocks. Ops that this core
+    -- finishes faster than a real 68030 hold ALU_REQ until a down counter, loaded one clock after
+    -- ALU_INIT from the registered operation (OP, OP_SIZE, ADR_MODE, BIW, shift count, bit field
+    -- bytes), runs out. Everything is registered: nothing on the bus/DSACK path. PAD_TGT is the
+    -- table figure minus K (clocks the instruction needs around the ALU anyway), calibrated per
+    -- class with the ISA suite at 0 wait states. Prefetches run on during the padding as on a real 68030.
+    -- Read-modify-write memory forms are not padded (already slower than the table).
+    PAD_TABLE: process(OP, OP_SIZE, ADR_MODE, BIW_0, BIW_1, SHIFT_WIDTH, BF_BYTES_R)
+    -- T: MC68030UM table clocks (no-cache column, without the EA part); K: clocks the instruction
+    -- spends outside the padded window (decode, operand load, write back), measured per class.
+    variable T : integer range 0 to 255;
+    variable K : integer range 0 to 15;
+    variable SZ : integer range 8 to 32;
+    variable REG : boolean;
+    begin
+        case OP_SIZE is
+            when BYTE => SZ := 8;
+            when WORD => SZ := 16;
+            when others => SZ := 32;
+        end case;
+        REG := ADR_MODE = "000";
+        T := 0; K := 0;
+        case OP is
+            when MULS | MULU =>
+                if REG then K := 3; else K := 0; end if;
+                if OP_SIZE = LONG then T := 44; else T := 28; end if;
+            when DIVU =>
+                K := 3; if OP_SIZE = LONG then T := 78; else T := 44; end if;
+            when DIVS =>
+                K := 3; if OP_SIZE = LONG then T := 90; else T := 56; end if;
+            when BCHG | BCLR | BSET => K := 4; if REG then T := 6; end if;
+            when NBCD => K := 4; if REG then T := 6; end if;
+            when CHK => K := 4; if REG then T := 8; end if; -- Memory CHK is already at the table.
+            when ANDI_TO_SR | EORI_TO_SR | ORI_TO_SR => K := 3; T := 14;
+            when ANDI_TO_CCR | EORI_TO_CCR | ORI_TO_CCR => K := 2; T := 14;
+            when LSL | LSR | ASR =>
+                K := 4; -- [SH1] barrel: shift done one clock earlier.
+                if BIW_0(7 downto 6) = "11" then T := 0; -- Memory, not padded.
+                elsif BIW_0(5) = '0' then T := 4; -- Immediate count.
+                elsif To_Integer(unsigned(SHIFT_WIDTH)) < SZ then T := 6; -- Dx, count below the size.
+                elsif OP = ASR then T := 10;
+                else T := 8;
+                end if;
+            when ASL =>
+                K := 4; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if;
+            when ROTL | ROTR =>
+                K := 4; if BIW_0(7 downto 6) = "11" then T := 0; elsif BIW_0(5) = '0' then T := 6; else T := 8; end if; -- [SH1] K 3 -> 4 for the barrel shifter.
+            when ROXL | ROXR =>
+                K := 4; if BIW_0(7 downto 6) = "11" then T := 0; else T := 12; end if;
+            when BFTST =>
+                K := 3; if REG then T := 8; elsif BF_BYTES_R = 5 then T := 14; else T := 10; end if;
+            when BFCHG | BFCLR | BFSET => K := 3; if REG then T := 14; end if;
+            when BFEXTS | BFEXTU =>
+                if REG then K := 2; T := 10; elsif BF_BYTES_R = 5 then K := 0; T := 19; else K := 0; T := 13; end if; -- Memory: +1 (K = -1).
+            when BFINS => K := 3; if REG then T := 12; end if;
+            when BFFFO =>
+                if REG then K := 2; T := 20; elsif BF_BYTES_R = 5 then K := 0; T := 29; else K := 0; T := 23; end if; -- Memory: +1 (K = -1).
+            when others => T := 0;
+        end case;
+        if T > K then
+            PAD_TGT <= to_unsigned(T - K, 8);
+        else
+            PAD_TGT <= (others => '0');
+        end if;
+    end process PAD_TABLE;
+
+    P_PAD: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        PAD_LD <= ALU_INIT;
+        if ALU_INIT = '1' then
+            PAD_ZERO <= '0'; -- Decided in the next clock (PAD_LD).
+        elsif PAD_LD = '1' then
+            PAD_CNT <= PAD_TGT;
+            if PAD_TGT <= 1 then PAD_ZERO <= '1'; else PAD_ZERO <= '0'; end if;
+        elsif PAD_CNT /= x"00" then
+            PAD_CNT <= PAD_CNT - 1;
+            if PAD_CNT <= 2 then PAD_ZERO <= '1'; end if;
+        else
+            PAD_ZERO <= '1';
+        end if;
+    end process P_PAD;
+
     P_BUSY: process
+    variable REQ_SET : boolean;
     begin
         wait until CLK = '1' and CLK' event;
         if ALU_INIT = '1' then
@@ -306,14 +406,15 @@ begin
             ALU_BSY_I <= '0';
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
+        REQ_SET := false;
         if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
             ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
-            ALU_REQ <= '1';
+            REQ_SET := true;
         elsif (OP = DIVS or OP = DIVU) and DIV_RDY = '1' then
-            ALU_REQ <= '1';
+            REQ_SET := true;
         elsif OP_IN = DIVS or OP_IN = DIVU then
             null;
         elsif OP_IN = ASL or OP_IN = ASR or OP_IN = LSL or OP_IN = LSR then
@@ -321,10 +422,37 @@ begin
         elsif OP_IN = ROTL or OP_IN = ROTR or OP_IN = ROXL or OP_IN = ROXR then
             null;
         elsif ALU_INIT = '1' then
+            REQ_SET := true;
+        end if;
+        -- [T6] A ready result waits in PAD_PEND until the padding is done. PAD_ON/PAD_DONE are those
+        -- of the running operation; in the ALU_INIT clock itself they still describe the previous one,
+        -- so the set is always parked there for a padded op and released by PAD_DONE.
+        if ALU_ACK = '1' or RESET = '1' then
+            PAD_PEND <= '0';
+        elsif REQ_SET and ALU_INIT = '1' and PAD_EN = '1' and PAD_OP_IN = '1' then
+            PAD_PEND <= '1'; -- Padded op: always parked, released by PAD_ZERO.
+        elsif REQ_SET and ALU_INIT = '0' and PAD_EN = '1' and PAD_ZERO = '0' then
+            PAD_PEND <= '1';
+        elsif REQ_SET then
+            ALU_REQ <= '1';
+        elsif PAD_PEND = '1' and (PAD_ZERO = '1' or (OP = CHK and CHK_CMP_COND = true)) then
+            -- [T6b] A trapping CHK is not padded (the trap is decided at ALU_ACK; the 68030 table
+            -- lists CHK-with-trap as exception processing); only the no-trap CHK is padded to 8.
+            PAD_PEND <= '0';
             ALU_REQ <= '1';
         end if;
     end process P_BUSY;
     ALU_BSY <= ALU_BSY_I; -- F57
+
+    with OP_IN select
+        PAD_OP_A <= '1' when MULS | MULU | CHK | BFTST | BFEXTS | BFEXTU | BFFFO |
+                             ANDI_TO_CCR | ANDI_TO_SR | EORI_TO_CCR | EORI_TO_SR | ORI_TO_CCR | ORI_TO_SR,
+                    '0' when others; -- Padded in every addressing mode.
+    with OP_IN select
+        PAD_OP_R <= '1' when BCHG | BCLR | BSET | NBCD | BFCHG | BFCLR | BFSET | BFINS,
+                    '0' when others; -- Padded in register mode only.
+    -- Shifts and DIV never set ALU_REQ in the ALU_INIT clock.
+    PAD_OP_IN <= '1' when PAD_OP_A = '1' or (PAD_OP_R = '1' and ADR_MODE_IN = "000") else '0';
     
     with OP_SIZE select
         MSB <= 31 when LONG,
@@ -816,7 +944,7 @@ begin
                 SHFT_RDY <= '1';
             elsif SHFT_LOAD = '1' then
                 SHIFT_STATE <= RUN;
-                BIT_CNT := SHIFT_WIDTH_IN;
+                if FAST_SHIFT then BIT_CNT := "000001"; else BIT_CNT := SHIFT_WIDTH_IN; end if; -- [SH1]
                 SHFT_EN <= '1';
             else
                 SHIFT_STATE <= IDLE;
@@ -836,11 +964,78 @@ begin
         end if;
     end process P_SHFT_CTRL;
 
+    -- [SH1] Barrel shifter: the whole count in one clock, from registered operand (RESULT_SHIFTOP after
+    -- SHFT_LOAD), count (SHIFT_WIDTH, 1..63) and X (XFLAG_SHFT = X at load). Same result and C/V/X as
+    -- the bit-serial loop: LSx/ASL C = last bit out (0 beyond the size), ASR fills with the sign,
+    -- ASL V = any MSB change, ROx modulo size, ROXx modulo size+1 through X.
+    P_FAST_SHIFT: process(RESULT_SHIFTOP, SHIFT_WIDTH, OP, OP_SIZE, XFLAG_SHFT)
+        variable SZ, N, M  : natural;
+        variable D, SM, R, X1, HM : unsigned(31 downto 0);
+        variable E, F       : unsigned(32 downto 0);
+        variable ES, FSG    : signed(32 downto 0);
+        variable W          : unsigned(64 downto 0);
+        variable L, LR, LM  : unsigned(32 downto 0);
+        variable C, V, X    : std_logic;
+    begin
+        case OP_SIZE is
+            when LONG => SZ := 32; SM := x"FFFFFFFF";
+            when WORD => SZ := 16; SM := x"0000FFFF";
+            when others => SZ := 8; SM := x"000000FF";
+        end case;
+        N := To_Integer(unsigned(SHIFT_WIDTH));
+        D := unsigned(RESULT_SHIFTOP) and SM;
+        R := D; C := '0'; V := '0'; X := XFLAG_SHFT;
+        case OP is
+            when ASL | LSL =>
+                W := shift_left(resize(D, 65), N);
+                R := W(31 downto 0) and SM;
+                C := W(SZ);
+                X1 := (D xor shift_left(D, 1)) and SM;
+                HM := SM and not shift_right(SM, N);
+                if OP = ASL and (X1 and HM) /= 0 then V := '1'; end if;
+                X := C;
+            when LSR =>
+                E := D & '0';
+                F := shift_right(E, N);
+                R := F(32 downto 1); C := F(0); X := C;
+            when ASR =>
+                case OP_SIZE is
+                    when LONG => ES := signed(D) & '0';
+                    when WORD => ES := resize(signed(D(15 downto 0)), 32) & '0';
+                    when others => ES := resize(signed(D(7 downto 0)), 32) & '0';
+                end case;
+                FSG := shift_right(ES, N);
+                R := unsigned(FSG(32 downto 1)) and SM; C := FSG(0); X := C;
+            when ROTL =>
+                M := N mod SZ;
+                R := (shift_left(D, M) or shift_right(D, SZ - M)) and SM;
+                C := R(0);
+            when ROTR =>
+                M := N mod SZ;
+                R := (shift_right(D, M) or shift_left(D, SZ - M)) and SM;
+                C := R(SZ - 1);
+            when ROXL | ROXR =>
+                L := resize(D, 33); L(SZ) := XFLAG_SHFT;
+                LM := resize(SM, 33); LM(SZ) := '1';
+                M := N mod (SZ + 1);
+                if OP = ROXL then
+                    LR := (shift_left(L, M) or shift_right(L, SZ + 1 - M)) and LM;
+                else
+                    LR := (shift_right(L, M) or shift_left(L, SZ + 1 - M)) and LM;
+                end if;
+                R := LR(31 downto 0) and SM; C := LR(SZ); X := C;
+            when others => null;
+        end case;
+        FS_R <= std_logic_vector(R); FS_C <= C; FS_V <= V; FS_X <= X;
+    end process P_FAST_SHIFT;
+
     SHIFTER: process
     begin
         wait until CLK = '1' and CLK' event;
         if SHFT_LOAD = '1' then -- Load data in the shifter unit.
             RESULT_SHIFTOP <= OP2_IN; -- Load data for the shift or rotate operations.
+        elsif SHFT_EN = '1' and FAST_SHIFT then
+            RESULT_SHIFTOP <= FS_R; -- [SH1]
         elsif SHFT_EN = '1' then -- Shift and rotate operations:
             case OP is
                 when ASL =>
@@ -1014,6 +1209,8 @@ begin
         if CLK = '1' and CLK' event then
             if SHFT_LOAD = '1' or SHIFT_WIDTH = "000000" then
                 XFLAG_SHFT <= STATUS_REG(4);
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                XFLAG_SHFT <= FS_X; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ROTL | ROTR => 
@@ -1036,6 +1233,8 @@ begin
                 CFLAG_SHFT := STATUS_REG(4);
             elsif SHIFT_WIDTH = "000000" then
                 CFLAG_SHFT := '0';
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                CFLAG_SHFT := FS_C; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ASL | LSL | ROTL | ROXL =>
@@ -1057,6 +1256,8 @@ begin
             -- operations, the V flag is always zero.
             if SHFT_LOAD = '1' or SHIFT_WIDTH = "000000" then
                 VFLAG_SHFT := '0';
+            elsif SHFT_EN = '1' and FAST_SHIFT then
+                VFLAG_SHFT := FS_V; -- [SH1]
             elsif SHFT_EN = '1' then
                 case OP is
                     when ASL => -- ASR MSB is always unchanged.
@@ -1084,7 +1285,10 @@ begin
 
         -- Integer operations:
         case OP is
-            when ADD | ADDI | ADDQ | ADDX | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
+            -- [C1] CAS and CAS2 were missing here: their N, V and C came from don't-care sign bits
+            -- (metavalue in simulation, whatever synthesis picked in hardware). MC68030UM CAS:
+            -- Destination - Dc sets N, Z, V, C like CMP.
+            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
                 RM := RESULT_INTOP(MSB);
                 SM := OP1_SIGNEXT(MSB);
                 DM := OP2_SIGNEXT(MSB);

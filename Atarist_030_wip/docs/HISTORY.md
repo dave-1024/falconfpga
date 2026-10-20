@@ -122,3 +122,29 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     for write faults) and $0E (stale BIW_2, TODO.md item); FILT=5000 identical for prog_fault/wpberr/movemx;
     prog_movemx -9.5% clocks. Board: 2 cold boots clean; 6.08 RAM 91 -> 101%, CPU 180 -> 186%, Average 91 -> 92%
     (STE20608), 129 -> 132% (STFM1048); 4.03 134 -> 135%. Fmax clk_cpu030 20.94 MHz, clk32_core 34.02, LUT 37,870.
+20. **C1-C4: CAS2 and memory-indirect correctness (`fix-c-indirect`, 19 Oct 2026; FULL_ISA_TIMING.md, FALCON_LESSONS).**
+    Symptom: CAS2 wrote Du1/Du2 to the swapped operands, hung when run back to back, loaded Dc1/Dc2 swapped on a
+    failed compare and left a wrong CCR; `([bd,An])` reads used a stale pointer address on an idle bus; JMP
+    `([bd,An])` hung, JSR jumped to the pointer address; RMW `([bd,An])` did not read its pointer. Cause: registered
+    ADR_EFF / ADR_EFF_WB used in the clock they were selected, MEMADR_RDY set by a write acknowledge, stale
+    CAS2_COND, wrong Dc selector order, CAS/CAS2 missing from the ALU flag case. Fix: registered gates (CAS2_WGAP,
+    MEMADR_IN, CAS2_CCHOLD), MEMADR_RDY from reads only, one SWITCH_STATE address clock for CLR/JMP/JSR/Scc/MOVE
+    from SR indirect. Nothing new on the DSACK path. Sim: run_rtl with prog_cas2/prog_memind, cmpall vs main.
+21. **T6: 68030 table timing for ALU ops, memory-indirect prefetch hold, CAS2 RMC lock (`t6-exact-timing`, 19 Oct 2026).**
+    Goal: per-instruction clocks of MC68030UM ch. 11 (worst-case / no-cache column for ST code) with realistic
+    bus placement for the Falcon DSP. ALU: registered pad table (T = table clocks, K = per-class overhead, down
+    counter, PAD_ZERO flag) holds ALU_BSY for MUL/DIV, register BCHG/BCLR/BSET/NBCD, ANDI/ORI/EORI to SR/CCR,
+    shifts/rotates (imm, Dx < size, Dx >= size), bit fields (reg, mem <5 / >=5 bytes). MUL/DIV use the table max
+    (data-dependent in the manual). CHK is not padded (trap decision at ALU_ACK; a parked CHK let the next instruction
+    run first). MI1: PF_HOLD during the pointer read and the following CALC_AEFF, so the operand read follows the
+    pointer read. CS1: no queue prefetch between the CAS2 reads and writes (RMC sequence, as on the 68030).
+    Sim: run_rtl PASS (incl. prog_cas2/prog_memind/prog_chk), cmpall 68/68 identical writes vs fix-c-indirect.
+22. **T6 overnight (`t6-exact-timing`, 19/20 Oct 2026).** (1) CHK: register form padded to 8; the control unit
+    now waits in SLEEP for the CHK acknowledge (trap decision) before the next instruction (prog_chk OK).
+    (2) CS2: CAS2 marks the first write address in EXECUTE (ALU_COND valid there), -1 clock inside the locked
+    sequence. (3) Memory-indirect move/sub/lea are at the 16-bit bus floor (1 control clock between pointer and
+    operand read); JSR/JMP ([bd,An]) losses are queue fills the 68030 also does; left as is. (4) SH1: one-clock
+    barrel shifter (result + C/V/X for counts 1..63, ROx mod size, ROXx mod size+1), shift pads K=4; register
+    shifts/rotates now within 0.2 of the worst column for every count. New prog_shift regression (408 ops x CCR,
+    expect from the bit-serial core). Sim: run_rtl PASS, cmpall 72/72 identical. Synthesis (876ffc2): clk_cpu030
+    22.63 MHz, clk32_core 33.29 MHz, LUT 39,792 (+1,492 vs T6 28020c8), FF 15,637. Not flashed.

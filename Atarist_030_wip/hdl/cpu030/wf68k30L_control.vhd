@@ -194,6 +194,7 @@ entity WF68K30L_CONTROL is
         RMC                 : out bit;
 
         FETCH_MEM_ADR       : out bit;
+        MI_HOLD             : out bit; -- [MI1] Memory indirect: hold queue prefetches for the pointer/operand reads.
         LOAD_OP1            : out bit;
         LOAD_OP2            : out bit;
         LOAD_OP3            : out bit;
@@ -397,6 +398,10 @@ signal READ_CYCLE           : bit := '0';  -- [F54] measured warm-boot value
 signal SBIT_I               : bit := '0';  -- [F54] measured warm-boot value
 signal SR_WR_I              : bit := '0';  -- [F54] measured warm-boot value
 signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
+signal CAS2_WGAP            : bit := '0'; -- [C1]
+signal CAS2_CCHOLD          : bit := '0'; -- [C1]
+signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
+signal ADR_MARK_USED_W      : bit; -- [C1]
 signal WR_RDY               : bit := '0';  -- [F54] measured warm-boot value
 signal WRITE_CYCLE          : bit := '0';  -- [F54] measured warm-boot value
 -- Debugging:
@@ -478,7 +483,10 @@ begin
             MEMADR_RDY <= '0';
         elsif FETCH_STATE = FETCH_MEMADR and NEXT_FETCH_STATE /= FETCH_MEMADR then
             MEMADR_RDY <= '0';
-        elsif FETCH_STATE = FETCH_MEMADR and DATA_RDY = '1' then
+        elsif FETCH_STATE = FETCH_MEMADR and RD_RDY = '1' and DATA_VALID = '1' then
+            -- [C3] Was DATA_RDY: the acknowledge of a previous instruction's write that finished while
+            -- this one waited in FETCH_MEMADR (ADR_IN_USE) counted as the pointer read, so the pointer
+            -- was never read (JMP/JSR ([bd,An]) hung or jumped to a stale MEM_ADR).
             MEMADR_RDY <= '1';
         end if;
     end process DATA_AVAILABLE;
@@ -529,7 +537,10 @@ begin
                  '0' when WRITE_CYCLE = '1' else -- Do not read during a write cycle.
                  '0' when ADR_IN_USE = '1' else -- Avoid data hazards.
                  '0' when DATA_RDY = '1' or MEMADR_RDY = '1' else
-                 '1' when FETCH_STATE = FETCH_MEMADR else
+                 -- [C2] ADR_EFF is registered: in the first FETCH_MEMADR clock it still holds the value
+                 -- computed in the previous state (MEM_ADR + od of the LAST memory-indirect access).
+                 -- With an idle bus the pointer read went out at that stale address. Registered gate.
+                 '1' when FETCH_STATE = FETCH_MEMADR and MEMADR_IN = '1' else
                  '1' when FETCH_STATE = FETCH_OPERAND else
                  -- Option A step 3: MOVEM memory to register, 2nd and later reads: the effective address is valid in
                  -- CALC_AEFF already (AR increment / offset update at ALU_INIT, one registered calculation clock in
@@ -545,11 +556,27 @@ begin
 
     DATA_WR <= DATA_WR_I;
     DATA_WR_I <= '0' when WFLT = '1' else -- [FLT1]
+                 '0' when CAS2_WGAP = '1' else -- [C1] CAS2: ADR_EFF_WB is loaded one clock after ADR_MARK_USED.
                  '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
                  '0' when DATA_RDY = '1' else
                  '1' when EXEC_WB_STATE = WRITE_DEST else '0';
 
     RMC <= '1' when (OP = CAS or OP = CAS2 or OP = TAS) and FETCH_STATE /= START_OP else '0';
+
+    -- [C1] CAS2 writes the update operands from ADR_EFF_WB (Rn1, then Rn2). The address register
+    -- unit loads ADR_EFF_WB one clock after ADR_MARK_USED (DELAY), but WRITE_DEST requested the
+    -- write in that same clock, so the bus interface latched the previous address: write 1 went to
+    -- whatever ADR_EFF_WB still held (Rn2 of the last CAS2) and write 2 to Rn1. Hold the request for
+    -- that one clock. Registered from ADR_MARK_USED: nothing new on the DSACK path.
+    P_CAS2_WGAP: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if OP_WB_I = CAS2 and ADR_MARK_USED_W = '1' then
+            CAS2_WGAP <= '1';
+        else
+            CAS2_WGAP <= '0';
+        end if;
+    end process P_CAS2_WGAP;
 
     ALU_ACK <= '1' when EXEC_WB_STATE = EXECUTE and NEXT_EXEC_WB_STATE = IDLE else
                '1' when EXEC_WB_STATE = WRITEBACK else
@@ -835,8 +862,12 @@ begin
                    BIW_0(11 downto 9) when OP = MOVE or OP = MOVEP or OP = MOVEQ else
                    BIW_0(11 downto 9) when OP = PACK or OP = UNPK else
                    BIW_1(2 downto 0) when OP = CAS else -- Compare operand.
-                   BIW_1(2 downto 0) when OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE else -- Compare operand 1.
-                   BIW_2(2 downto 0) when OP_WB_I = CAS2 and EXEC_WB_STATE = WRITEBACK else -- Compare operand 2.
+                   -- [C1] Failed CAS2: the register file latches the selector at DR_MARK_USED (EXECUTE,
+                   -- then WRITEBACK) and writes OP3 = (Rn2) first, OP2 = (Rn1) second. The selector named
+                   -- Dc1 first, so Dc1 got operand 2 and Dc2 operand 1. Dc2 first also gives the UM result
+                   -- for Dc1 = Dc2 (operand 1 wins).
+                   BIW_2(2 downto 0) when OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE else -- Compare operand 2.
+                   BIW_1(2 downto 0) when OP_WB_I = CAS2 and EXEC_WB_STATE = WRITEBACK else -- Compare operand 1.
                    MOVEM_PNTR(2 downto 0) when OP = MOVEM else
                    BIW_0(2 downto 0);
 
@@ -1213,9 +1244,45 @@ begin
         end if;
     end process ADR_FORMAT;
 
+    -- [C1] CAS2 condition codes come from the compare that decides: the first one if it fails,
+    -- else the second (MC68030UM CAS2). The old suppress terms tested FETCH_STATE = INIT_EXEC_WB,
+    -- which the pipelined CAS2 no longer meets, so the second compare and the Dc writeback also
+    -- updated the CCR. Registered hold bit: set by a failed first compare, cleared after writeback.
     UPDT_CC <= '0' when (OP_WB_I = ADDQ or OP_WB_I = SUBQ) and BIW_0_WB(5 downto 3) = "001" else -- No update for ADDQ and SUBQ when destination is an address register.
-               '0' when OP = CAS2 and FETCH_STATE = INIT_EXEC_WB and EXEC_WB_STATE = WRITEBACK else -- First 'Z' flag was zero, do not update the second access.
-               '0' when OP = CAS2 and FETCH_STATE = INIT_EXEC_WB and EXEC_WB_STATE = WRITE_DEST and PHASE2 = true else ALU_REQ; -- Suppress third update.
+               '0' when OP_WB_I = CAS2 and (EXEC_WB_STATE /= EXECUTE or CAS2_CCHOLD = '1') else ALU_REQ;
+
+    P_CAS2_CCHOLD: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE and CAS2_CCHOLD = '0' and ALU_REQ = '1' and ALU_COND = false then
+            CAS2_CCHOLD <= '1';
+        elsif EXEC_WB_STATE = WRITEBACK or EXEC_WB_STATE = WRITE_DEST then
+            CAS2_CCHOLD <= '0';
+        end if;
+    end process P_CAS2_CCHOLD;
+
+    P_MEMADR_IN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE = FETCH_MEMADR then
+            MEMADR_IN <= '1';
+        else
+            MEMADR_IN <= '0';
+        end if;
+    end process P_MEMADR_IN;
+
+    -- [MI1] Memory indirect: the pointer read (FETCH_MEMADR) and, right after it, the operand read
+    -- (CALC_AEFF one clock, the address calculation) come before further queue prefetches. Before,
+    -- the bus rolled the pointer read into a queue prefetch (DP_CHAIN) or started one from IDLE in
+    -- the CALC_AEFF clock, and the operand read waited a whole long-word prefetch (8 clocks on the
+    -- 16-bit port). Registered state decode only; the bus interface ANDs it into PF_REQ.
+    MI_HOLD <= '1' when FETCH_STATE = FETCH_MEMADR else
+               '1' when FETCH_STATE = CALC_AEFF and MEMADR_IN = '1' else
+               -- [CS1] CAS2 is one read-modify-write sequence (RMC, the bus is locked from the first
+               -- read to the last write on a 68030): no queue prefetch between the two reads and the
+               -- two writes once the first operand is in. All extension words are fetched by then.
+               '1' when OP = CAS2 and PHASE2 = true and FETCH_STATE /= START_OP else
+               '1' when OP = CAS2 and (FETCH_STATE = INIT_EXEC_WB or FETCH_STATE = SLEEP) else '0';
 
     with OP_WB_I select
     CC_UPDT <= UPDT_CC when ABCD | ADD | ADDI | ADDQ | ADDX | AND_B | ANDI | ANDI_TO_CCR | ASL | ASR | BCHG | BCLR |
@@ -1241,10 +1308,11 @@ begin
                        '1' when OP = MOVES and BIW_1(11) = '1' else -- Register to memory.
                        '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '1' else '0';
 
-    ADR_MARK_USED <= '1' when (OP_WB_I = BFCHG or OP_WB_I = BFCLR) and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and BF_BYTES = 5 else
+    ADR_MARK_USED <= ADR_MARK_USED_W;
+    ADR_MARK_USED_W <= '1' when (OP_WB_I = BFCHG or OP_WB_I = BFCLR) and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and BF_BYTES = 5 else
                      '1' when (OP_WB_I = BFINS or OP_WB_I = BFSET) and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and BF_BYTES = 5 else
                      '1' when OP_WB_I = CAS and EXEC_WB_STATE = EXECUTE and ALU_COND = true else
-                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = ADR_PIPELINE and ALU_COND = true else
+                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE and FETCH_STATE = SLEEP and ALU_COND = true else
                      '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and PHASE2 = false else ADR_MARK_USED_I;
 
     AR_MARK_USED <= '1' when OP = UNLK and FETCH_STATE /= SWITCH_STATE and NEXT_FETCH_STATE = SWITCH_STATE else -- This is for An to SP.
@@ -2303,7 +2371,17 @@ begin
                             else
                                 NEXT_FETCH_STATE <= FETCH_MEMADR;
                             end if;
-                        when others => -- CLR, JMP, JSR, MOVE_FROM_CCR, MOVE_FROM_SR, MOVEM, Scc.
+                        when CLR | JMP | JSR | MOVE_FROM_CCR | MOVE_FROM_SR | Scc =>
+                            -- [C3] ADR_EFF is registered and still holds the pointer address (bd + An) here; the
+                            -- final address (pointer + od) is valid one clock later. Going straight to INIT_EXEC_WB
+                            -- made JMP/JSR jump to the pointer address and CLR/Scc/MOVE from SR write there.
+                            -- One calculation clock in SWITCH_STATE, like LEA.
+                            if AR_IN_USE = '0' then -- ADH.
+                                NEXT_FETCH_STATE <= SWITCH_STATE;
+                            else
+                                NEXT_FETCH_STATE <= FETCH_MEMADR;
+                            end if;
+                        when others => -- MOVEM.
                             if AR_IN_USE = '0' then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             else
@@ -2630,7 +2708,9 @@ begin
                         else
                             NEXT_FETCH_STATE <= SLEEP; -- Wait for new processor context.
                         end if;
-                    when DBcc =>
+                    when CHK | DBcc =>
+                        -- [T6b] CHK: the ALU may be padded to the 68030 time; wait for its acknowledge
+                        -- (trap decision) before the next instruction starts.
                         -- DBcc: evaluate conditions.
                         if NEXT_EXEC_WB_STATE = IDLE then
                             NEXT_FETCH_STATE <= START_OP;
@@ -2705,7 +2785,12 @@ begin
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Update destination.
                             end if;
                         when CAS2 =>
-                            if FETCH_STATE = FETCH_OPERAND then
+                            -- [C1] The first compare ends while the fetch side still reads memory operand 2
+                            -- (CALC_AEFF or FETCH_OPERAND); only the second (fetch side in SLEEP) decides.
+                            -- Testing FETCH_OPERAND alone let the first compare through in CALC_AEFF, where
+                            -- the stale CAS2_COND of the previous CAS2 made it look final: writes started
+                            -- during the operand 2 read and the core hung (back-to-back CAS2).
+                            if FETCH_STATE /= SLEEP then
                                 NEXT_EXEC_WB_STATE <= IDLE; -- Second read access.
                             elsif ALU_COND = false then
                                 NEXT_EXEC_WB_STATE <= WRITEBACK; -- Update Dc.
