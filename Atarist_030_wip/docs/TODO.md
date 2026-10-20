@@ -13,9 +13,8 @@ C2 back-to-back `([bd,An])` pointer reads, C3 JMP/JSR `([bd,An])`, C4 RMW `([bd,
   (Falcon/DSP): per-instruction clocks as MC68030UM ch. 11 and the position of every bus cycle in the instruction.
   Work continues on `exact-handoff` (off main 7a5fe19). Notes from fix1 worth keeping: the W->R chain must check
   the D-cache (WA entries exist behind CIIN); SSW RB after a prefetch fault depends on pipe progress (see below).
-- **SSW RB after a prefetch bus error (prog_branch case 9):** both stage C ($10000) and B ($10002) come from the
-  faulted long word, so RB=1 is likely correct; the core latches RB from pipe progress (timing-dependent). Fix with
-  the stale bus-fault flag item (TODO 3).
+- ~~SSW RB after a prefetch bus error~~ (**done** 20 Oct 2026, frame-fix FRM: RC/RB from the faulted fetch of the words
+  at PC+2/PC+4; case 9 now stacks $3005: RB set, the core refetches $10004 before the exception and it faults; A1200 check still open).
 - Board: F3a 7919eb3 (flashed back 19 Oct 21:2x BST).
 
 ## Status 18 Oct 2026 (midday)
@@ -23,13 +22,8 @@ F3 (MOVEM register-to-memory writes back to back) is done on `f3-write-queue` (3
 David). Board build `st_helper_hdn_f3a_7919eb3_p3.fs` (sha256 56556195...e211d78e): GEMBENCH 6.08 RAM 101% / ROM
 104% of a stock STE, Average 92% (STE20608) / 132% (STFM1048); GEMBench 4.03 135%. Rollback: F3a 7919eb3, then F2
 c4de2ec, then dc_ff6af03.
-- **New correctness item: bus-error frame stage B ($0E).** The long ($B) frame takes $0C/$0E from BIW_1/BIW_2
-  (`top`, STACK_POS 8). For an instruction without a third word BIW_2 is a stale word from an earlier instruction,
-  whose value depends on prefetch timing (seen in prog_movemx: F2 stacked $6000, F3 $0536, for `4CDA 142A` at
-  $FCFF10 where the next word is $48F8). A 68030 stacks the pipe contents (stage B = the word after stage C, here
-  PC+4). Fix: load stage B from the prefetch queue (the word following the instruction's last decoded word) instead
-  of BIW_2, check against the A1200 oracle (FALCON_LESSONS: real silicon decides), and add a frame check to
-  prog_fault/prog_movemx. Independent of F3; handler-recorded fields are unaffected.
+- ~~Bus-error frame stage B ($0E)~~ (**done** 20 Oct 2026, frame-fix FRM: stage C/B = the words at PC+2/PC+4 from the
+  decoder pipe or the prefetch queue; bench prog_frame.s; FALCON_LESSONS. Check against the A1200 when it is set up.)
 - Remaining display gap vs STFM1048 (Dialog 90, Graphics 70, Window 94): see the instruction timing analysis
   (box notes `gb608_ramrom/INSN_TIMING.md`).
 
