@@ -137,11 +137,11 @@ module cpu030_st_bridge #(
     ,
     // FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 030-side TT-RAM at $01000000
     input  wire        tt_en,       // switch: 1 = TT-RAM on, 0 = plain ST (A31:24 ignored, 24-bit wrap)
-    output wire        tt_req,
-    output wire        tt_we,
-    output wire [21:0] tt_la,
-    output wire [3:0]  tt_be,
-    output wire [31:0] tt_wdata,
+    output reg         tt_req = 1'b0,
+    output reg         tt_we  = 1'b0,
+    output reg  [21:0] tt_la  = 22'd0,
+    output reg  [3:0]  tt_be  = 4'd0,
+    output reg  [31:0] tt_wdata = 32'd0,
     input  wire        tt_ack,
     input  wire [31:0] tt_rdata
 `endif
@@ -289,23 +289,27 @@ module cpu030_st_bridge #(
     wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
     wire [3:0] tt_lo = (4'b1111 >> cpu_adr[1:0]);                     // lanes >= A1:0 ([3] = lane 0)
     wire [3:0] tt_hi = ~(4'b1111 >> ({1'b0, cpu_adr[1:0]} + tt_n));    // lanes <  A1:0+n
-    assign tt_req   = cpu_rst_n & cpu_tt_ram & ~t_got;
-    assign tt_we    = ~cpu_rwn;
-    assign tt_la    = cpu_adr[23:2];
-    assign tt_be    = tt_lo & tt_hi;
-    assign tt_wdata = cpu_dout;
+    // TT1: L1 undone for timing (clk_cpu030 pins -> sdram.v start logic missed clk32): the request is
+    // registered from the pins at the first clk_32 edge with AS low again (+1 clk_32 per TT cycle).
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             t_open  <= 1'b0;
             t_dsack <= 1'b0;
             t_berr  <= 1'b0;
             t_got   <= 1'b0;
+            tt_req  <= 1'b0;
         end else begin
             if (!t_open & cpu_tt_any) begin
-                t_open <= 1'b1;
-                if (!cpu_tt_ram) t_berr <= 1'b1;
+                t_open   <= 1'b1;
+                tt_we    <= ~cpu_rwn;
+                tt_la    <= cpu_adr[23:2];
+                tt_be    <= tt_lo & tt_hi;
+                tt_wdata <= cpu_dout;
+                if (cpu_tt_ram) tt_req <= 1'b1;
+                else            t_berr <= 1'b1;
             end
             if (tt_req & tt_ack) begin
+                tt_req  <= 1'b0;
                 t_got   <= 1'b1;
                 t_dsack <= 1'b1;
             end
