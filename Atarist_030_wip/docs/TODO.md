@@ -189,3 +189,8 @@ stays out until that plan is followed.
 - CAS2: idle clocks inside the locked sequence (read1->read2 5, read2->write1 7, write1->write2 4).
 - Immediate shifts lsl/lsr/asr #n: 4.9 vs 4 (ALU minimum). Memory shifts 19-23 vs 7-9 (RMW path).
 - CAS2 write1->write2 still has the CAS2_WGAP clock; read1->read2 has INIT_EXEC_WB+CALC_AEFF.
+
+## Fast RAM / TT-RAM (low priority, plan from David, 20 Oct 2026)
+- 030-side fast RAM controller at $01000000: 32-bit port (DSACK0+DSACK1), CIIN negated (cacheable), burst fills for the I/D caches.
+- Test with EmuTOS first (TT-RAM autodetect, _FRB cookie), then the TF-patched TOS 2.06 should work out of the box.
+- Later PMMU tests: TOS-to-RAM via PMMU (MAPROM-style), and FreeMiNT memory protection.

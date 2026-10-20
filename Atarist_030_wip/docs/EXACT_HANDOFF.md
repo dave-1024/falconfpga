@@ -100,3 +100,16 @@ of another cycle in BUILD_STACK on the real ST bus).
   Logic 46,806 (LUT 39,921 + ALU 4,965), BSRAM 172/340. Worst paths: DSACK -> WR_EARLY -> NEXT_FETCH_STATE -> ADR_MUX/AR_IN
   -> ADR_EFF adder -> ADR_EFF_I, and DSACK -> NEXT_FETCH_STATE -> OP_SIZE -> ALU_OP1_IN -> STATUS_REG_Z. Not flashed; the
   board stays on XH1 19da44e.
+
+## XH3 on exact-combined (78612dc), 20 Oct 2026 — flashed
+- XH1's early long prefetch (Q_CNT=2) is masked by PF_NOEARLY = COF_ANY (broad predecode of the valid pipe/queue
+  words: Bcc/BRA/BSR, DBcc, JMP/JSR, RTS/RTE/RTR/RTD, TRAP/TRAPV) or COF_PEND. bra.w 28 -> 20, jmp d16(pc)/d8(pc,x)
+  18 -> 11 (back to T6); all XH1 gains kept (W->R 19.39, R->R 16, push/pop 28 at WS0).
+- Audit WS0 vs T6: 53 faster, 30 slower (aerr +9.9, movemw_pair +8.4 in the audit loop, berr_rd +7, movep reads +3.6);
+  WS5: 25 faster, 2 slower. Read/write counts identical. bra.w (20 vs ~16) and jmp xxx.L (29) remain above the manual.
+- Fmax: a probe with the F3 early MOVEM write take off (WR_EARLY=0) removed the DSACK->WP_GO->fetch-state->EA adder
+  path but costs +2.3 clocks per MOVEM register write, so it was dropped (no added clocks). With F3 on this build
+  placed at clk_cpu030 21.68 MHz; the DSACK->ALU_TRIG->ALU_INIT->ADR_EFF_I path is still the CPU's worst and is
+  placement-dependent (18.4-21.7 MHz across runs). LUT 39,981 + ALU 4,969, BSRAM 172/340.
+- Board: 5/5 cold boots, GEMBENCH 6.08 Display 46 CPU 175 Avg 90; 4.03 Display 91 CPU 225 Avg 127. The CPU drop vs
+  XH1 is Integer Division (6.08 510%, 4.03 2.690 -> 3.255 s): T6 pads DIVU/DIVS to the manual's table maximum.
