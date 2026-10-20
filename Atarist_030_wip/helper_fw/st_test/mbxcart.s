@@ -40,6 +40,7 @@ run:    clr.l   -(sp)                   | Super(0)
 init:   movem.l d0-d7/a0-a6, -(sp)
         lea     s_title(pc), a0
         bsr     print
+        bsr     ttdiag
         cmp.b   #'H', (MB+0x01).w       | ID
         bne     nombx
         lea     s_boot(pc), a0
@@ -98,6 +99,79 @@ nombx:  lea     s_nombx(pc), a0
 out:    movem.l (sp)+, d0-d7/a0-a6
         rts
 
+| TT-RAM diagnostics: memvalid, _ramtop, _ramvalid, own R/W test at $01000000,
+| $01FFFFFC and bus error check at $02000000 (BERR caught via vector 2).
+ttdiag: lea     s_tt1(pc), a0
+        bsr     print
+        move.l  0x420.w, d0
+        bsr     hex8
+        lea     s_tt2(pc), a0
+        bsr     print
+        move.l  0x5a4.w, d0
+        bsr     hex8
+        lea     s_tt3(pc), a0
+        bsr     print
+        move.l  0x5a8.w, d0
+        bsr     hex8
+        lea     s_crlf(pc), a0
+        bsr     print
+        move.w  sr, -(sp)
+        move.w  #0x2700, sr
+        move.l  0x8.w, a4               | save BERR vector
+        lea     tberr(pc), a0
+        move.l  a0, 0x8.w
+        moveq   #0, d6                  | bit0 BERR@01000000, bit1 BERR@01FFFFFC, bit2 BERR@02000000
+        move.l  sp, a5
+        lea     0x01000000, a1
+        move.l  #0x13579bdf, (a1)
+        move.l  (a1), d4                | d4 = read back $01000000
+t1:     move.l  a5, sp
+        bset    #0, d6
+        lea     0x01fffffc, a1
+        move.l  #0x2468ace0, (a1)
+        move.l  (a1), d5                | d5 = read back $01FFFFFC
+t2:     move.l  a5, sp
+        bset    #1, d6
+        tst.b   0x02000000
+t3:     move.l  a5, sp
+        bset    #2, d6
+        bra.s   tdone
+tberr:  move.l  a5, sp
+        btst    #0, d6
+        beq.s   1f
+        btst    #1, d6
+        beq.s   2f
+        bset    #5, d6                  | BERR at $02000000 (wanted)
+        bra.s   t3
+1:      bset    #3, d6                  | BERR at $01000000
+        bra.s   t1
+2:      bset    #4, d6                  | BERR at $01FFFFFC
+        bra.s   t2
+tdone:  move.l  a4, 0x8.w
+        move.w  (sp)+, sr
+        lea     s_tt4(pc), a0
+        bsr     print
+        move.l  d4, d0
+        bsr     hex8
+        lea     s_tt5(pc), a0
+        bsr     print
+        move.l  d5, d0
+        bsr     hex8
+        lea     s_tt6(pc), a0
+        bsr     print
+        move.b  d6, d0
+        bsr     hex2
+        lea     s_crlf(pc), a0
+        bra     print
+hex8:   swap    d0
+        bsr.s   hex4
+        swap    d0
+hex4:   move.w  d0, -(sp)
+        lsr.w   #8, d0
+        bsr     hex2
+        move.w  (sp)+, d0
+        bra     hex2
+
 | string at a0 via BIOS Bconout(CON), keeps a1-a6/d3-d7
 print:  moveq   #0, d0
         move.b  (a0)+, d0
@@ -132,6 +206,12 @@ nib:    and.w   #15, d0
 
 hexd:   .ascii  "0123456789ABCDEF"
 s_title: .asciz "\r\nST_HELPER mailbox self-test (cartridge $FA0000)\r\n"
+s_tt1:  .asciz  "TT: memvalid $"
+s_tt2:  .asciz  " ramtop $"
+s_tt3:  .asciz  " ramvalid $"
+s_tt4:  .asciz  "TT: $01000000=$"
+s_tt5:  .asciz  " $01FFFFFC=$"
+s_tt6:  .asciz  " flags $"
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
