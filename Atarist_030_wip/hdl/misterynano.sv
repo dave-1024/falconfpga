@@ -255,6 +255,22 @@ always @(posedge clk32) begin
         ram_scramble <= ram_scramble + 2'd1;
 end
 
+// FalconFPGA: true cold start on every bitstream load / power-up.
+// Loading a new bitstream does not clear the SDRAM and ram_scramble restarts
+// at 0, so TOS found memvalid ($420) intact, took the warm path and reused the
+// old _ramtop (no TT-RAM probe). Until the first write to $420-$423 after
+// por, reads of that longword return 0 so TOS always runs its cold-boot path.
+reg pwr_cold = 1'b1;
+wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
+always @(posedge clk32) begin
+    if(por)
+        pwr_cold <= 1'b1;
+    else if(memvalid_hit && !we_n && (!cash_n || !casl_n))
+        pwr_cold <= 1'b0;
+end
+wire [15:0] mdin_raw;
+assign mdin = (pwr_cold && memvalid_hit) ? 16'h0000 : mdin_raw;
+
 // RAM is scrambled by xor'ing adress lines 3 and 4 with the scramble bits
 wire [22:1] ram_a_s = { ram_a[22:5], 
     ram_a[4:3] ^ ram_scramble, 
@@ -289,7 +305,7 @@ sdram sdram (
         // of this
         .refresh(refresh),
         .din(mdout),                // data input from chipset/cpu
-        .dout(mdin),
+        .dout(mdin_raw),
         .addr(ram_a_s),             // 22 bit word address
         .ds( { cash_n, casl_n } ),  // upper/lower data strobe
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
