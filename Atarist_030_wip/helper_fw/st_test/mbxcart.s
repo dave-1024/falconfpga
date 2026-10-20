@@ -101,11 +101,7 @@ out:    movem.l (sp)+, d0-d7/a0-a6
 
 | TT-RAM diagnostics: memvalid, _ramtop, _ramvalid, own R/W test at $01000000,
 | $01FFFFFC and bus error check at $02000000 (BERR caught via vector 2).
-ttdiag: lea     s_tt1(pc), a0
-        bsr     print
-        move.l  0x420.w, d0
-        bsr     hex8
-        lea     s_tt2(pc), a0
+ttdiag: lea     s_tt2(pc), a0
         bsr     print
         move.l  0x5a4.w, d0
         bsr     hex8
@@ -113,52 +109,61 @@ ttdiag: lea     s_tt1(pc), a0
         bsr     print
         move.l  0x5a8.w, d0
         bsr     hex8
-        lea     s_crlf(pc), a0
-        bsr     print
         move.w  sr, -(sp)
         move.w  #0x2700, sr
         move.l  0x8.w, a4               | save BERR vector
         lea     tberr(pc), a0
         move.l  a0, 0x8.w
-        moveq   #0, d6                  | bit0 BERR@01000000, bit1 BERR@01FFFFFC, bit2 BERR@02000000
         move.l  sp, a5
-        lea     0x01000000, a1
-        move.l  #0x13579bdf, (a1)
-        move.l  (a1), d4                | d4 = read back $01000000
-t1:     move.l  a5, sp
-        bset    #0, d6
-        lea     0x01fffffc, a1
-        move.l  #0x2468ace0, (a1)
-        move.l  (a1), d5                | d5 = read back $01FFFFFC
-t2:     move.l  a5, sp
-        bset    #1, d6
-        tst.b   0x02000000
-t3:     move.l  a5, sp
-        bset    #2, d6
+        moveq   #0, d6                  | BERR count
+| own 32-bit bus test like EmuTOS (0x0C vs 0x0100000C), d7 = 1 if 32-bit
+        moveq   #1, d7
+        move.l  0xc.w, a3               | keep vector 3
+        move.l  #0x12345678, d2
+        move.l  d2, 0xc.w
+        cmp.l   0x0100000c, d2
+        bne.s   b32
+        not.l   d2
+        move.l  d2, 0xc.w
+        cmp.l   0x0100000c, d2
+        bne.s   b32
+        moveq   #0, d7
+b32:    move.l  a5, sp
+        move.l  a3, 0xc.w
+| EmuTOS detect_ttram_size replica: byte probe of the last byte of each MB
+        move.l  #0x010fffff, a1
+        moveq   #0, d5
+pl:     lea     pbe(pc), a0
+        move.l  a0, 0x8.w
+        tst.b   (a1)
+        move.b  #0x12, (a1)
+        move.b  #0x34, -1(a1)
+        move.w  -1(a1), d4
+        cmp.w   #0x3412, d4
+        bne.s   pend
+        add.l   #0x100000, a1
+        bra.s   pl
+pbe:    move.l  a5, sp
+        addq.l  #1, d6
+pend:   move.l  a1, d5
         bra.s   tdone
 tberr:  move.l  a5, sp
-        btst    #0, d6
-        beq.s   1f
-        btst    #1, d6
-        beq.s   2f
-        bset    #5, d6                  | BERR at $02000000 (wanted)
-        bra.s   t3
-1:      bset    #3, d6                  | BERR at $01000000
-        bra.s   t1
-2:      bset    #4, d6                  | BERR at $01FFFFFC
-        bra.s   t2
+        addq.l  #1, d6
+        bra.s   b32
 tdone:  move.l  a4, 0x8.w
         move.w  (sp)+, sr
         lea     s_tt4(pc), a0
         bsr     print
-        move.l  d4, d0
-        bsr     hex8
+        move.b  d7, d0
+        bsr     hex2
         lea     s_tt5(pc), a0
         bsr     print
         move.l  d5, d0
         bsr     hex8
         lea     s_tt6(pc), a0
         bsr     print
+        move.w  d4, d0
+        bsr     hex4
         move.b  d6, d0
         bsr     hex2
         lea     s_crlf(pc), a0
@@ -206,12 +211,11 @@ nib:    and.w   #15, d0
 
 hexd:   .ascii  "0123456789ABCDEF"
 s_title: .asciz "\r\nST_HELPER mailbox self-test (cartridge $FA0000)\r\n"
-s_tt1:  .asciz  "TT: memvalid $"
-s_tt2:  .asciz  " ramtop $"
-s_tt3:  .asciz  " ramvalid $"
-s_tt4:  .asciz  "TT: $01000000=$"
-s_tt5:  .asciz  " $01FFFFFC=$"
-s_tt6:  .asciz  " flags $"
+s_tt2:  .asciz  "RT "
+s_tt3:  .asciz  " RV "
+s_tt4:  .asciz  "\r\nB32 "
+s_tt5:  .asciz  " END "
+s_tt6:  .asciz  " W "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
