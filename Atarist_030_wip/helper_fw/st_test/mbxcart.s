@@ -167,7 +167,26 @@ tdone:  move.l  a4, 0x8.w
         move.b  d6, d0
         bsr     hex2
         lea     s_crlf(pc), a0
+        bsr     print
+| fallback: TT-RAM answers but TOS did not take it -> one software cold boot
+        cmp.l   #0x54545242, 0x3f0.w    | 'TTRB': we already did one
+        bne.s   fb1
+        clr.l   0x3f0.w
+        lea     s_fbd(pc), a0
         bra     print
+fb1:    tst.l   0x5a4.w
+        bne.s   fbx
+        cmp.l   #0x010fffff, d5
+        bls.s   fbx
+        move.l  #0x54545242, 0x3f0.w
+        lea     s_fbr(pc), a0
+        bsr     print
+        move.w  #0x2700, sr
+        clr.l   0x420.w
+        clr.l   0x5a8.w
+        move.l  0xe00004, a0
+        jmp     (a0)
+fbx:    rts
 hex8:   swap    d0
         bsr.s   hex4
         swap    d0
@@ -216,13 +235,15 @@ s_tt3:  .asciz  " RV "
 s_tt4:  .asciz  "\r\nB32 "
 s_tt5:  .asciz  " END "
 s_tt6:  .asciz  " W "
+s_fbr:  .asciz  "TT: soft cold boot\r\n"
+s_fbd:  .asciz  "TT: after soft cold boot\r\n"
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
 s_msg:  .asciz  "hello from the ST\r"
 s_wait: .asciz  "sent 'hello from the ST', helper says:\r\n"
 s_done: .asciz  "\r\n-- mailbox test done, TOS continues --\r\n"
-s_noup: .asciz  "helper not running (BOOT: 1 DDR3, 2 no flash-done, 3 S1, 4 CS#), skipped\r\n"
+s_noup: .asciz  "helper not running, skipped\r\n"
 s_nombx: .asciz "no mailbox at $FFFB00, skipped\r\n"
         .even
 end:

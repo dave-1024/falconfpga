@@ -261,13 +261,21 @@ end
 // old _ramtop (no TT-RAM probe). Until the first write to $420-$423 after
 // por, reads of that longword return 0 so TOS always runs its cold-boot path
 // (the hit is sampled inside sdram.v at CAS time, so it belongs to that read).
-reg pwr_cold = 1'b1;
+// Same for _ramvalid ($5A8): TOS 1.6+/EmuTOS reuse the old _ramtop when it
+// is valid, so it is masked too (own flag, cleared by the first write).
+reg pwr_cold = 1'b1, pwr_cold_rv = 1'b1;
 wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
+wire ramvalid_hit = (ram_a[23:2] == 22'h00016A);   // byte $5A8..$5AB
 always @(posedge clk32) begin
-    if(por)
+    if(por) begin
         pwr_cold <= 1'b1;
-    else if(memvalid_hit && !we_n && (!cash_n || !casl_n))
-        pwr_cold <= 1'b0;
+        pwr_cold_rv <= 1'b1;
+    end else begin
+        if(memvalid_hit && !we_n && (!cash_n || !casl_n))
+            pwr_cold <= 1'b0;
+        if(ramvalid_hit && !we_n && (!cash_n || !casl_n))
+            pwr_cold_rv <= 1'b0;
+    end
 end
 
 // RAM is scrambled by xor'ing adress lines 3 and 4 with the scramble bits
@@ -310,7 +318,7 @@ sdram sdram (
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
         .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
         .we( !we_n ),               // cpu/chipset requests write
-        .zmask( pwr_cold && memvalid_hit )
+        .zmask( (pwr_cold && memvalid_hit) || (pwr_cold_rv && ramvalid_hit) )
 `ifdef TTRAM
         ,
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),
