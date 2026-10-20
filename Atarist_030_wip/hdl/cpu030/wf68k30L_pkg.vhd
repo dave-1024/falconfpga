@@ -176,6 +176,7 @@ component WF68K30L_ADDRESS_REGISTERS
         SFC                 : out std_logic_vector(2 downto 0);
         SFC_WR              : in bit;
         ISP_DEC             : in bit;
+        ISP_EARLY           : in bit; -- [XT1]
         ISP_RD              : in bit;
         ISP_WR              : in bit;
         MSP_RD              : in bit;
@@ -285,6 +286,7 @@ component WF68K30L_BUS_INTERFACE
         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
         PF_HOLD             : in bit; -- [PFCOF]
         PF_NOEARLY          : in bit; -- [XH3]
+        EXH_STK             : in bit; -- [XT2]
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2]
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
@@ -550,6 +552,8 @@ component WF68K30L_EXCEPTION_HANDLER
         SR_CLR_MBIT         : out bit;
         SR_WR               : out bit;
         ISP_DEC             : out bit;
+        ISP_EARLY           : out bit; -- [XT1]
+        EXH_STK             : out bit; -- [XT2]
         ISP_LOAD            : out bit;
         PC_INC              : out bit;
         PC_LOAD             : out bit;

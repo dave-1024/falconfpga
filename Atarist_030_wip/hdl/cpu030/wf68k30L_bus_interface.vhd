@@ -154,6 +154,7 @@ entity WF68K30L_BUS_INTERFACE is
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
         PF_HOLD             : in bit; -- [PFCOF] Change of flow pending (decoder): start no further stream fetches.
+        EXH_STK             : in bit; -- [XT2] Exception handler in BUILD_STACK (ISP stack writes): operand-write chains allowed.
         PF_NOEARLY          : in bit; -- [XH3] A change of flow is ahead or executing: no early long at Q_CNT = 2.
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2] Queued words 0-3 (registered) for the decoder's predecode.
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
@@ -1031,7 +1032,7 @@ begin
     -- takes precedence.
     PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and ((OP_RD = '0' and OP_WR = '1') or (OP_RD = '1' and DC_ON = '0')) -- [DC]
                       and RA_HELD = '0' -- [F2]
-                      and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
+                      and RMC = '0' and (BUSY_EXH = '0' or EXH_STK = '1') and SIZE_N = "000" -- [XT2]
                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and RESET_CPU_I = '0' else '0';

@@ -113,3 +113,23 @@ of another cycle in BUILD_STACK on the real ST bus).
   placement-dependent (18.4-21.7 MHz across runs). LUT 39,981 + ALU 4,969, BSRAM 172/340.
 - Board: 5/5 cold boots, GEMBENCH 6.08 Display 46 CPU 175 Avg 90; 4.03 Display 91 CPU 225 Avg 127. The CPU drop vs
   XH1 is Integer Division (6.08 510%, 4.03 2.690 -> 3.255 s): T6 pads DIVU/DIVS to the manual's table maximum.
+
+## exact-trap (XT1-XT4, on main b7688fd), 20 Oct 2026
+- XT1: the ISP is precomputed as a register (ISP_M4 = ISP_REG - 4, one clock behind; ISP_REG is stable for the whole
+  stack bus cycle). In BUILD_STACK's DATA_RDY clock (no bus error, S = 1, M = 0) the handler asserts ISP_EARLY: the
+  address section takes ISP_M4 into the registered effective address and the next stack long is requested in that
+  clock. P_D is a plain flip flop masked by the registered DATA_RDY (was an asynchronous clear), so the request
+  survives the edge. The ISP itself still steps only on DATA_RDY (fault-while-stacking SP unchanged, prog_stkflt SAME).
+- XT2: PW_GO (IDLE -> S0 without START_CYCLE after a posted write) is allowed in BUILD_STACK/UPDATE_PC (EXH_STK).
+- XT3: the vector read is requested in the last stack long's DATA_RDY clock. XT4: the RTE frame reads likewise (XH2's).
+- TRAP/RTE 108.12 -> 102.12 (WS0), 128.91 -> 122.91 (WS1); bound 94.1 / 115.2. Audit: 7 faster, 0 slower (berr_rd and
+  aerr -46, berr_wr -16, trapt_rte/chk_exc -8, trap_rte -6), all else identical; rd/wr counts identical.
+- Remaining TRAP/RTE gaps (WS0): stack long 1, vector 2, refill after the vector 5, RTE reads 3+3, refill after RTE 5.
+  The refills need the prefetch restart at the new PC one clock after the read (queue restart from DATA_TO_CORE).
+- bra.w (20 vs ~16): the decoder refills pipe words D/C/B before it executes the branch (PF_DEMAND), so the long
+  past the extension is always fetched; holding the stream earlier (XT5, counting the in-flight long) only delayed
+  that fetch (+6) and was reverted. jmp xxx.L (29) is the same mechanism. W->R WS0 +2.4: not a handoff (queue full
+  while LEA executes), not attempted.
+- Build: clk_cpu030 22.259 MHz, LUT 40,079 + ALU 4,969. Board: see EXACT_LOG.md; the black>=4/5 halt rule gave
+  false positives today (capture dropouts after the desktop appeared, also on XH3), so each boot also gets a final
+  retried grab; all t4 boots reached the desktop. XH2's 2/6 "halts" were probably the same artifact.

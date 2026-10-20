@@ -103,6 +103,7 @@ entity WF68K30L_ADDRESS_REGISTERS is
         SFC_WR              : in bit;
 
         ISP_DEC             : in bit;
+        ISP_EARLY           : in bit; -- [XT1] Next stack long requested in the DATA_RDY clock: use ISP_M4.
         ISP_RD              : in bit;
         ISP_WR              : in bit;
         MSP_RD              : in bit;
@@ -162,6 +163,7 @@ signal F_E              : std_logic; -- Full extension word.
 signal I_IS             : std_logic_vector(2 downto 0); -- Indexed / Indirect.
 signal I_S              : std_logic; -- Index suppress.
 signal ISP_REG          : std_logic_vector(31 downto 0); -- Interrupt stack pointer (refers to A7'' in the supervisor mode).
+signal ISP_M4           : std_logic_vector(31 downto 0) := (others => '0'); -- [XT1] Registered ISP - 4 (one clock behind ISP_REG).
 signal MSBIT            : std_logic_vector(1 downto 0);
 signal MSP_REG          : std_logic_vector(31 downto 0); -- Master stack pointer (refers to A7' in the supervisor mode).
 signal PC_I             : std_logic_vector(31 downto 0); -- Active program counter.
@@ -243,7 +245,7 @@ begin
     end process ADR_FORMAT;
 
     ADDRESS_MODES: process(ADR_MODE, AMODE_SEL, AR, AR_IN_1, AR_PNTR_1, B_S, 
-                           CLK, F_E, FETCH_MEM_ADR, I_S, I_IS, ISP_REG, MBIT, MSP_REG, 
+                           CLK, F_E, FETCH_MEM_ADR, I_S, I_IS, ISP_REG, ISP_M4, ISP_EARLY, MBIT, MSP_REG, 
                            PC_EW_OFFSET, PC_I, RESTORE_ISP_PC, SBIT, USE_DREG, USP_REG)
     -- The effective address calculation takes place in this process depending on the 
     -- selected addressing mode.
@@ -404,7 +406,12 @@ begin
         else
             case AR_PNTR_1 is
                 when 7 =>
-                    if SBIT = '1' and MBIT = '0' then
+                    if SBIT = '1' and MBIT = '0' and ISP_EARLY = '1' then
+                        -- [XT1] BUILD_STACK DATA_RDY clock: the ISP steps by 4 at this edge; the registered effective
+                        -- address takes the stepped value from ISP_M4 (a register: no subtractor in this path).
+                        -- ISP_REG has not changed for the whole stack bus cycle, so ISP_M4 = ISP_REG - 4 here.
+                        ADR_MUX := ISP_M4;
+                    elsif SBIT = '1' and MBIT = '0' then
                         ADR_MUX := ISP_REG;
                     elsif SBIT = '1' then
                         ADR_MUX := MSP_REG;
@@ -638,6 +645,8 @@ begin
         elsif SP_ADD_DISPL = '1' and SBIT = '1' and MBIT = '0' then
             ISP_REG <= ISP_REG + DISPLACEMENT;
         end if;
+
+        ISP_M4 <= ISP_REG - "100"; -- [XT1]
 
         ---------------------------------------- USP section ----------------------------------------
         if RESET = '1' then
