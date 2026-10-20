@@ -60,6 +60,16 @@ for ws in 0 1 3 7; do
   $G -r $O tb030 -gROMFILE=prog_berrwb.hex -gWS=$ws -gMAXCLK=20000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_berrwb.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_berrwb WS=$ws: $(bwres)"; fail=1; }
 done
+# [FRM] Bus-error frame contents (prog_frame.s, expect_frame.txt): SSW FC/FB/RC/RB/DF and the stage C/B images
+# (words at PC+2/PC+4) for prefetch faults on stage C, stage B and the opcode word, data read and write faults,
+# and the RTE re-run of each repaired fault; the same with random wait states and the cacheable mode.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_frame.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_frame.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=0 -gCIMODE=1" "-gWS=1 -gWSRND=3 -gIRQ_DLY=7"; do
+  $G -r $O tb030 -gROMFILE=prog_frame.hex $g -gMAXCLK=20000 2>/dev/null > r.log || true
+  [ "$(bwres)" = "$(cat $H/expect_frame.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_frame $g: $(bwres)"; fail=1; }
+done
 # F62d: A7 written back by the previous instruction while JSR/BSR/PEA/-(SP) decrements it
 # (prog_spwb.s); $600DC0DE at $3300 = every case saw the right SP.
 m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_spwb.s -o p.o
