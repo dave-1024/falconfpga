@@ -123,6 +123,14 @@ entity WF68K30L_OPCODE_DECODER is
         RB                  : out std_logic; -- Rerun flag on instruction pipe stage B.
         FC                  : out std_logic; -- Fault on use of instruction pipe stage C.
         FB                  : out std_logic; -- Fault on use of instruction pipe stage B.
+        -- [FRM] Bus-error frame stage images: the words at PC+2 (stage C) and PC+4 (stage B) of the
+        -- instruction in execution, once they have reached the decoder pipe, with their fault flags.
+        STG_C               : out std_logic_vector(15 downto 0);
+        STG_B               : out std_logic_vector(15 downto 0);
+        STG_CA              : out std_logic; -- Stage C word has reached the pipe.
+        STG_BA              : out std_logic;
+        STG_CF              : out std_logic; -- Stage C word was fetched with a bus error.
+        STG_BF              : out std_logic;
 
         -- Trap logic:
         SBIT                : in std_logic;
@@ -179,6 +187,7 @@ signal EW_REQ               : bit;
 signal IPIPE                : IPIPE_TYPE;
 signal FIFO_RD              : bit;
 signal IPIPE_B_FAULT        : std_logic;
+signal STG_USED             : integer range 0 to 3; -- [FRM]
 signal IPIPE_C_FAULT        : std_logic;
 signal IPIPE_D_FAULT        : std_logic;
 signal IPIPE_PNTR           : natural range 0 to 3;
@@ -459,43 +468,88 @@ begin
     end process INSTRUCTION_PIPE;
 
     P_FAULT: process
-    -- This are the fault flags for pipe B and C.
-    -- These flags are set, when an instruction
-    -- request uses either of the respective pipes.
+    -- OW_VALID: the operation words of the issued instruction are valid.
     begin
         wait until CLK = '1' and CLK' event;
         if IPIPE_FLUSH = '1' then
             OW_VALID <= '0';
-            FC <= '0';
-            FB <= '0';
         elsif OW_REQ = '1' and LOOP_BSY_I = true then
             OW_VALID <= '1';
         elsif OW_REQ = '1' and PIPE_RDY = '1' and INSTR_LVL = D then
             OW_VALID <= not IPIPE_D_FAULT;
-            FC <= '0';
-            FB <= '0';
         elsif OW_REQ = '1' and PIPE_RDY = '1' and INSTR_LVL = C then
             OW_VALID <= not(IPIPE_D_FAULT or IPIPE_C_FAULT);
-            FC <= IPIPE_C_FAULT;
-            FB <= '0';
         elsif OW_REQ = '1' and PIPE_RDY = '1' and INSTR_LVL = B then
             OW_VALID <= not (IPIPE_D_FAULT or IPIPE_C_FAULT or IPIPE_B_FAULT);
-            FC <= IPIPE_C_FAULT;
-            FB <= IPIPE_B_FAULT;
         elsif EW_REQ = '1' and PIPE_RDY = '1' then
             OW_VALID <= not IPIPE_D_FAULT;
-            FC <= '0';
-            FB <= '0';
-        end if;
-        -- The Rerun Flags:
-        if IPIPE_FLUSH = '1' then
-            RC <= '0';
-            RB <= '0';
-        elsif (EW_REQ or OW_REQ) = '1' and PIPE_RDY = '1' then
-            RC <= IPIPE_C_FAULT;
-            RB <= IPIPE_B_FAULT;
         end if;
     end process P_FAULT;
+
+    -- [FRM] Fault on use: the instruction took the stage word and it was fetched with a bus error.
+    -- Rerun flags from the pipe words; the top level adds the words still in the prefetch queue.
+    FC <= STG_CF when STG_USED >= 2 else '0';
+    FB <= STG_BF when STG_USED >= 3 else '0';
+    RC <= STG_CF;
+    RB <= STG_BF;
+
+    P_STAGE: process
+    -- [FRM] Stage C/B images and fault flags for the bus-error frame (MC68030UM 8.2: stage C is the word at
+    -- PC+2, stage B the word at PC+4 of the stacked PC; FC/FB: the instruction used that stage and it was
+    -- fetched with a bus error; RC/RB: the word came from a faulted fetch). Positions count words from the
+    -- issued instruction (PC_INC on issue keeps PC on BIW_0): NARR is the position of the next word that
+    -- enters the pipe, USED the number of words the instruction has taken (operation plus extension words).
+    -- Earlier the flags were latched from IPIPE_C/B at the last request, i.e. from pipe progress, and
+    -- stage B was BIW_2, a stale word for instructions shorter than three words.
+    variable NARR   : integer range 0 to 3;
+    variable USED   : integer range 0 to 3;
+    variable ACC    : boolean;
+    begin
+        wait until CLK = '1' and CLK' event;
+        ACC := false;
+        if BUSY_EXH = '1' then
+            null; -- Frozen while the exception handler stacks the frame.
+        elsif IPIPE_FLUSH = '1' then
+            NARR := 0; USED := 0;
+            STG_CA <= '0'; STG_BA <= '0'; STG_CF <= '0'; STG_BF <= '0';
+        elsif BKPT_INSERT = '1' or (OW_REQ = '1' and BKPT_REQ = '1') or (LOOP_ATN = true and OPCODE_RD_I = '1') or
+              (OW_REQ = '1' and PIPE_RDY = '1' and OP_I = DBcc and LOOP_OP = true and IPIPE.C = x"FFFC") or LOOP_BSY_I = true then
+            null; -- Pipe unchanged (breakpoint, loop mode): keep the images.
+        elsif OW_REQ = '1' and PIPE_RDY = '1' then -- Issue: D = PC, C = PC+2, B = PC+4.
+            STG_C <= IPIPE.C; STG_CF <= IPIPE_C_FAULT; STG_CA <= '1'; -- PIPE_RDY: IPIPE_PNTR >= 2.
+            if IPIPE_PNTR = 3 then
+                STG_B <= IPIPE.B; STG_BF <= IPIPE_B_FAULT; STG_BA <= '1';
+                NARR := 3;
+            elsif OPCODE_RDY_I = '1' then
+                STG_B <= OPCODE_DATA; STG_BF <= not OPCODE_VALID; STG_BA <= '1';
+                NARR := 3;
+            else
+                STG_BA <= '0'; STG_BF <= '0';
+                NARR := 2;
+            end if;
+            case INSTR_LVL is
+                when D => USED := 1;
+                when C => USED := 2;
+                when B => USED := 3;
+            end case;
+        else
+            if EW_REQ = '1' and IPIPE_PNTR /= 0 and USED < 3 then
+                USED := USED + 1;
+            end if;
+            if OPCODE_RDY_I = '1' and (IPIPE_PNTR < 3 or EW_REQ = '1') then
+                ACC := true;
+            end if;
+            if ACC and NARR = 1 then
+                STG_C <= OPCODE_DATA; STG_CF <= not OPCODE_VALID; STG_CA <= '1';
+            elsif ACC and NARR = 2 then
+                STG_B <= OPCODE_DATA; STG_BF <= not OPCODE_VALID; STG_BA <= '1';
+            end if;
+            if ACC and NARR < 3 then
+                NARR := NARR + 1;
+            end if;
+        end if;
+        STG_USED <= USED;
+    end process P_STAGE;
 
     OUTBUFFERS: process
     variable OP_STOP    : boolean;

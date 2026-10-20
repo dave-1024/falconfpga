@@ -482,6 +482,15 @@ signal DBG_EXC_STB              : std_logic;
 signal PC_OFFSET_OPD            : std_logic_vector(7 downto 0);
 signal PC_RESTORE_EXH           : bit;
 signal RB                       : std_logic;
+signal Q_HEAD                   : std_logic_vector(31 downto 1); -- [FRM]
+signal Q_FAULT                  : bit_vector(0 to 3); -- [FRM]
+signal STG_C, STG_B             : std_logic_vector(15 downto 0); -- [FRM]
+signal STG_CA, STG_BA, STG_CF, STG_BF : std_logic; -- [FRM]
+signal QS_C, QS_B               : std_logic_vector(15 downto 0); -- [FRM]
+signal QS_CV, QS_BV, QS_CF, QS_BF : std_logic; -- [FRM]
+signal QS_PC                    : std_logic_vector(31 downto 1); -- [FRM]
+signal FRM_C, FRM_B             : std_logic_vector(15 downto 0); -- [FRM]
+signal FRM_RC, FRM_RB           : std_logic; -- [FRM]
 signal RC                       : std_logic;
 signal EX_IS_AERR               : std_logic; -- F28/H22.
 signal RD_REQ                   : bit;
@@ -618,6 +627,44 @@ begin
     SSW_80_F <= BFLT_SSW when BFLT_VALID = '1' else SSW_80;
     FLTADR_F <= BFLT_ADR when BFLT_VALID = '1' else ADR_CPY_EXH;
 
+    -- [FRM] Bus-error frame stage images (MC68030UM 8.2): stage C = the word at PC+2, stage B = PC+4. A word
+    -- that has not reached the decoder pipe yet is taken from the prefetch queue (by address), so the frame
+    -- holds the instruction stream and its fault flags instead of a stale BIW_2. Frozen during exception
+    -- processing. A word fetched nowhere yet leaves its rerun flag clear (no faulted fetch to rerun).
+    P_QSTAGE: process
+    variable KC : std_logic_vector(31 downto 1);
+    variable Q  : std_logic_vector(63 downto 0);
+    begin
+        wait until CLK = '1' and CLK' event;
+        if BUSY_EXH = '0' then
+            QS_PC <= PC(31 downto 1);
+            KC := PC(31 downto 1) + '1' - Q_HEAD; -- Queue index of the word at PC+2.
+            Q := Q_STREAM;
+            if PC(31 downto 1) /= QS_PC then
+                QS_CV <= '0'; QS_BV <= '0';
+            end if;
+            for k in 0 to 3 loop
+                if KC = k and k < Q_COUNT then
+                    QS_C <= Q(63 - 16 * k downto 48 - 16 * k); QS_CV <= '1';
+                    if Q_FAULT(k) = '1' then QS_CF <= '1'; else QS_CF <= '0'; end if;
+                end if;
+                if KC = k - 1 and k < Q_COUNT and k >= 1 then
+                    QS_B <= Q(63 - 16 * k downto 48 - 16 * k); QS_BV <= '1';
+                    if Q_FAULT(k) = '1' then QS_BF <= '1'; else QS_BF <= '0'; end if;
+                end if;
+            end loop;
+            if KC = (31 downto 1 => '1') and Q_COUNT >= 1 then -- PC+2 just left the queue: word 0 is PC+4.
+                QS_B <= Q(63 downto 48); QS_BV <= '1';
+                if Q_FAULT(0) = '1' then QS_BF <= '1'; else QS_BF <= '0'; end if;
+            end if;
+        end if;
+    end process P_QSTAGE;
+
+    FRM_C <= STG_C when STG_CA = '1' else QS_C when QS_CV = '1' else BIW_1;
+    FRM_B <= STG_B when STG_BA = '1' else QS_B when QS_BV = '1' else BIW_2;
+    FRM_RC <= STG_CF when STG_CA = '1' else QS_CF when QS_CV = '1' else '0';
+    FRM_RB <= STG_BF when STG_BA = '1' else QS_BF when QS_BV = '1' else '0';
+
     DATA_EXH <= -- Exception handler multiplexing:
                 SR_CPY & PC(31 downto 16) when STACK_POS = 2 else
                 PC(15 downto 0) & STACK_FORMAT & "00" & IVECT_OFFS when STACK_POS = 4 else
@@ -636,8 +683,8 @@ begin
                 -- implementations agreeing is not evidence.
                 -- RC alone, never RB: that is what the silicon did in both
                 -- runs, and the manual explicitly permits it.
-                BIW_0 & FC & FB & (RC or EX_IS_AERR) & RB & "000" & SSW_80_F when STACK_POS = 6 else -- Format A and B. (F1)
-                BIW_1 & BIW_2 when STACK_POS = 8 else -- Format A and B.
+                BIW_0 & FC & FB & (FRM_RC or EX_IS_AERR) & FRM_RB & "000" & SSW_80_F when STACK_POS = 6 else -- Format A and B. (F1) [FRM]
+                FRM_C & FRM_B when STACK_POS = 8 else -- Format A and B: stage C, stage B. [FRM]
                 FAULT_ADR when STACK_FORMAT = x"9" and STACK_POS = 10 else -- ADR_EFF_cp.
                 FLTADR_F when STACK_POS = 10 else -- F1: latched fault address.
                 OUTBUFFER when STACK_POS = 14 else
@@ -1221,6 +1268,8 @@ begin
             EXH_STK             => EXH_STK, -- [XT2]
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
+            Q_HEAD              => Q_HEAD, -- [FRM]
+            Q_FAULT             => Q_FAULT, -- [FRM]
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
             OP_WR               => DATA_WR, -- [F65]
             ADR_NXT             => ADR_NXT, -- [PH2]
@@ -1586,6 +1635,12 @@ begin
             RB                      => RB,
             FC                      => FC,
             FB                      => FB,
+            STG_C                   => STG_C, -- [FRM]
+            STG_B                   => STG_B,
+            STG_CA                  => STG_CA,
+            STG_BA                  => STG_BA,
+            STG_CF                  => STG_CF,
+            STG_BF                  => STG_BF,
 
             -- Trap logic:
             SBIT                    => SBIT,

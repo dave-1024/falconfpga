@@ -158,6 +158,8 @@ entity WF68K30L_BUS_INTERFACE is
         PF_NOEARLY          : in bit; -- [XH3] A change of flow is ahead or executing: no early long at Q_CNT = 2.
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2] Queued words 0-3 (registered) for the decoder's predecode.
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM] Address of queued word 0.
+        Q_FAULT             : out bit_vector(0 to 3); -- [FRM] Queued words fetched with a bus error.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
@@ -1382,6 +1384,8 @@ begin
     Q_DISMISS <= OPC_DISMISS;
     Q_STREAM <= Q_W(0) & Q_W(1) & Q_W(2) & Q_W(3); -- [PFCOF2]
     Q_COUNT <= Q_CNT;
+    Q_HEAD <= Q_ADR; -- [FRM]
+    Q_FAULT <= Q_F; -- [FRM]
 
     FC_OUT <= F_FC when PF_ACC = '1' else DC_OFC when FILL_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] [DC] registered, as ADR_OUT_I
 

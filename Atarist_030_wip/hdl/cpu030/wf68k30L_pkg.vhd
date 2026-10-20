@@ -289,6 +289,8 @@ component WF68K30L_BUS_INTERFACE
         EXH_STK             : in bit; -- [XT2]
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2]
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM]
+        Q_FAULT             : out bit_vector(0 to 3); -- [FRM]
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
         OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
         ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
@@ -630,6 +632,12 @@ component WF68K30L_OPCODE_DECODER
         RB                  : out std_logic;
         FC                  : out std_logic;
         FB                  : out std_logic;
+        STG_C               : out std_logic_vector(15 downto 0); -- [FRM]
+        STG_B               : out std_logic_vector(15 downto 0);
+        STG_CA              : out std_logic;
+        STG_BA              : out std_logic;
+        STG_CF              : out std_logic;
+        STG_BF              : out std_logic;
         SBIT                : in std_logic;
         TRAP_CODE           : out TRAPTYPE_OPC;
         OP                  : out OP_68K;
