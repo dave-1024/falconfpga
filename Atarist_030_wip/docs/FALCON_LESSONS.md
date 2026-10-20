@@ -79,6 +79,21 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   cache was right. *Cause:* the test's own driver code shared a 16-byte line index with the loop (256-byte
   direct-mapped cache) and evicted it just before FI was set. *Fix:* driver code in an uncached area (prog_icache.s).
   *Lesson:* in a cache test, check which other code maps to the same lines before calling a miss a bug.
+- **Bus-error frame stage B/C and rerun bits (FRM, 20 Oct 2026, frame-fix).** *Symptom:* the long frame took $0C/$0E
+  from BIW_1/BIW_2, so for instructions shorter than three words stage B ($0E) was a word of an earlier instruction
+  (prog_movemx: $6000 or $0536 depending on prefetch timing); RC/RB were latched from IPIPE_C/B at the last pipe
+  request (pipe progress, not the faulted fetch), and FC/FB were never set for a faulted extension word taken by an
+  extension-word request (`move.w #imm,d0` with the immediate faulting stacked SSW $2005, `move.l #imm,d0` with
+  the 2nd word faulting $0005). *Fix:* the decoder records the words at PC+2/PC+4 of the issued instruction and their
+  fault flags as they reach the pipe (P_STAGE; FC/FB = the instruction used that word and it faulted), the top level
+  takes words not yet in the pipe from the prefetch queue by address (P_QSTAGE, Q_HEAD/Q_FAULT), frozen while the
+  frame is stacked; RC/RB = the word came from a faulted fetch (MC68030UM 8.2). Unconditional. Bench prog_frame.s:
+  stage C fault $B005, stage B fault $5005 with stage C = the 2nd word, data read faults with stage C/B = the next
+  words, a write fault, an opcode-word fault, each RTE re-run; same frames at WS 0/1/3/7, CIMODE 1, random waits.
+  *Lesson:* a frame field copied from a register "that usually holds it" is a timing bug; derive it from the
+  address it is defined by. Not yet checked on the A1200 (real silicon decides): the open question is RB for a fault
+  on the opcode word (prog_branch case 9: the frame PC is the faulted opcode $10000, RC from the same long, RB
+  because the core refetches $10004 before the exception and that fetch faults too: SSW $2005 -> $3005).
 
 ### Debug tooling
 
