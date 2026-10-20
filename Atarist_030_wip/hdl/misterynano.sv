@@ -259,7 +259,8 @@ end
 // Loading a new bitstream does not clear the SDRAM and ram_scramble restarts
 // at 0, so TOS found memvalid ($420) intact, took the warm path and reused the
 // old _ramtop (no TT-RAM probe). Until the first write to $420-$423 after
-// por, reads of that longword return 0 so TOS always runs its cold-boot path.
+// por, reads of that longword return 0 so TOS always runs its cold-boot path
+// (the hit is sampled inside sdram.v at CAS time, so it belongs to that read).
 reg pwr_cold = 1'b1;
 wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
 always @(posedge clk32) begin
@@ -268,8 +269,6 @@ always @(posedge clk32) begin
     else if(memvalid_hit && !we_n && (!cash_n || !casl_n))
         pwr_cold <= 1'b0;
 end
-wire [15:0] mdin_raw;
-assign mdin = (pwr_cold && memvalid_hit) ? 16'h0000 : mdin_raw;
 
 // RAM is scrambled by xor'ing adress lines 3 and 4 with the scramble bits
 wire [22:1] ram_a_s = { ram_a[22:5], 
@@ -305,12 +304,13 @@ sdram sdram (
         // of this
         .refresh(refresh),
         .din(mdout),                // data input from chipset/cpu
-        .dout(mdin_raw),
+        .dout(mdin),
         .addr(ram_a_s),             // 22 bit word address
         .ds( { cash_n, casl_n } ),  // upper/lower data strobe
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
         .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
-        .we( !we_n )                // cpu/chipset requests write
+        .we( !we_n ),               // cpu/chipset requests write
+        .zmask( pwr_cold && memvalid_hit )
 `ifdef TTRAM
         ,
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),

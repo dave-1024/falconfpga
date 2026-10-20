@@ -43,7 +43,8 @@ module sdram (
 	input [1:0]	  ds, // upper/lower data strobe
 	input		  cs, // cpu/chipset requests read/wrie
 	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
-	input		  we          // cpu/chipset requests write
+	input		  we,         // cpu/chipset requests write
+	input		  zmask       // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
 `ifdef TTRAM
 	,
 	// FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 32-bit TT-RAM port in banks 1/2.
@@ -160,6 +161,7 @@ wire tt_go = (init_state == 0) && tg_ok && (tg == 3'd2) && tt_req && !tt_busy &&
 
 `endif
 
+reg zmask_q = 1'b0;
 always @(posedge clk) begin
    sd_cmd <= CMD_NOP;  // default: idle
 
@@ -231,6 +233,7 @@ always @(posedge clk) begin
         if(state == STATE_CMD_CONT) begin
             sd_cmd <= we?CMD_WRITE:CMD_READ;
             sd_addr <= { 4'b0010, addr[8:0] };
+            zmask_q <= zmask;
         end
 
         if(state > STATE_CMD_CONT && state < STATE_READ)
@@ -238,7 +241,7 @@ always @(posedge clk) begin
       
         // read phase
         if(state == STATE_READ && !we) begin
-            dout <= sd_data[15:0];
+            dout <= zmask_q ? 16'h0000 : sd_data[15:0];
         end
       end
    end

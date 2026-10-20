@@ -34,7 +34,7 @@ module tb_bus;
     wire [31:0] sd_dq; wire [12:0] sd_a; wire [3:0] sd_dqm; wire [1:0] sd_ba;
     wire sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas;
     wire [15:0] sd_dout;
-    sdram sdram (.clk(clk32), .reset_n(porb), .ready(sd_ready),
+    sdram sdram (.clk(clk32), .reset_n(porb), .ready(sd_ready), .zmask(1'b0),
         .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .refresh(refresh), .din(mdout), .dout(sd_dout), .addr(ram_a[22:1]), .ds({cash_n, casl_n}),
