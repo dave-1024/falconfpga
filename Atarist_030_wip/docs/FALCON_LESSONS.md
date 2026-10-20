@@ -161,3 +161,10 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - Barrel shifter correctness: check against the old bit-serial core over every op x size x count (incl. 0,
   size, size+1, 63) with CCR (prog_shift); ROXx period is size+1.
 - On linserver use `pgrep -x gw_sh`: `pgrep -f "gw_sh build"` matches its own ssh command line.
+
+## RMW1 read-modify-write timing (20 Oct 2026)
+- RMW memory forms (ADDQ/SUBQ/ADDI.. mem, ADD/AND/OR/EOR Dn,<ea>, BCHG/BCLR/BSET mem, memory shifts) enter
+  START_OP in the operand RD_RDY clock (RMW_EARLY) instead of going through INIT_EXEC_WB: -1 clock read->write.
+- Gate it on DATA_VALID, ALU idle, no pending write fault and the data register free; the ALU OPERANDS process
+  forwards the buffer loaded in the same clock as ALU_INIT, so the early start sees the fresh operand.
+- Check every form against the ch.11 worst column with audit/gap.py; all stay at or above it.

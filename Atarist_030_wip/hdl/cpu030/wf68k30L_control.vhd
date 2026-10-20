@@ -371,7 +371,9 @@ signal BIW_1_WB             : std_logic_vector(15 downto 0);
 signal DATA_RD_I            : bit := '0';  -- [F54] measured warm-boot value
 signal DATA_WR_I            : bit := '0';  -- [F54] measured warm-boot value
 signal EW_RDY               : bit := '0';  -- [F54] measured warm-boot value
-signal INIT_ENTRY           : bit := '0';  -- [F54] measured warm-boot value
+signal INIT_ENTRY           : bit := '0';
+signal RMW_EARLY            : bit; -- [RMW1]
+signal INIT_LIKE            : boolean; -- [RMW1]  -- [F54] measured warm-boot value
 signal DR_SEL_ADH_2_I       : std_logic_vector(2 downto 0); -- F56
 signal IPIPE_FLUSH_I        : bit := '0';  -- [F54] measured warm-boot value
 signal LOOP_EXIT_I          : bit := '0';  -- [F54] measured warm-boot value
@@ -441,7 +443,7 @@ begin
     -- The interrupt must not be activated when the controller is in its START_OP
     -- state and fetches new OPWORDS. so we define the trigger for the interrupt
     -- in the end of the FETCH phase. The SLEEP state is important for STOP.
-    INT_TRIG <= '1' when FETCH_STATE = INIT_EXEC_WB or FETCH_STATE = SLEEP else '0';
+    INT_TRIG <= '1' when INIT_LIKE or FETCH_STATE = SLEEP else '0'; -- [RMW1]
 
     OW_REQ <= '0' when BUSY_EXH = '1' else
               '0' when EXH_REQ = '1' and LOOP_BSY = '0' else -- Non interrupt exception requests, loop has priority.
@@ -529,7 +531,23 @@ begin
     RD_RDY <= DATA_RDY when READ_CYCLE = '1' else '0';
     WR_RDY <= DATA_RDY when WRITE_CYCLE = '1' else '0';
 
-    INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else '0';
+    -- [RMW1] Read-modify-write memory forms (MC68030UM 11.6.x: the operand read is followed by the ALU
+    -- operation and the write). The memory operand arrives with RD_RDY (DBUFFER valid in that clock), and the
+    -- ALU operand buffer forwards an operand loaded in its ALU_INIT clock, so the INIT_EXEC_WB clock is done
+    -- in the RD_RDY clock itself: ALU_INIT, operand load and the address/register marks there, then START_OP.
+    -- One clock less between the read and the write; still slower than the manual's worst column.
+    RMW_EARLY <= '1' when FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and ALU_BSY = '0' and
+                          WR_FLT = '0' and WFLT = '0' and DR_IN_USE = '0' and BIW_0(5 downto 3) > "001" and (
+                          OP = ADDQ or OP = SUBQ or OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or
+                          OP = NOT_B or OP = NEG or OP = NEGX or OP = NBCD or
+                          ((OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR) and BIW_0(8) = '1') or
+                          (OP = BCHG or OP = BCLR or OP = BSET) or
+                          ((OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and BIW_0(7 downto 6) = "11"))
+                 else '0';
+    INIT_LIKE <= FETCH_STATE = INIT_EXEC_WB or RMW_EARLY = '1';
+
+    INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else
+                  '1' when RMW_EARLY = '1' else '0'; -- [RMW1]
     
     DATA_RD <= DATA_RD_I;
     DATA_RD_I <= '0' when WFLT = '1' else -- [FLT1] No operand cycle after a data write fault (MC68030: exception straight after the faulted cycle).
@@ -1200,7 +1218,7 @@ begin
     SP_ADD_DISPL_S <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else 
                     '1' when OP = RTD and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' else '0';
 
-    ALU_TRIG <= '0' when ALU_BSY_M = '1' or FETCH_STATE /= INIT_EXEC_WB else
+    ALU_TRIG <= '0' when ALU_BSY_M = '1' or not INIT_LIKE else -- [RMW1]
                 '0' when WR_FLT = '1' or WFLT = '1' else -- [FLT1] Nothing new after a data write fault.
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
                 '0' when OP = MOVE and PHASE2 = true else -- no ALU required after second portion of address calculation.
@@ -1293,7 +1311,7 @@ begin
                             SUB | SUBI | SUBQ | SUBX | SWAP | TAS | TST, '0' when others;
 
     ADR_MARK_USED_I <= '1' when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and PHASE2 = true else -- Destination address calculation done.
-                       '0' when FETCH_STATE /= INIT_EXEC_WB or ALU_BSY_M = '1' else -- Deactivate except in the end of INIT_EXEC_WB.
+                       '0' when not INIT_LIKE or ALU_BSY_M = '1' else -- Deactivate except in the end of INIT_EXEC_WB. [RMW1]
                        '1' when OP = BFCHG or OP = BFCLR or OP = BFINS or OP = BFSET or OP = BSR  or OP = JSR or OP = LINK or OP = PEA  else
                        '1' when (OP = ADDI or OP = ANDI or OP = EOR or OP = EORI or OP = ORI or OP = SUBI) and BIW_0(5 downto 3) /= "000" else
                        '1' when (OP = ABCD or OP = SBCD or OP = ADDX or OP = SUBX) and BIW_0(3) = '1' else
@@ -1743,7 +1761,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
+    FETCH_DEC: process(RMW_EARLY, ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY)
     -- ADH: avoid data hazard.
@@ -2448,7 +2466,9 @@ begin
             when CALC_AEFF =>
                 NEXT_FETCH_STATE <= FETCH_OPERAND; -- One CLK calculation delay.
             when FETCH_OPERAND =>
-                if RD_RDY = '1' then
+                if RMW_EARLY = '1' then
+                    NEXT_FETCH_STATE <= START_OP; -- [RMW1] INIT_EXEC_WB done in this clock.
+                elsif RD_RDY = '1' then
                     case OP is
                         when ABCD | ADDX | SBCD | SUBX =>
                             if PHASE2 = false then
