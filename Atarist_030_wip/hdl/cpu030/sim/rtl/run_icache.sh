@@ -3,6 +3,8 @@
 # CIMODE=1 (fake cacheable region: hits, fills, EI/FI/CEI/CI, CAAR, FC2 tag, CDIS, no snoop,
 # misaligned streams, no fill on a bus error) and CIMODE=0 (CIIN asserted as on the ST bridge:
 # no hits at all), WS 0/1/3/7, FAST_HANDOFF 0/1. Results must equal expect_icache_ci{1,0}.txt.
+# [XH1] CIMODE=0 also accepts expect_icache_ci0_xh1.txt: case 17 fetches one more long in the loop line
+# (the earlier prefetch request reads the jmp after bne.s once more); only a prefetch count, no cache result.
 # Usage: run_icache.sh <built tb030 scratch dir> (e.g. the one run_rtl.sh builds). Needs GHDL and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); W=$(cd "${1:-/tmp/sim030rtl}" && pwd)
@@ -17,7 +19,7 @@ for ci in 1 0; do for fh in 1 0; do for ws in 0 1 3 7; do
   (cd $W && $G -r $O tb030 -gROMFILE=$T/p.hex -gWS=$ws -gCIMODE=$ci -gFASTH=$fh -gSTOPDONE=1 -gMAXCLK=60000 2>/dev/null) > r.log || true
   r=$(python3 $H/check_icache.py r.log $la $lb)
   d=$(grep -o 'DONE.*clk [0-9]*' r.log | awk '{print $NF}' | head -1)
-  if [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
+  if { [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] || { [ $ci = 0 ] && [ "$r" = "$(cat $H/expect_icache_ci0_xh1.txt)" ]; }; } && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
   else echo "FAIL CIMODE=$ci FASTH=$fh WS=$ws: $r"; fail=1; fi
 done; done; done
 rm -rf $T
