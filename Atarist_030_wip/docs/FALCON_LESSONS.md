@@ -161,3 +161,10 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - Barrel shifter correctness: check against the old bit-serial core over every op x size x count (incl. 0,
   size, size+1, 63) with CCR (prog_shift); ROXx period is size+1.
 - On linserver use `pgrep -x gw_sh`: `pgrep -f "gw_sh build"` matches its own ssh command line.
+
+## TT-RAM cold start (20 Oct 2026)
+- A bitstream reload does not clear SDRAM and `ram_scramble` restarts at 0, so TOS found memvalid (`$420`)
+  intact, took the warm-boot path, reused the old `_ramtop`=0 and never probed TT-RAM (splash showed 4 MB, no
+  Alt-RAM). Fix (no switch): after por the core returns 0 for reads of `$420-$423` until the first write there,
+  so every load/power-up is a real TOS cold boot. *Lesson:* a new bitstream is a power-up for the CPU but not
+  for the SDRAM; anything TOS caches across resets (memvalid, ramvalid, resvector) must be invalidated by hardware.

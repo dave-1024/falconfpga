@@ -23,7 +23,7 @@ the board**. Default builds (no `TTRAM` define) are bit-for-bit the same source 
 | anything else | **bus error** | ST bus (wrap) |
 
 The bus error above TT-RAM is required by EmuTOS (section 7); a wrap there would make its size probe
-write into ST-RAM. `TT_BYTES` in `cpu030_st_bridge.v` selects 16 MB (`25'h1000000`) or 8 MB.
+write into ST-RAM (EmuTOS has no mirror test, only BERR stops it). `TT_BYTES` in `cpu030_st_bridge.v` selects 16 MB (`25'h1000000`) or 8 MB.
 
 ## 3. SDRAM layout (W9825G6KH, 4 banks x 8192 rows x 512 cols x 16 bit = 8 MB per bank)
 
@@ -127,9 +127,12 @@ fits several times per ST slot), start at more grid points, read bursts for cach
 1. `detect_32bit_address_bus`: writes `$0000000C`, compares `$0100000C`. Must NOT mirror -> needs the
    switch on (off: it mirrors, EmuTOS says 24-bit and ignores TT-RAM — correct for the off case).
 2. `detect_ttram_size` (only if 32-bit bus, `CONF_WITH_TTRAM`): for each MB, `check_read_byte` of the
-   last byte (`$010FFFFF`, `$011FFFFF`, ...) — stops at a **bus error**; then writes/reads patterns and
-   stops at a mirror of the first MB. With BERR from `$02000000` it finds exactly 16 MB.
+   last byte (`$010FFFFF`, `$011FFFFF`, ...) — stops at a **bus error**; then writes `$12`/`$34` to the
+   last two bytes of that MB and reads them back (stops on mismatch). There is **no mirror test**: a
+   wrap is not detected, so only the BERR from `$02000000` ends the probe at exactly 16 MB.
    Without the BERR the probe would continue into wrapped ST-RAM (corruption).
+   The probe only runs on a TOS cold boot (memvalid `$420` not valid, so `_ramvalid` is not reused).
+   A bitstream reload keeps the SDRAM, so the core masks `$420` to 0 after por (see FALCON_LESSONS).
 3. `_FRB` cookie: added automatically when ramtop != 0 (`CONF_WITH_FRB` = `CONF_WITH_ALT_RAM`); a
    64 KB ST-RAM bounce buffer for ACSI/floppy DMA. No hardware needed: DMA and blitter stay 24-bit on
    the ST bus and never see TT-RAM.
