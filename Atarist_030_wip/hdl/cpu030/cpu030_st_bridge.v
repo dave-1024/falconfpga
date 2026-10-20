@@ -133,6 +133,18 @@ module cpu030_st_bridge #(
     // [63:32]   row e: bridge 68000-side state machine (clk_32)
     // [31:0]    row f: {start count 7:0, live last program fetch A23:0} (clk_cpu)
     output wire [167:0] dbg_trace
+`ifdef TTRAM
+    ,
+    // FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 030-side TT-RAM at $01000000
+    input  wire        tt_en,       // switch: 1 = TT-RAM on, 0 = plain ST (A31:24 ignored, 24-bit wrap)
+    output reg         tt_req = 1'b0,
+    output reg         tt_we  = 1'b0,
+    output reg  [21:0] tt_la  = 22'd0,
+    output reg  [3:0]  tt_be  = 4'd0,
+    output reg  [31:0] tt_wdata = 32'd0,
+    input  wire        tt_ack,
+    input  wire [31:0] tt_rdata
+`endif
 );
 
     // =====================================================================
@@ -184,7 +196,13 @@ module cpu030_st_bridge #(
     // CIINn is active low: asserted (0) = do not cache this cycle, negated (1) = cachable.
     (* syn_keep = 1 *) wire cpu_fast_sel;
     assign cpu_fast_sel = ~cpu_asn & (cpu_fc != 3'b111) & (cpu_adr[31:24] == 8'h01);
+`ifdef TTRAM
+    // TTRAM: cachable only while TT-RAM is switched on; switched off, $01xxxxxx wraps to the ST
+    // side (24-bit) and must be cache-inhibited like any other ST cycle.
+    wire cpu_cii_n = cpu_fast_sel & tt_en;
+`else
     wire cpu_cii_n = cpu_fast_sel;      // negated only for the reserved fast-RAM range
+`endif
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
@@ -248,6 +266,47 @@ module cpu030_st_bridge #(
         .BGACKn    ( 1'b1          )
     );
 
+`ifdef TTRAM
+    // ---- FalconFPGA TTRAM front end (clk_32) ---------------------------------
+    // With tt_en, the 030's own 32-bit address is decoded (FC != 7):
+    //   A31:24 = $00, $FF : ST side, as before (24-bit bus, $FFxxxxxx = short I/O addressing)
+    //   A31:24 = $01      : TT-RAM, 32-bit port (DSACK1:0 = 00), cachable (CIIN negated)
+    //                       A23:0 >= TT_BYTES -> bus error
+    //   anything else     : bus error (no ST wrap: EmuTOS sizes TT-RAM by BERR / mirror tests)
+    // With tt_en = 0 nothing here is used and A31:24 are ignored (plain ST, 24-bit wrap).
+    localparam [24:0] TT_BYTES = 25'h1000000;   // 16 MB ($01000000-$01FFFFFF), 25'h0800000 = 8 MB
+    wire cpu_tt_any = tt_en & ~cpu_asn & (cpu_fc != 3'b111) &
+                      (cpu_adr[31:24] != 8'h00) & (cpu_adr[31:24] != 8'hFF);
+    wire cpu_tt_ram = cpu_tt_any & (cpu_adr[31:24] == 8'h01) & ({1'b0, cpu_adr[23:0]} < TT_BYTES);
+    reg  t_open = 1'b0, t_dsack = 1'b0, t_berr = 1'b0;
+    reg  [31:0] t_rdata = 32'hffffffff;
+    // byte lanes of a 32-bit port (MC68030UM 7.2.1): from A1:0 up to A1:0+size-1, at most lane 3
+    wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
+    wire [3:0] tt_lo = (4'b1111 >> cpu_adr[1:0]);                     // lanes >= A1:0 ([3] = lane 0)
+    wire [3:0] tt_hi = ~(4'b1111 >> ({1'b0, cpu_adr[1:0]} + tt_n));    // lanes <  A1:0+n
+    always @(posedge clk) begin
+        if (!cpu_rst_n || cpu_asn) begin
+            t_open  <= 1'b0;
+            t_dsack <= 1'b0;
+            t_berr  <= 1'b0;
+            tt_req  <= 1'b0;
+        end else if (!t_open & cpu_tt_any) begin
+            t_open   <= 1'b1;
+            tt_we    <= ~cpu_rwn;
+            tt_la    <= cpu_adr[23:2];
+            tt_be    <= tt_lo & tt_hi;
+            tt_wdata <= cpu_dout;
+            if (cpu_tt_ram) tt_req <= 1'b1;
+            else            t_berr <= 1'b1;
+        end else if (tt_req & tt_ack) begin
+            tt_req  <= 1'b0;
+            t_rdata <= tt_rdata;
+            t_dsack <= 1'b1;
+        end
+    end
+    wire t_cycle = t_open | cpu_tt_any;   // this 030 cycle is not for the ST side
+`endif
+
     // ---- front end: request capture (clk_32) -------------------------------
     // clk_cpu is phase-locked to clk_32 (same PLL VCO, every clk_cpu edge is a
     // clk_32 rising edge), so the 030 outputs are sampled directly by clk_32
@@ -265,7 +324,11 @@ module cpu030_st_bridge #(
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             c_open <= 1'b0;
-        end else if (!c_open) begin
+        end else if (!c_open
+`ifdef TTRAM
+                     & ~t_cycle
+`endif
+                     ) begin
             // first clk_32 edge with AS low. Address, SIZE, RW, FC and the
             // write data mux are registered by the 030 with AS (S0).
             c_open  <= 1'b1;
@@ -297,10 +360,17 @@ module cpu030_st_bridge #(
     reg [15:0] s_rdata  = 16'hffff;
 
     wire term_ok = c_open & (s_tag == c_req_t);
+`ifdef TTRAM
+    assign cpu_dsackn = t_dsack ? 2'b00 : (term_ok & s_dsack) ? 2'b01 : 2'b11;
+    assign cpu_avecn  = ~(term_ok & s_avec);
+    assign cpu_berrn  = ~((term_ok & s_berr) | t_berr);
+    assign cpu_din    = t_open ? t_rdata : {s_rdata, s_rdata};
+`else
     assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
     assign cpu_berrn  = ~(term_ok & s_berr);
     assign cpu_din    = {s_rdata, s_rdata};
+`endif
 
     // =====================================================================
     // clk_32 domain: the 68000 side
@@ -331,7 +401,11 @@ module cpu030_st_bridge #(
     // en1 on that edge starts the ST cycle at once instead of one clk_32
     // later, so the 030 can follow a cycle that ends at S6 with the next S0.
     // q_* are the request fields: live on that edge, captured (c_*) after it.
+`ifdef TTRAM
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle;
+`else
     wire live    = cpu_rst_n & ~cpu_asn & ~c_open;
+`endif
     wire pending = live | (req_now != s_seen);
     wire        q_tag  = live ? ~c_req_t        : c_req_t;
     wire [23:0] q_adr  = live ? cpu_adr[23:0]   : c_adr;
