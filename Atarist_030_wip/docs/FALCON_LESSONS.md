@@ -168,3 +168,6 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - Gate it on DATA_VALID, ALU idle, no pending write fault and the data register free; the ALU OPERANDS process
   forwards the buffer loaded in the same clock as ALU_INIT, so the early start sees the fresh operand.
 - Check every form against the ch.11 worst column with audit/gap.py; all stay at or above it.
+- Board status (20 Oct 2026, ebc5b63): board-passed, 10/10 cold boots on the final desktop check (an
+  earlier single black final was a capture-device fault), GEMBENCH 6.08 46/175/90 and 4.03 91/225/127 =
+  frame-fix. clk_cpu030 Fmax 19.34 MHz (frame-fix 23.43).
