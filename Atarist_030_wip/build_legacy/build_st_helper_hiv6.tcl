@@ -1,5 +1,7 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Legacy/debug script, moved to build_legacy/. Run from Atarist_030_wip/: gw_sh build_legacy/build_st_helper_hiv6.tcl
+# (it also cds there itself, so running it from build_legacy/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
@@ -12,7 +14,7 @@
 #   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
 # Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
 # includes it); build_tc138k.tcl writes "// desktop" there again.
-# Output: impl/pnr/st_helper.fs (hiwatch debug). See README "Build option: ST_HELPER".
+# Output: impl/pnr/st_helper.fs (hiwatch vector-6 debug). See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
@@ -44,6 +46,7 @@ puts $fh "`define WF030_FAST_HANDOFF"
 puts $fh "`define ST_SD_WRITE_FIX"
 puts $fh "`define DIAG_OVERLAY"
 puts $fh "`define DIAG_HIWATCH"
+puts $fh "`define DIAG_HIWATCH_V6"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

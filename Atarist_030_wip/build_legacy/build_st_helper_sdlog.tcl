@@ -1,5 +1,7 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Legacy/debug script, moved to build_legacy/. Run from Atarist_030_wip/: gw_sh build_legacy/build_st_helper_sdlog.tcl
+# (it also cds there itself, so running it from build_legacy/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
@@ -43,7 +45,6 @@ puts $fh "`define WF030_FAST_HANDOFF"
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.
 puts $fh "`define ST_SD_WRITE_FIX"
 puts $fh "`define SD_WRITE_DEBUG"
-puts $fh "`define ST_FLOPPY_MEDIACH"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

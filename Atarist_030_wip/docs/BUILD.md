@@ -26,8 +26,9 @@ Details, reasons and the rules are below. What went wrong before and why is in
 - `helper_fw/`: AE350 helper firmware ([helper_fw/README.md](../helper_fw/README.md)).
 - Build scripts: `build_st_helper.tcl` (**the main build**), `build_st_helper_hdn.tcl` (same + `SD_WRITE_DEBUG`,
   place 3: the build on the board), `build_st_68000*.tcl` (68000 comparison builds), `build_tc138k.tcl` (old desktop
-  build without the helper), `build_st_helper_{sdlog,mch,dmaw,excw,gdt,hiwatch,hiv6,wrw,nocart}.tcl` (debug/test
-  variants, one define each on top of the main build).
+  build without the helper), `build_legacy/build_st_helper_{sdlog,mch,dmaw,excw,gdt,hiwatch,hiv6,wrw,nocart}.tcl` (debug/test
+  variants, one define each on top of the main build) and `build_legacy/build_ae350_serial.tcl` (AE350 serial proof image).
+  The `build_legacy/` scripts cd to `Atarist_030_wip/` themselves; run them as `gw_sh build_legacy/<name>.tcl`.
 - Benches: `hdl/cpu030/sim/rtl/run_rtl.sh` (CPU RTL, GHDL), `hdl/cpu030/sim/st/run_bus.sh` (whole ST, Icarus),
   `hdl/misc/sim/tb_sd_*.v` (SD controller fault injection, Icarus), `hdl/fdc1772/sim/run_sim.sh` (FDC error status).
 
@@ -60,13 +61,13 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
 | `ST_030_CACHES` | off | no effect since 17 Oct 2026: the 68030 I and D caches are always built (no switch, CACR enables them as on a 030); the bridge drives CIIN from a per-cycle decode (ST ROM/RAM/IO inhibited, only `$01000000-$01FFFFFF` cachable); the old experimental modules are gone |
 | `ST_CPU_68000` | off (`build_st_68000.tcl`, `build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
-| `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn/mch/sdlog.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
+| `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn.tcl`, `build_legacy/build_st_helper_{mch,sdlog}.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
 | `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |
 | `DIAG_HIWATCH`, `DIAG_HIWATCH_V6`, `DIAG_EXCWATCH`, `DIAG_DMAWATCH`, `DIAG_GDTRACE` | off (own tcl each) | float-panic hunt probes (float_panic/FLOAT_PANIC.md); debug only, never on main |
 | `WF030_TRACE` | off (branch `diag-trace`) | in-fabric bus trace (how the JSR SP bug was found) |
 | `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out |
 
-All 13 `build_st_*.tcl` scripts set `BRIDGE_EARLY_AS` (20 Oct 2026: added to `build_st_68000.tcl` and `build_st_68000_st.tcl`, which only had the comment). `build_ae350_serial.tcl` and `build_tc138k.tcl` write their own `build_sel.vh` and are not ST builds.
+All 13 ST scripts (`build_st_*.tcl` here and in `build_legacy/`) set `BRIDGE_EARLY_AS` (20 Oct 2026: added to `build_st_68000.tcl` and `build_st_68000_st.tcl`, which only had the comment). `build_legacy/build_ae350_serial.tcl` and `build_tc138k.tcl` write their own `build_sel.vh` and are not ST builds.
 
 ## 5. place_option
 The same RTL can fail timing, or (once) give a bitstream whose helper didn't boot, depending on placement.

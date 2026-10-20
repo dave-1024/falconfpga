@@ -193,7 +193,7 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   New hypothesis: an INTERRUPT arriving in that window is dispatched to vector 6 instead of its own (e.g. MFP ACIA $46 with
   data bit 6 lost on IACK -> $06; matches the bit-6 signature), so HiSoft's CHK handler runs with the heap A5 -> panic.
   The V6 probe history will show whether an IACK cycle precedes the $18 fetch.
-- 07:0x V6 build started on linserver (build_st_helper_hiv6.tcl, DIAG_HIWATCH_V6 + overlay row-d mask fix, 86882a8).
+- 07:0x V6 build started on linserver (build_legacy/build_st_helper_hiv6.tcl, DIAG_HIWATCH_V6 + overlay row-d mask fix, 86882a8).
 - 07:3x IEEE.BIN (PFX 1.13P lz5 self-extractor) differential, docs/float_panic/diff/mk2.py: relocated at $5581C,
   caches on (CACR $3111). The stub copies itself to hitpa-1024, depacks (MOVEP, MOVEM -(An) BSS clear), patches
   its own `jmp $DEADFACE` operand and jumps into the unpacked code. Musashi vs tb030 (4M clocks, WS=1 / WSRND=3 /
@@ -220,7 +220,7 @@ Program sim/st/prog_stk.s (fix-hiword), run_bus.sh with ROM arg, both CPU phases
   no comparison possible with this build. A clean MiSTeryNano 68000 + AE350 helper build is needed.
 - 09:4x Board back on st_helper_sdw_p3.fs: first cold boot showed "System halted!" after the mailbox test,
   second cold boot -> desktop OK (p3back2.png).
-- 09:3x DIAG_EXCWATCH (abde04d): core DBG_EXC (vector, stacked SR, PC, A5 at handler-address load; checked in tb030 on prog_chk: vec 06, PC = next instr), last 16 exceptions, freeze on BERR/AERR with PC in $400000-$DFFFFF. Build running (build_st_helper_excw.tcl).
+- 09:3x DIAG_EXCWATCH (abde04d): core DBG_EXC (vector, stacked SR, PC, A5 at handler-address load; checked in tb030 on prog_chk: vec 06, PC = next instr), last 16 exceptions, freeze on BERR/AERR with PC in $400000-$DFFFFF. Build running (build_legacy/build_st_helper_excw.tcl).
 
 ## 10:xx excwatch result (st_helper_excw_abde04d.fs, TNS 0)
 History (newest first; page 0 = the BERR itself, and pages 3/4/9 were not captured):
@@ -291,7 +291,7 @@ Board left on st_helper_sdw_p3.fs, cold boot reaches the desktop.
 - Next probe: record the PC (core PC of the writing instruction), data, size and FC of the FIRST CPU writes into
   $55C96-$55D20 (+ cycle stamp), freeze at vector 6. Board restored to st_helper_sdw_p3.fs.
 
-## 14 Oct 12:1x write-watch probe (769a1eb, DIAG_WRWATCH, build_st_helper_wrw.tcl, b_wrw.log)
+## 14 Oct 12:1x write-watch probe (769a1eb, DIAG_WRWATCH, build_legacy/build_st_helper_wrw.tcl, b_wrw.log)
 - tb030 check: the core PC at the start of a write cycle = the writing instruction (move.l #x,abs -> its own PC);
   for BSR/JSR pushes it is already the target. Entry {PC, A, D, SIZ, FC, SR, A5}; first 8 + last 8 writes into
   $55C96-$55D21, frozen at vector 6. Decoder docs/float_panic/pages_wr.py. DMA/shifter/blitter/helper writes don't
@@ -327,7 +327,7 @@ SR field = SR_CPY (the core's copy from the last exception), NOT the live SR - i
 - Hatari GEMDOS memory descriptors (owner GEMBENCH PD $132F0): ... $55298+$480, and **$55718 len $3A28E8 (to $3F8000)**.
   So in Hatari GEMBENCH owns all memory from $55718 (its bitmap lives there). On the board AUTOFPU's basepage/A5 is
   $55718: that block was FREE at the board's Pexec. Next: trace the board's GEMDOS calls (Malloc/Mfree/Mshrink/Pexec).
-- Building DIAG_GDTRACE (a46bc8f, build_st_helper_gdt.tcl, b_gdt.log).
+- Building DIAG_GDTRACE (a46bc8f, build_legacy/build_st_helper_gdt.tcl, b_gdt.log).
 
 ## 14 Oct 13:xx cookie read on the board, BERR writeback bug, Hatari STE/cartridge runs
 - COOKIEFP.TOS (gb/cj/cj.s) on st_helper_sdw_p3: jar $74E0/20 slots, _CPU $1E, _FPU 0, _MCH $10000, _VDO $10000,

@@ -1,5 +1,7 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Legacy/debug script, moved to build_legacy/. Run from Atarist_030_wip/: gw_sh build_legacy/build_st_helper_excw.tcl
+# (it also cds there itself, so running it from build_legacy/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop

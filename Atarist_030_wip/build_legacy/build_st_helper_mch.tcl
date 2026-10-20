@@ -1,5 +1,7 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Legacy/debug script, moved to build_legacy/. Run from Atarist_030_wip/: gw_sh build_legacy/build_st_helper_mch.tcl
+# (it also cds there itself, so running it from build_legacy/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
@@ -17,6 +19,7 @@ set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
 # next line to build without it.
+puts $fh "`define ST_HELPER_CART"
 # USB keyboard/mouse on the Console USB-A ports for the AE350 companion
 # (st_helper_usb.v, port step 4). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_USB"
@@ -41,6 +44,8 @@ puts $fh "`define WF030_FAST_HANDOFF"
 # CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.
 puts $fh "`define ST_SD_WRITE_FIX"
+puts $fh "`define SD_WRITE_DEBUG"
+puts $fh "`define ST_FLOPPY_MEDIACH"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -205,7 +210,7 @@ set_option -correct_hold_violation 1
 # (u_gowin_pll_ddr3/u_pll_init/waitcnt, clk_osc) missed hold by up to 0.131 ns
 # (clk_osc hold TNS -0.371, 4 endpoints; clock skew -0.75 ns). Placer 1 is
 # clean on every clock (clk_cpu030 17.65 MHz, clk32_core 32.11 MHz).
-set_option -place_option 1
+set_option -place_option 3
 set_option -loading_rate 70.000
 set_option -ireg_in_iob 1
 set_option -oreg_in_iob 1

@@ -28,7 +28,7 @@ faithful (GSTMCU/shifter slot timing untouched).
 ```
 Atarist_030_wip/
   build_st_helper.tcl        main build (Gowin gw_sh); writes the `defines
-  build_tc138k.tcl, build_ae350_serial.tcl   other builds
+  build_tc138k.tcl, build_legacy/build_ae350_serial.tcl   other builds
   hdl/atarist  hdl/cpu030  hdl/fdc1772  hdl/fx68k  hdl/gstmcu  hdl/hdmi
   hdl/helper   hdl/ikbd    hdl/jt49     hdl/misc   hdl/tang  hdl/misterynano.sv
   hdl/tang/console138k/build_sel.vh   generated `define file (do not edit by hand)
