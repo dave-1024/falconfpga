@@ -375,6 +375,8 @@ signal INBUFFER                 : std_logic_vector(31 downto 0);
 signal INT_TRIG                 : bit;
 signal IPL                      : std_logic_vector(2 downto 0);
 signal ISP_DEC                  : bit;
+signal ISP_EARLY                : bit; -- [XT1]
+signal EXH_STK                  : bit; -- [XT2]
 signal ISP_RD                   : bit;
 signal ISP_LOAD_EXH             : bit;
 signal ISP_WR_MAIN              : bit;
@@ -1109,6 +1111,7 @@ begin
             SFC                     => SFC,
             SFC_WR                  => SFC_WR,
             ISP_DEC                 => ISP_DEC,
+            ISP_EARLY               => ISP_EARLY, -- [XT1]
             ISP_RD                  => ISP_RD,
             ISP_WR                  => ISP_WR,
             MSP_RD                  => MSP_RD,
@@ -1215,6 +1218,7 @@ begin
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
             PF_HOLD             => PF_HOLD_BI, -- [PFCOF] [MI1]
             PF_NOEARLY          => PF_NOEARLY, -- [XH3]
+            EXH_STK             => EXH_STK, -- [XT2]
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
@@ -1491,6 +1495,8 @@ begin
     
             SR_WR                   => SR_WR_EXH,
             ISP_DEC                 => ISP_DEC,
+            ISP_EARLY               => ISP_EARLY, -- [XT1]
+            EXH_STK                 => EXH_STK, -- [XT2]
             ISP_LOAD                => ISP_LOAD_EXH,
             PC_LOAD                 => PC_LOAD_EXH,
             PC_INC                  => PC_INC_EXH,
