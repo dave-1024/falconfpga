@@ -387,6 +387,8 @@ signal IPIPE_FLUSH              : bit;
 signal OPC_DISMISS              : bit; -- [F62c]
 signal COF_PEND                 : bit; -- [PFCOF]
 signal PF_HOLD                  : bit; -- [PFCOF]
+signal COF_ANY                  : bit; -- [XH3]
+signal PF_NOEARLY               : bit; -- [XH3]
 signal MI_HOLD                  : bit; -- [MI1]
 signal PF_HOLD_BI               : bit; -- [MI1]
 signal Q_STREAM                 : std_logic_vector(63 downto 0); -- [PFCOF2]
@@ -830,6 +832,7 @@ begin
                   '1' when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" and IBUFFER(13 downto 12) /= STATUS_REG(13 downto 12) else
                   '1' when OP = MOVE_TO_SR and DATA_TO_CORE(13 downto 12) /= STATUS_REG(13 downto 12) else '0';
 
+    PF_NOEARLY <= COF_ANY or COF_PEND; -- [XH3]
     PF_HOLD_BI <= PF_HOLD or (MI_HOLD and not BUSY_EXH); -- [MI1] Not during exception processing.
 
     DATA_RD <= DATA_RD_EXH or DATA_RD_MAIN;
@@ -1211,6 +1214,7 @@ begin
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
             PF_HOLD             => PF_HOLD_BI, -- [PFCOF] [MI1]
+            PF_NOEARLY          => PF_NOEARLY, -- [XH3]
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
@@ -1568,6 +1572,7 @@ begin
             PF_HOLD                 => PF_HOLD, -- [PFCOF]
             Q_STREAM                => Q_STREAM, -- [PFCOF2]
             Q_COUNT                 => Q_COUNT,
+            COF_ANY                 => COF_ANY, -- [XH3]
 
             -- Fault logic:
             OW_VALID                => OW_VALID,
