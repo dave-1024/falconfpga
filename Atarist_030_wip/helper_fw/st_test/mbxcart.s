@@ -168,25 +168,53 @@ tdone:  move.l  a4, 0x8.w
         bsr     hex2
         lea     s_crlf(pc), a0
         bsr     print
-| fallback: TT-RAM answers but TOS did not take it -> one software cold boot
-        cmp.l   #0x54545242, 0x3f0.w    | 'TTRB': we already did one
-        bne.s   fb1
-        clr.l   0x3f0.w
-        lea     s_fbd(pc), a0
-        bra     print
-fb1:    tst.l   0x5a4.w
-        bne.s   fbx
+| TT-RAM stress: 16 MB address-pattern longs, D-cache + I-cache on, then verify
         cmp.l   #0x010fffff, d5
-        bls.s   fbx
-        move.l  #0x54545242, 0x3f0.w
-        lea     s_fbr(pc), a0
-        bsr     print
+        bls     mtx
+        move.w  sr, -(sp)
         move.w  #0x2700, sr
-        clr.l   0x420.w
-        clr.l   0x5a8.w
-        move.l  0xe00004, a0
-        jmp     (a0)
-fbx:    rts
+        move.l  #0x0909, d0
+        .long   0x4e7b0002              | movec d0,cacr
+        lea     0x01000000, a1
+        move.l  #0x003fffff, d1
+mw:     move.l  a1, d0
+        not.l   d0
+        move.l  d0, (a1)+
+        subq.l  #1, d1
+        bpl.s   mw
+        lea     0x01000000, a1
+        move.l  #0x003fffff, d1
+        moveq   #0, d6
+        moveq   #0, d4
+mr:     move.l  a1, d0
+        not.l   d0
+        cmp.l   (a1)+, d0
+        beq.s   mo
+        tst.l   d6
+        bne.s   mi
+        move.l  a1, d4
+        move.l  -4(a1), d7
+mi:     addq.l  #1, d6
+mo:     subq.l  #1, d1
+        bpl.s   mr
+        moveq   #0, d0
+        .long   0x4e7b0002              | movec d0,cacr
+        move.w  (sp)+, sr
+        lea     s_me(pc), a0
+        bsr     print
+        move.l  d6, d0
+        bsr     hex8
+        lea     s_tt6(pc), a0
+        bsr     print
+        move.l  d4, d0
+        bsr     hex8
+        move.b  #32, d0
+        bsr     conout
+        move.l  d7, d0
+        bsr     hex8
+        lea     s_crlf(pc), a0
+        bra     print
+mtx:    rts
 hex8:   swap    d0
         bsr.s   hex4
         swap    d0
@@ -235,14 +263,13 @@ s_tt3:  .asciz  " RV "
 s_tt4:  .asciz  "\r\nB32 "
 s_tt5:  .asciz  " END "
 s_tt6:  .asciz  " W "
-s_fbr:  .asciz  "TT: soft cold boot\r\n"
-s_fbd:  .asciz  "TT: after soft cold boot\r\n"
+s_me:   .asciz  "MT err "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
 s_msg:  .asciz  "hello from the ST\r"
-s_wait: .asciz  "sent 'hello from the ST', helper says:\r\n"
-s_done: .asciz  "\r\n-- mailbox test done, TOS continues --\r\n"
+s_wait: .asciz  "helper says:\r\n"
+s_done: .asciz  "\r\n-- TOS continues --\r\n"
 s_noup: .asciz  "helper not running, skipped\r\n"
 s_nombx: .asciz "no mailbox at $FFFB00, skipped\r\n"
         .even

@@ -263,6 +263,7 @@ end
 // (the hit is sampled inside sdram.v at CAS time, so it belongs to that read).
 // Same for _ramvalid ($5A8): TOS 1.6+/EmuTOS reuse the old _ramtop when it
 // is valid, so it is masked too (own flag, cleared by the first write).
+localparam TT_RV_MASK = 1'b0;   // 1: TOS probes TT-RAM after every load (tt5: EmuTOS then crashes, see TTRAM_LOG)
 reg pwr_cold = 1'b1, pwr_cold_rv = 1'b1;
 wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
 wire ramvalid_hit = (ram_a[23:2] == 22'h00016A);   // byte $5A8..$5AB
@@ -318,7 +319,7 @@ sdram sdram (
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
         .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
         .we( !we_n ),               // cpu/chipset requests write
-        .zmask( (pwr_cold && memvalid_hit) || (pwr_cold_rv && ramvalid_hit) )
+        .zmask( (pwr_cold && memvalid_hit) || (TT_RV_MASK && pwr_cold_rv && ramvalid_hit) )
 `ifdef TTRAM
         ,
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),
