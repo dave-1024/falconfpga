@@ -54,7 +54,7 @@ module sdram (
 	input [21:0]	  tt_la,      // long word address: TT-RAM byte A23:2
 	input [3:0]	  tt_be,      // write lanes, [3] = D31:24 (A1:0 = 00) .. [0] = D7:0
 	input [31:0]	  tt_din,
-	output reg	  tt_ack = 1'b0, // one clk: write done / tt_dout valid
+	output reg	  tt_ack = 1'b0, // one clk: write taken (posted) / read: tt_dout complete 3 clk later
 	output reg [31:0] tt_dout
 `endif
 );
@@ -137,8 +137,8 @@ reg csD = 1'b0;
 // is ACTIVE at g0 (g7 with the F63 early start), CAS at g1 (g0), data at
 // g3/g4. tg follows that grid from every ST start. A TT access starts at g2,
 // uses bank 1/2 only and is over (auto precharge) before the next ST ACTIVE:
-//   read : g2 ACT, g3 READ w0, g4 READ w1 +AP, capture w0 g6, w1 g7 (ack)
-//   write: g2 ACT, g4 WRITE w0, g5 WRITE w1 +AP (ack at g5)
+//   read : g2 ACT, g3 READ w0, g4 READ w1 +AP (ack), capture w0 g6, w1 g7 (tt_dout)
+//   write: g2 ACT (ack: posted), g4 WRITE w0, g5 WRITE w1 +AP
 // Command, data and DQM clocks never meet the ST ones (sim/ttram/tb_ttram.v
 // checks it with an SDRAM model). ST timing is not changed.
 // ---------------------------------------------------------------------
@@ -258,14 +258,16 @@ always @(posedge clk) begin
       sd_ba   <= tt_la[21] ? 2'b10 : 2'b01;
       tt_dqme <= 1'b1; tt_dqm <= 2'b00;
       tt_rdwin <= !tt_we;
+      tt_ack  <= tt_we;   // L2: a write is posted (data held in tt_d), the 030 may end its cycle now
    end else if (tt_busy) begin
       tt_t <= tt_t + 3'd1;
       if (!tt_w) begin
          case (tt_t)
          3'd1: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank; end
-         3'd2: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank; end
+         3'd2: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
+                     tt_ack <= 1'b1; end   // L2: early ack, tt_dout is complete 3 edges later (see bridge)
          3'd4: tt_w0 <= sd_data[15:0];
-         3'd5: begin tt_dout <= {tt_w0, sd_data[15:0]}; tt_ack <= 1'b1; tt_busy <= 1'b0;
+         3'd5: begin tt_dout <= {tt_w0, sd_data[15:0]}; tt_busy <= 1'b0;
                      tt_rdwin <= 1'b0; tt_dqme <= 1'b0; end
          default: ;
          endcase
@@ -274,7 +276,7 @@ always @(posedge clk) begin
          3'd2: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank;
                      tt_oe <= 1'b1; tt_wd <= tt_d[31:16]; tt_dqm <= ~tt_b[3:2]; end
          3'd3: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
-                     tt_wd <= tt_d[15:0]; tt_dqm <= ~tt_b[1:0]; tt_ack <= 1'b1; end
+                     tt_wd <= tt_d[15:0]; tt_dqm <= ~tt_b[1:0]; end
          3'd4: begin tt_oe <= 1'b0; tt_dqme <= 1'b0; tt_busy <= 1'b0; end
          default: ;
          endcase

@@ -23,11 +23,11 @@ open('stBlitter_sim.sv','w').write(s)
 P
 cp $R/ikbd/rom/ikbd.hex . 2>/dev/null || true
 if [ "$ROM" = bus ]; then
-  m68k-linux-gnu-as -m68030 $H/prog_bus.s -o bus.o && m68k-linux-gnu-ld -Ttext=0xe00000 -o bus.elf bus.o 2>/dev/null && m68k-linux-gnu-objcopy -O binary bus.elf rom.bin
+  m68k-linux-gnu-as -m68030 $H/${PROG:-prog_bus}.s -o bus.o && m68k-linux-gnu-ld -Ttext=0xe00000 -o bus.elf bus.o 2>/dev/null && m68k-linux-gnu-objcopy -O binary bus.elf rom.bin
 else cp $ROM rom.bin; fi
 python3 -c "d=open('rom.bin','rb').read(); d+=b'\xff'*(max(4096,len(d))-len(d)+len(d)%2); open('rom.hex','w').write('\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\n')"
 A=$R/atarist; G=$R/gstmcu/hdl; J=$R/jt49; K=$R/ikbd
-iverilog -g2012 -DWF030_NETLIST -DST_HELPER -I$K/hd63701 -o bus.vvp -s tb_bus $H/tb_bus.v \
+iverilog -g2012 -DWF030_NETLIST -DST_HELPER $BUS_DEFS -I$K/hd63701 -o bus.vvp -s tb_bus $H/tb_bus.v \
   $A/acia.v acsi_sim.v $A/atarist.v $A/cubase2_dongle.v $A/cubase3_dongle.v $A/dma.v $A/io_fifo.v $A/mfp.v $A/mfp_hbit16.v \
   $A/mfp_srff16.v $A/mfp_timer.v $A/ste_joypad.v fdc1772_sim.v $R/fdc1772/floppy.v $G/clockgen.v $G/gstmcu.v $G/gstshifter.v \
   $G/hdegen.v $G/hsyncgen.v $H/latch_sim.v $G/mcucontrol.v $G/modules.v $H/register_sim.v $G/shifter_video.v $G/sndcnt.v \
@@ -36,5 +36,5 @@ iverilog -g2012 -DWF030_NETLIST -DST_HELPER -I$K/hd63701 -o bus.vvp -s tb_bus $H
   $K/hd63701/HD63701.v $K/hd63701/HD63701_ALU.v $K/hd63701/HD63701_CORE.v $K/hd63701/HD63701_EXEC.v $K/hd63701/HD63701_MCROM.v \
   $K/hd63701/HD63701_SEQ.v $K/rom/MCU_BIROM.v $R/tang/mega138kpro/gowin_dpb/fdc_dpram.v stBlitter_sim.sv \
   $R/cpu030/cpu030_st_bridge.v $R/tang/mega138kpro/sdram.v $NET ${GOWIN_SIMLIB:-/workspace/tools/gowin/IDE/simlib/gw5a}/prim_sim.v 2>&1 | grep -v "warning\|sorry\|: note" || true
-for ph in 15625 46875; do vvp -n bus.vvp +rom=rom.hex +cph=$ph +trace=trace_$ph.txt "$@" > run_$ph.log 2>&1 & done; wait
+for ph in ${PHASES:-15625 46875}; do vvp -n bus.vvp +rom=rom.hex +cph=$ph +trace=trace_$ph.txt "$@" > run_$ph.log 2>&1 & done; wait
 grep -hv WARNING run_*.log

@@ -86,13 +86,42 @@ D31:24), `tt_din[31:0]`, `tt_ack` (one clock), `tt_dout[31:0]`.
 - Switch: `tt_en` input; `misterynano` parameter `TTRAM_ON` (default 1 when `TTRAM` is defined).
   Later an OSD bit from the helper menu; it should only change while the CPU is in reset.
 
-## 6. Speed (first version)
+## 6. Speed
+### 6a. First version (2bcc13c)
 Bench: AS-to-DSACK about 13 clk32 average (406 ns), 15 max: wait for g2 (0-7 clk), 5 clk of SDRAM
 work, one clk to DSACK, plus the 030's sampling. At a 16 MHz CPU that is about 4 wait states on a
 32-bit access (two 16-bit ST cycles would take about 1000 ns). Still ~2.5x ST-RAM per long word, no
 video contention, and the I/D caches hit on top. Tuning phase options: SDRAM clock 2-4x (TT slot then
 fits several times per ST slot), start at more grid points, read bursts for cache line fills
 (CBACK), STERM synchronous termination.
+
+### 6b. Latency cuts without a new SDRAM clock (this branch, after 2bcc13c)
+- **L1 request from the pins:** `tt_req/tt_la/tt_be/tt_we/tt_wdata` are driven straight from the 030's
+  A/SIZE/RW/D outputs (valid with AS, the same assumption the ST front end makes), so sdram.v sees
+  the request on the first clk32 edge with AS low instead of one edge later. Timing path: cpu_adr ->
+  decode -> `tt_go` / sdram.v registers (clk_cpu -> clk32 related path, like the ST front end).
+- **L2 early read ack, posted writes:** sdram.v acks a read on the edge it issues READ w1 (3 clk32
+  before `tt_dout` is complete); the bridge's DSACK follows one edge later. The 030 samples DSACK on a
+  clk_cpu falling edge and latches D one clk_cpu (2 clk32) later, so the data latch is never before the
+  `tt_dout` load edge + 1. `cpu_din` takes `tt_dout` directly. Writes are acked when sdram.v takes
+  them (data held in `tt_d`); a following TT access waits for `tt_busy`, so order is kept.
+- Unit bench: AS->DSACK 13 -> 9 clk32 average (max 15 -> 13). Whole-ST bench, real core, whole TT
+  cycle (AS low -> AS negated): 13.4 -> 11.6 clk32 average (prog_tt, 340 TT cycles); about 5.8 clk_cpu
+  at 16 MHz, i.e. ~4 wait states per 32-bit access (was ~5). The many 15-clock cycles are reads that
+  wait one slot behind a posted write.
+
+### 6c. Further cheap options (not implemented)
+- **CPU-half slots while the 030 is in a TT cycle:** the GSTMCU CPU-half RAS only comes from a
+  bridge ST cycle or a DMA/blitter master. While the 030 waits for TT-RAM and no BR/BGACK is active,
+  the CPU half is provably free, so a TT access could start at any of its first ~5 clocks (not just
+  g2), and refresh stays in the video half. Needs the 16-clock phase (time0) and a "bridge idle, no
+  grant" signal into sdram.v. Gain about 1-2 clk32 average; needs care with a BR that arrives
+  mid-access (grant takes >= 4 clk32, so there is warning).
+- **Start the row early on decode (like F63):** A31:24 = $01 is known one clk32 before AS from the
+  030's address phase only if the core exported its S0 address early; it does not (pins only). No gain
+  without touching the core.
+- **Sequential reads:** keep the TT row open between accesses (no auto-precharge) when the next
+  access hits the same row; needs precharge before every refresh/ST slot. Tuning phase.
 
 ## 7. EmuTOS requirements (emutos master, bios/memory.S, bios/memory2.c, bios/machine.c)
 1. `detect_32bit_address_bus`: writes `$0000000C`, compares `$0100000C`. Must NOT mirror -> needs the
@@ -122,6 +151,19 @@ shadow, plus:
 - CIIN checked on every cycle.
 Result: `TTRAM BENCH PASS` (3219 ST reads all correct, 0 SDRAM model errors). Moving the TT start
 to g1 makes it fail (the bench catches the clash).
+
+### 8b. Whole-ST bench (`cpu030/sim/st`, real WF68K30L netlist, `run_tt.sh`)
+`prog_tt.s` (ROM): the same long/word/byte/misaligned store sequence on TT-RAM and ST-RAM, 80 longs
+compared, misaligned long/word/byte read sums, code copied to `$01002000` and run twice with I+D
+caches on, cached TT re-read, BERR at `$02000000`, while ST video/refresh/CPU traffic runs.
+Result (v1 and with L1/L2): 0 mismatches, sums equal, TT code result 0x1356 twice, 1 bus error,
+0 SDRAM data-bus clashes; only 6 program-space TT bus cycles for 200 loop iterations (I-cache hits).
+ST timing: `prog_bus.s` ST bus trace (4221 cycles with times, 3 ms) is byte-identical for frame-fix
+(no TTRAM), TTRAM on and TTRAM off (v1 and L1/L2).
+Netlist note: the box cannot run Gowin synthesis (license server unreachable), so these runs use the
+existing core netlist `/tmp/gbsyn` (core ff6af03); the same netlist for every compared run.
+The tb SDRAM model had a latent bug (back-to-back READs returned the second address for both);
+ST never issues them, TT does; fixed in tb_bus.v.
 
 ## 9. Risks / open points
 - **Grid assumption**: TT slots rely on the GSTMCU 8-clock RAS grid. If a start ever lands off-grid

@@ -38,24 +38,62 @@ module tb_bus;
         .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .refresh(refresh), .din(mdout), .dout(sd_dout), .addr(ram_a[22:1]), .ds({cash_n, casl_n}),
-        .cs(!ras_n && !ram_a[23]), .ecs(ram_early_en & ram_early && !ram_a[23]), .we(!we_n));
+        .cs(!ras_n && !ram_a[23]), .ecs(ram_early_en & ram_early && !ram_a[23]), .we(!we_n)
+`ifdef TTRAM
+        , .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata)
+`endif
+        );
+`ifdef TTRAM
+    // TTRAM: +tten=0 switches TT-RAM off (24-bit wrap)
+    wire tt_req, tt_we, tt_ack; wire [21:0] tt_la; wire [3:0] tt_be; wire [31:0] tt_wdata, tt_rdata;
+    integer tten = 1; initial if ($value$plusargs("tten=%d", tten)) ;
+    wire tt_en = (tten != 0);
+    reg [15:0] ttm [0:(1<<22)-1];   // banks 1/2: {bank2, row[11:0], col[8:0]}
+    integer n_clash = 0, n_ttact = 0, n_ttprog = 0, n_ttdata = 0;
+    reg tq = 0;   // TT cycles seen by the bridge, program vs data space
+    integer htt [0:31]; integer tt_c = 0, tt_sum = 0, tt_n = 0; initial for (k = 0; k < 32; k = k + 1) htt[k] = 0;
+    // TT cycle length: first clk32 edge with AS low -> AS negated (clk32), reads and writes
+    always @(posedge clk32) begin
+        if (dut.cpu030.t_open) tt_c = tt_c + 1;
+        if (tq && !dut.cpu030.t_open) begin if (tt_c > 31) tt_c = 31; htt[tt_c] = htt[tt_c] + 1; tt_sum = tt_sum + tt_c; tt_n = tt_n + 1; tt_c = 0; end
+    end
+    always @(posedge clk32) begin tq <= dut.cpu030.t_open;
+        if (dut.cpu030.t_open && !tq) begin if (dut.cpu030.cpu_fc[1]) n_ttprog = n_ttprog + 1; else n_ttdata = n_ttdata + 1; end end
+    initial for (k = 0; k < (1<<22); k = k + 1) ttm[k] = 16'h0000;
+    always @(negedge sd_clk) if (dq_oe && (sdram.tt_oe || (!sdram.tt_rdwin && sdram.cs && sdram.we))) begin
+        n_clash = n_clash + 1; if (n_clash < 10) $display("%0t SDRAM DATA BUS CLASH", $time); end
+    always @(posedge sd_clk) if ({sd_ras, sd_cas, sd_we} == 3'b011 && sd_ba != 0) n_ttact = n_ttact + 1;
+`endif
     integer early_en = 1; initial if ($value$plusargs("early=%d", early_en)) ;
     wire ram_early_en = (early_en != 0);
     always @* mdin = sd_dout;
     // chip: commands sampled on the sd_clk rising edge (= clk32 falling edge), CL2,
     // tAC 5.4 ns, tOH 2.7 ns; READ/WRITE with A10 = auto precharge; memory = ram[]
-    reg [12:0] sd_row; reg [1:0] rdq = 0; reg [20:0] ra0, ra1; reg [15:0] dq_o; reg dq_oe = 0;
+    // TTRAM: rows per bank; bank 0 = ram[] (ST), banks 1/2 = ttm[] (TT-RAM)
+    reg [12:0] sd_row, brow [0:3]; reg [1:0] rdq = 0; reg [22:0] ra0, ra1, ra_now; reg [15:0] dq_o; reg dq_oe = 0;
     assign sd_dq[15:0] = dq_oe ? dq_o : 16'hzzzz;
     always @(posedge sd_clk) begin
+        ra_now = ra1;   // TTRAM: sample before the #delays (back-to-back READs: ra1 changes meanwhile)
         rdq <= {rdq[0], ({sd_ras, sd_cas, sd_we} == 3'b101)};
         ra1 <= ra0;
-        if ({sd_ras, sd_cas, sd_we} == 3'b011) sd_row <= sd_a;
-        if ({sd_ras, sd_cas, sd_we} == 3'b101) ra0 <= {sd_row[11:0], sd_a[8:0]};
+        if ({sd_ras, sd_cas, sd_we} == 3'b011) begin sd_row <= sd_a; brow[sd_ba] <= sd_a; end
+        if ({sd_ras, sd_cas, sd_we} == 3'b101) ra0 <= {sd_ba, brow[sd_ba][11:0], sd_a[8:0]};
         if ({sd_ras, sd_cas, sd_we} == 3'b100) begin
-            if (!sd_dqm[1]) ram[{sd_row[11:0], sd_a[8:0]}][15:8] <= sd_dq[15:8];
-            if (!sd_dqm[0]) ram[{sd_row[11:0], sd_a[8:0]}][7:0]  <= sd_dq[7:0];
+            if (sd_ba == 0) begin
+            if (!sd_dqm[1]) ram[{brow[0][11:0], sd_a[8:0]}][15:8] <= sd_dq[15:8];
+            if (!sd_dqm[0]) ram[{brow[0][11:0], sd_a[8:0]}][7:0]  <= sd_dq[7:0];
+            end else begin
+`ifdef TTRAM
+            if (!sd_dqm[1]) ttm[{sd_ba[1], brow[sd_ba][11:0], sd_a[8:0]}][15:8] <= sd_dq[15:8];
+            if (!sd_dqm[0]) ttm[{sd_ba[1], brow[sd_ba][11:0], sd_a[8:0]}][7:0]  <= sd_dq[7:0];
+`endif
+            end
         end
-        if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= ram[ra1]; dq_oe <= 1; end
+`ifdef TTRAM
+        if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= (ra_now[22:21] == 0) ? ram[ra_now[20:0]] : ttm[{ra_now[22], ra_now[20:0]}]; dq_oe <= 1; end
+`else
+        if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= ram[ra_now[20:0]]; dq_oe <= 1; end
+`endif
         else if (dq_oe) begin #2700 dq_oe <= 0; end
     end
     // early start statistics: ACTIVE commands by origin, CPU half (time0 low) vs video half
@@ -99,6 +137,10 @@ module tb_bus;
         .leds(), .rom_fetch(), .dbg_cpu_as_n(), .dbg_cpu_halted_n(), .dbg_030(), .dbg_trace(), .dbg_vbase(),
         .ext_io_cs(), .ext_io_a(), .ext_io_rw(), .ext_io_uds_n(), .ext_io_lds_n(), .ext_io_wdata(),
         .ext_io_rdata(16'h0000), .ext_io_dtack(1'b0)
+`ifdef TTRAM
+        , .tt_en(tt_en), .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_wdata(tt_wdata),
+        .tt_ack(tt_ack), .tt_rdata(tt_rdata)
+`endif
     );
     GSR GSR (.GSRI(1'b1));
     initial begin #1000; dut.dma.dma_in_progress = 1'b0; dut.dma.fifo_read_in_progress = 1'b0; dut.dma.fifo_write_in_progress = 1'b0; end
@@ -198,6 +240,15 @@ module tb_bus;
         $write("back-to-back: ST AS->AS spacing (125ns units):"); for (k = 0; k < 32; k = k + 1) if (hbs[k]) $write(" %0d:%0d", k, hbs[k]); $display("");
         $write("AS->AS spacing (125ns units) all:");  for (k = 2; k < 32; k = k + 1) if (hist[k]) $write(" %0d:%0d", k, hist[k]); $display("");
         $write("AS->AS spacing RAM->RAM:");          for (k = 2; k < 32; k = k + 1) if (hr[k]) $write(" %0d:%0d", k, hr[k]); $display("");
+`ifdef TTRAM
+        $display("TTRAM: tt_en=%0d, TT ACTIVE commands %0d, SDRAM data bus clashes %0d, TT bus cycles: program %0d data %0d", tten, n_ttact, n_clash, n_ttprog, n_ttdata);
+        $write("TT0:"); for (k = 0; k < 24; k = k + 1) $write(" %04x", ttm[k]); $display("");
+        $write("ST0:"); for (k = 16'h8000; k < 16'h8000+24; k = k + 1) $write(" %04x", ram[k]); $display("");
+        $write("TT cycle AS->AS negate (clk32):"); for (k = 0; k < 32; k = k + 1) if (htt[k]) $write(" %0d:%0d", k, htt[k]);
+        if (tt_n) $display("  avg %0d.%02d", tt_sum / tt_n, (tt_sum * 100 / tt_n) % 100); else $display("");
+        $write("TTDIFF:"); for (k = 0; k < 160; k = k + 1) if (ttm[k] !== ram[16'h8000+k]) $write(" %0d:%04x/%04x", k, ttm[k], ram[16'h8000+k]); $display("");
+        $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1340>>1; k = k + 1) $write(" %04x", ram[k]); $display("");
+`endif
         $fclose(tf); $finish;
     end endtask
     // bus test ROM: done marker at $1FFC, results at $1000/$1100/$1200

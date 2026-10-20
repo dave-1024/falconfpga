@@ -137,11 +137,11 @@ module cpu030_st_bridge #(
     ,
     // FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 030-side TT-RAM at $01000000
     input  wire        tt_en,       // switch: 1 = TT-RAM on, 0 = plain ST (A31:24 ignored, 24-bit wrap)
-    output reg         tt_req = 1'b0,
-    output reg         tt_we  = 1'b0,
-    output reg  [21:0] tt_la  = 22'd0,
-    output reg  [3:0]  tt_be  = 4'd0,
-    output reg  [31:0] tt_wdata = 32'd0,
+    output wire        tt_req,
+    output wire        tt_we,
+    output wire [21:0] tt_la,
+    output wire [3:0]  tt_be,
+    output wire [31:0] tt_wdata,
     input  wire        tt_ack,
     input  wire [31:0] tt_rdata
 `endif
@@ -278,30 +278,37 @@ module cpu030_st_bridge #(
     wire cpu_tt_any = tt_en & ~cpu_asn & (cpu_fc != 3'b111) &
                       (cpu_adr[31:24] != 8'h00) & (cpu_adr[31:24] != 8'hFF);
     wire cpu_tt_ram = cpu_tt_any & (cpu_adr[31:24] == 8'h01) & ({1'b0, cpu_adr[23:0]} < TT_BYTES);
-    reg  t_open = 1'b0, t_dsack = 1'b0, t_berr = 1'b0;
-    reg  [31:0] t_rdata = 32'hffffffff;
+    // L1: the request goes to sdram.v straight from the 030 pins (A/SIZE/RW/data are valid with AS,
+    // as for the ST front end), so sdram.v sees it on the first clk_32 edge with AS low.
+    // L2: sdram.v acks a read 3 clk_32 before tt_dout is complete; t_dsack (one edge later) is
+    // sampled by the 030 on a clk_cpu falling edge >= 1 clk_32 later and the data latched one clk_cpu
+    // (2 clk_32) after that, i.e. on or after the edge where tt_dout is loaded + 1. cpu_din takes
+    // tt_rdata (the sdram.v register) directly. Writes are posted: acked when sdram.v takes them.
+    reg  t_open = 1'b0, t_dsack = 1'b0, t_berr = 1'b0, t_got = 1'b0;
     // byte lanes of a 32-bit port (MC68030UM 7.2.1): from A1:0 up to A1:0+size-1, at most lane 3
     wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
     wire [3:0] tt_lo = (4'b1111 >> cpu_adr[1:0]);                     // lanes >= A1:0 ([3] = lane 0)
     wire [3:0] tt_hi = ~(4'b1111 >> ({1'b0, cpu_adr[1:0]} + tt_n));    // lanes <  A1:0+n
+    assign tt_req   = cpu_rst_n & cpu_tt_ram & ~t_got;
+    assign tt_we    = ~cpu_rwn;
+    assign tt_la    = cpu_adr[23:2];
+    assign tt_be    = tt_lo & tt_hi;
+    assign tt_wdata = cpu_dout;
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             t_open  <= 1'b0;
             t_dsack <= 1'b0;
             t_berr  <= 1'b0;
-            tt_req  <= 1'b0;
-        end else if (!t_open & cpu_tt_any) begin
-            t_open   <= 1'b1;
-            tt_we    <= ~cpu_rwn;
-            tt_la    <= cpu_adr[23:2];
-            tt_be    <= tt_lo & tt_hi;
-            tt_wdata <= cpu_dout;
-            if (cpu_tt_ram) tt_req <= 1'b1;
-            else            t_berr <= 1'b1;
-        end else if (tt_req & tt_ack) begin
-            tt_req  <= 1'b0;
-            t_rdata <= tt_rdata;
-            t_dsack <= 1'b1;
+            t_got   <= 1'b0;
+        end else begin
+            if (!t_open & cpu_tt_any) begin
+                t_open <= 1'b1;
+                if (!cpu_tt_ram) t_berr <= 1'b1;
+            end
+            if (tt_req & tt_ack) begin
+                t_got   <= 1'b1;
+                t_dsack <= 1'b1;
+            end
         end
     end
     wire t_cycle = t_open | cpu_tt_any;   // this 030 cycle is not for the ST side
@@ -364,7 +371,7 @@ module cpu030_st_bridge #(
     assign cpu_dsackn = t_dsack ? 2'b00 : (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
     assign cpu_berrn  = ~((term_ok & s_berr) | t_berr);
-    assign cpu_din    = t_open ? t_rdata : {s_rdata, s_rdata};
+    assign cpu_din    = t_open ? tt_rdata : {s_rdata, s_rdata};
 `else
     assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
