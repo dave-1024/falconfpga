@@ -291,7 +291,6 @@ module cpu030_st_bridge #(
     // clk_cpu flops (async clear on AS), not straight from clk_32 regs.
     // Technique after TF536 by Stephen J. Leary (registered, AS-cleared terminations); own code.
     reg  [2:0]  t_rp = 3'd0;
-    reg         t_sent = 1'b0;
     reg  [31:0] t_rd = 32'd0;
     // byte lanes of a 32-bit port (MC68030UM 7.2.1): from A1:0 up to A1:0+size-1, at most lane 3
     wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
@@ -307,7 +306,6 @@ module cpu030_st_bridge #(
             t_got   <= 1'b0;
             tt_req  <= 1'b0;
             t_rp    <= 3'd0;
-            t_sent  <= 1'b0;
         end else begin
             t_rp <= {t_rp[1:0], 1'b0};
             if (t_rp[2]) begin
@@ -320,16 +318,8 @@ module cpu030_st_bridge #(
                 tt_la    <= cpu_adr[23:2];
                 tt_be    <= tt_lo & tt_hi;
                 tt_wdata <= cpu_dout;
-                if (!cpu_tt_ram) t_berr <= 1'b1;
-            end
-            // [C6] TT6: the request goes out one clk_32 after the open edge, and the write data is
-            // (re)captured on that edge. The open edge can be the clk_cpu edge on which the 030 is
-            // still driving the write data onto D31:0 (S2): a store could take half-old data.
-            // Bench: a stacked return address read back with X in D27:24 (bus bench, both bridges).
-            if (t_open & ~t_got & ~tt_req & ~t_berr & ~t_sent) begin
-                tt_wdata <= cpu_dout;
-                tt_req   <= 1'b1;
-                t_sent   <= 1'b1;
+                if (cpu_tt_ram) tt_req <= 1'b1;
+                else            t_berr <= 1'b1;
             end
             if (tt_req & tt_ack) begin
                 tt_req  <= 1'b0;

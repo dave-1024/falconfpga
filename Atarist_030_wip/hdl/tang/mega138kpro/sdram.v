@@ -276,11 +276,14 @@ always @(posedge clk) begin
          endcase
       end else begin
          case (tt_t)
-         3'd2: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank;
+         // [C7] TT7: WRITE w0/w1 at g5/g6 (were g4/g5). An ST read with CAS at g1 (CL2) has the chip
+         // driving DQ until just after g4 (tOH): a TT WRITE at g4 drove DQ against it, corrupting w0
+         // (bus bench: stacked return address read back with X in D27:24).
+         3'd3: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank;
                      tt_oe <= 1'b1; tt_wd <= tt_d[31:16]; tt_dqm <= ~tt_b[3:2]; end
-         3'd3: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
+         3'd4: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
                      tt_wd <= tt_d[15:0]; tt_dqm <= ~tt_b[1:0]; end
-         3'd4: begin tt_oe <= 1'b0; tt_dqme <= 1'b0; tt_busy <= 1'b0; end
+         3'd5: begin tt_oe <= 1'b0; tt_dqme <= 1'b0; tt_busy <= 1'b0; end
          default: ;
          endcase
       end
