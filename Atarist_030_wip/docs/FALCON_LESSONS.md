@@ -198,3 +198,23 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - *Lessons:* whenever a signal is added to a combinational process, add it to the list (or use `process(all)`
   under VHDL-2008), and treat every "may differ" synthesis warning as an error. Rerun the audit after core edits.
   CHK2_RN is not the TT-RAM cause (no test uses CHK2/CMP2).
+
+## TT-RAM caches-on SP -2 slip: block-RAM read-during-write in the I-cache (21 Oct 2026)
+
+- **Root cause [C10].** `WF68K30L_ICACHE` describes DATA_RAM as an asynchronous-read array, but Gowin mapped it
+  to a block RAM (SDPB, READ_MODE 0) and retimed the read address onto the D input of the F_ADR register, so the
+  read is sampled at the clock edge. When a prefetch fill writes a long at edge E and the queue looks up the same
+  long right after E (a taken branch to 4n+2 inside the long just fetched, e.g. TTM1 `beq` to 010001CE), the block
+  RAM returns the OLD long (no write-through) while VALID and TAG, which are flip-flops/LUT RAM, already say hit.
+  The decoder got `3F3C` (move.w #2,-(sp) from 010003CE, the previous tenant of slot C3) instead of `5888`, so SP
+  slipped by 2 and the next rts faulted (EXC 2 frame 2704FFC6 0100A008 FFFF3005).
+- Fix: a write-to-read forwarding register (FW_V/FW_IDX/FW_DATA) in front of HIT_DATA. RTL behaviour is
+  unchanged; it holds for any RAM mapping. tt19 (71624aa): TTM1 caches on, I-only and D-only all pass.
+- How it was found: RTL, gate-level reviews and STA all looked clean. A DIAG ring of the decoder word stream
+  (Q_HEAD, opword, queue flags, I-cache index fields, ISP, cycle stamps) caught the wrong word and its exact index.
+  Then the synthesis netlist (`.vg`) showed the DATA_RAM primitive.
+- *Lessons:* the RTL simulation of an inferred RAM is not the hardware when synthesis may pick a block RAM: check
+  the `.vg` for which primitive each array became (SDPB/DPB = synchronous read). For a write and a read of the same
+  address in neighbouring clocks, either add forwarding or force distributed RAM explicitly. Alignment-dependent,
+  layout-dependent, deterministic board failures that RTL cannot reproduce point at primitive semantics, not at
+  timing.
