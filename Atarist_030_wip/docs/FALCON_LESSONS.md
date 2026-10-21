@@ -162,14 +162,14 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   size, size+1, 63) with CCR (prog_shift); ROXx period is size+1.
 - On linserver use `pgrep -x gw_sh`: `pgrep -f "gw_sh build"` matches its own ssh command line.
 
-## TT-RAM cold start (20 Oct 2026)
-- A bitstream reload does not clear SDRAM and `ram_scramble` restarts at 0, so TOS can find memvalid (`$420`)
-  and `_ramvalid` (`$5A8`) intact and reuse the old `_ramtop`=0: TT-RAM is never probed (splash: 4 MB, no Alt-RAM).
-  Fix (no switch): after por sdram.v returns 0 for ST reads of `$420-$423` until the first write there; the hit is
-  sampled at CAS inside sdram.v so it belongs to that read (a combinational mask on `mdin` from `ram_a` can hit the
-  wrong slot). Board: EmuTOS still showed `_ramtop`=0, `_ramvalid` valid with only this mask.
-- Masking `$5A8` as well (`TT_RV_MASK`) makes EmuTOS probe and find 16 MB, then it crashes ~9 s into the boot.
-  The same build's cartridge test (16 MB address pattern, I+D cache on) gives 0 errors, and the EmuTOS probe
-  replica in the cartridge finds 16 MB, so detection works and the open bug is in TT-RAM use under TOS.
-  *Lesson:* a new bitstream is a power-up for the CPU but not for the SDRAM; anything TOS caches across resets
-  must be invalidated by hardware, and a linear memory test is not a TOS-use test.
+## TT-RAM detection (20/21 Oct 2026)
+- **Root cause: CPU bug [C2].** WF68K30L computed the CMPA.W flags from bit 15 (MSB by operand size) instead of all
+  32 bits of An. EmuTOS sizes TT-RAM with `cmpa.w #0,a2; bgt` and a2 = `$010FFFFF` (low word `$FFFF`), so the
+  loop ended at once and `_ramtop` stayed 0. Fixed in the ALU (no switch): CMPA takes N/Z/V/C from bit 31 and the
+  unextended An. *Lesson:* sized-compare flags for address ops are always 32-bit; check An-destination ops
+  (CMPA/ADDA/SUBA) against values whose low word has the opposite sign.
+- Found by calling EmuTOS's own routines from the boot cartridge (`ttram_detect` at `$E0CE08`, `is_bus32` at `$35C2`
+  in the 1.4 256K UK image) and comparing with a hand-written copy of the probe that used long compares.
+- A bitstream reload does not clear SDRAM: TOS may reuse an old `_ramvalid`/`_ramtop`. The core now masks reads of
+  memvalid (`$420`) and `_ramvalid` (`$5A8`) after por until their first write (sampled at CAS inside sdram.v), so
+  every load re-probes. The earlier crash with the `$5A8` mask (tt5) was not TT-RAM use; that build had -8.2 ns.
