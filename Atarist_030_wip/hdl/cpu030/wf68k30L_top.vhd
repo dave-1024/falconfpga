@@ -1058,13 +1058,13 @@ begin
             LK_FC2    => IC_LK_FC2,
             HIT       => IC_HIT,
             HIT_DATA  => IC_HIT_DATA,
-            FILL_I      => IC_FILL,
-            FILL_MIS_I  => IC_FILL_MIS,
-            FILL_OK_I   => IC_FILL_OK,
-            BREAK_I     => IC_BREAK,
-            FILL_ADR_I  => IC_FILL_ADR,
-            FILL_FC2_I  => IC_FILL_FC2,
-            FILL_DATA_I => IC_FILL_DATA
+            FILL      => IC_FILL,
+            FILL_MIS  => IC_FILL_MIS,
+            FILL_OK   => IC_FILL_OK,
+            BREAK     => IC_BREAK,
+            FILL_ADR  => IC_FILL_ADR,
+            FILL_FC2  => IC_FILL_FC2,
+            FILL_DATA => IC_FILL_DATA
         );
 
     -- [DC] 68030 data cache (MC68030UM 6.1.2, docs/DCACHE_DESIGN.md). CACR ED (8) enables, FD (9) freezes,
