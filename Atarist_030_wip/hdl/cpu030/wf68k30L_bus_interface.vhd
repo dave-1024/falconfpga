@@ -747,7 +747,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I, OPC_ADR) -- OPC_ADR: sensitivity audit
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.

@@ -187,3 +187,14 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   benches passed while the test code was in uncached ROM, and failed at once with the code copied to TT-RAM
   (`sim/rtl/prog_ttcache.s`, tb030 now has a 32-bit cachable TT port at $01000000).
 - Bisect on the board with a small AUTO menu (SEL.PRG: CACR before Pexec) instead of desktop clicks.
+
+## Incomplete sensitivity lists: RTL sim can differ from hardware (21 Oct 2026)
+
+- Gowin EX4749 flagged `CHK2_RN` missing from the ALU COND_CODES process list (CHK2/CMP2 Z flag). A script audit
+  (`sens.py`: signals read in each combinational process vs its list) found two more: `OPC_ADR` in BUS_IF
+  BUS_CTRL_DEC (added with [C3]) and `MOVEM_FIRST_RD` in CONTROL FETCH_DEC (MOVEM memory-to-register path).
+- Synthesis ignores sensitivity lists, so the hardware was always combinational; only the RTL simulation could lag.
+  An RTL bench that "passes" proves nothing about a path whose process misses a signal.
+- *Lessons:* whenever a signal is added to a combinational process, add it to the list (or use `process(all)`
+  under VHDL-2008), and treat every "may differ" synthesis warning as an error. Rerun the audit after core edits.
+  CHK2_RN is not the TT-RAM cause (no test uses CHK2/CMP2).

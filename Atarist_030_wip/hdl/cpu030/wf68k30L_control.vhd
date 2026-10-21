@@ -1745,7 +1745,7 @@ begin
 
     FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
-                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY)
+                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD) -- MOVEM_FIRST_RD: sensitivity audit
     -- ADH: avoid data hazard.
     -- ASH: avoid structural hazard.
     -- ASH: avoid control hazard.

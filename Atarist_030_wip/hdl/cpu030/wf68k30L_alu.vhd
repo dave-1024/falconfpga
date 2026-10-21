@@ -1189,7 +1189,7 @@ begin
     
     COND_CODES: process(BF_DATA_IN, BF_LOWER_BND, BF_UPPER_BND, BIW_1, BITPOS, CB_BCD, CHK_CMP_COND, CLK, OP1, OP1_SIGNEXT, OP2, OP2_SIGNEXT,
                         OP3, OP3_SIGNEXT, MSB, OP, OP_SIZE, QUOTIENT, RESULT_BCDOP, RESULT_INTOP, RESULT_LOGOP, RESULT_MUL, RESULT_SHIFTOP, 
-                        RESULT_OTHERS, SHIFT_WIDTH, STATUS_REG, USE_DREG, VFLAG_DIV, XFLAG_SHFT)
+                        RESULT_OTHERS, SHIFT_WIDTH, STATUS_REG, USE_DREG, VFLAG_DIV, XFLAG_SHFT, CHK2_RN) -- CHK2_RN: Gowin EX4749
     -- In this process all the condition codes X (eXtended), N (Negative)
     -- Z (Zero), V (oVerflow) and C (Carry / borrow) are calculated for
     -- all integer operations. Except for the MULS, MULU, DIVS, DIVU the
