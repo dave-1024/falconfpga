@@ -786,7 +786,7 @@ begin
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif WR_REQ = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
-                elsif OPCODE_REQ = '1' and ADR_IN_P(0) = '1' then
+                elsif OPCODE_REQ = '1' and OPC_ADR(0) = '1' then -- [C3] the opcode address, not ADR_IN_P (a data address while a D-cache hit drops RD_REQ)
                     NEXT_BUS_CTRL_STATE <= IDLE; -- Abort due to address error.
                 elsif OPC_LEGACY = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
@@ -864,7 +864,11 @@ begin
     end process P_ADR_10;
 
     -- Address and bus errors:
-    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_START = '0' and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
+    -- [C3] Odd opcode address: OPC_ADR (PC_L), not ADR_IN_P. ADR_IN_P is the data address while the control
+    -- unit requests data (DATA_RD/DATA_WR); a cachable read that hits in the data cache drops RD_REQ, so an odd
+    -- byte read hit (e.g. move.b (a0,d5.w),d4 on TT-RAM) with an opcode request pending raised a false address
+    -- error (vector 3, fault address = the data address). Seen only with caches on and cachable (TT-RAM) data.
+    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_START = '0' and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and OPC_ADR(0) = '1' else '0';
 
     -- [F62] Opcode prefetch queue. The decoder requests one word at a time (OPC_RD, address
     -- OPC_ADR = PC_L). The queue fetches the instruction stream as long words in its own
@@ -880,7 +884,7 @@ begin
     -- still take the ordinary opcode cycle path to raise the address error. A write that
     -- touches the queued or in-flight long words flushes the queue.
     OPC_LEGACY <= OPCODE_REQ when PREFETCH_Q = 0 else
-                  OPCODE_REQ and To_Bit(ADR_IN_P(0));
+                  OPCODE_REQ and To_Bit(OPC_ADR(0)); -- [C3]
     Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
