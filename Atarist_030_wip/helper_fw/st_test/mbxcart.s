@@ -168,6 +168,21 @@ tdone:  move.l  a4, 0x8.w
         bsr     hex2
         lea     s_crlf(pc), a0
         bsr     print
+| EmuTOS 1.4 256K UK internals: is_bus32 ($35C2), its detect_32bit ($E00308), check_read_byte ($E00C2E)
+        lea     s_e(pc), a0
+        bsr     print
+        move.b  0x35c2.w, d0
+        bsr     hex2
+        move.l  0x8.w, a4
+        jsr     0xe00308
+        move.l  a4, 0x8.w
+        bsr     hex2
+        move.l  #0x010fffff, -(sp)
+        jsr     0xe00c2e
+        addq.l  #4, sp
+        bsr     hex2
+        lea     s_crlf(pc), a0
+        bsr     print
 | post-mortem of the last crash ($380 = $12345678): vector, a7, 6 longs of the exception stack
         cmp.l   #0x12345678, 0x380.w
         bne.s   nopm
@@ -247,6 +262,7 @@ s_tt4:  .asciz  "\r\nB32 "
 s_tt5:  .asciz  " END "
 s_tt6:  .asciz  " W "
 s_pm:   .asciz  "PM "
+s_e:    .asciz  "E "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
