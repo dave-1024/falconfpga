@@ -170,6 +170,20 @@ module tb_bus;
             vk = 9;
         end
     end
+`ifdef TTRAM
+    // ---- TT cycle trace (+tttrace=file, +ttus=start us): addr fc rw size data at DSACK ----
+    integer ttf = 0, ttus = 0, ttn = 0; reg [8*64-1:0] ttfn; reg tto_q = 0; reg [31:0] tta, ttd; reg [2:0] ttfc; reg ttrw; reg [1:0] ttsz;
+    initial begin if ($value$plusargs("tttrace=%s", ttfn)) ttf = $fopen(ttfn, "w"); if ($value$plusargs("ttus=%d", ttus)) ; end
+    always @(posedge clk32) if (ttf != 0 && $time >= ttus * 64'd1000000) begin
+        tto_q <= dut.cpu030.t_open;
+        if (dut.cpu030.t_open && !tto_q) begin tta = dut.cpu030.cpu_adr; ttfc = dut.cpu030.cpu_fc; ttrw = dut.cpu030.cpu_rwn; ttsz = dut.cpu030.cpu_size; end
+        if (dut.cpu030.t_open && dut.cpu030.cpu_dsackn != 2'b11) ttd = ttrw ? dut.cpu030.cpu_din : dut.cpu030.cpu_dout;
+        if (!dut.cpu030.t_open && tto_q && !ttrw && (dut.cpu030.tt_wdata !== ttd)) $display("%0t WDATA RACE a=%08x taken=%08x dout=%08x", $time, tta, dut.cpu030.tt_wdata, ttd);
+        if (!dut.cpu030.t_open && tto_q) begin ttn = ttn + 1;
+            $fwrite(ttf, "%0d %0d fc%0d %s %08x s%0d %08x\n", ttn, $time/1000, ttfc, ttrw ? "R" : "W", tta, ttsz, ttd);
+            if (ttn % 1000 == 0) $fflush(ttf); end
+    end
+`endif
     // ---- ST bus trace + spacing histogram ----
     wire as_n = dut.cpu_as_n, rw = dut.cpu_rw;
     wire [23:0] a = {dut.cpu_a, 1'b0};
