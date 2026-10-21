@@ -482,6 +482,7 @@ signal DBG_A5_I                 : std_logic_vector(31 downto 0);
 signal DBG_SP_I                 : std_logic_vector(31 downto 0);
 signal DBG_QF_I                 : std_logic_vector(3 downto 0);
 signal DBG_QC                   : std_logic_vector(3 downto 0);
+signal DBG_IC_I                 : std_logic_vector(15 downto 0);
 signal DBG_EXC_STB              : std_logic;
 signal PC_OFFSET_OPD            : std_logic_vector(7 downto 0);
 signal PC_RESTORE_EXH           : bit;
@@ -993,7 +994,7 @@ begin
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_QC <= x"0" when Q_COUNT = 0 else x"1" when Q_COUNT = 1 else x"2" when Q_COUNT = 2 else x"3" when Q_COUNT = 3 else x"4";
-    DBG_STR <= Q_HEAD & '0' & Q_STREAM(63 downto 48) & DBG_QF_I & DBG_QC & x"00" & DBG_SP_I & BIW_0 & PC(15 downto 0); -- FalconFPGA DIAG STR
+    DBG_STR <= Q_HEAD & '0' & Q_STREAM(63 downto 48) & DBG_QF_I & DBG_QC & x"00" & DBG_SP_I & BIW_0 & DBG_IC_I; -- FalconFPGA DIAG STR
     DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
     ADR_NXT <= ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L; -- [PH2]
     ADR_P <= ADR_LATCH when BUS_BSY = '1' else ADR_NXT;
@@ -1277,6 +1278,7 @@ begin
             Q_COUNT             => Q_COUNT,
             Q_HEAD              => Q_HEAD, -- [FRM]
             DBG_QF              => DBG_QF_I,
+            DBG_IC              => DBG_IC_I,
             Q_FAULT             => Q_FAULT, -- [FRM]
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
             OP_WR               => DATA_WR, -- [F65]

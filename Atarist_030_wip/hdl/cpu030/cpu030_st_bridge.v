@@ -347,7 +347,7 @@ module cpu030_st_bridge #(
     // while armed (the same $7E000000 arm write, synchronised). Trigger: the first ISP write to $01xxxxxx with
     // ISP[1] = 0 (TTM1's SP is always 2 mod 4 in the suite) or a BERR; 40 more entries are logged, then frozen.
     // Read at $7E800000 + 16*i + 4*k, i = 0 newest: k0 {Q_HEAD,0}, k1 {word0, QF, QCNT, 0, trig, frz, 6'd0},
-    // k2 ISP, k3 {BIW_0 (current opcode), PC15:0}.
+    // k2 ISP, k3 {BIW_0 (current opcode), lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, PF_DONE, F_CUR1}.
     reg  [31:0] d_w0 [0:63];
     reg  [31:0] d_w1 [0:63];
     reg  [31:0] d_w2 [0:63];

@@ -158,6 +158,7 @@ entity WF68K30L_BUS_INTERFACE is
         PF_NOEARLY          : in bit; -- [XH3] A change of flow is ahead or executing: no early long at Q_CNT = 2.
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2] Queued words 0-3 (registered) for the decoder's predecode.
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        DBG_IC              : out std_logic_vector(15 downto 0); -- FalconFPGA DIAG STR {lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, IC_FILL, FILL_MIS}
         DBG_QF              : out std_logic_vector(3 downto 0); -- FalconFPGA DIAG STR {Q_HIT, IC_TAKE, PF_DONE, Q_MISS}
         Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM] Address of queued word 0.
         Q_FAULT             : out bit_vector(0 to 3); -- [FRM] Queued words fetched with a bus error.
@@ -1390,6 +1391,7 @@ begin
     Q_STREAM <= Q_W(0) & Q_W(1) & Q_W(2) & Q_W(3); -- [PFCOF2]
     Q_COUNT <= Q_CNT;
     Q_HEAD <= Q_ADR; -- [FRM]
+    DBG_IC <= F_ADR(7 downto 1) & F_CUR(7 downto 2) & IC_HIT & To_StdULogic(PF_DONE) & F_CUR(1); -- FalconFPGA DIAG STR
     DBG_QF <= To_StdULogic(Q_HIT) & To_StdULogic(IC_TAKE) & To_StdULogic(PF_DONE) & To_StdULogic(Q_MISS); -- FalconFPGA DIAG STR
     Q_FAULT <= Q_F; -- [FRM]
 
