@@ -173,3 +173,17 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - A bitstream reload does not clear SDRAM: TOS may reuse an old `_ramvalid`/`_ramtop`. The core now masks reads of
   memvalid (`$420`) and `_ramvalid` (`$5A8`) after por until their first write (sampled at CAS inside sdram.v), so
   every load re-probes. The earlier crash with the `$5A8` mask (tt5) was not TT-RAM use; that build had -8.2 ns.
+
+## FrontBench prgflags 7 black screen (21 Oct 2026)
+- **Root cause: CPU bug [C3].** In `wf68k30L_bus_interface.vhd`, the odd-opcode address-error check (AERR_I, the
+  START_CYCLE abort, OPC_LEGACY) tested `ADR_IN_P(0)`. While the control unit requests data, `ADR_IN_P` is the
+  *data* address, and a data-cache read hit drops `RD_REQ`. So an odd-address byte read that hits in the D-cache,
+  with an opcode request pending, raised a false address error (vector 3, fault address = the data address). Fix:
+  test `OPC_ADR(0)` (PC_L).
+- Never seen before TT-RAM because the ST side is cache-inhibited (CIIN), so no data hit could happen. TT-RAM is
+  the first cachable memory. Caches off (CACR 0) hid it; Hatari ran the same program fine.
+- *Lessons:* any "no bus cycle" path (cache hit, held read-ahead) must not leave another request looking at the
+  shared address bus. Test caches with **code running from cachable memory**, not only data: the bus-level and RTL
+  benches passed while the test code was in uncached ROM, and failed at once with the code copied to TT-RAM
+  (`sim/rtl/prog_ttcache.s`, tb030 now has a 32-bit cachable TT port at $01000000).
+- Bisect on the board with a small AUTO menu (SEL.PRG: CACR before Pexec) instead of desktop clicks.
