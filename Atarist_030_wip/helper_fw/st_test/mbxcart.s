@@ -168,53 +168,36 @@ tdone:  move.l  a4, 0x8.w
         bsr     hex2
         lea     s_crlf(pc), a0
         bsr     print
-| TT-RAM stress: 16 MB address-pattern longs, D-cache + I-cache on, then verify
-        cmp.l   #0x010fffff, d5
-        bls     mtx
-        move.w  sr, -(sp)
-        move.w  #0x2700, sr
-        move.l  #0x0909, d0
-        .long   0x4e7b0002              | movec d0,cacr
-        lea     0x01000000, a1
-        move.l  #0x003fffff, d1
-mw:     move.l  a1, d0
-        not.l   d0
-        move.l  d0, (a1)+
-        subq.l  #1, d1
-        bpl.s   mw
-        lea     0x01000000, a1
-        move.l  #0x003fffff, d1
-        moveq   #0, d6
-        moveq   #0, d4
-mr:     move.l  a1, d0
-        not.l   d0
-        cmp.l   (a1)+, d0
-        beq.s   mo
-        tst.l   d6
-        bne.s   mi
-        move.l  a1, d4
-        move.l  -4(a1), d7
-mi:     addq.l  #1, d6
-mo:     subq.l  #1, d1
-        bpl.s   mr
-        moveq   #0, d0
-        .long   0x4e7b0002              | movec d0,cacr
-        move.w  (sp)+, sr
-        lea     s_me(pc), a0
+| post-mortem of the last crash ($380 = $12345678): vector, a7, 6 longs of the exception stack
+        cmp.l   #0x12345678, 0x380.w
+        bne.s   nopm
+        clr.l   0x380.w
+        lea     s_pm(pc), a0
         bsr     print
-        move.l  d6, d0
-        bsr     hex8
-        lea     s_tt6(pc), a0
-        bsr     print
-        move.l  d4, d0
+        lea     0x3c0.w, a2
+        moveq   #7, d3
+pm1:    move.l  (a2)+, d0
         bsr     hex8
         move.b  #32, d0
         bsr     conout
-        move.l  d7, d0
-        bsr     hex8
+        dbra    d3, pm1
         lea     s_crlf(pc), a0
-        bra     print
-mtx:    rts
+        bsr     print
+| one soft cold boot per load with TT-RAM: clear _ramvalid so TOS probes TT-RAM
+nopm:   cmp.l   #0x54545242, 0x3f0.w    | 'TTRB'
+        bne.s   fb1
+        clr.l   0x3f0.w
+        rts
+fb1:    tst.l   0x5a4.w
+        bne.s   fbx
+        cmp.l   #0x010fffff, d5
+        bls.s   fbx
+        move.l  #0x54545242, 0x3f0.w
+        move.w  #0x2700, sr
+        clr.l   0x5a8.w
+        move.l  0xe00004, a0
+        jmp     (a0)
+fbx:    rts
 hex8:   swap    d0
         bsr.s   hex4
         swap    d0
@@ -263,7 +246,7 @@ s_tt3:  .asciz  " RV "
 s_tt4:  .asciz  "\r\nB32 "
 s_tt5:  .asciz  " END "
 s_tt6:  .asciz  " W "
-s_me:   .asciz  "MT err "
+s_pm:   .asciz  "PM "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
