@@ -42,17 +42,24 @@ entity WF68K30L_ICACHE is
         LK_FC2    : in std_logic;
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
-        FILL      : in std_logic;
-        FILL_MIS  : in std_logic;
-        FILL_OK   : in std_logic_vector(1 downto 0);
-        BREAK     : in std_logic;
-        FILL_ADR  : in std_logic_vector(31 downto 2);
-        FILL_FC2  : in std_logic;
-        FILL_DATA : in std_logic_vector(31 downto 0)
+        FILL_I    : in std_logic;
+        FILL_MIS_I  : in std_logic;
+        FILL_OK_I   : in std_logic_vector(1 downto 0);
+        BREAK_I     : in std_logic;
+        FILL_ADR_I  : in std_logic_vector(31 downto 2);
+        FILL_FC2_I  : in std_logic;
+        FILL_DATA_I : in std_logic_vector(31 downto 0)
     );
 end entity WF68K30L_ICACHE;
 
 architecture RTL of WF68K30L_ICACHE is
+    -- [C9] Registered fill interface: the fill strobes come from the
+    -- falling-edge DSACK sample (half-cycle path); registering them makes
+    -- every DATA_RAM/TAG_RAM/VALID write a full-cycle path.
+    signal FILL, FILL_MIS, BREAK, FILL_FC2 : std_logic := '0';
+    signal FILL_OK   : std_logic_vector(1 downto 0) := "00";
+    signal FILL_ADR  : std_logic_vector(31 downto 2) := (others => '0');
+    signal FILL_DATA : std_logic_vector(31 downto 0) := (others => '0');
     type data_t is array (0 to 63) of std_logic_vector(31 downto 0);
     type tag_t is array (0 to 15) of std_logic_vector(24 downto 0);
     signal DATA_RAM : data_t := (others => (others => '0'));
@@ -84,6 +91,14 @@ architecture RTL of WF68K30L_ICACHE is
     attribute syn_preserve of PH_L : signal is 1;
     attribute syn_preserve of PH_FC2 : signal is 1;
 begin
+    P_FILL_REG: process(CLK)
+    begin
+        if rising_edge(CLK) then
+            FILL <= FILL_I; FILL_MIS <= FILL_MIS_I; FILL_OK <= FILL_OK_I;
+            BREAK <= BREAK_I; FILL_ADR <= FILL_ADR_I; FILL_FC2 <= FILL_FC2_I;
+            FILL_DATA <= FILL_DATA_I;
+        end if;
+    end process P_FILL_REG;
     LK_LINE <= to_integer(unsigned(LK_ADR(7 downto 4)));
     LK_LW   <= to_integer(unsigned(LK_ADR(3 downto 2)));
     FL_LINE <= to_integer(unsigned(FILL_ADR(7 downto 4)));

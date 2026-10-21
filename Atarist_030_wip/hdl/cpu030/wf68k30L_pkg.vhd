@@ -93,13 +93,13 @@ component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
         LK_FC2    : in std_logic;
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
-        FILL      : in std_logic;
-        FILL_MIS  : in std_logic;
-        FILL_OK   : in std_logic_vector(1 downto 0);
-        BREAK     : in std_logic;
-        FILL_ADR  : in std_logic_vector(31 downto 2);
-        FILL_FC2  : in std_logic;
-        FILL_DATA : in std_logic_vector(31 downto 0)
+        FILL_I      : in std_logic;
+        FILL_MIS_I  : in std_logic;
+        FILL_OK_I   : in std_logic_vector(1 downto 0);
+        BREAK_I     : in std_logic;
+        FILL_ADR_I  : in std_logic_vector(31 downto 2);
+        FILL_FC2_I  : in std_logic;
+        FILL_DATA_I : in std_logic_vector(31 downto 0)
     );
 end component;
 
