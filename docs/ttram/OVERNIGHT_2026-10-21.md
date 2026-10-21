@@ -22,8 +22,12 @@ Fix [C10] 71624aa: a write-to-read forwarding register in WF68K30L_ICACHE (no sw
 | TTM1 caches ON (3919) | tt19 | T1..T6 all 0, OFF all 0 | **FIXED** |
 | TTM I-only (0019) / D-only (3909) | tt19 | all 0 | pass |
 | TTP sweep | tt19 | not read: the HDMI/OSD went black (video loss); the reflash restored it | retry |
-| 5 cold boots | tt19 | (pending) | |
-| FrontBench flags 7 caches ON 900 s | tt19 | (pending) | |
+| 5 cold boots | tt19 | grabs mostly black; the OSD is black too | build-specific HDMI dropouts, so tt19 is rejected as the final build |
+| tt17 reflash, 5 boots x 3 grabs | tt17 | 14/15 desktop | video stable, so the dropouts are tt19-specific |
+| tt20 = C10 without TT_RING/STR debug | 71624aa | clk32 33.381 MHz, clk_cpu030 22.424 MHz, worst −4.887 ns, LUT 41127 + 5036 ALU | release config |
+| 5 cold boots | tt20 | all reach the desktop (15 grabs: 13 desktop, last 2 black = capture) | OK |
+| TTM1 caches ON / OFF | tt20 | all 0 | **PASS** |
+| FrontBench flags 7 caches ON 920 s | tt20 | runs the whole time; at 900 s: 72 frames / **1362 lastcount** | **GOAL MET** (ST-RAM 990, TT caches off 1169) |
 
 ## Commits (tt-ram, local + linserver, not pushed)
 - 71624aa [C10] fix
@@ -33,3 +37,9 @@ Fix [C10] 71624aa: a write-to-read forwarding register in WF68K30L_ICACHE (no sw
 ## Not done / superseded
 - 12/16 MHz builds and the BSRAM trace: superseded by the root cause (12 MHz is infeasible anyway, not phase-locked to clk32).
 - tl.st and td.st variants: not run.
+
+## Final state
+- The board is on **tt20** (st_helper_hdn_tt20_71624aa_p3.fs, C10 without debug rings). It is verified: boots, TTM1 passes, FrontBench runs.
+- Video: /workspace/frontbench/frontbench_tt20_ttram_cacheon_720p.mp4 (1280x720 H.264 yuv420p +faststart, 920 s) and _clip.mp4 (25 s at 875–900 s). Originals are in linserver ~/cap/.
+- tt19 (the same fix plus the debug rings) showed HDMI dropouts, so do not use it. Debug rings should be built separately when needed.
+- Next: the worst slack is −4.9 ns on the known cross-clock SP write-back path (MOVEM_INH_WR → AR_IN → ADR_EFF_I). It was not touched tonight; clk_cpu030 Fmax is 22.4 MHz (≥17 MHz OK). Check other inferred arrays for block-RAM read-during-write (D-cache is distributed RAM; the core's other SDPBs are outside the CPU).
