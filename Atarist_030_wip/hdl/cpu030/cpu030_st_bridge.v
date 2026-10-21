@@ -442,9 +442,22 @@ module cpu030_st_bridge #(
 
     wire term_ok = c_open & (s_tag == c_req_t);
 `ifdef TTRAM
-    assign cpu_dsackn = t_dsack_c ? 2'b00 : (term_ok & s_dsack) ? 2'b01 : 2'b11;
-    assign cpu_avecn  = ~(term_ok & s_avec);
-    assign cpu_berrn  = ~((term_ok & s_berr) | t_berr_c);
+    // [C8] The ST terminations also go through clk_cpu flops cleared by AS (as the TT ones, C5). The raw
+    // clk_32 s_tag/s_dsack -> DSACKn -> core MOVEM_INH_WR -> AR_IN (SP) -> ADR_EFF_I path was a half-cycle
+    // (31.25 ns) path failing timing in every build (tt12 -2.6, tt14 -12.7, tt16 -6.0 ns); now a full clk_cpu
+    // cycle. DSACK reaches the core's falling-edge sample up to one clk_cpu later; the data is held in
+    // s_rdata until the next ST cycle, so the later data latch still sees it.
+    reg s_dsack_c = 1'b0, s_avec_c = 1'b0, s_berr_c = 1'b0;
+    always @(posedge clk_cpu or posedge cpu_asn) begin
+        if (cpu_asn) begin
+            s_dsack_c <= 1'b0; s_avec_c <= 1'b0; s_berr_c <= 1'b0;
+        end else begin
+            s_dsack_c <= term_ok & s_dsack; s_avec_c <= term_ok & s_avec; s_berr_c <= term_ok & s_berr;
+        end
+    end
+    assign cpu_dsackn = t_dsack_c ? 2'b00 : s_dsack_c ? 2'b01 : 2'b11;
+    assign cpu_avecn  = ~s_avec_c;
+    assign cpu_berrn  = ~(s_berr_c | t_berr_c);
     assign cpu_din    = t_open ? t_rd : {s_rdata, s_rdata};
 `else
     assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
