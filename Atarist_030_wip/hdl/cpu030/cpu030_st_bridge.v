@@ -298,6 +298,46 @@ module cpu030_st_bridge #(
     wire [3:0] tt_hi = ~(4'b1111 >> ({1'b0, cpu_adr[1:0]} + tt_n));    // lanes <  A1:0+n
     // TT1: L1 undone for timing (clk_cpu030 pins -> sdram.v start logic missed clk32): the request is
     // registered from the pins at the first clk_32 edge with AS low again (+1 clk_32 per TT cycle).
+`ifdef TT_RING
+    // ---- FalconFPGA DIAG TT_RING: last 32 030 bus cycles before the first BERR (clk_32) ----
+    // A31:24 = $7E is a register port (32-bit, no wait): a write arms (clears and starts) the ring;
+    // a read of $7E000000 + 16*i + 4*k returns entry i (0 = newest) word k: 0 addr, 1 data,
+    // 2 {wp, i, armed, frozen, 0.., FC2:0, RW, SIZE1:0, TT, BERR}, 3 count of cycles since arm.
+    // Every 030 cycle (TT and ST, not the port itself) is logged when it terminates; the first
+    // BERR termination while armed is logged and freezes the ring. Observation only.
+    reg t_open_ring = 1'b0;
+    wire        cpu_ring = cpu_tt_any & (cpu_adr[31:24] == 8'h7E);
+    reg  [31:0] g_adr [0:31];
+    reg  [31:0] g_dat [0:31];
+    reg  [7:0]  g_inf [0:31];
+    reg  [4:0]  g_wp  = 5'd0;
+    reg         g_arm = 1'b0, g_frz = 1'b0, g_lg = 1'b0;
+    reg  [31:0] g_cnt = 32'd0;
+    wire        g_term = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn | ~cpu_avecn);
+    wire [4:0]  g_i   = g_wp - 5'd1 - cpu_adr[8:4];
+    wire [31:0] g_rdat = (cpu_adr[3:2] == 2'd0) ? g_adr[g_i] :
+                         (cpu_adr[3:2] == 2'd1) ? g_dat[g_i] :
+                         (cpu_adr[3:2] == 2'd2) ? {3'd0, g_wp, 3'd0, cpu_adr[8:4], g_arm, g_frz, 6'd0, g_inf[g_i]} : g_cnt;
+    always @(posedge clk) begin
+        if (cpu_asn) g_lg <= 1'b0;
+        if (!cpu_rst_n) begin
+            g_arm <= 1'b0; g_frz <= 1'b0;
+        end else if (!t_open & cpu_ring & ~cpu_rwn) begin
+            g_arm <= 1'b1; g_frz <= 1'b0; g_wp <= 5'd0; g_cnt <= 32'd0; g_lg <= 1'b1;
+        end else if (g_term & ~g_lg & ~cpu_ring & ~t_open_ring) begin
+            g_lg <= 1'b1;
+            if (g_arm & ~g_frz) begin
+                g_adr[g_wp] <= cpu_adr;
+                g_dat[g_wp] <= cpu_rwn ? cpu_din : cpu_dout;
+                g_inf[g_wp] <= {cpu_fc, cpu_rwn, cpu_size, t_open, ~cpu_berrn};
+                g_wp  <= g_wp + 5'd1;
+                g_cnt <= g_cnt + 32'd1;
+                if (~cpu_berrn) g_frz <= 1'b1;
+            end
+        end
+    end
+    always @(posedge clk) t_open_ring <= cpu_asn ? 1'b0 : (t_open_ring | (cpu_ring & ~t_open));
+`endif
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             t_open  <= 1'b0;
@@ -318,6 +358,12 @@ module cpu030_st_bridge #(
                 tt_la    <= cpu_adr[23:2];
                 tt_be    <= tt_lo & tt_hi;
                 tt_wdata <= cpu_dout;
+`ifdef TT_RING
+                if (cpu_ring) begin
+                    t_rd    <= g_rdat;    // DIAG ring readout / arm write: no SDRAM access
+                    t_dsack <= 1'b1;
+                end else
+`endif
                 if (cpu_tt_ram) tt_req <= 1'b1;
                 else            t_berr <= 1'b1;
             end
