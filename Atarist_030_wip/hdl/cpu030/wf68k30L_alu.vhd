@@ -1288,7 +1288,14 @@ begin
             -- [C1] CAS and CAS2 were missing here: their N, V and C came from don't-care sign bits
             -- (metavalue in simulation, whatever synthesis picked in hardware). MC68030UM CAS:
             -- Destination - Dc sets N, Z, V, C like CMP.
-            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
+            -- [C2] CMPA.W compares all 32 bits of An with the sign-extended source (MC68030UM CMPA):
+            -- the flags must come from bit 31, not bit 15 (EmuTOS TT-RAM probe: cmpa.w #0,a2 with
+            -- a2 = $010FFFFF was "less than" and no TT-RAM was found).
+            when CMPA =>
+                RM := RESULT_INTOP(31);
+                SM := OP1_SIGNEXT(31);
+                DM := OP2(31);
+            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
                 RM := RESULT_INTOP(MSB);
                 SM := OP1_SIGNEXT(MSB);
                 DM := OP2_SIGNEXT(MSB);
@@ -1320,7 +1327,14 @@ begin
         -- The Z Flag:
         TMP := '0';
         case OP is
-            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPA | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
+            when CMPA => -- [C2] all 32 bits
+                for i in RESULT_INTOP'range loop
+                    if i <= 31 then
+                        TMP:= TMP or RESULT_INTOP(i);
+                    end if;
+                end loop;
+                Z := not TMP;
+            when ADD | ADDI | ADDQ | ADDX | CAS | CAS2 | CMP | CMPI | CMPM | NEG | NEGX | SUB | SUBI | SUBQ | SUBX  =>
                 for i in RESULT_INTOP'range loop
                     if i <= MSB then
                         TMP:= TMP or RESULT_INTOP(i); -- Detect '1'.

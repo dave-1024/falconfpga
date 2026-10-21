@@ -183,35 +183,7 @@ tdone:  move.l  a4, 0x8.w
         bsr     hex2
         lea     s_crlf(pc), a0
         bsr     print
-| in-situ: CACR, EmuTOS ttram_detect ($E0CE06) with _ramvalid cleared, then its probe steps by hand
-        lea     s_c(pc), a0
-        bsr     print
-        .long   0x4e7a0002              | movec cacr,d0
-        bsr     hex8
-        move.l  0x5a4.w, -(sp)
-        move.l  0x5a8.w, -(sp)
-        clr.l   0x5a8.w
-        move.l  0x8.w, a4
-        jsr     0xe0ce08
-        move.l  a4, 0x8.w
-        move.l  0x5a4.w, d0
-        bsr     hex8
-        move.l  (sp)+, 0x5a8.w
-        move.l  (sp)+, 0x5a4.w
-        move.l  #0x010fffff, a2
-        move.b  #0x77, (a2)
-        move.b  #0x12, (a2)
-        move.b  #0x34, -1(a2)
-        pea     2
-        pea     -1(a2)
-        jsr     0xe0059e
-        addq.l  #8, sp
-        move.b  (a2), d0
-        bsr     hex2
-        move.b  -1(a2), d0
-        bsr     hex2
-        lea     s_crlf(pc), a0
-        bra     print
+        rts
 hex8:   swap    d0
         bsr.s   hex4
         swap    d0
