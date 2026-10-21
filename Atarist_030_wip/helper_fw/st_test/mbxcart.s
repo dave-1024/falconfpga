@@ -192,7 +192,7 @@ tdone:  move.l  a4, 0x8.w
         move.l  0x5a8.w, -(sp)
         clr.l   0x5a8.w
         move.l  0x8.w, a4
-        jsr     0xe0ce06
+        jsr     0xe0ce08
         move.l  a4, 0x8.w
         move.l  0x5a4.w, d0
         bsr     hex8
