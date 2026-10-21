@@ -346,7 +346,7 @@ module cpu030_st_bridge #(
     // An entry is logged on every clk_cpu with a queue event (Q_HIT, IC_TAKE, PF_DONE, Q_MISS) or an ISP change,
     // while armed (the same $7E000000 arm write, synchronised). Trigger: the first ISP write to $01xxxxxx with
     // ISP[1] = 0 (TTM1's SP is always 2 mod 4 in the suite) or a BERR; 40 more entries are logged, then frozen.
-    // Read at $7E800000 + 16*i + 4*k, i = 0 newest: k0 {Q_HEAD,0}, k1 {word0, QF, QCNT, 0, trig, frz, 6'd0},
+    // Read at $7E800000 + 16*i + 4*k, i = 0 newest: k0 {Q_HEAD,0}, k1 {word0, QF, QCNT, 0, clocks since previous entry (6), trig, frz},
     // k2 ISP, k3 {BIW_0 (current opcode), lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, PF_DONE, F_CUR1}.
     reg  [31:0] d_w0 [0:63];
     reg  [31:0] d_w1 [0:63];
@@ -357,17 +357,20 @@ module cpu030_st_bridge #(
     reg         d_trg = 1'b0, d_frz = 1'b0, d_a1 = 1'b0;
     reg  [5:0]  d_post = 6'd0;
     reg  [31:0] d_sp = 32'd0;
+    reg  [5:0]  d_clk = 6'd0;           // clk_cpu cycles since the previous logged entry (saturates at 63)
     wire [31:0] d_isp = cpu_dbg_str[63:32];
     wire        d_ev = (cpu_dbg_str[79:76] != 4'd0) | (d_isp != d_sp);
     always @(posedge clk_cpu) begin
         d_as <= {d_as[0], g_arm};
         d_a1 <= d_as[1];
         d_sp <= d_isp;
+        if (~(d_as[1] & ~d_frz & d_ev) & (d_clk != 6'd63)) d_clk <= d_clk + 6'd1;
         if (d_as[1] & ~d_a1) begin
             d_wp <= 6'd0; d_trg <= 1'b0; d_frz <= 1'b0; d_post <= 6'd0;
         end else if (d_as[1] & ~d_frz & d_ev) begin
             d_w0[d_wp] <= cpu_dbg_str[127:96];
-            d_w1[d_wp] <= {cpu_dbg_str[95:72], 6'd0, d_trg, d_frz};
+            d_w1[d_wp] <= {cpu_dbg_str[95:72], d_clk, d_trg, d_frz};
+            d_clk <= 6'd1;
             d_w2[d_wp] <= d_isp;
             d_w3[d_wp] <= cpu_dbg_str[31:0];
             d_wp <= d_wp + 6'd1;
