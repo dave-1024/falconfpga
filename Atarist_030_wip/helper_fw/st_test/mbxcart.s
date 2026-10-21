@@ -183,36 +183,35 @@ tdone:  move.l  a4, 0x8.w
         bsr     hex2
         lea     s_crlf(pc), a0
         bsr     print
-| post-mortem of the last crash ($380 = $12345678): vector, a7, 6 longs of the exception stack
-        cmp.l   #0x12345678, 0x380.w
-        bne.s   nopm
-        clr.l   0x380.w
-        lea     s_pm(pc), a0
+| in-situ: CACR, EmuTOS ttram_detect ($E0CE06) with _ramvalid cleared, then its probe steps by hand
+        lea     s_c(pc), a0
         bsr     print
-        lea     0x3c0.w, a2
-        moveq   #7, d3
-pm1:    move.l  (a2)+, d0
+        .long   0x4e7a0002              | movec cacr,d0
         bsr     hex8
-        move.b  #32, d0
-        bsr     conout
-        dbra    d3, pm1
-        lea     s_crlf(pc), a0
-        bsr     print
-| one soft cold boot per load with TT-RAM: clear _ramvalid so TOS probes TT-RAM
-nopm:   cmp.l   #0x54545242, 0x3f0.w    | 'TTRB'
-        bne.s   fb1
-        clr.l   0x3f0.w
-        rts
-fb1:    tst.l   0x5a4.w
-        bne.s   fbx
-        cmp.l   #0x010fffff, d5
-        bls.s   fbx
-        move.l  #0x54545242, 0x3f0.w
-        move.w  #0x2700, sr
+        move.l  0x5a4.w, -(sp)
+        move.l  0x5a8.w, -(sp)
         clr.l   0x5a8.w
-        move.l  0xe00004, a0
-        jmp     (a0)
-fbx:    rts
+        move.l  0x8.w, a4
+        jsr     0xe0ce06
+        move.l  a4, 0x8.w
+        move.l  0x5a4.w, d0
+        bsr     hex8
+        move.l  (sp)+, 0x5a8.w
+        move.l  (sp)+, 0x5a4.w
+        move.l  #0x010fffff, a2
+        move.b  #0x77, (a2)
+        move.b  #0x12, (a2)
+        move.b  #0x34, -1(a2)
+        pea     2
+        pea     -1(a2)
+        jsr     0xe0059e
+        addq.l  #8, sp
+        move.b  (a2), d0
+        bsr     hex2
+        move.b  -1(a2), d0
+        bsr     hex2
+        lea     s_crlf(pc), a0
+        bra     print
 hex8:   swap    d0
         bsr.s   hex4
         swap    d0
@@ -261,7 +260,7 @@ s_tt3:  .asciz  " RV "
 s_tt4:  .asciz  "\r\nB32 "
 s_tt5:  .asciz  " END "
 s_tt6:  .asciz  " W "
-s_pm:   .asciz  "PM "
+s_c:    .asciz  "C "
 s_e:    .asciz  "E "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"

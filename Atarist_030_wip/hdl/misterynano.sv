@@ -263,7 +263,7 @@ end
 // (the hit is sampled inside sdram.v at CAS time, so it belongs to that read).
 // Same for _ramvalid ($5A8): TOS 1.6+/EmuTOS reuse the old _ramtop when it
 // is valid, so it is masked too (own flag, cleared by the first write).
-localparam TT_RV_MASK = 1'b1;   // 1: TOS probes TT-RAM after every load (tt5: EmuTOS then crashes, see TTRAM_LOG)
+localparam TT_RV_MASK = 1'b0;   // 1: TOS probes TT-RAM after every load (tt5: EmuTOS then crashes, see TTRAM_LOG)
 reg pwr_cold = 1'b1, pwr_cold_rv = 1'b1;
 wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
 wire ramvalid_hit = (ram_a[23:2] == 22'h000169);   // byte $5A4..$5A7 (_ramtop, tt7 debug)
