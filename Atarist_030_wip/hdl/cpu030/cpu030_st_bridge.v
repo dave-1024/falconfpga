@@ -690,6 +690,13 @@ module cpu030_st_bridge #(
             d_got  <= 1'b1;
             d_info <= {c_fc, c_rwn, c_size, req_bad_space};
             d_badr <= {c_adr_hi, c_adr};
+`ifdef TTRAM
+        end else if (t_berr & ~d_got) begin
+            // TT front-end BERR (A31:24 not $00/$01/$FF, or beyond TT_BYTES): 030 pins, bad_space bit = 1
+            d_got  <= 1'b1;
+            d_info <= {cpu_fc, cpu_rwn, cpu_size, 1'b1};
+            d_badr <= cpu_adr;
+`endif
         end
     end
 

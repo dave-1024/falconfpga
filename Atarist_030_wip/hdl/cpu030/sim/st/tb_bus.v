@@ -247,13 +247,13 @@ module tb_bus;
         $write("TT cycle AS->AS negate (clk32):"); for (k = 0; k < 32; k = k + 1) if (htt[k]) $write(" %0d:%0d", k, htt[k]);
         if (tt_n) $display("  avg %0d.%02d", tt_sum / tt_n, (tt_sum * 100 / tt_n) % 100); else $display("");
         $write("TTDIFF:"); for (k = 0; k < 160; k = k + 1) if (ttm[k] !== ram[16'h8000+k]) $write(" %0d:%04x/%04x", k, ttm[k], ram[16'h8000+k]); $display("");
-        $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1340>>1; k = k + 1) $write(" %04x", ram[k]); $display("");
+        $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1370>>1; k = k + 1) $write(" %04x", ram[k]); $display(" V=%04x%04x", ram[16'h1ff8>>1], ram[16'h1ffa>>1]);
 `endif
         $fclose(tf); $finish;
     end endtask
     // bus test ROM: done marker at $1FFC, results at $1000/$1100/$1200
     integer w;
-    always @(posedge clk32) if (ram[16'h1ffc>>1] == 16'h600d && ram[16'h1ffe>>1] == 16'hc0de) begin
+    always @(posedge clk32) if ((ram[16'h1ffc>>1] == 16'h600d && ram[16'h1ffe>>1] == 16'hc0de) || (ram[16'h1ffc>>1] == 16'hbadb && ram[16'h1ffe>>1] == 16'had00)) begin
         $write("R1000:"); for (w = 16'h1000>>1; w < 16'h1020>>1; w = w + 1) $write(" %04x", ram[w]); $display("");
         $write("R1100:"); for (w = 16'h1100>>1; w < 16'h1118>>1; w = w + 1) $write(" %04x", ram[w]); $display("");
         $write("R1200:"); for (w = 16'h1200>>1; w < 16'h1214>>1; w = w + 1) $write(" %04x", ram[w]); $display("");
