@@ -285,6 +285,13 @@ module cpu030_st_bridge #(
     // (2 clk_32) after that, i.e. on or after the edge where tt_dout is loaded + 1. cpu_din takes
     // tt_rdata (the sdram.v register) directly. Writes are posted: acked when sdram.v takes them.
     reg  t_open = 1'b0, t_dsack = 1'b0, t_berr = 1'b0, t_got = 1'b0;
+    // [C5] TT5: no early read DSACK. A read is acked only once tt_dout is complete (3 edges after
+    // tt_ack) and captured into t_rd, which is held until AS rises, so the data the 030 latches can
+    // never be a register that sdram.v is still loading. DSACK/BERR then reach the 030 through
+    // clk_cpu flops (async clear on AS), not straight from clk_32 regs.
+    // Technique after TF536 by Stephen J. Leary (registered, AS-cleared terminations); own code.
+    reg  [2:0]  t_rp = 3'd0;
+    reg  [31:0] t_rd = 32'd0;
     // byte lanes of a 32-bit port (MC68030UM 7.2.1): from A1:0 up to A1:0+size-1, at most lane 3
     wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
     wire [3:0] tt_lo = (4'b1111 >> cpu_adr[1:0]);                     // lanes >= A1:0 ([3] = lane 0)
@@ -298,7 +305,13 @@ module cpu030_st_bridge #(
             t_berr  <= 1'b0;
             t_got   <= 1'b0;
             tt_req  <= 1'b0;
+            t_rp    <= 3'd0;
         end else begin
+            t_rp <= {t_rp[1:0], 1'b0};
+            if (t_rp[2]) begin
+                t_rd    <= tt_rdata;   // tt_dout loaded on the previous edge: stable now
+                t_dsack <= 1'b1;
+            end
             if (!t_open & cpu_tt_any) begin
                 t_open   <= 1'b1;
                 tt_we    <= ~cpu_rwn;
@@ -311,11 +324,22 @@ module cpu030_st_bridge #(
             if (tt_req & tt_ack) begin
                 tt_req  <= 1'b0;
                 t_got   <= 1'b1;
-                t_dsack <= 1'b1;
+                if (tt_we) t_dsack <= 1'b1;   // posted write
+                else       t_rp[0] <= 1'b1;
             end
         end
     end
     wire t_cycle = t_open | cpu_tt_any;   // this 030 cycle is not for the ST side
+    reg t_dsack_c = 1'b0, t_berr_c = 1'b0;
+    always @(posedge clk_cpu or posedge cpu_asn) begin
+        if (cpu_asn) begin
+            t_dsack_c <= 1'b0;
+            t_berr_c  <= 1'b0;
+        end else begin
+            t_dsack_c <= t_dsack;
+            t_berr_c  <= t_berr;
+        end
+    end
 `endif
 
     // ---- front end: request capture (clk_32) -------------------------------
@@ -372,10 +396,10 @@ module cpu030_st_bridge #(
 
     wire term_ok = c_open & (s_tag == c_req_t);
 `ifdef TTRAM
-    assign cpu_dsackn = t_dsack ? 2'b00 : (term_ok & s_dsack) ? 2'b01 : 2'b11;
+    assign cpu_dsackn = t_dsack_c ? 2'b00 : (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
-    assign cpu_berrn  = ~((term_ok & s_berr) | t_berr);
-    assign cpu_din    = t_open ? tt_rdata : {s_rdata, s_rdata};
+    assign cpu_berrn  = ~((term_ok & s_berr) | t_berr_c);
+    assign cpu_din    = t_open ? t_rd : {s_rdata, s_rdata};
 `else
     assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
