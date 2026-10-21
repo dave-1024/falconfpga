@@ -654,13 +654,8 @@ begin
         end if;
     end process P_BUSWIDTH;
     
-    -- [C4] Port width from DSACK_In (sampled on the falling edge, as the termination itself), not the raw
-    -- DSACKn pins: the pins are clk_32 registers in the bridge and change on any clk_32 edge, so the raw
-    -- path (DSACKn -> SIZE_DEC/offset/P_PF_CHAIN -> rising-edge registers) had only half a clk_cpu
-    -- (31.25 ns) and failed timing (-2.6 ns, tt12). With TT-RAM (DSACK 00) next to ST (DSACK 01) a late
-    -- width split a long ST read wrongly (stack long read off by one word: rts to $FFC6xxxx, board only).
-    BUS_WIDTH <= WORD when DSACK_In = "01" or DSACK_MEM = "01" else
-                 BYTE when DSACK_In = "10" or DSACK_MEM = "10" else 
+    BUS_WIDTH <= WORD when DSACKn = "01" or DSACK_MEM = "01" else
+                 BYTE when DSACKn = "10" or DSACK_MEM = "10" else 
                  LONG_32; -- Also used during synchronous cycles.
     
     BUS_BSY <= '1' when BUS_CTRL_STATE /= IDLE else '0';
