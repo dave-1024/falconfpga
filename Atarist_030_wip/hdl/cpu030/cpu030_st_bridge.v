@@ -203,6 +203,9 @@ module cpu030_st_bridge #(
 `else
     wire cpu_cii_n = cpu_fast_sel;      // negated only for the reserved fast-RAM range
 `endif
+`ifdef TT_RING
+    wire [127:0] cpu_dbg_str;          // FalconFPGA DIAG STR
+`endif
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
@@ -257,6 +260,9 @@ module cpu030_st_bridge #(
         .CIOUTn    (               ),
 `ifndef WF030_NETLIST
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
+`ifdef TT_RING
+        .DBG_STR   ( cpu_dbg_str   ),   // FalconFPGA DIAG STR
+`endif
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
@@ -336,6 +342,46 @@ module cpu030_st_bridge #(
             end
         end
     end
+    // ---- FalconFPGA DIAG STR: decoder word stream + ISP ring (clk_cpu), 64 entries ----
+    // An entry is logged on every clk_cpu with a queue event (Q_HIT, IC_TAKE, PF_DONE, Q_MISS) or an ISP change,
+    // while armed (the same $7E000000 arm write, synchronised). Trigger: the first ISP write to $01xxxxxx with
+    // ISP[1] = 0 (TTM1's SP is always 2 mod 4 in the suite) or a BERR; 40 more entries are logged, then frozen.
+    // Read at $7E800000 + 16*i + 4*k, i = 0 newest: k0 {Q_HEAD,0}, k1 {word0, QF, QCNT, 0, trig, frz, 6'd0},
+    // k2 ISP, k3 {BIW_0 (current opcode), PC15:0}.
+    reg  [31:0] d_w0 [0:63];
+    reg  [31:0] d_w1 [0:63];
+    reg  [31:0] d_w2 [0:63];
+    reg  [31:0] d_w3 [0:63];
+    reg  [5:0]  d_wp = 6'd0;
+    reg  [1:0]  d_as = 2'b00;
+    reg         d_trg = 1'b0, d_frz = 1'b0, d_a1 = 1'b0;
+    reg  [5:0]  d_post = 6'd0;
+    reg  [31:0] d_sp = 32'd0;
+    wire [31:0] d_isp = cpu_dbg_str[63:32];
+    wire        d_ev = (cpu_dbg_str[79:76] != 4'd0) | (d_isp != d_sp);
+    always @(posedge clk_cpu) begin
+        d_as <= {d_as[0], g_arm};
+        d_a1 <= d_as[1];
+        d_sp <= d_isp;
+        if (d_as[1] & ~d_a1) begin
+            d_wp <= 6'd0; d_trg <= 1'b0; d_frz <= 1'b0; d_post <= 6'd0;
+        end else if (d_as[1] & ~d_frz & d_ev) begin
+            d_w0[d_wp] <= cpu_dbg_str[127:96];
+            d_w1[d_wp] <= {cpu_dbg_str[95:72], 6'd0, d_trg, d_frz};
+            d_w2[d_wp] <= d_isp;
+            d_w3[d_wp] <= cpu_dbg_str[31:0];
+            d_wp <= d_wp + 6'd1;
+            if (~d_trg & (((d_isp != d_sp) & (d_isp[31:24] == 8'h01) & ~d_isp[1]) | (~cpu_asn & ~cpu_berrn)))
+                d_trg <= 1'b1;
+            if (d_trg) begin
+                d_post <= d_post + 6'd1;
+                if (d_post == 6'd39) d_frz <= 1'b1;
+            end
+        end
+    end
+    wire [5:0]  d_i = d_wp - 6'd1 - cpu_adr[9:4];
+    wire [31:0] d_rdat = (cpu_adr[3:2] == 2'd0) ? d_w0[d_i] : (cpu_adr[3:2] == 2'd1) ? d_w1[d_i] :
+                         (cpu_adr[3:2] == 2'd2) ? d_w2[d_i] : d_w3[d_i];
     always @(posedge clk) t_open_ring <= cpu_asn ? 1'b0 : (t_open_ring | (cpu_ring & ~t_open));
 `endif
     always @(posedge clk) begin
@@ -360,7 +406,7 @@ module cpu030_st_bridge #(
                 tt_wdata <= cpu_dout;
 `ifdef TT_RING
                 if (cpu_ring) begin
-                    t_rd    <= g_rdat;    // DIAG ring readout / arm write: no SDRAM access
+                    t_rd    <= cpu_adr[23] ? d_rdat : g_rdat; // [STR] $7E800000: stream ring    // DIAG ring readout / arm write: no SDRAM access
                     t_dsack <= 1'b1;
                 end else
 `endif
