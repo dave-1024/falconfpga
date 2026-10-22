@@ -29,6 +29,13 @@ start:  move.l  4(sp),a0                | basepage
         move.w  #5,-(sp)
         trap    #14
         lea     12(sp),sp
+        bsr     ppal                    | palette as Setscreen left it
+        move.w  #0x000,-(sp)            | 1.3: Setcolor(3, black): medium-res text is pen 3
+        move.w  #3,-(sp)
+        move.w  #7,-(sp)
+        trap    #14
+        addq.l  #6,sp
+        bsr     ppal
         lea     m_title(pc),a0
         bsr     print
         move.w  #-1,-(sp)
@@ -144,7 +151,8 @@ nextt:  tst.w   (a5)
         lea     32(a5),a5
         bra     nextt
 sdone:  rts
-done:   lea     m_sum(pc),a0
+done:   bsr     ppal
+        lea     m_sum(pc),a0
         bsr     print
         move.l  30(a6),d0
         bsr     phex2
@@ -291,6 +299,23 @@ mw:     moveq   #0,d5                   | fetched flag
         subq.w  #1,d2
         bne     ml
         rts
+| ppal: print "PAL $FF8240-46: c0 c1 c2 c3"
+ppal:   lea     m_pal(pc),a0
+        bsr     print
+        lea     0xffff8240.w,a4
+        moveq   #3,d5
+1:      moveq   #0,d0
+        move.w  (a4)+,d0
+        and.w   #0x0fff,d0
+        move.l  d0,-(sp)
+        moveq   #3,d2
+        bsr     ph
+        lea     m_sp(pc),a0
+        bsr     print
+        move.l  (sp)+,d0
+        dbra    d5,1b
+        lea     m_nl(pc),a0
+        bra     print
 | sin: shift word d7 into the source buffer d0 (direction from the source x increment)
 sin:    tst.w   4(a5)
         bmi.s   1f
@@ -440,8 +465,10 @@ ph:     lea     51(a6),a0
         bne.s   1b
         bra     print
 
-m_title: .asciz "\r\nBLTMASK 1.2 (no AUX, NFSR model fixed) - BLTTEST with IPL masked (SR $2700) around each blit\r\n"
+m_title: .asciz "\r\nBLTMASK 1.3 (no AUX, NFSR model fixed, pen 3 black) - BLTTEST with IPL masked (SR $2700) around each blit\r\n"
 m_t:    .asciz  "test $"
+m_pal:  .asciz  "PAL $FF8240-46: "
+m_sp:   .asciz  " "
 m_p1:   .asciz  "== PASS 1: test 4, IPL masked ==\r\n"
 m_p2:   .asciz  "== PASS 2: all tests, IPL masked ==\r\n"
 m_p3:   .asciz  "== PASS 3: test 4, NOT masked (control) ==\r\n"
