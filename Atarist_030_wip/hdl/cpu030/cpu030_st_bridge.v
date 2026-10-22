@@ -281,8 +281,16 @@ module cpu030_st_bridge #(
     //   anything else     : bus error (no ST wrap: EmuTOS sizes TT-RAM by BERR / mirror tests)
     // With tt_en = 0 nothing here is used and A31:24 are ignored (plain ST, 24-bit wrap).
     localparam [24:0] TT_BYTES = 25'h1000000;   // 16 MB ($01000000-$01FFFFFF), 25'h0800000 = 8 MB
+    // [T10] program-space cycles (FC = 2/6) with A31:24 other than $01 take the ST side (24-bit
+    // wrap, as on a 68000): TOS 2.06 fills vectors 2..63 with $E010E2 + (vector << 24) (the bomb
+    // handler reads the vector number back from the PC high byte), so the first exception through
+    // one of them fetched $nnE010E2 -> BERR -> vector 2 = $02E010E2 -> BERR loop: the boot hung at
+    // the first Pexec. Data cycles still bus-error, so TT-RAM sizing (EmuTOS reads up from
+    // $01000000 until a BERR at $02000000) is unchanged.
+    wire cpu_pgm    = (cpu_fc[1:0] == 2'b10);
     wire cpu_tt_any = tt_en & ~cpu_asn & (cpu_fc != 3'b111) &
-                      (cpu_adr[31:24] != 8'h00) & (cpu_adr[31:24] != 8'hFF);
+                      (cpu_adr[31:24] != 8'h00) & (cpu_adr[31:24] != 8'hFF) &
+                      ((cpu_adr[31:24] == 8'h01) | ~cpu_pgm);
     wire cpu_tt_ram = cpu_tt_any & (cpu_adr[31:24] == 8'h01) & ({1'b0, cpu_adr[23:0]} < TT_BYTES);
     // L1: the request goes to sdram.v straight from the 030 pins (A/SIZE/RW/data are valid with AS,
     // as for the ST front end), so sdram.v sees it on the first clk_32 edge with AS low.

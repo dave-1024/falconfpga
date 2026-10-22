@@ -3,7 +3,8 @@
 | ST-RAM ($10000); every long compared; code copied to TT-RAM and run with I/D caches on.
 | Results: $1300 mismatches, $1304/$1308 TT/ST long sums, $130C/$1310 TT/ST misaligned sums,
 |          $1314/$1318 TT code result (2 calls, 0x1356 each), $131C bus errors (expect 1 = $02000000),
-|          $1320 cached TT re-read == first read (1), $1324 word/byte sum TT, $1328 same ST.
+|          $1320 cached TT re-read == first read (1), $1324 word/byte sum TT, $1328 same ST,
+|          $132C tagged program fetch $03E0xxxx (1 = ST wrap, $BAD = BERR) [T10].
         .text
         .long   0x00008000
         .long   start
@@ -71,8 +72,20 @@ start:  move.w  #0x2700,%sr
         tst.b   0x02000000
 after_berr:
         move.l  %a5,%sp
+| [T10] program fetch through a tagged 68000-style pointer ($03E0xxxx, as TOS 2.06's bomb vectors):
+| must take the ST side (24-bit wrap), not bus-error. $132C = 1 ok, $0BAD = BERR.
+        lea     berr2(%pc),%a0
+        move.l  %a0,0x8.w
+        lea     tagok(%pc),%a0
+        add.l   #0x03000000,%a0
+        jmp     (%a0)
+tagok:  move.l  #1,0x132c.w
+tagdone:
+        move.l  %a5,%sp
         move.l  #0x600dc0de,0x1ffc.w
 9:      bra.s   9b
+berr2:  move.l  #0xbad,0x132c.w
+        jmp     tagdone
 berr:   addq.l  #1,0x131c.w
         move.l  %a5,%sp
         jmp     after_berr
