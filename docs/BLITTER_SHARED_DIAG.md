@@ -1,0 +1,11 @@
+# Blitter shared-mode hang diagnosis (worktree /workspace/wt_blit, branch blitfix-shared off movem-path 0e8a2dc)
+- netlist: /workspace/blsim/wf030_e0e6.vg (fresh wf030_syn.tcl of e0e6d5b core)
+- test ROM: sim/st/prog_blt.s (BLTTEST test 4 replica, code in ST-RAM $4000, CACR/SR/MFPT via ASFLAGS --defsym); run_bus.sh gained $ASFLAGS
+- runs rA..rG (cph 15625, TTRAM): caches on/off, IPL7/3/1 (HBL ints fired 0x68-0x71 times): ALL PASS, checksum d090 correct, 1 CPU loop
+- MFP timer A ints never fired in sim (setup or sim MFP clock) - not pursued
+- next: cph 46875 phase; check board-only defines (BRIDGE_EARLY_AS etc)
+- FOUND: board build defines BRIDGE_EARLY_AS + WF030_FAST_HANDOFF (build_st_helper_hdn.tcl:41,45); sims rA-rG had neither. Rerun rH (caches on, SR 2100) / rI (caches off, 2700) with them.
+- rJ (MFP ta, ph15625), rK (HBL+MFP, ph46875) with EARLY_AS; tb_bus got MFP/BLT-own monitor
+- rJ/rK (EARLY_AS+FAST_HANDOFF, ph 15625 and 46875, caches on, HBL ints): PASS; monitor shows 4 blitter ownership windows (64-cycle timeout -> CPU -> re-grant) working
+- MFP timer A never counts in sim (ctrl=1 dat=14 ier/imr set, no T_O_PULSE): vectored MFP IACK during a shared blit NOT covered
+- CONCLUSION so far: no RTL repro; blitter/bridge BR/BG/BGACK handover + timeout/re-request correct in sim

@@ -23,7 +23,7 @@ open('stBlitter_sim.sv','w').write(s)
 P
 cp $R/ikbd/rom/ikbd.hex . 2>/dev/null || true
 if [ "$ROM" = bus ]; then
-  m68k-linux-gnu-as -m68030 $H/${PROG:-prog_bus}.s -o bus.o && m68k-linux-gnu-ld -Ttext=0xe00000 -o bus.elf bus.o 2>/dev/null && m68k-linux-gnu-objcopy -O binary bus.elf rom.bin
+  m68k-linux-gnu-as -m68030 $ASFLAGS $H/${PROG:-prog_bus}.s -o bus.o && m68k-linux-gnu-ld -Ttext=0xe00000 -o bus.elf bus.o 2>/dev/null && m68k-linux-gnu-objcopy -O binary bus.elf rom.bin
 else cp $ROM rom.bin; fi
 python3 -c "d=open('rom.bin','rb').read(); d+=b'\xff'*(max(4096,len(d))-len(d)+len(d)%2); open('rom.hex','w').write('\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\n')"
 A=$R/atarist; G=$R/gstmcu/hdl; J=$R/jt49; K=$R/ikbd
