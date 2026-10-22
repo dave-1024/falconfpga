@@ -218,3 +218,19 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   address in neighbouring clocks, either add forwarding or force distributed RAM explicitly. Alignment-dependent,
   layout-dependent, deterministic board failures that RTL cannot reproduce point at primitive semantics, not at
   timing.
+
+## A false-by-opcode path can be the worst path: CHK2/CMP2 term carried the MOVEM F3 decision (22 Oct 2026)
+
+- **Symptom.** tt20 worst setup path -4.887 ns, a half-cycle clk_cpu030_n[R] -> clk_cpu030[R] path (31.25 ns budget,
+  36.085 ns data delay): `SLICE_CNT_N_2` -> `T_SLICE` -> `WR_EARLY` -> (F3_EARLY, ALU_BSY_M) -> `ALU_INIT`
+  (fanout 393) -> `USE_DREG` -> `AR_IN_1` -> `ADR_MUX` -> `+BASE_DISPL` -> `ADR_EFF_VAR` -> `+ADR_OFFSET` ->
+  `ADR_EFF_I_27`. About 19 LUT levels plus two 32-bit carry chains.
+- **Cause.** `USE_DREG`'s CHK2/CMP2 arm used `ALU_INIT_I`, and `ALU_INIT_I` includes the [F3] MOVEM back-to-back term
+  (`WR_EARLY`, valid only in the S3 half clock). OP cannot be MOVEM and CHK2/CMP2 at once, so the path can never
+  carry a transition, but STA times it.
+- **Fix [T7].** `ALU_INIT_C2`: the same function as `ALU_INIT_I` for CHK2/CMP2 (ALU_BSY = 0, INIT_EXEC_WB, no write
+  fault, PHASE2), without the MOVEM term. No switch; behaviour identical (a clock-sampled simulation assert checks
+  `ALU_INIT_C2 = ALU_INIT_I` whenever OP is CHK2/CMP2). New bench `prog_chk2.s` (CHK2/CMP2 coverage; none existed).
+- **Lesson.** Before pipelining a failing path, read the netlist cell names along it and ask whether every leg can
+  really be active in the same clock. A shared "init" strobe with a fast MOVEM term leaked into an unrelated
+  opcode's address mux; giving that opcode its own strobe removes the path without changing a single cycle.

@@ -358,6 +358,7 @@ signal F3_EARLY             : bit; -- [F3] Next MOVEM register taken in the S3 c
 signal F3_BYP_I             : bit := '0';
 signal ALU_BSY_M            : bit := '0'; -- Option A: ALU busy as seen by MOVEM register-to-memory.
 signal ALU_TRIG             : bit := '0';  -- [F54] measured warm-boot value
+signal ALU_INIT_C2          : bit := '0';  -- [T7] ALU_INIT_I for CHK2/CMP2 without the [F3] MOVEM term
 signal AR_DEC_I             : bit := '1';  -- [F54] measured warm-boot value
 signal AR_WR_I              : bit := '0';  -- [F54] measured warm-boot value
 signal AR_WR_II             : bit := '0';  -- [F54] measured warm-boot value
@@ -946,7 +947,21 @@ begin
     USE_DREG <= '1' when OP = CAS2 and BIW_1(15) = '0' and PHASE2 = false else
                 '1' when OP = CAS2 and BIW_2(15) = '0' else
                 '1' when (OP = CHK2 or OP = CMP2) and BIW_1(15) = '0' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and PHASE2 = true else -- Select destination register.
-                '1' when (OP = CHK2 or OP = CMP2) and BIW_1(15) = '0' and ALU_INIT_I = '1' else '0'; -- Store compare information
+                '1' when (OP = CHK2 or OP = CMP2) and BIW_1(15) = '0' and ALU_INIT_C2 = '1' else '0'; -- Store compare information
+
+    -- [T7] ALU_INIT_I as it is for CHK2/CMP2 (same function, fewer inputs). For those opcodes ALU_BSY_M equals
+    -- ALU_BSY (its other arms need OP = MOVEM), the ALU_TRIG arm for CHK2/CMP2 requires PHASE2 = true, and
+    -- ALU_INIT_I = ALU_TRIG. The full ALU_INIT_I carries the [F3] MOVEM term (WR_EARLY -> F3_EARLY -> ALU_BSY_M),
+    -- which STA then timed through USE_DREG -> AR_IN_1 -> ADR_MUX -> two adders -> ADR_EFF_I as a half-cycle
+    -- clk_cpu030_n -> clk_cpu030 path (tt20 worst, -4.887 ns), although OP cannot be MOVEM and CHK2 at once.
+    ALU_INIT_C2 <= '1' when ALU_BSY = '0' and FETCH_STATE = INIT_EXEC_WB and WR_FLT = '0' and WFLT = '0' and PHASE2 = true else '0';
+    -- synthesis translate_off
+    P_T7_CHK: process(CLK) begin -- Sampled at the edge (no delta glitches).
+        if CLK = '1' and CLK'event then
+            assert not ((OP = CHK2 or OP = CMP2) and ALU_INIT_C2 /= ALU_INIT_I) report "T7: ALU_INIT_C2 /= ALU_INIT_I" severity failure;
+        end if;
+    end process P_T7_CHK;
+    -- synthesis translate_on
 
     WB_BUFFER: process
     -- This process stores the data for the 
