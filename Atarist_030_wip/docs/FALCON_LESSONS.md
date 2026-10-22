@@ -262,3 +262,22 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   movemx SAME.
 - **Lesson.** In a half-cycle path, fold the negative-edge inputs into a single negative-edge flip flop at their
   source, so only one LUT level is left before the CLK-domain logic.
+
+## TOS 2.06 hangs with TT-RAM: tagged exception vectors (22 Oct 2026)
+
+- **Symptom.** tt24 (TTRAM) + plain TOS 2.06: static ATARI logo after the memory test, no bombs. tt24n (no TTRAM)
+  boots to the desktop. EmuTOS is fine on both.
+- **Bisection on the board.** Patched-ROM checkpoints (a stub fills the screen with stripes and halts) narrowed it:
+  the ACSI/IDE boot loop is fine, AUTO is reached, and it hangs inside the first GEMDOS Pexec (`$E011F8`) before GEM.
+- **Cause.** At `$E004E0`, TOS 2.06 fills vectors 2..63 with `$E010E2 + (n << 24)`. The bomb handler reads the
+  vector number back from the high byte of the PC, which only works because a 68000 ignores A31:24. With TTRAM the
+  bridge sent every A31:24 other than $00/$FF/$01 to a bus error. So the first exception taken through one of these
+  vectors fetched `$nnE010E2`, which bus-errored, and vector 2 (`$02E010E2`) bus-errored again: an endless BERR loop.
+  Without TTRAM the 24-bit wrap hides it.
+- **Fix [T10].** Program-space cycles (FC 2/6) with A31:24 other than $01 take the ST side (24-bit wrap, as on a
+  68000). Data cycles still bus-error, so TT-RAM sizing is unchanged: EmuTOS reads up from $01000000 until a BERR
+  at $02000000, and IS_BUS32 uses $0100000C. No switch. ST timing is unchanged (the ST side ignores A31:24).
+  prog_tt.s checks a jump to `$03E0xxxx` ($132C = 1) and the $02000000 data BERR ($131C = 1). run_rtl PASS; the
+  core VHDL is unchanged.
+- **Lesson.** On a 32-bit bus behind 68000-era TOS, high-byte-tagged code pointers are real (bomb vectors). Keep
+  the 24-bit wrap for instruction fetches; only data probes need the bus error.
