@@ -234,3 +234,15 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - **Lesson.** Before pipelining a failing path, read the netlist cell names along it and ask whether every leg can
   really be active in the same clock. A shared "init" strobe with a fast MOVEM term leaked into an unrelated
   opcode's address mux; giving that opcode its own strobe removes the path without changing a single cycle.
+
+## Second false-by-opcode leg: UNLK's SP write carried NEXT_FETCH_STATE (22 Oct 2026)
+
+- **Symptom.** After [T7], tt21 worst -1.010 ns, same half-cycle clk_cpu030_n -> clk_cpu030 shape: `DSACK_In_0` ->
+  `WR_EARLY` -> `F3_EARLY` -> `MOVEM_PVAR` -> `NEXT_FETCH_STATE` -> `AR_WR_1` -> `AR_IN_1` -> `ADR_MUX` -> adders ->
+  `ADR_EFF_I_26`.
+- **Cause.** `AR_WR_I`'s UNLK arm tested `NEXT_FETCH_STATE /= SWITCH_STATE`, and NEXT_FETCH_STATE carries the MOVEM
+  F3 decision. For UNLK, FETCH_DEC always goes SWITCH_STATE -> CALC_AEFF, so the term was constant '1'.
+- **Fix [T8].** Drop the constant term. No switch, behaviour identical (clock-sampled sim assert that UNLK never
+  stays in SWITCH_STATE).
+- **Lesson.** Same as [T7]: a fast, late signal (here via the next-state decode) shared into an unrelated opcode's
+  enable is a timing path even when it is logically constant there.

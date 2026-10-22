@@ -746,7 +746,10 @@ begin
     
     AR_WR_1 <= AR_WR_I;
     AR_WR_I <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else
-               '1' when OP = UNLK and FETCH_STATE = SWITCH_STATE and NEXT_FETCH_STATE /= SWITCH_STATE else -- Write An to SP.
+               -- [T8] FETCH_DEC always leaves SWITCH_STATE for UNLK (NEXT_FETCH_STATE = CALC_AEFF), so the old term
+               -- NEXT_FETCH_STATE /= SWITCH_STATE was constant '1' here; it only made STA time the MOVEM F3 decision
+               -- (WR_EARLY -> F3_EARLY -> MOVEM_PVAR -> NEXT_FETCH_STATE) into AR_IN_1 (tt21 worst, -1.010 ns).
+               '1' when OP = UNLK and FETCH_STATE = SWITCH_STATE else -- Write An to SP.
                '0' when EXEC_WB_STATE /= WRITEBACK else
                '1' when OP_WB_I = ADDA or OP_WB_I = SUBA else
                '1' when (OP_WB_I = ADDQ or OP_WB_I = SUBQ) and BIW_0_WB(5 downto 3) = "001" else
@@ -961,6 +964,11 @@ begin
             assert not ((OP = CHK2 or OP = CMP2) and ALU_INIT_C2 /= ALU_INIT_I) report "T7: ALU_INIT_C2 /= ALU_INIT_I" severity failure;
         end if;
     end process P_T7_CHK;
+    P_T8_CHK: process(CLK) begin
+        if CLK = '1' and CLK'event then
+            assert not (OP = UNLK and FETCH_STATE = SWITCH_STATE and NEXT_FETCH_STATE = SWITCH_STATE) report "T8: UNLK stays in SWITCH_STATE" severity failure;
+        end if;
+    end process P_T8_CHK;
     -- synthesis translate_on
 
     WB_BUFFER: process
