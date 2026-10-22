@@ -278,7 +278,8 @@ module cpu030_st_bridge #(
     //   A31:24 = $00, $FF : ST side, as before (24-bit bus, $FFxxxxxx = short I/O addressing)
     //   A31:24 = $01      : TT-RAM, 32-bit port (DSACK1:0 = 00), cachable (CIIN negated)
     //                       A23:0 >= TT_BYTES -> bus error
-    //   anything else     : bus error (no ST wrap: EmuTOS sizes TT-RAM by BERR / mirror tests)
+    //   $02..$7F data     : bus error (no ST wrap: EmuTOS sizes TT-RAM by BERR / mirror tests)
+    //   $80..$FE, and program fetches with any A31:24 but $01: ST side, 24-bit wrap [T10/T10b]
     // With tt_en = 0 nothing here is used and A31:24 are ignored (plain ST, 24-bit wrap).
     localparam [24:0] TT_BYTES = 25'h1000000;   // 16 MB ($01000000-$01FFFFFF), 25'h0800000 = 8 MB
     // [T10] program-space cycles (FC = 2/6) with A31:24 other than $01 take the ST side (24-bit
@@ -287,9 +288,12 @@ module cpu030_st_bridge #(
     // one of them fetched $nnE010E2 -> BERR -> vector 2 = $02E010E2 -> BERR loop: the boot hung at
     // the first Pexec. Data cycles still bus-error, so TT-RAM sizing (EmuTOS reads up from
     // $01000000 until a BERR at $02000000) is unchanged.
+    // [T10b] A31 = 1 ($80..$FF) always takes the ST side: the TOS 2.06 BIOS/XBIOS dispatcher ($E00D80)
+    // marks indirect table entries with bit 31 and reads them with movea.l (a0),a0 at $80000472 etc.
+    // Data BERR is kept only for $02..$7F (TT-RAM sizing, TT_RING $7E).
     wire cpu_pgm    = (cpu_fc[1:0] == 2'b10);
     wire cpu_tt_any = tt_en & ~cpu_asn & (cpu_fc != 3'b111) &
-                      (cpu_adr[31:24] != 8'h00) & (cpu_adr[31:24] != 8'hFF) &
+                      (cpu_adr[31:24] != 8'h00) & ~cpu_adr[31] &
                       ((cpu_adr[31:24] == 8'h01) | ~cpu_pgm);
     wire cpu_tt_ram = cpu_tt_any & (cpu_adr[31:24] == 8'h01) & ({1'b0, cpu_adr[23:0]} < TT_BYTES);
     // L1: the request goes to sdram.v straight from the 030 pins (A/SIZE/RW/data are valid with AS,

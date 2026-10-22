@@ -4,7 +4,7 @@
 | Results: $1300 mismatches, $1304/$1308 TT/ST long sums, $130C/$1310 TT/ST misaligned sums,
 |          $1314/$1318 TT code result (2 calls, 0x1356 each), $131C bus errors (expect 1 = $02000000),
 |          $1320 cached TT re-read == first read (1), $1324 word/byte sum TT, $1328 same ST,
-|          $132C tagged program fetch $03E0xxxx (1 = ST wrap, $BAD = BERR) [T10].
+|          $132C tagged program fetch $03E0xxxx (1 = ST wrap, $BAD = BERR) [T10]; $1334 = $12345678 ($80001330 data read wraps) [T10b].
         .text
         .long   0x00008000
         .long   start
@@ -80,6 +80,9 @@ after_berr:
         add.l   #0x03000000,%a0
         jmp     (%a0)
 tagok:  move.l  #1,0x132c.w
+| [T10b] data read through a $80-tagged pointer (TOS 2.06 BIOS dispatcher) must read ST $001000
+        move.l  #0x12345678,0x1330.w
+        move.l  0x80001330,0x1334.w
 tagdone:
         move.l  %a5,%sp
         move.l  #0x600dc0de,0x1ffc.w
