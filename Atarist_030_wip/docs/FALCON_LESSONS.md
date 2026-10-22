@@ -279,5 +279,11 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   at $02000000, and IS_BUS32 uses $0100000C. No switch. ST timing is unchanged (the ST side ignores A31:24).
   prog_tt.s checks a jump to `$03E0xxxx` ($132C = 1) and the $02000000 data BERR ($131C = 1). run_rtl PASS; the
   core VHDL is unchanged.
-- **Lesson.** On a 32-bit bus behind 68000-era TOS, high-byte-tagged code pointers are real (bomb vectors). Keep
-  the 24-bit wrap for instruction fetches; only data probes need the bus error.
+- **Second tag [T10b].** With T10 the boot showed 2 bombs. A ROM stub that dumps the saved frame at the bomb exit
+  gave PC = `$E00D80`, `movea.l (a0),a0`, in the BIOS/XBIOS trap dispatcher. Table entries with bit 31 set are
+  indirect (for example `$80000472`), and the dispatcher reads them through that tagged address. So A31 = 1
+  ($80..$FF) now always takes the ST side, and the data BERR is kept only for $02..$7F (TT-RAM sizing, TT_RING
+  $7E). prog_tt.s also checks that a data read at `$80001330` returns ST `$1330` ($1334).
+- **Lesson.** On a 32-bit bus behind 68000-era TOS, high-byte-tagged pointers are real (bomb vectors, $80
+  BIOS indirections). Keep the 24-bit wrap for instruction fetches and for A31 = 1; bus-error only the data range
+  that memory sizing probes. To bisect a silent hang, patch ROM checkpoints and dump the saved exception frame.

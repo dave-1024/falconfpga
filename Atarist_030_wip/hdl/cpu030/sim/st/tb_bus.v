@@ -184,6 +184,22 @@ module tb_bus;
             if (ttn % 1000 == 0) $fflush(ttf); end
     end
 `endif
+`ifdef TOSDBG
+    initial #1 dut.dma.dma_scnt = 8'd0;   // FPGA power-up value (sim: uninitialised reg)
+    reg as30_q = 1'b1;
+    always @(posedge clk32) begin
+        as30_q <= dut.cpu030.cpu_asn;
+        if (as30_q && !dut.cpu030.cpu_asn && dut.cpu030.cpu_adr[31:24] != 8'h00 && dut.cpu030.cpu_adr[31:24] != 8'hFF)
+            $display("HI %0t A=%08x fc=%0d rw=%b", $time, dut.cpu030.cpu_adr, dut.cpu030.cpu_fc, dut.cpu030.cpu_rwn);
+    end
+    reg be_q = 1'b1;
+    always @(posedge clk32) begin
+        be_q <= dut.cpu030.cpu_berrn;
+        if (be_q && !dut.cpu030.cpu_berrn) $display("BERR %0t A=%08x fc=%0d rw=%b", $time, dut.cpu030.cpu_adr, dut.cpu030.cpu_fc, dut.cpu030.cpu_rwn);
+    end
+    always @(dut.cpu030.cpu_rst_n or dut.cpu030.extReset or dut.cpu030.cpu_reset_out)
+        $display("RST %0t rst_n=%b ext=%b reset_out=%b", $time, dut.cpu030.cpu_rst_n, dut.cpu030.extReset, dut.cpu030.cpu_reset_out);
+`endif
     // ---- ST bus trace + spacing histogram ----
     wire as_n = dut.cpu_as_n, rw = dut.cpu_rw;
     wire [23:0] a = {dut.cpu_a, 1'b0};
