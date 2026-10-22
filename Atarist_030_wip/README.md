@@ -99,7 +99,7 @@ power-up (`atarist.ini`) or at runtime, with desktop saves (the swap corruption 
 uploads through the helper, SD error recovery (`ST_SD_HARDEN`; a lost sector shows as a disk error in TOS).
 
 Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
-- Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; cold boot (`c`) clears it
+- Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; the helper `c` reset clears it
   (pinned in TODO.md). Always `c` after a flash.
 - The blitter shows as disabled under EmuTOS.
 - GEMBench 4.03 Display is ~10% short of a stock STE (91%; pinned in TODO.md): extra 030 fetch cycles on the ST bus.

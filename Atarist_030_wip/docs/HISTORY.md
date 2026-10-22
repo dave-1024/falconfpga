@@ -148,3 +148,12 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     shifts/rotates now within 0.2 of the worst column for every count. New prog_shift regression (408 ops x CCR,
     expect from the bit-serial core). Sim: run_rtl PASS, cmpall 72/72 identical. Synthesis (876ffc2): clk_cpu030
     22.63 MHz, clk32_core 33.29 MHz, LUT 39,792 (+1,492 vs T6 28020c8), FF 15,637. Not flashed.
+
+23. **TT-RAM and the caches-on crash (`tt-ram`, 20-22 Oct 2026; docs/BUGS.md, docs/ttram/).** [C2] CMPA.W full
+    32-bit flags + `TT_RV_MASK` (f73d42d): EmuTOS finds 16 MB TT-RAM. [C3] odd-address check uses OPC_ADR (af5930a).
+    [C4] registered BUS_WIDTH (a96f3aa). [C8] ST DSACK/AVEC/BERR through flops (58f15a5). Sensitivity lists CHK2_RN,
+    OPC_ADR, MOVEM_FIRST_RD (d626164, RTL-sim only). C9 tried and reverted (bb0c706/26c3d0a). **[C10] I-cache
+    block-RAM read-during-write: forwarding register (71624aa)**, the root cause of the caches-on SP -2 slip.
+    Release build tt20 (`build_st_helper_hdn.tcl` + `TTRAM`): clk32 33.38 / clk_cpu030 22.42 MHz, worst -4.89 ns,
+    41127 LUT + 5036 ALU. FrontBench prgflags 7 lastcount 1362 (TT caches on) / 1169 (TT caches off) / 990 (ST-RAM).
+    22 Oct 2026: `TTRAM` and `ST_030_CACHES` are now set by default in the build scripts.

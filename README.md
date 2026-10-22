@@ -82,6 +82,15 @@ The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by
 
 ### `Atarist_030_wip/`: 68030 ST (status 18 Oct 2026)
 
+- **TT-RAM (branch `tt-ram`, 21-22 Oct 2026):** 16 MB of 030-side fast RAM at `$01000000`, on the same single SDRAM
+  module in J9 (no second module needed). Built in by default, with the I and D caches on by default; a TT-RAM on/off
+  option will come in the helper later. EmuTOS 256K finds it ("Alt-RAM 16 MB"). The caches-on crash is fixed by
+  [C10] (71624aa): Gowin had turned the I-cache data store into a block RAM that returns old data when read one clock
+  after a write; a forwarding register fixes it. Release build **tt20**: clk32 33.38 MHz, clk_cpu030 22.42 MHz,
+  worst slack -4.89 ns, 41127 LUT + 5036 ALU. **FrontBench prgflags 7 lastcount: 1362 TT-RAM caches on, 1169 caches
+  off, 990 ST-RAM.** Bugs: [`docs/BUGS.md`](docs/BUGS.md); TOS: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md);
+  build how-to: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md); notes: [`docs/ttram/`](docs/ttram/).
+
 - TOS 2.06 boots to the GEM desktop from cold; 4 MB, low/medium res.
 - **68030 I and D caches built** per the MC68030 manual (MC68030UM ch. 6): 256 B each, CACR/CAAR, write-through D cache with WA, CDIS. CIIN comes from a per-cycle address decode in the bridge, TF536-style: only the reserved 030-side fast-RAM range `$01000000-$01FFFFFF` is cachable, every ST ROM/RAM/IO cycle is cache-inhibited. The data-fault fixes (no program cycle after a write fault, short $A frame) are included. Merged on `main` 17 Oct 2026. Design: [`ICACHE_DESIGN.md`](Atarist_030_wip/docs/ICACHE_DESIGN.md), [`DCACHE_DESIGN.md`](Atarist_030_wip/docs/DCACHE_DESIGN.md), [`FAULT_FIXES.md`](Atarist_030_wip/docs/FAULT_FIXES.md).
 - Board build **`st_helper_hdn_f3a_7919eb3_p3.fs`** (SHA256 `56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e`): main + MOVEM timing F1/F2/F3 (F1/F2 merged 18 Oct 2026, F3 back-to-back MOVEM writes on `f3-write-queue`, [`MOVEM_TIMING_F1_F2.md`](Atarist_030_wip/docs/MOVEM_TIMING_F1_F2.md)). LUT ~37.9k, Fmax clk_cpu030 20.94 MHz / clk32_core 34.02 MHz, TNS 0. TOS 2.06 switches the caches on at boot. Rollback order: F3a `7919eb3` (this), then F2 `st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 `f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb`), then `dc_ff6af03` (SHA256 `c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e`).
@@ -168,6 +177,8 @@ in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 - **The EmuTOS developers**: the optional GPL TOS image
 - **The Hatari developers**: the hybrid debug method (state saves and disassembly)
 - **Individual Computers**: the ACA1230-55N used as the real-030 instruction oracle
+- **exxos**: GEMBENCH and the ST536 TOS 2.06 images used as test references
+- **agranlund**: `tftools` (fastram, maprom, blitfix) referenced for the ST536/TF536 TOS notes
 
 If a name is missing or something is credited wrongly, please say so and it
 will be fixed.

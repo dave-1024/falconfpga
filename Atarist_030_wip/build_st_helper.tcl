@@ -28,9 +28,14 @@ puts $fh "`define ST_COLOUR_MONITOR"
 # (st_helper_osd.v, port step 5). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_OSD"
 puts $fh "`define ST_STE"
-# Experimental WF68K30L instruction/data caches (incomplete: no CIIN, burst
-# fill, WA or DMA snoop). Off by default; add the next line to build them in.
-# puts $fh "`define ST_030_CACHES"
+# WF68K30L I and D caches: ON by default (as release build tt20). The cache
+# files (wf68k30L_icache.vhd, wf68k30L_dcache.vhd) are always added below and
+# TOS enables them through CACR. No HDL tests ST_030_CACHES; the define only
+# records the intent. CIIN: only TT-RAM $01xxxxxx is cachable.
+puts $fh "`define ST_030_CACHES"
+# TT-RAM (16 MB at $01000000 on the single J9 SDRAM module): built in by
+# default, as tt20. An on/off option will be added to the helper later.
+puts $fh "`define TTRAM"
 # F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
 # original 68000 phase timing (to measure a CPU-side fix alone).
 puts $fh "`define BRIDGE_EARLY_AS"

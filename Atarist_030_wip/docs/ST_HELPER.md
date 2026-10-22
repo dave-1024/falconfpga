@@ -626,7 +626,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   a 68030 shows Options > Cache (not Blitter), so that menu does not prove the
   blitter. _MCH cookie, DMA sound and joypads not yet verified.
 
-## 7g. 030 caches out by default (`ST_030_CACHES`), 7 Oct 2026
+## 7g. 030 caches out by default (`ST_030_CACHES`), 7 Oct 2026 (historical: caches always built since 17 Oct, on by default)
 
 - The WF68K30L I/D caches added on 4 Oct (a6e3fee/a7ccf76 icache, e9a4fd9
   dcache) were in every build since, active whenever TOS sets CACR EI/ED

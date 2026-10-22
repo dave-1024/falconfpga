@@ -26,7 +26,8 @@ If this guide and that one ever disagree, trust that one.
 
 ### Hardware
 1. A **Sipeed Tang Console** with the **138K** module (chip `GW5AST-LV138PG484AC1/I0`, **device version C**).
-2. The **Tang SDRAM module**, plugged into slot **J9**. Do not flash the board with J9 empty.
+2. **One** Tang SDRAM module, plugged into slot **J9**. The design uses this one module only (ST-RAM and TT-RAM
+   both live on it); you do not need a second module, and other slots stay empty. Do not flash the board with J9 empty.
 3. A **USB cable** from your PC to the board (used for flashing and for the helper's text console).
 4. A **microSD card** formatted FAT, with Atari floppy images (`.st` files) on it.
 5. An **HDMI** screen, and a USB keyboard and mouse.
@@ -43,8 +44,9 @@ If this guide and that one ever disagree, trust that one.
 4. **git**, to download the code.
 5. Your own **TOS image** (EmuTOS 256K or TOS 2.06, 256 KB), saved as a file ending in `.bin`.
 
-TODO: where to download Gowin EDA V1.9.12.03 and RiscV_AE350_SOC_V1.3, and whether a licence is needed (not
-written in the repo).
+**GAP for David:** where to download Gowin EDA V1.9.12.03 and RiscV_AE350_SOC_V1.3, and which licence is needed
+(not written in the repo). Tip: if the build stops on a licence check, simply run it again; it usually works the
+second time.
 
 ---
 
@@ -58,7 +60,14 @@ written in the repo).
    ```
 3. All the commands below start from this `falconfpga` folder unless it says otherwise.
 
-TODO: the TT-RAM work is on branch `tt-ram` and is not on GitHub yet. When it is merged, this guide will cover it.
+The TT-RAM work (16 MB of fast RAM for the 68030, with the caches working) is on branch `tt-ram` until it is merged.
+To use it before then: `git checkout tt-ram`. TT-RAM is built in by default: there is no build switch and nothing to
+turn on (the build script sets `TTRAM`). The 68030 I and D caches are also built in by default. An on/off option
+for TT-RAM will be added to the helper later.
+
+Note: the release build tt20 was made with `build_st_helper_hdn.tcl`, which is the same as `build_st_helper.tcl`
+except `place_option 3` (instead of 1) and the extra `SD_WRITE_DEBUG` line. **GAP for David:** which of the two
+scripts this guide should tell builders to use.
 
 ---
 
@@ -84,6 +93,9 @@ TODO: the TT-RAM work is on branch `tt-ram` and is not on GitHub yet. When it is
 5. **Check that it passed the speed test** ("timing"). Open this file in a web browser:
    `Atarist_030_wip/impl/pnr/st_helper_tr_content.html`
    - In the **TNS** table, every number must be **0** (both "setup" and "hold").
+     **GAP for David:** the current TT-RAM release build (tt20) does *not* meet this (worst slack -4.89 ns) yet works
+     on the board at clk_cpu030 22.42 MHz (rule: at least 17 MHz). Which pass rule a builder should use is for David to
+     decide.
    - In the **Recovery/Removal** tables, every number must be **positive**.
    - Ignore the "violated endpoints" count at the top.
 6. If the check fails, do **not** flash it. Open `build_st_helper.tcl` in a text editor, change
@@ -110,7 +122,7 @@ TODO: the TT-RAM work is on branch `tt-ram` and is not on GitHub yet. When it is
 ### On Windows
 1. Run `Atarist_030_wip\helper_fw\companion\build_companion.bat`. It makes the same file.
 
-TODO: the Windows toolchain/BSP paths the `.bat` expects are not described in the guide docs.
+**GAP for David:** the Windows toolchain/BSP paths the `.bat` expects are not described in the guide docs.
 
 ---
 
@@ -121,7 +133,7 @@ TODO: the Windows toolchain/BSP paths the `.bat` expects are not described in th
 2. Make sure the file name ends in **`.bin`** (the programmer will not accept it otherwise). Rename it if needed,
    for example `emutos256k.bin`.
 
-TODO: which exact EmuTOS 256K release/file to download (not recorded in the repo).
+**GAP for David:** which exact EmuTOS 256K release/file to download (not recorded in the repo).
 
 ---
 
@@ -147,7 +159,8 @@ On Linux, run these from `/opt/gowin/Programmer/bin` as root (`sudo`), and type 
    ```
    ./programmer_cli --scan-cables
    ```
-   Note the "location" number it shows. Below we write `LOC`: replace it with your number (for example 4369).
+   Note the "location" number it shows. Below we write `LOC`: replace it with your number. On David's board it is currently **4369** (older notes say 417;
+   that number is out of date: it changes after reboots and replugs).
 2. **Flash the bitstream** (takes a few minutes, allow up to 5):
    ```
    ./programmer_cli -d GW5AST-138C --location LOC --run 53 --fsFile st_helper.fs
@@ -180,11 +193,13 @@ On Linux, run these from `/opt/gowin/Programmer/bin` as root (`sudo`), and type 
    ```
    screen /dev/ttyUSB1 115200
    ```
-3. Type `c` and press Enter to do a **cold boot**.
+3. Type `c` and press Enter. This restarts the Atari side with the stronger of the helper's two resets (`w` is the
+   lighter one). It is **not** the same as switching the power off and on. **GAP for David:** exactly what `c`
+   clears that `w` does not (the code just sends reset code 3 instead of 1).
 4. You should see the memory test and then the **GEM desktop** on the HDMI screen.
 5. To load a floppy image, type `mount a yourgame.st` in the console, or press **F12** for the on-screen menu.
 
-Handy console commands: `c` cold boot, `w` warm reset, `ls` list SD card, `mount a <file>`, `eject`, `save`.
+Handy console commands: `c` full reset of the Atari side, `w` warm reset, `ls` list SD card, `mount a <file>`, `eject`, `save`.
 
 ---
 
@@ -194,7 +209,7 @@ Handy console commands: `c` cold boot, `w` warm reset, `ls` list SD card, `mount
 |---|---|
 | No picture on HDMI after flashing | Reload the FPGA (step 5 of Part 6) again. It can take **about 3 reloads** before HDMI comes up. |
 | Helper console does not answer after flashing | Run the reload (`--run 1`) once more; on Linux also `sudo modprobe ftdi_sio`. |
-| Stops at "System halted!" | Do a cold boot with `c` in the helper console. |
+| Stops at "System halted!" | Type `c` in the helper console. If it still halts, switch the board off and on. |
 | Programmer cannot find the board | Run `--scan-cables` again and use the new location number. |
 | Programmer refuses the TOS file | The file name must end in `.bin`. |
 | Build fails the timing check | Switch `place_option` between 1 and 3 (Part 3, step 6). Do not change the timing rules. |
@@ -203,9 +218,10 @@ Handy console commands: `c` cold boot, `w` warm reset, `ls` list SD card, `mount
 
 ---
 
-## Still to be written (TODO)
+## Gaps for David (not confirmable from the repo)
 - Download locations and licence for Gowin EDA V1.9.12.03 and RiscV_AE350_SOC_V1.3.
 - Windows paths for the helper `.bat` build.
 - Which EmuTOS 256K file to use.
-- Building with TT-RAM (branch `tt-ram`, not yet merged; how to switch it on is not in the build scripts yet).
+- The timing pass rule for builds with negative slack (see Part 3).
+- What `c` resets compared with a power cycle.
 - The fix for HDMI needing several reloads.
