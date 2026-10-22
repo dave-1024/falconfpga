@@ -49,6 +49,10 @@ puts $fh "`define ST_FLOPPY_MEDIACH"
 # SD hardening (hdl/misc/sd_rw.v, sd_card.v ST_SD_HARDEN): token check, re-init + retry, bounded read
 # retries, sector latched at request; a give-up reaches the FDC as a CRC error (docs/SD_WRITE_DEBUG.md).
 puts $fh "`define ST_SD_HARDEN"
+# DEBUG ONLY (not for release): TT_RING latches the last 32 030 bus cycles before
+# the first BERR (cpu030_st_bridge.v). tt19 had it in and showed HDMI dropouts;
+# release tt20 is built without it. Delete the comment to build it in.
+# puts $fh "`define TT_RING"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
