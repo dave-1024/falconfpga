@@ -143,5 +143,5 @@ the ST build beyond the bridge's CIIN map.
 - `docs/notes/RAM_PATH.md` — I-cache as largest speedup once usable.
 - `docs/BUILD.md` — `ST_030_CACHES` switch (off; incomplete until CIIN etc.).
 - `handoff/CONTEXT.md` — board state and next-fix order.
-- Old scratch: `handoff/20261004-1540-icache.md`, `20261004-1806-dcache.md`
+- Old scratch: `handoff/20261004-1540-icache.md`, `20261004-1806-dcache.md` (removed in cleanup 22 Oct 2026; see git history before bb65998)
   (and patches); do not revive without this plan.
