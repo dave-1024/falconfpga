@@ -225,8 +225,9 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
 - **Serial:** U15 (BL616 USB serial, 115200 8N1) carries the AE350's UART2;
   typing in the same terminal reaches the helper through V14. `spi_irqn`
   moves to C22 in `atarist_st_helper.cst`.
-- **ST-side test without disk or keyboard:** `ST_HELPER_CART` (on in this
-  build) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
+- **ST-side test without disk or keyboard:** `ST_HELPER_CART` (debug opt-in, OFF
+  by default since 22 Oct 2026: it calls EmuTOS-only addresses and hangs TOS 2.06;
+  uncomment it in `build_st_helper_hdn.tcl`) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
   at boot: it sends a line to the helper and shows the answer, then the
   desktop starts.
 - **Firmware:** `helper_fw/companion/` (`build_companion.sh` on Linux, `.bat` on

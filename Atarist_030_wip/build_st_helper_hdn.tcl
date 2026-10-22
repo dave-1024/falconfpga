@@ -7,7 +7,7 @@
 #   st_helper_ctrl.v     boot-then-release of the SPI flash (AE350 boots first)
 #   st_helper_mailbox.v  ST mailbox at $FFFB00, UART2 link to the AE350
 #   st_helper_mculink.v  AE350 = FPGA-Companion MCU on mcu_spi (BL616 off)
-#   st_helper_cart_rom.v + st_helper_cart.hex  self-test cartridge (ST_HELPER_CART)
+#   st_helper_cart_rom.v + st_helper_cart.hex  self-test cartridge (ST_HELPER_CART, opt-in, off by default)
 #   atarist_st_helper.cst  desktop pins with U15 = AE350 UART, C22 = spi_irqn
 #   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
 # Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
@@ -15,9 +15,10 @@
 # Output: impl/pnr/st_helper.fs. See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
-# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
-# next line to build without it.
-puts $fh "`define ST_HELPER_CART"
+# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot): OFF by default
+# since 22 Oct 2026. Its ttdiag calls EmuTOS 1.4 internals ($E00308/$E00C2E),
+# which hang plain TOS 2.06. Debug opt-in only: uncomment the next line.
+# puts $fh "`define ST_HELPER_CART"
 # USB keyboard/mouse on the Console USB-A ports for the AE350 companion
 # (st_helper_usb.v, port step 4). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_USB"

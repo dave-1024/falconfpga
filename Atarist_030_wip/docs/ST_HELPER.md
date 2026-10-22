@@ -194,8 +194,10 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
    itself. Typing in the PC terminal reaches the helper (V14), so `s`, `i`
    and echo lines work from the PC. This tests the flash handoff, the AE350
    and the AE350-to-core link. It does not test the ST side of the mailbox.
-2. **Self-test cartridge (build option `ST_HELPER_CART`, on in
-   `build_st_helper.tcl`).** A 644-byte cartridge ROM at $FA0000 is built
+2. **Self-test cartridge (build option `ST_HELPER_CART`, debug opt-in,
+   OFF by default since 22 Oct 2026 - uncomment it in `build_st_helper_hdn.tcl`;
+   its ttdiag `jsr $E00308`/`$E00C2E` are EmuTOS 1.4 internals and hang plain
+   TOS 2.06, which has vector-init code there).** A 644-byte cartridge ROM at $FA0000 is built
    into the bitstream (`st_helper_cart_rom.v`, one block RAM, contents
    `st_helper_cart.hex` generated from `helper_fw/st_test/mbxcart.s`). The GSTMCU already decodes ROM4 and
    acknowledges it like the TOS ROM; the core only supplies the data. TOS 2.06
