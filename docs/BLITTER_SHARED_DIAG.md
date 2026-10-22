@@ -30,3 +30,13 @@
 - => shared mode with an active 030 works on tt22, masked and unmasked. MFP theory not supported. The old "hang at test 4" = 18K image
   load fault + AUX Bconout stall. Open: tests 6/7 (NFSR cases) mismatch - model vs hardware, unverified; AUX output stall after a masked blit.
 - Board: tts.st remounted + cold boot -> TTSEL prompt (restore_tts.png). tt22 core untouched.
+## 14:30 NFSR/FXSR check: model vs Hatari blitter.c reviewed (matches); RTL sim rN (prog_nfsr.s, ram_dump.hex) running
+- rN (unfixed RTL): T6 9 / T7 3 words differ from Hatari model = exactly the board counts ($09/$03). rtlmodel.py mode 3 reproduces the
+  RTL exactly: on the last word of EVERY NFSR line the RTL shifts in the last bus word before the write and the written word after it
+  (stBlitter.sv nfsrCycle = ... & XC1). Hatari does that only for xcount=1 lines. Proposed [B1]: nfsrCycle &= (xStart==1). rN2 = fixed RTL.
+- DECISIVE: Hatari 2.5 (apt, STE, 68030, EmuTOS 1.4) runs BLTMASK 1.1 with the SAME failures (T6 $09, T7 $03) as board and RTL.
+  => RTL is right, my reference model was wrong (it was a port of my reading of Hatari main's code, which only does the dummy
+  shifts for xcount=1). [B1] RTL change reverted, not needed.
+- BLTMASK 1.2: model shifts the last bus word in before, and the written word after, the last word of every NFSR line.
+  Hatari: ALL PASS 15/15 (blsim/hat/h3.png). Board run bm720c.st (crc 840614d8) + restore tts.st queued.
+- 15:20 board bm720c (BLTMASK 1.2): RESULT pass $0F fail $00 ALL PASS (frontbench/tt22/bm720c/s6.png). tts.st restored, TTSEL prompt (restore.png). rN2 NOT run: [B1] withdrawn, RTL is correct.

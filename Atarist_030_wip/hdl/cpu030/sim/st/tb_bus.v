@@ -279,6 +279,7 @@ module tb_bus;
         $write("TTDIFF:"); for (k = 0; k < 160; k = k + 1) if (ttm[k] !== ram[16'h8000+k]) $write(" %0d:%04x/%04x", k, ttm[k], ram[16'h8000+k]); $display("");
         $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1370>>1; k = k + 1) $write(" %04x", ram[k]); $display(" V=%04x%04x", ram[16'h1ff8>>1], ram[16'h1ffa>>1]);
 `endif
+        if ($test$plusargs("ramdump")) $writememh("ram_dump.hex", ram, 0, 24'h1ffff);
         $fclose(tf); $finish;
     end endtask
     // bus test ROM: done marker at $1FFC, results at $1000/$1100/$1200

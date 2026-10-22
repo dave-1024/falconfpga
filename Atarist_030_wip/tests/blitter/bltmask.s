@@ -241,13 +241,32 @@ mw:     moveq   #0,d5                   | fetched flag
         bne.s   3f
         bsr     sfetch
         moveq   #1,d5
-3:      move.l  d0,d7
+| NFSR on the last word of a line (any xcount, as the STE blitter, Hatari and stBlitter.sv do): the last
+| bus word is shifted into the buffer before the word is made (RMW dest read if masked, else the previous write),
+| and the written word is shifted in after it.
+3:      cmp.w   #1,d1
+        bne.s   13f
+        btst    #6,19(a5)
+        beq.s   13f
+        cmp.w   #-1,d4
+        beq.s   10f
+        move.w  (a1),64(a6)
+10:     move.w  64(a6),d7
+        bsr     sin
+13:     move.l  d0,d7
         lsr.l   d3,d7                   | source word = buffer >> skew
         and.w   d4,d7
         not.w   d4
         and.w   (a1),d4
         or.w    d4,d7
         move.w  d7,(a1)
+        move.w  d7,64(a6)               | last bus word = this write
+        cmp.w   #1,d1
+        bne.s   14f
+        btst    #6,19(a5)
+        beq.s   14f
+        bsr     sin
+14:
 | internal NFSR set when x goes 2 -> 1
         cmp.w   #2,d1
         bne.s   4f
@@ -271,6 +290,15 @@ mw:     moveq   #0,d5                   | fetched flag
 7:      add.w   10(a5),a1
         subq.w  #1,d2
         bne     ml
+        rts
+| sin: shift word d7 into the source buffer d0 (direction from the source x increment)
+sin:    tst.w   4(a5)
+        bmi.s   1f
+        swap    d0
+        move.w  d7,d0
+        rts
+1:      move.w  d7,d0
+        swap    d0
         rts
 sfetch: tst.w   4(a5)
         bmi.s   1f
@@ -412,7 +440,7 @@ ph:     lea     51(a6),a0
         bne.s   1b
         bra     print
 
-m_title: .asciz "\r\nBLTMASK 1.1 (no AUX) - BLTTEST with IPL masked (SR $2700) around each blit\r\n"
+m_title: .asciz "\r\nBLTMASK 1.2 (no AUX, NFSR model fixed) - BLTTEST with IPL masked (SR $2700) around each blit\r\n"
 m_t:    .asciz  "test $"
 m_p1:   .asciz  "== PASS 1: test 4, IPL masked ==\r\n"
 m_p2:   .asciz  "== PASS 2: all tests, IPL masked ==\r\n"
@@ -481,6 +509,7 @@ bmode:  .word   0
 maskf:  .word   0
 savsr:  .word   0
 tleft:  .long   0
+busw:   .word   0
         .even
 stack:  .space  4096
 stktop:
