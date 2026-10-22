@@ -246,3 +246,19 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   stays in SWITCH_STATE).
 - **Lesson.** Same as [T7]: a fast, late signal (here via the next-state decode) shared into an unrelated opcode's
   enable is a timing path even when it is logically constant there.
+
+## Third half-cycle leg: CLK_F-sampled pins into WP_GO (22 Oct 2026)
+
+- **Symptom.** tt23 (265e3fb, cartridge off) worst -1.203 ns, clk_cpu030_n -> clk_cpu030 half cycle:
+  `HALT_In` -> `WR_EARLY` (3 LUTs) -> `F3_EARLY` -> `MOVEM_INH_WR` -> `NEXT_FETCH_STATE` -> `IPIPE_FLUSH` -> `PC_I` adder ->
+  `PC_I_27`. tt22 had the same path at +2.879 ns; removing the cartridge only moved placement.
+- **Cause.** `WP_GO` (= `WR_EARLY`) combined several flip flops clocked on CLK_F (`HALT_In`, `DSACK_In`, `STERM_In`,
+  `BUS_FLT_N`, `SLICE_CNT_N` through `T_SLICE`) with CLK registers in about three LUT levels, all inside the half
+  cycle before the rest of the [F3] MOVEM decision.
+- **Fix [T9].** One CLK_F flip flop `WP_NEG` holds the S3 test and the pin terms, computed on the same edge from the
+  same pins (SLICE_CNT_N <= SLICE_CNT_P there, and SLICE_CNT_P only changes on CLK). The redundant `WAITSTATES = '0'`
+  term (implied by S3, DSACK, RESET_OUT_I = 0) is dropped. No switch, behaviour identical: a clock-sampled sim
+  assert compares WP_GO with the original decode every clock; run_rtl PASS, cmp_full all progs x WS 0/1/2/3/7 SAME,
+  movemx SAME.
+- **Lesson.** In a half-cycle path, fold the negative-edge inputs into a single negative-edge flip flop at their
+  source, so only one LUT level is left before the CLK-domain logic.

@@ -288,6 +288,7 @@ signal SIZE_D               : std_logic_vector(1 downto 0) := "00";  -- [F54] me
 signal SIZE_I               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_N               : std_logic_vector(2 downto 0) := "000";
 signal SIZE_DEC             : std_logic_vector(2 downto 0); -- [PH2-WP] SIZE_N after this portion.
+signal WP_NEG               : bit := '0'; -- [T9] CLK_F part of WP_GO.
 signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
 signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
 signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
@@ -423,6 +424,12 @@ begin
             BR_In <= BRn;
             BGACK_In <= BGACKn;
             AVEC_In <= AVECn;
+            -- [T9] S3 and the pin terms of WP_GO, one flip flop (see WP_GO).
+            if SLICE_CNT_P = "001" and DSACKn /= "11" and STERMn = '1' and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
+                WP_NEG <= '1';
+            else
+                WP_NEG <= '0';
+            end if;
             --
             if BERRn = '0' and HALTn = '0' and BUS_CTRL_STATE = DATA_C1C4 and SIZE_N /= "000" then
                 RETRY <= '1';
@@ -1635,10 +1642,26 @@ begin
     -- not used; a late retry needs SIZE_N /= 0). A clean ending reports DATA_RDY here, one clock
     -- before S5, so the control unit can present its next request for the S5 edge. Bus errors,
     -- retry, halt, RMC and STERM cycles are never posted and keep the S5 DATA_RDY.
-    WP_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
+    -- [T9] The CLK_F-sampled terms of the S3 post decision (S3 = SLICE_CNT_P "001" with SLICE_CNT_N
+    -- "001", DSACK_In, STERM_In, BUS_FLT_N, HALT_In) are folded into one CLK_F flip flop WP_NEG, computed
+    -- from the same pins on the same edge (SLICE_CNT_N <= SLICE_CNT_P there, SLICE_CNT_P only changes on CLK).
+    -- WAITSTATES = '0' is implied (T_SLICE = S3, RESET_OUT_I = '0', DSACK_In /= "11"). Same function in
+    -- every clock; it removes HALT_In/DSACK_In/SLICE_CNT_N -> WP_GO logic levels from the half-cycle
+    -- WR_EARLY -> F3_EARLY -> NEXT_FETCH_STATE -> PC_I path (tt23 worst -1.203 ns).
+    WP_GO <= '1' when WP_NEG = '1' and WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and SLICE_CNT_P = "001" and
+                      BUS_FLT = '0' and RETRY = '0' and
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+    -- synthesis translate_off
+    P_T9_CHK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        assert (WP_GO = '1') = (WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
                       WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
                       BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
-                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000")
+            report "T9: WP_GO differs from the original decode" severity failure;
+    end process P_T9_CHK;
+    -- synthesis translate_on
 
     P_WP_DONE: process
     begin
