@@ -11,9 +11,21 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > **This is a personal workbench, not a product.** No support, no promises, no release dates. Please read
 > [This is not a product](#this-is-not-a-product) before you buy any hardware because of this repository.
 
-![TOS 2.06 running GEMBench on the 68030 core: 132% of a stock Atari STE](docs/img/gembench_phase2_132.png)
+![GEMBench on the 68030 STE core: 132% of a stock Atari STE](docs/img/gembench_phase2_132.png)
 
-*GEMBench running on the 68030 core under TOS 2.06 (Phase 2 build): 132% of a stock Atari STE overall.*
+*Real capture from the actual device: a Tang Console 138K running the 68030 STE core, grabbed from its HDMI output.
+GEMBench (`gbref.st`, ST Medium, STE reference, blitter/FPU off) under TOS 2.06, build `st_helper_hdn_ph2fmax_5246d00`
+(CPU rework phase 2), 16 Oct 2026: 132% of a stock STE overall.*
+
+<!-- TODO: FrontBench screenshot. No FrontBench capture is in the repo yet; add a real HDMI grab from the board
+     as docs/img/frontbench_<build>.png with build and date in the caption. -->
+
+## Why an STE first, before the Falcon?
+The Falcon's DSP56001 and its other chips expect the 68030 to behave exactly like the real one, down to the clock
+cycle. Getting that right is easier on a simpler, well-understood machine first. The Atari ST/STE is that machine:
+there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of known software and benchmarks to test
+against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
+68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
 ## What works now (23 Oct 2026)
 - Boots **TOS 2.06** and **EmuTOS** to the GEM desktop, low and medium resolution, 4 MB ST-RAM.
