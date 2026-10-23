@@ -108,6 +108,12 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
    stay; a fix needs register.v's sampling moved (timing change). Also jt49 -> sd_card data_out at 1.2 ns (full period).
 7. **Helper serial silent after the first warm reset (open).** Seen on vchain and option-a: the first `w` after reloads gets no reply and `s` is silent until an op 1 reload. Not core-related (two cores). See FALCON_LESSONS "Helper serial silent". Check helper firmware/UART handling of the sysctrl reset.
 
+8. **OPEN ISSUE - hold merge of `nocart` to main: TOS 2.06 black screen on cold power-up on tt26 (d270586).**
+   23 Oct 2026, after a full power-cycle: flat black video (3 reloads, waits >100 s, key presses); EmuTOS on the same
+   core boots fine. TOS 2.06 + TT-RAM reached the desktop on tt26 the night before after a warm boot. Not diagnosed;
+   next: sim cold boot (tos206 fast ROM) and ROM stub checkpoints, then retest on the board.
+9. **Serial AUX (Bconout) stalls after a masked blit** (open, from the BLTMASK work on `blitfix-shared`).
+
 ## When the caches go in
 Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,
 no cache in the path when disabled; I then D; keep clk_cpu030 19–22 MHz headroom). Old attempt a7ccf76/e9a4fd9
