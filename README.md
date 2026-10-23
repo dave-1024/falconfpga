@@ -17,8 +17,10 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 GEMBench (`gbref.st`, ST Medium, STE reference, blitter/FPU off) under TOS 2.06, build `st_helper_hdn_ph2fmax_5246d00`
 (CPU rework phase 2), 16 Oct 2026: 132% of a stock STE overall.*
 
-<!-- TODO: FrontBench screenshot. No FrontBench capture is in the repo yet; add a real HDMI grab from the board
-     as docs/img/frontbench_<build>.png with build and date in the caption. -->
+![FrontBench (Frontier: Elite 2 benchmark) on the 68030 STE core](docs/img/frontbench_frontier.png)
+
+*Real capture from the actual device: a Tang Console 138K running the 68030 STE core, grabbed from its HDMI output.
+FrontBench (`FRNTBNCH.PRG`, the Frontier: Elite 2 intro benchmark), 23 Oct 2026.*
 
 ## Why an STE first, before the Falcon?
 The Falcon's DSP56001 and its other chips expect the 68030 to behave exactly like the real one, down to the clock
