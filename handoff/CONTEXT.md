@@ -121,11 +121,14 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - Tests: `hdl/cpu030/sim/rtl/run_rtl.sh` (must PASS, `GHDL=` to point at ghdl), `hdl/cpu030/sim/st/run_bus.sh`,
   `hdl/misc/sim/tb_sd_*.v`, `hdl/fdc1772/sim/run_sim.sh`.
 
-## Doc map
-README.md (top) · Atarist_030_wip/README.md (status) · docs/BUILD.md (build, switches, flash) · docs/TODO.md (order) ·
-docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/CACHE_PLAN.md · docs/ICACHE_DESIGN.md · docs/DCACHE_DESIGN.md · docs/FAULT_FIXES.md · docs/MOVEM_TIMING_F1_F2.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
-../docs/history/investigations/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
-hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
+## Doc map (paths from the repo root; layout tidied 23 Oct 2026)
+README.md (top, beginner-friendly) · docs/README.md (index) · docs/HOWTO_BUILD.md · docs/TOS_COMPAT.md · docs/BUGS.md ·
+Atarist_030_wip/README.md (status) · Atarist_030_wip/docs/: BUILD.md (build, switches, flash), TODO.md (order),
+FALCON_LESSONS.md (rules learnt + Bugs found), HISTORY.md, design notes (PHASE2, CACHE_PLAN, ICACHE, DCACHE,
+FAULT_FIXES, MOVEM_TIMING_F1_F2, TTRAM_DESIGN, ST_HELPER, SD_WRITE_DEBUG), notes/ · Atarist_030_wip/hdl/cpu030/README.md
++ license/ · Atarist_030_wip/helper_fw/README.md · docs/history/ (agent/ retired workflow files, handoffs/, patches/,
+investigations/ float_panic, prefetch_cof, phase2, ttram logs) · reference/ (rigsdram, misterynano_tc138k, Hybrid030) ·
+tools/ · LICENSE, NOTICE.md, LICENSE-ORIGINAL.md · handoff/ (this file).
 
 ## Next-fix order as of 2026-10-17 (history; current order in docs/TODO.md and "Next steps" above)
 1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`, and
