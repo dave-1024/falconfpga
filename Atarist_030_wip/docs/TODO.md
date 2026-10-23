@@ -1,5 +1,13 @@
 # TODO (in priority order)
 
+## Status 23 Oct 2026
+main: build `build_st_helper.tcl` (cart off, no SD debug; variants in `debug_builds/`, retired in `build_legacy/`),
+TT-RAM and caches on by default, always STE. Last board build tt26 (d270586): +1.344 ns, clk_cpu030 24.09 MHz,
+40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reaches the desktop on a warm boot (Blitmode $0002). Open: item 8 (TOS 2.06
+black screen on cold power-up), item 9 (AUX stall after a masked blit), EmuTOS skips blitter detection with TT-RAM.
+Next: reflash tt26 + TOS 2.06 + helper, cold-boot test, blitter-on test and GEMBENCH; PMMU from 26 Oct 2026.
+The dated status blocks below are history.
+
 ## Status 19 Oct 2026 (evening): correctness fixes C1-C4 on `fix-c-indirect`
 The full ISA timing audit (`gb608_ramrom/FULL_ISA_TIMING.md`) found CAS2 and memory-indirect bugs (pre-existing).
 Fixed on `fix-c-indirect` (off main 7a5fe19), sim only, not built or flashed: C1 CAS2 operands/registers/CCR/hang,

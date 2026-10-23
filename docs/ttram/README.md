@@ -4,7 +4,10 @@ TT-RAM = 16 MB of 68030-side fast RAM at `$01000000-$01FFFFFF`, cachable (everyt
 cache-inhibited). It sits on the **same single SDRAM module in J9** as ST-RAM; the project stays on one module on
 purpose (most people have only one). The SDRAM is 16 bits wide, so each 32-bit TT long is two beats.
 
-## Status (22 Oct 2026)
+## Status (22 Oct 2026; history)
+
+> Current status: [Atarist_030_wip/README.md](../../Atarist_030_wip/README.md) (tt26 is the current board build). Bring-up logs moved to [docs/history/investigations/ttram/](../history/investigations/ttram/).
+
 - Built in by default: `TTRAM` is set in `build_st_helper.tcl` / `build_st_helper_hdn.tcl`; there is no switch to set.
   The I and D caches are on by default too. An on/off option for TT-RAM will be added to the helper later (the HDL
   already has a `TTRAM_ON` / `tt_en` input for it).
