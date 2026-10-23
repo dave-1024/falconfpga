@@ -11,7 +11,7 @@ with the DSP56001.
 - `Atarist_030_wip/`: the live core. Main build `build_st_helper.tcl` = the board build (cart off, no SD debug);
   `debug_builds/` (e.g. `build_st_helper_hdn.tcl` = main + `SD_WRITE_DEBUG`), `build_legacy/` (retired scripts).
 - Docs: [`handoff/CONTEXT.md`](handoff/CONTEXT.md) (state, next steps) · `Atarist_030_wip/docs/TODO.md` (work order) ·
-  `docs/HISTORY.md` · `docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
+  `Atarist_030_wip/docs/HISTORY.md` · `Atarist_030_wip/docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
   `Atarist_030_wip/docs/BUILD.md` (switches, defaults, flash map).
 - Reference trees: `rigsdram/` (030 + SDRAM oracle, do not rebuild), `misterynano_tc138k/` (stock fx68k ST),
   `Hybrid030/` (frozen history).
