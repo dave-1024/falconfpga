@@ -11,11 +11,12 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > **This is a personal workbench, not a product.** No support, no promises, no release dates. Please read
 > [This is not a product](#this-is-not-a-product) before you buy any hardware because of this repository.
 
-![GEMBench on the 68030 STE core: 132% of a stock Atari STE](docs/img/gembench_phase2_132.png)
+![GEMBENCH 6.31 on the 68030 STE core](docs/img/gembench_631.png)
 
 *Real capture from the actual device: a Tang Console 138K running the 68030 STE core, grabbed from its HDMI output.
-GEMBench (`gbref.st`, ST Medium, STE reference, blitter/FPU off) under TOS 2.06, build `st_helper_hdn_ph2fmax_5246d00`
-(CPU rework phase 2), 16 Oct 2026: 132% of a stock STE overall.*
+GEMBENCH 6.31 under TOS 2.06 (ST Medium, STE 68000 reference, I and D caches on, run from ST-RAM): CPU 182%,
+integer division 510%, TT-RAM (ALT RAM) access 206%. The display tests are low because the blitter was not enabled
+for this run, so the overall average is 91%.*
 
 ![FrontBench (Frontier: Elite 2 benchmark) on the 68030 STE core](docs/img/frontbench_frontier.png)
 
