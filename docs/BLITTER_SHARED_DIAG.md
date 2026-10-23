@@ -40,3 +40,14 @@
 - BLTMASK 1.2: model shifts the last bus word in before, and the written word after, the last word of every NFSR line.
   Hatari: ALL PASS 15/15 (blsim/hat/h3.png). Board run bm720c.st (crc 840614d8) + restore tts.st queued.
 - 15:20 board bm720c (BLTMASK 1.2): RESULT pass $0F fail $00 ALL PASS (frontbench/tt22/bm720c/s6.png). tts.st restored, TTSEL prompt (restore.png). rN2 NOT run: [B1] withdrawn, RTL is correct.
+
+## FINAL RESULT (23 Oct 2026)
+- **Blitter hardware works with the 030 in shared mode.** BLTMASK 1.2/1.3: 15/15 PASS on the board (tt22) and in Hatari 2.5,
+  masked and unmasked.
+- The tests 6/7 (NFSR) mismatch was a bug in my reference model, not the RTL: the RTL matches Hatari 2.5. No RTL change ([B1] reverted).
+- The old "hang at test 4" was two test artefacts: 18 KB non-standard images (zeros from sector 9 on) and the AUX stall below.
+- Yellow text was the medium-res default pen 3 (BLTMASK 1.3 sets it black), not a core fault.
+- TOS 2.06 + TT-RAM on tt26: Blitmode(-1) = $0002 (blitter found, off by default on a 030). EmuTOS skips blitter detection
+  when TT-RAM is present, by design (24-bit blitter; bios/machine.c:303-321).
+- **Still open:** serial AUX (Bconout) output stalls after a masked blit.
+- tools/up2.py: fast uploader (~3.4 KB/s, 720K image in ~220 s).
