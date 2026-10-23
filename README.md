@@ -80,7 +80,16 @@ These faults do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those tre
 
 The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by the re-engineered wf68k30L behind a TerribleFire TF534-style bridge, with the SOM's AE350 as the helper (SD card, floppy images, USB keyboard/mouse, OSD).
 
-### `Atarist_030_wip/`: 68030 ST (status 18 Oct 2026)
+### `Atarist_030_wip/`: 68030 ST (status 23 Oct 2026)
+
+- **Now (23 Oct 2026):** `main` matches the board build: `build_st_helper.tcl` (cart off, no SD debug); debug
+  scripts in `debug_builds/`, retired ones in `build_legacy/`. 030 core with TT-RAM and caches on by default, always
+  STE; CPU phase 2 (S5 handoff) merged, GEMBENCH ~132%. Build **tt26**: slack +1.344 ns, clk_cpu030 24.087 MHz,
+  40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reaches the desktop on a warm boot; the blitter is detected (Blitmode
+  `$0002`) but off by default, as on a real 030. Test blits pass; a full blitter-on test and GEMBENCH with the
+  blitter are pending. **Open:** TOS 2.06 black screen on a cold power-up (EmuTOS fine; [`TOS_COMPAT.md`](docs/TOS_COMPAT.md),
+  TODO item 8); EmuTOS still skips blitter detection when TT-RAM is present; AUX stall after a masked blit (TODO 9).
+  **Next:** PMMU work starts 26 Oct.
 
 - **TT-RAM (branch `tt-ram`, 21-22 Oct 2026):** 16 MB of 030-side fast RAM at `$01000000`, on the same single SDRAM
   module in J9 (no second module needed). Built in by default, with the I and D caches on by default; a TT-RAM on/off
@@ -91,7 +100,7 @@ The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by
   off, 990 ST-RAM.** Bugs: [`docs/BUGS.md`](docs/BUGS.md); TOS: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md);
   build how-to: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md); notes: [`docs/ttram/`](docs/ttram/).
 
-- TOS 2.06 boots to the GEM desktop from cold; 4 MB, low/medium res.
+- TOS 2.06 (no TT-RAM) boots to the GEM desktop from cold; 4 MB, low/medium res.
 - **68030 I and D caches built** per the MC68030 manual (MC68030UM ch. 6): 256 B each, CACR/CAAR, write-through D cache with WA, CDIS. CIIN comes from a per-cycle address decode in the bridge, TF536-style: only the reserved 030-side fast-RAM range `$01000000-$01FFFFFF` is cachable, every ST ROM/RAM/IO cycle is cache-inhibited. The data-fault fixes (no program cycle after a write fault, short $A frame) are included. Merged on `main` 17 Oct 2026. Design: [`ICACHE_DESIGN.md`](Atarist_030_wip/docs/ICACHE_DESIGN.md), [`DCACHE_DESIGN.md`](Atarist_030_wip/docs/DCACHE_DESIGN.md), [`FAULT_FIXES.md`](Atarist_030_wip/docs/FAULT_FIXES.md).
 - Board build **`st_helper_hdn_f3a_7919eb3_p3.fs`** (SHA256 `56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e`): main + MOVEM timing F1/F2/F3 (F1/F2 merged 18 Oct 2026, F3 back-to-back MOVEM writes on `f3-write-queue`, [`MOVEM_TIMING_F1_F2.md`](Atarist_030_wip/docs/MOVEM_TIMING_F1_F2.md)). LUT ~37.9k, Fmax clk_cpu030 20.94 MHz / clk32_core 34.02 MHz, TNS 0. TOS 2.06 switches the caches on at boot. Rollback order: F3a `7919eb3` (this), then F2 `st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 `f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb`), then `dc_ff6af03` (SHA256 `c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e`).
 - **GEMBENCH 6.08** (`gb608.st`, exxos; title bar "GEMBENCH 6.31"): RAM Access 101%, ROM Access 104% of a stock STE (68000 8 MHz) after the MOVEM timing work F1-F3 (was 71 / 73%); CPU 186%, Average 92% against STE20608 (an STE with blitter), Display 94% / Average 132% against STFM1048 (an ST without blitter). GEMBENCH 6 reports **no blitter** on our system ("BLiTTER NP"), so most of the display gap against the STE reference is the blitter. **GEMBench 4.03** (`gbref.st`, the tables before 18 Oct called it "GEMBENCH 6"/"6.31"): 135% (RAM 115 / ROM 115 / Display 91 / CPU 255). The caches give nothing yet: with no fast RAM fitted nothing on the ST side is cachable. Earlier gains: CPU rework phase 2, option (a) ([`OPTION_A_DESIGN.md`](Atarist_030_wip/docs/OPTION_A_DESIGN.md)), MOVEM F1/F2. **Float Math OK**. Phase 2: [`PHASE2_DESIGN.md`](Atarist_030_wip/docs/PHASE2_DESIGN.md).
