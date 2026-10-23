@@ -158,6 +158,8 @@ entity WF68K30L_BUS_INTERFACE is
         PF_NOEARLY          : in bit; -- [XH3] A change of flow is ahead or executing: no early long at Q_CNT = 2.
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2] Queued words 0-3 (registered) for the decoder's predecode.
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        DBG_IC              : out std_logic_vector(15 downto 0); -- FalconFPGA DIAG STR {lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, IC_FILL, FILL_MIS}
+        DBG_QF              : out std_logic_vector(3 downto 0); -- FalconFPGA DIAG STR {Q_HIT, IC_TAKE, PF_DONE, Q_MISS}
         Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM] Address of queued word 0.
         Q_FAULT             : out bit_vector(0 to 3); -- [FRM] Queued words fetched with a bus error.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
@@ -286,6 +288,7 @@ signal SIZE_D               : std_logic_vector(1 downto 0) := "00";  -- [F54] me
 signal SIZE_I               : std_logic_vector(1 downto 0) := "00";  -- [F54] measured warm-boot value
 signal SIZE_N               : std_logic_vector(2 downto 0) := "000";
 signal SIZE_DEC             : std_logic_vector(2 downto 0); -- [PH2-WP] SIZE_N after this portion.
+signal WP_NEG               : bit := '0'; -- [T9] CLK_F part of WP_GO.
 signal WP_GO                : bit; -- [PH2-WP] Post the write on this S3 edge.
 signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was posted.
 signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
@@ -421,6 +424,12 @@ begin
             BR_In <= BRn;
             BGACK_In <= BGACKn;
             AVEC_In <= AVECn;
+            -- [T9] S3 and the pin terms of WP_GO, one flip flop (see WP_GO).
+            if SLICE_CNT_P = "001" and DSACKn /= "11" and STERMn = '1' and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
+                WP_NEG <= '1';
+            else
+                WP_NEG <= '0';
+            end if;
             --
             if BERRn = '0' and HALTn = '0' and BUS_CTRL_STATE = DATA_C1C4 and SIZE_N /= "000" then
                 RETRY <= '1';
@@ -747,7 +756,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I)
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I, OPC_ADR) -- OPC_ADR: sensitivity audit
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -786,7 +795,7 @@ begin
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
                 elsif WR_REQ = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
-                elsif OPCODE_REQ = '1' and ADR_IN_P(0) = '1' then
+                elsif OPCODE_REQ = '1' and OPC_ADR(0) = '1' then -- [C3] the opcode address, not ADR_IN_P (a data address while a D-cache hit drops RD_REQ)
                     NEXT_BUS_CTRL_STATE <= IDLE; -- Abort due to address error.
                 elsif OPC_LEGACY = '1' then
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4;
@@ -864,7 +873,11 @@ begin
     end process P_ADR_10;
 
     -- Address and bus errors:
-    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_START = '0' and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and ADR_IN_P(0) = '1' else '0';
+    -- [C3] Odd opcode address: OPC_ADR (PC_L), not ADR_IN_P. ADR_IN_P is the data address while the control
+    -- unit requests data (DATA_RD/DATA_WR); a cachable read that hits in the data cache drops RD_REQ, so an odd
+    -- byte read hit (e.g. move.b (a0,d5.w),d4 on TT-RAM) with an opcode request pending raised a false address
+    -- error (vector 3, fault address = the data address). Seen only with caches on and cachable (TT-RAM) data.
+    AERR_I <= '1' when BUS_CTRL_STATE = START_CYCLE and FILL_START = '0' and OPCODE_REQ = '1' and RD_REQ = '0' and WR_REQ = '0' and OPC_ADR(0) = '1' else '0';
 
     -- [F62] Opcode prefetch queue. The decoder requests one word at a time (OPC_RD, address
     -- OPC_ADR = PC_L). The queue fetches the instruction stream as long words in its own
@@ -880,7 +893,7 @@ begin
     -- still take the ordinary opcode cycle path to raise the address error. A write that
     -- touches the queued or in-flight long words flushes the queue.
     OPC_LEGACY <= OPCODE_REQ when PREFETCH_Q = 0 else
-                  OPCODE_REQ and To_Bit(ADR_IN_P(0));
+                  OPCODE_REQ and To_Bit(OPC_ADR(0)); -- [C3]
     Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
@@ -1385,6 +1398,8 @@ begin
     Q_STREAM <= Q_W(0) & Q_W(1) & Q_W(2) & Q_W(3); -- [PFCOF2]
     Q_COUNT <= Q_CNT;
     Q_HEAD <= Q_ADR; -- [FRM]
+    DBG_IC <= F_ADR(7 downto 1) & F_CUR(7 downto 2) & IC_HIT & To_StdULogic(PF_DONE) & F_CUR(1); -- FalconFPGA DIAG STR
+    DBG_QF <= To_StdULogic(Q_HIT) & To_StdULogic(IC_TAKE) & To_StdULogic(PF_DONE) & To_StdULogic(Q_MISS); -- FalconFPGA DIAG STR
     Q_FAULT <= Q_F; -- [FRM]
 
     FC_OUT <= F_FC when PF_ACC = '1' else DC_OFC when FILL_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] [DC] registered, as ADR_OUT_I
@@ -1627,10 +1642,26 @@ begin
     -- not used; a late retry needs SIZE_N /= 0). A clean ending reports DATA_RDY here, one clock
     -- before S5, so the control unit can present its next request for the S5 edge. Bus errors,
     -- retry, halt, RMC and STERM cycles are never posted and keep the S5 DATA_RDY.
-    WP_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
+    -- [T9] The CLK_F-sampled terms of the S3 post decision (S3 = SLICE_CNT_P "001" with SLICE_CNT_N
+    -- "001", DSACK_In, STERM_In, BUS_FLT_N, HALT_In) are folded into one CLK_F flip flop WP_NEG, computed
+    -- from the same pins on the same edge (SLICE_CNT_N <= SLICE_CNT_P there, SLICE_CNT_P only changes on CLK).
+    -- WAITSTATES = '0' is implied (T_SLICE = S3, RESET_OUT_I = '0', DSACK_In /= "11"). Same function in
+    -- every clock; it removes HALT_In/DSACK_In/SLICE_CNT_N -> WP_GO logic levels from the half-cycle
+    -- WR_EARLY -> F3_EARLY -> NEXT_FETCH_STATE -> PC_I path (tt23 worst -1.203 ns).
+    WP_GO <= '1' when WP_NEG = '1' and WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and SLICE_CNT_P = "001" and
+                      BUS_FLT = '0' and RETRY = '0' and
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+    -- synthesis translate_off
+    P_T9_CHK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        assert (WP_GO = '1') = (WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
                       WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
                       BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
-                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000" else '0';
+                      RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000")
+            report "T9: WP_GO differs from the original decode" severity failure;
+    end process P_T9_CHK;
+    -- synthesis translate_on
 
     P_WP_DONE: process
     begin

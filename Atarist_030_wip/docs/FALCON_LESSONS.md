@@ -161,3 +161,129 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - Barrel shifter correctness: check against the old bit-serial core over every op x size x count (incl. 0,
   size, size+1, 63) with CCR (prog_shift); ROXx period is size+1.
 - On linserver use `pgrep -x gw_sh`: `pgrep -f "gw_sh build"` matches its own ssh command line.
+
+## TT-RAM detection (20/21 Oct 2026)
+- **Root cause: CPU bug [C2].** WF68K30L computed the CMPA.W flags from bit 15 (MSB by operand size) instead of all
+  32 bits of An. EmuTOS sizes TT-RAM with `cmpa.w #0,a2; bgt` and a2 = `$010FFFFF` (low word `$FFFF`), so the
+  loop ended at once and `_ramtop` stayed 0. Fixed in the ALU (no switch): CMPA takes N/Z/V/C from bit 31 and the
+  unextended An. *Lesson:* sized-compare flags for address ops are always 32-bit; check An-destination ops
+  (CMPA/ADDA/SUBA) against values whose low word has the opposite sign.
+- Found by calling EmuTOS's own routines from the boot cartridge (`ttram_detect` at `$E0CE08`, `is_bus32` at `$35C2`
+  in the 1.4 256K UK image) and comparing with a hand-written copy of the probe that used long compares.
+- A bitstream reload does not clear SDRAM: TOS may reuse an old `_ramvalid`/`_ramtop`. The core now masks reads of
+  memvalid (`$420`) and `_ramvalid` (`$5A8`) after por until their first write (sampled at CAS inside sdram.v), so
+  every load re-probes. The earlier crash with the `$5A8` mask (tt5) was not TT-RAM use; that build had -8.2 ns.
+
+## FrontBench prgflags 7 black screen (21 Oct 2026)
+- **Root cause: CPU bug [C3].** In `wf68k30L_bus_interface.vhd`, the odd-opcode address-error check (AERR_I, the
+  START_CYCLE abort, OPC_LEGACY) tested `ADR_IN_P(0)`. While the control unit requests data, `ADR_IN_P` is the
+  *data* address, and a data-cache read hit drops `RD_REQ`. So an odd-address byte read that hits in the D-cache,
+  with an opcode request pending, raised a false address error (vector 3, fault address = the data address). Fix:
+  test `OPC_ADR(0)` (PC_L).
+- Never seen before TT-RAM because the ST side is cache-inhibited (CIIN), so no data hit could happen. TT-RAM is
+  the first cachable memory. Caches off (CACR 0) hid it; Hatari ran the same program fine.
+- *Lessons:* any "no bus cycle" path (cache hit, held read-ahead) must not leave another request looking at the
+  shared address bus. Test caches with **code running from cachable memory**, not only data: the bus-level and RTL
+  benches passed while the test code was in uncached ROM, and failed at once with the code copied to TT-RAM
+  (`sim/rtl/prog_ttcache.s`, tb030 now has a 32-bit cachable TT port at $01000000).
+- Bisect on the board with a small AUTO menu (SEL.PRG: CACR before Pexec) instead of desktop clicks.
+
+## Incomplete sensitivity lists: RTL sim can differ from hardware (21 Oct 2026)
+
+- Gowin EX4749 flagged `CHK2_RN` missing from the ALU COND_CODES process list (CHK2/CMP2 Z flag). A script audit
+  (`sens.py`: signals read in each combinational process vs its list) found two more: `OPC_ADR` in BUS_IF
+  BUS_CTRL_DEC (added with [C3]) and `MOVEM_FIRST_RD` in CONTROL FETCH_DEC (MOVEM memory-to-register path).
+- Synthesis ignores sensitivity lists, so the hardware was always combinational; only the RTL simulation could lag.
+  An RTL bench that "passes" proves nothing about a path whose process misses a signal.
+- *Lessons:* whenever a signal is added to a combinational process, add it to the list (or use `process(all)`
+  under VHDL-2008), and treat every "may differ" synthesis warning as an error. Rerun the audit after core edits.
+  CHK2_RN is not the TT-RAM cause (no test uses CHK2/CMP2).
+
+## TT-RAM caches-on SP -2 slip: block-RAM read-during-write in the I-cache (21 Oct 2026)
+
+- **Root cause [C10].** `WF68K30L_ICACHE` describes DATA_RAM as an asynchronous-read array, but Gowin mapped it
+  to a block RAM (SDPB, READ_MODE 0) and retimed the read address onto the D input of the F_ADR register, so the
+  read is sampled at the clock edge. When a prefetch fill writes a long at edge E and the queue looks up the same
+  long right after E (a taken branch to 4n+2 inside the long just fetched, e.g. TTM1 `beq` to 010001CE), the block
+  RAM returns the OLD long (no write-through) while VALID and TAG, which are flip-flops/LUT RAM, already say hit.
+  The decoder got `3F3C` (move.w #2,-(sp) from 010003CE, the previous tenant of slot C3) instead of `5888`, so SP
+  slipped by 2 and the next rts faulted (EXC 2 frame 2704FFC6 0100A008 FFFF3005).
+- Fix: a write-to-read forwarding register (FW_V/FW_IDX/FW_DATA) in front of HIT_DATA. RTL behaviour is
+  unchanged; it holds for any RAM mapping. tt19 (71624aa): TTM1 caches on, I-only and D-only all pass.
+- How it was found: RTL, gate-level reviews and STA all looked clean. A DIAG ring of the decoder word stream
+  (Q_HEAD, opword, queue flags, I-cache index fields, ISP, cycle stamps) caught the wrong word and its exact index.
+  Then the synthesis netlist (`.vg`) showed the DATA_RAM primitive.
+- *Lessons:* the RTL simulation of an inferred RAM is not the hardware when synthesis may pick a block RAM: check
+  the `.vg` for which primitive each array became (SDPB/DPB = synchronous read). For a write and a read of the same
+  address in neighbouring clocks, either add forwarding or force distributed RAM explicitly. Alignment-dependent,
+  layout-dependent, deterministic board failures that RTL cannot reproduce point at primitive semantics, not at
+  timing.
+
+## A false-by-opcode path can be the worst path: CHK2/CMP2 term carried the MOVEM F3 decision (22 Oct 2026)
+
+- **Symptom.** tt20 worst setup path -4.887 ns, a half-cycle clk_cpu030_n[R] -> clk_cpu030[R] path (31.25 ns budget,
+  36.085 ns data delay): `SLICE_CNT_N_2` -> `T_SLICE` -> `WR_EARLY` -> (F3_EARLY, ALU_BSY_M) -> `ALU_INIT`
+  (fanout 393) -> `USE_DREG` -> `AR_IN_1` -> `ADR_MUX` -> `+BASE_DISPL` -> `ADR_EFF_VAR` -> `+ADR_OFFSET` ->
+  `ADR_EFF_I_27`. About 19 LUT levels plus two 32-bit carry chains.
+- **Cause.** `USE_DREG`'s CHK2/CMP2 arm used `ALU_INIT_I`, and `ALU_INIT_I` includes the [F3] MOVEM back-to-back term
+  (`WR_EARLY`, valid only in the S3 half clock). OP cannot be MOVEM and CHK2/CMP2 at once, so the path can never
+  carry a transition, but STA times it.
+- **Fix [T7].** `ALU_INIT_C2`: the same function as `ALU_INIT_I` for CHK2/CMP2 (ALU_BSY = 0, INIT_EXEC_WB, no write
+  fault, PHASE2), without the MOVEM term. No switch; behaviour identical (a clock-sampled simulation assert checks
+  `ALU_INIT_C2 = ALU_INIT_I` whenever OP is CHK2/CMP2). New bench `prog_chk2.s` (CHK2/CMP2 coverage; none existed).
+- **Lesson.** Before pipelining a failing path, read the netlist cell names along it and ask whether every leg can
+  really be active in the same clock. A shared "init" strobe with a fast MOVEM term leaked into an unrelated
+  opcode's address mux; giving that opcode its own strobe removes the path without changing a single cycle.
+
+## Second false-by-opcode leg: UNLK's SP write carried NEXT_FETCH_STATE (22 Oct 2026)
+
+- **Symptom.** After [T7], tt21 worst -1.010 ns, same half-cycle clk_cpu030_n -> clk_cpu030 shape: `DSACK_In_0` ->
+  `WR_EARLY` -> `F3_EARLY` -> `MOVEM_PVAR` -> `NEXT_FETCH_STATE` -> `AR_WR_1` -> `AR_IN_1` -> `ADR_MUX` -> adders ->
+  `ADR_EFF_I_26`.
+- **Cause.** `AR_WR_I`'s UNLK arm tested `NEXT_FETCH_STATE /= SWITCH_STATE`, and NEXT_FETCH_STATE carries the MOVEM
+  F3 decision. For UNLK, FETCH_DEC always goes SWITCH_STATE -> CALC_AEFF, so the term was constant '1'.
+- **Fix [T8].** Drop the constant term. No switch, behaviour identical (clock-sampled sim assert that UNLK never
+  stays in SWITCH_STATE).
+- **Lesson.** Same as [T7]: a fast, late signal (here via the next-state decode) shared into an unrelated opcode's
+  enable is a timing path even when it is logically constant there.
+
+## Third half-cycle leg: CLK_F-sampled pins into WP_GO (22 Oct 2026)
+
+- **Symptom.** tt23 (265e3fb, cartridge off) worst -1.203 ns, clk_cpu030_n -> clk_cpu030 half cycle:
+  `HALT_In` -> `WR_EARLY` (3 LUTs) -> `F3_EARLY` -> `MOVEM_INH_WR` -> `NEXT_FETCH_STATE` -> `IPIPE_FLUSH` -> `PC_I` adder ->
+  `PC_I_27`. tt22 had the same path at +2.879 ns; removing the cartridge only moved placement.
+- **Cause.** `WP_GO` (= `WR_EARLY`) combined several flip flops clocked on CLK_F (`HALT_In`, `DSACK_In`, `STERM_In`,
+  `BUS_FLT_N`, `SLICE_CNT_N` through `T_SLICE`) with CLK registers in about three LUT levels, all inside the half
+  cycle before the rest of the [F3] MOVEM decision.
+- **Fix [T9].** One CLK_F flip flop `WP_NEG` holds the S3 test and the pin terms, computed on the same edge from the
+  same pins (SLICE_CNT_N <= SLICE_CNT_P there, and SLICE_CNT_P only changes on CLK). The redundant `WAITSTATES = '0'`
+  term (implied by S3, DSACK, RESET_OUT_I = 0) is dropped. No switch, behaviour identical: a clock-sampled sim
+  assert compares WP_GO with the original decode every clock; run_rtl PASS, cmp_full all progs x WS 0/1/2/3/7 SAME,
+  movemx SAME.
+- **Lesson.** In a half-cycle path, fold the negative-edge inputs into a single negative-edge flip flop at their
+  source, so only one LUT level is left before the CLK-domain logic.
+
+## TOS 2.06 hangs with TT-RAM: tagged exception vectors (22 Oct 2026)
+
+- **Symptom.** tt24 (TTRAM) + plain TOS 2.06: static ATARI logo after the memory test, no bombs. tt24n (no TTRAM)
+  boots to the desktop. EmuTOS is fine on both.
+- **Bisection on the board.** Patched-ROM checkpoints (a stub fills the screen with stripes and halts) narrowed it:
+  the ACSI/IDE boot loop is fine, AUTO is reached, and it hangs inside the first GEMDOS Pexec (`$E011F8`) before GEM.
+- **Cause.** At `$E004E0`, TOS 2.06 fills vectors 2..63 with `$E010E2 + (n << 24)`. The bomb handler reads the
+  vector number back from the high byte of the PC, which only works because a 68000 ignores A31:24. With TTRAM the
+  bridge sent every A31:24 other than $00/$FF/$01 to a bus error. So the first exception taken through one of these
+  vectors fetched `$nnE010E2`, which bus-errored, and vector 2 (`$02E010E2`) bus-errored again: an endless BERR loop.
+  Without TTRAM the 24-bit wrap hides it.
+- **Fix [T10].** Program-space cycles (FC 2/6) with A31:24 other than $01 take the ST side (24-bit wrap, as on a
+  68000). Data cycles still bus-error, so TT-RAM sizing is unchanged: EmuTOS reads up from $01000000 until a BERR
+  at $02000000, and IS_BUS32 uses $0100000C. No switch. ST timing is unchanged (the ST side ignores A31:24).
+  prog_tt.s checks a jump to `$03E0xxxx` ($132C = 1) and the $02000000 data BERR ($131C = 1). run_rtl PASS; the
+  core VHDL is unchanged.
+- **Second tag [T10b].** With T10 the boot showed 2 bombs. A ROM stub that dumps the saved frame at the bomb exit
+  gave PC = `$E00D80`, `movea.l (a0),a0`, in the BIOS/XBIOS trap dispatcher. Table entries with bit 31 set are
+  indirect (for example `$80000472`), and the dispatcher reads them through that tagged address. So A31 = 1
+  ($80..$FF) now always takes the ST side, and the data BERR is kept only for $02..$7F (TT-RAM sizing, TT_RING
+  $7E). prog_tt.s also checks that a data read at `$80001330` returns ST `$1330` ($1334).
+- **Lesson.** On a 32-bit bus behind 68000-era TOS, high-byte-tagged pointers are real (bomb vectors, $80
+  BIOS indirections). Keep the 24-bit wrap for instruction fetches and for A31 = 1; bus-error only the data range
+  that memory sizing probes. To bisect a silent hang, patch ROM checkpoints and dump the saved exception frame.

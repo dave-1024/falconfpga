@@ -40,6 +40,7 @@ run:    clr.l   -(sp)                   | Super(0)
 init:   movem.l d0-d7/a0-a6, -(sp)
         lea     s_title(pc), a0
         bsr     print
+        bsr     ttdiag
         cmp.b   #'H', (MB+0x01).w       | ID
         bne     nombx
         lea     s_boot(pc), a0
@@ -98,6 +99,100 @@ nombx:  lea     s_nombx(pc), a0
 out:    movem.l (sp)+, d0-d7/a0-a6
         rts
 
+| TT-RAM diagnostics: memvalid, _ramtop, _ramvalid, own R/W test at $01000000,
+| $01FFFFFC and bus error check at $02000000 (BERR caught via vector 2).
+ttdiag: lea     s_tt2(pc), a0
+        bsr     print
+        move.l  0x5a4.w, d0
+        bsr     hex8
+        lea     s_tt3(pc), a0
+        bsr     print
+        move.l  0x5a8.w, d0
+        bsr     hex8
+        move.w  sr, -(sp)
+        move.w  #0x2700, sr
+        move.l  0x8.w, a4               | save BERR vector
+        lea     tberr(pc), a0
+        move.l  a0, 0x8.w
+        move.l  sp, a5
+        moveq   #0, d6                  | BERR count
+| own 32-bit bus test like EmuTOS (0x0C vs 0x0100000C), d7 = 1 if 32-bit
+        moveq   #1, d7
+        move.l  0xc.w, a3               | keep vector 3
+        move.l  #0x12345678, d2
+        move.l  d2, 0xc.w
+        cmp.l   0x0100000c, d2
+        bne.s   b32
+        not.l   d2
+        move.l  d2, 0xc.w
+        cmp.l   0x0100000c, d2
+        bne.s   b32
+        moveq   #0, d7
+b32:    move.l  a5, sp
+        move.l  a3, 0xc.w
+| EmuTOS detect_ttram_size replica: byte probe of the last byte of each MB
+        move.l  #0x010fffff, a1
+        moveq   #0, d5
+pl:     lea     pbe(pc), a0
+        move.l  a0, 0x8.w
+        tst.b   (a1)
+        move.b  #0x12, (a1)
+        move.b  #0x34, -1(a1)
+        move.w  -1(a1), d4
+        cmp.w   #0x3412, d4
+        bne.s   pend
+        add.l   #0x100000, a1
+        bra.s   pl
+pbe:    move.l  a5, sp
+        addq.l  #1, d6
+pend:   move.l  a1, d5
+        bra.s   tdone
+tberr:  move.l  a5, sp
+        addq.l  #1, d6
+        bra.s   b32
+tdone:  move.l  a4, 0x8.w
+        move.w  (sp)+, sr
+        lea     s_tt4(pc), a0
+        bsr     print
+        move.b  d7, d0
+        bsr     hex2
+        lea     s_tt5(pc), a0
+        bsr     print
+        move.l  d5, d0
+        bsr     hex8
+        lea     s_tt6(pc), a0
+        bsr     print
+        move.w  d4, d0
+        bsr     hex4
+        move.b  d6, d0
+        bsr     hex2
+        lea     s_crlf(pc), a0
+        bsr     print
+| EmuTOS 1.4 256K UK internals: is_bus32 ($35C2), its detect_32bit ($E00308), check_read_byte ($E00C2E)
+        lea     s_e(pc), a0
+        bsr     print
+        move.b  0x35c2.w, d0
+        bsr     hex2
+        move.l  0x8.w, a4
+        jsr     0xe00308
+        move.l  a4, 0x8.w
+        bsr     hex2
+        move.l  #0x010fffff, -(sp)
+        jsr     0xe00c2e
+        addq.l  #4, sp
+        bsr     hex2
+        lea     s_crlf(pc), a0
+        bsr     print
+        rts
+hex8:   swap    d0
+        bsr.s   hex4
+        swap    d0
+hex4:   move.w  d0, -(sp)
+        lsr.w   #8, d0
+        bsr     hex2
+        move.w  (sp)+, d0
+        bra     hex2
+
 | string at a0 via BIOS Bconout(CON), keeps a1-a6/d3-d7
 print:  moveq   #0, d0
         move.b  (a0)+, d0
@@ -132,13 +227,20 @@ nib:    and.w   #15, d0
 
 hexd:   .ascii  "0123456789ABCDEF"
 s_title: .asciz "\r\nST_HELPER mailbox self-test (cartridge $FA0000)\r\n"
+s_tt2:  .asciz  "RT "
+s_tt3:  .asciz  " RV "
+s_tt4:  .asciz  "\r\nB32 "
+s_tt5:  .asciz  " END "
+s_tt6:  .asciz  " W "
+s_c:    .asciz  "C "
+s_e:    .asciz  "E "
 s_boot: .asciz  "BOOT $"
 s_stat: .asciz  "  STATUS $"
 s_crlf: .asciz  "\r\n"
 s_msg:  .asciz  "hello from the ST\r"
-s_wait: .asciz  "sent 'hello from the ST', helper says:\r\n"
-s_done: .asciz  "\r\n-- mailbox test done, TOS continues --\r\n"
-s_noup: .asciz  "helper not running (BOOT: 1 DDR3, 2 no flash-done, 3 S1, 4 CS#), skipped\r\n"
+s_wait: .asciz  "helper says:\r\n"
+s_done: .asciz  "\r\n-- TOS continues --\r\n"
+s_noup: .asciz  "helper not running, skipped\r\n"
 s_nombx: .asciz "no mailbox at $FFFB00, skipped\r\n"
         .even
 end:

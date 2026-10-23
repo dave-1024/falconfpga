@@ -107,6 +107,17 @@ module atarist (
 	output wire [23:1] ram_addr,
 	output wire [15:0] ram_data_in,
 	input wire [15:0]  ram_data_out,
+`ifdef TTRAM
+	// FalconFPGA TTRAM: 030 TT-RAM port to sdram.v (docs/TTRAM_DESIGN.md)
+	input wire         tt_en,
+	output wire        tt_req,
+	output wire        tt_we,
+	output wire [21:0] tt_la,
+	output wire [3:0]  tt_be,
+	output wire [31:0] tt_wdata,
+	input wire         tt_ack,
+	input wire [31:0]  tt_rdata,
+`endif
 
 	// TOS ROM interface
 	output wire		   rom_n, 
@@ -655,6 +666,17 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
 	.dbg_trace  ( dbg_trace_cpu )
+`ifdef TTRAM
+	,
+	.tt_en      ( tt_en      ),
+	.tt_req     ( tt_req     ),
+	.tt_we      ( tt_we      ),
+	.tt_la      ( tt_la      ),
+	.tt_be      ( tt_be      ),
+	.tt_wdata   ( tt_wdata   ),
+	.tt_ack     ( tt_ack     ),
+	.tt_rdata   ( tt_rdata   )
+`endif
 );
 `ifdef DIAG_DMAWATCH
 // FalconFPGA DIAG dmawatch (float panic): ALL ST RAM writes (CPU via bridge, floppy/HD DMA, blitter)

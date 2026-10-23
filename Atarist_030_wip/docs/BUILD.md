@@ -24,11 +24,11 @@ Details, reasons and the rules are below. What went wrong before and why is in
   `hdl/jt49`, `hdl/fdc1772`, `hdl/hdmi`, `hdl/misc` (ST core parts from MiSTeryNano, incl. `sd_card.v`/`sd_rw.v`),
   `hdl/helper` (AE350 SoC glue, PLLs), `hdl/tang/console138k` (top, pins `.cst`, timing `.sdc`).
 - `helper_fw/`: AE350 helper firmware ([helper_fw/README.md](../helper_fw/README.md)).
-- Build scripts: `build_st_helper.tcl` (**the main build**), `build_st_helper_hdn.tcl` (same + `SD_WRITE_DEBUG`,
-  place 3: the build on the board), `build_st_68000*.tcl` (68000 comparison builds), `build_tc138k.tcl` (old desktop
+- Build scripts: `build_st_helper.tcl` (**the main build**), `debug_builds/build_st_helper_hdn.tcl` (same + `SD_WRITE_DEBUG`,
+  place 3: the build on the board), `debug_builds/build_st_68000*.tcl` (68000 comparison builds), `debug_builds/build_tc138k.tcl` (old desktop
   build without the helper), `build_legacy/build_st_helper_{sdlog,mch,dmaw,excw,gdt,hiwatch,hiv6,wrw,nocart}.tcl` (debug/test
   variants, one define each on top of the main build) and `build_legacy/build_ae350_serial.tcl` (AE350 serial proof image).
-  The `build_legacy/` scripts cd to `Atarist_030_wip/` themselves; run them as `gw_sh build_legacy/<name>.tcl`.
+  Layout: only the main build is in `Atarist_030_wip/`; current debug variants are in `debug_builds/` (see its README.md), retired ones in `build_legacy/`. The `debug_builds/` and `build_legacy/` scripts cd to `Atarist_030_wip/` themselves; run them as `gw_sh debug_builds/<name>.tcl` or `gw_sh build_legacy/<name>.tcl`.
 - Benches: `hdl/cpu030/sim/rtl/run_rtl.sh` (CPU RTL, GHDL), `hdl/cpu030/sim/st/run_bus.sh` (whole ST, Icarus),
   `hdl/misc/sim/tb_sd_*.v` (SD controller fault injection, Icarus), `hdl/fdc1772/sim/run_sim.sh` (FDC error status).
 
@@ -49,7 +49,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | switch | default (build_st_helper.tcl) | what it does |
 |---|---|---|
 | `ST_HELPER` | on | AE350 RISC-V helper: SD card, floppy images, USB keyboard/mouse, console (ST_HELPER.md) |
-| `ST_HELPER_CART` | on | self-test cartridge at $FA0000 (helper mailbox check at boot) |
+| `ST_HELPER_CART` | off (opt-in since 22 Oct 2026) | self-test cartridge at $FA0000 (helper mailbox check at boot); its ttdiag hangs plain TOS 2.06 |
 | `ST_HELPER_USB` | on | USB host on the Console USB-A ports for the helper |
 | `ST_HELPER_OSD` | on | MiSTeryNano OSD drawn by the helper over HDMI (F12) |
 | `ST_COLOUR_MONITOR` | on | colour monitor (low/medium res); off = mono ST High |
@@ -59,9 +59,11 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_SD_WRITE_FIX` | on | sd_rw waits for DAT0 not busy before CMD17/CMD24, bounded CMD24 retry, a failed write completes instead of jamming in state 13 |
 | `ST_FLOPPY_MEDIACH` | on | holds floppy write-protect ~0.75 s after each image insert/eject, so TOS sees a runtime disk swap. Without it TOS writes the old disk's FAT/directory into the new image (the gb403 corruption) |
 | `ST_SD_HARDEN` | on | sd_rw checks the data-response token, re-inits the card and re-issues (2 re-inits), bounds read retries, latches the sector at request time; a give-up shows as an FDC CRC error (status bit 3) |
-| `ST_030_CACHES` | off | no effect since 17 Oct 2026: the 68030 I and D caches are always built (no switch, CACR enables them as on a 030); the bridge drives CIIN from a per-cycle decode (ST ROM/RAM/IO inhibited, only `$01000000-$01FFFFFF` cachable); the old experimental modules are gone |
-| `ST_CPU_68000` | off (`build_st_68000.tcl`, `build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
-| `SD_WRITE_DEBUG` | off (on in `build_st_helper_hdn.tcl`, `build_legacy/build_st_helper_{mch,sdlog}.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
+| `TTRAM` | **on** (since 22 Oct 2026) | 16 MB TT-RAM at `$01000000` on the single J9 SDRAM module, as release build tt20. No build switch to set; a TT-RAM on/off option will come in the helper later |
+| `TT_RING` | off (debug only) | DIAG ring of the last 32 030 bus cycles before the first BERR. Not for release (tt19 with it had HDMI dropouts) |
+| `ST_030_CACHES` | on (set since 22 Oct 2026, records the intent) | no effect since 17 Oct 2026: the 68030 I and D caches are always built (no switch, CACR enables them as on a 030); the bridge drives CIIN from a per-cycle decode (ST ROM/RAM/IO inhibited, only `$01000000-$01FFFFFF` cachable); the old experimental modules are gone |
+| `ST_CPU_68000` | off (`debug_builds/build_st_68000.tcl`, `debug_builds/build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
+| `SD_WRITE_DEBUG` | off (on in `debug_builds/build_st_helper_hdn.tcl`, `build_legacy/build_st_helper_{mch,sdlog}.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
 | `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |
 | `DIAG_HIWATCH`, `DIAG_HIWATCH_V6`, `DIAG_EXCWATCH`, `DIAG_DMAWATCH`, `DIAG_GDTRACE` | off (own tcl each) | float-panic hunt probes (float_panic/FLOAT_PANIC.md); debug only, never on main |
 | `WF030_TRACE` | off (branch `diag-trace`) | in-fabric bus trace (how the JSR SP bug was found) |
@@ -71,8 +73,8 @@ All 13 ST scripts (`build_st_*.tcl` here and in `build_legacy/`) set `BRIDGE_EAR
 
 ## 5. place_option
 The same RTL can fail timing, or (once) give a bitstream whose helper didn't boot, depending on placement.
-`build_st_helper.tcl` uses `place_option 1`; the board builds (`*_p3.fs`, `build_st_helper_hdn.tcl`) use 3. If one
-fails timing, try the other. Don't relax constraints to make a build pass.
+`build_st_helper.tcl` and `debug_builds/build_st_helper_hdn.tcl` both use `place_option 3` (since 23 Oct 2026; the board builds `*_p3.fs`). If one
+fails timing, try place_option 1 or 2. Don't relax constraints to make a build pass.
 
 ## 6. Check timing (before every flash)
 In `impl/pnr/st_helper_tr_content.html`:

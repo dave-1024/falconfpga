@@ -133,6 +133,18 @@ module cpu030_st_bridge #(
     // [63:32]   row e: bridge 68000-side state machine (clk_32)
     // [31:0]    row f: {start count 7:0, live last program fetch A23:0} (clk_cpu)
     output wire [167:0] dbg_trace
+`ifdef TTRAM
+    ,
+    // FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 030-side TT-RAM at $01000000
+    input  wire        tt_en,       // switch: 1 = TT-RAM on, 0 = plain ST (A31:24 ignored, 24-bit wrap)
+    output reg         tt_req = 1'b0,
+    output reg         tt_we  = 1'b0,
+    output reg  [21:0] tt_la  = 22'd0,
+    output reg  [3:0]  tt_be  = 4'd0,
+    output reg  [31:0] tt_wdata = 32'd0,
+    input  wire        tt_ack,
+    input  wire [31:0] tt_rdata
+`endif
 );
 
     // =====================================================================
@@ -184,7 +196,16 @@ module cpu030_st_bridge #(
     // CIINn is active low: asserted (0) = do not cache this cycle, negated (1) = cachable.
     (* syn_keep = 1 *) wire cpu_fast_sel;
     assign cpu_fast_sel = ~cpu_asn & (cpu_fc != 3'b111) & (cpu_adr[31:24] == 8'h01);
+`ifdef TTRAM
+    // TTRAM: cachable only while TT-RAM is switched on; switched off, $01xxxxxx wraps to the ST
+    // side (24-bit) and must be cache-inhibited like any other ST cycle.
+    wire cpu_cii_n = cpu_fast_sel & tt_en;
+`else
     wire cpu_cii_n = cpu_fast_sel;      // negated only for the reserved fast-RAM range
+`endif
+`ifdef TT_RING
+    wire [127:0] cpu_dbg_str;          // FalconFPGA DIAG STR
+`endif
     wire [31:0] cpu_dbg_adr;           // FalconFPGA DIAG {ADR_LATCH, ADR_P, PC_L, ADR_L} 23:16   // FalconFPGA DIAG
     reg  [2:0]  ipl_r = 3'b111;
 
@@ -239,6 +260,9 @@ module cpu030_st_bridge #(
         .CIOUTn    (               ),
 `ifndef WF030_NETLIST
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
+`ifdef TT_RING
+        .DBG_STR   ( cpu_dbg_str   ),   // FalconFPGA DIAG STR
+`endif
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
@@ -247,6 +271,183 @@ module cpu030_st_bridge #(
         .BGn       (               ),
         .BGACKn    ( 1'b1          )
     );
+
+`ifdef TTRAM
+    // ---- FalconFPGA TTRAM front end (clk_32) ---------------------------------
+    // With tt_en, the 030's own 32-bit address is decoded (FC != 7):
+    //   A31:24 = $00, $FF : ST side, as before (24-bit bus, $FFxxxxxx = short I/O addressing)
+    //   A31:24 = $01      : TT-RAM, 32-bit port (DSACK1:0 = 00), cachable (CIIN negated)
+    //                       A23:0 >= TT_BYTES -> bus error
+    //   $02..$7F data     : bus error (no ST wrap: EmuTOS sizes TT-RAM by BERR / mirror tests)
+    //   $80..$FE, and program fetches with any A31:24 but $01: ST side, 24-bit wrap [T10/T10b]
+    // With tt_en = 0 nothing here is used and A31:24 are ignored (plain ST, 24-bit wrap).
+    localparam [24:0] TT_BYTES = 25'h1000000;   // 16 MB ($01000000-$01FFFFFF), 25'h0800000 = 8 MB
+    // [T10] program-space cycles (FC = 2/6) with A31:24 other than $01 take the ST side (24-bit
+    // wrap, as on a 68000): TOS 2.06 fills vectors 2..63 with $E010E2 + (vector << 24) (the bomb
+    // handler reads the vector number back from the PC high byte), so the first exception through
+    // one of them fetched $nnE010E2 -> BERR -> vector 2 = $02E010E2 -> BERR loop: the boot hung at
+    // the first Pexec. Data cycles still bus-error, so TT-RAM sizing (EmuTOS reads up from
+    // $01000000 until a BERR at $02000000) is unchanged.
+    // [T10b] A31 = 1 ($80..$FF) always takes the ST side: the TOS 2.06 BIOS/XBIOS dispatcher ($E00D80)
+    // marks indirect table entries with bit 31 and reads them with movea.l (a0),a0 at $80000472 etc.
+    // Data BERR is kept only for $02..$7F (TT-RAM sizing, TT_RING $7E).
+    wire cpu_pgm    = (cpu_fc[1:0] == 2'b10);
+    wire cpu_tt_any = tt_en & ~cpu_asn & (cpu_fc != 3'b111) &
+                      (cpu_adr[31:24] != 8'h00) & ~cpu_adr[31] &
+                      ((cpu_adr[31:24] == 8'h01) | ~cpu_pgm);
+    wire cpu_tt_ram = cpu_tt_any & (cpu_adr[31:24] == 8'h01) & ({1'b0, cpu_adr[23:0]} < TT_BYTES);
+    // L1: the request goes to sdram.v straight from the 030 pins (A/SIZE/RW/data are valid with AS,
+    // as for the ST front end), so sdram.v sees it on the first clk_32 edge with AS low.
+    // L2: sdram.v acks a read 3 clk_32 before tt_dout is complete; t_dsack (one edge later) is
+    // sampled by the 030 on a clk_cpu falling edge >= 1 clk_32 later and the data latched one clk_cpu
+    // (2 clk_32) after that, i.e. on or after the edge where tt_dout is loaded + 1. cpu_din takes
+    // tt_rdata (the sdram.v register) directly. Writes are posted: acked when sdram.v takes them.
+    reg  t_open = 1'b0, t_dsack = 1'b0, t_berr = 1'b0, t_got = 1'b0;
+    // [C5] TT5: no early read DSACK. A read is acked only once tt_dout is complete (3 edges after
+    // tt_ack) and captured into t_rd, which is held until AS rises, so the data the 030 latches can
+    // never be a register that sdram.v is still loading. DSACK/BERR then reach the 030 through
+    // clk_cpu flops (async clear on AS), not straight from clk_32 regs.
+    // Technique after TF536 by Stephen J. Leary (registered, AS-cleared terminations); own code.
+    reg  [2:0]  t_rp = 3'd0;
+    reg  [31:0] t_rd = 32'd0;
+    // byte lanes of a 32-bit port (MC68030UM 7.2.1): from A1:0 up to A1:0+size-1, at most lane 3
+    wire [2:0] tt_n  = (cpu_size == 2'b00) ? 3'd4 : {1'b0, cpu_size};
+    wire [3:0] tt_lo = (4'b1111 >> cpu_adr[1:0]);                     // lanes >= A1:0 ([3] = lane 0)
+    wire [3:0] tt_hi = ~(4'b1111 >> ({1'b0, cpu_adr[1:0]} + tt_n));    // lanes <  A1:0+n
+    // TT1: L1 undone for timing (clk_cpu030 pins -> sdram.v start logic missed clk32): the request is
+    // registered from the pins at the first clk_32 edge with AS low again (+1 clk_32 per TT cycle).
+`ifdef TT_RING
+    // ---- FalconFPGA DIAG TT_RING: last 32 030 bus cycles before the first BERR (clk_32) ----
+    // A31:24 = $7E is a register port (32-bit, no wait): a write arms (clears and starts) the ring;
+    // a read of $7E000000 + 16*i + 4*k returns entry i (0 = newest) word k: 0 addr, 1 data,
+    // 2 {wp, i, armed, frozen, 0.., FC2:0, RW, SIZE1:0, TT, BERR}, 3 count of cycles since arm.
+    // Every 030 cycle (TT and ST, not the port itself) is logged when it terminates; the first
+    // BERR termination while armed is logged and freezes the ring. Observation only.
+    reg t_open_ring = 1'b0;
+    wire        cpu_ring = cpu_tt_any & (cpu_adr[31:24] == 8'h7E);
+    reg  [31:0] g_adr [0:31];
+    reg  [31:0] g_dat [0:31];
+    reg  [7:0]  g_inf [0:31];
+    reg  [4:0]  g_wp  = 5'd0;
+    reg         g_arm = 1'b0, g_frz = 1'b0, g_lg = 1'b0;
+    reg  [31:0] g_cnt = 32'd0;
+    wire        g_term = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn | ~cpu_avecn);
+    wire [4:0]  g_i   = g_wp - 5'd1 - cpu_adr[8:4];
+    wire [31:0] g_rdat = (cpu_adr[3:2] == 2'd0) ? g_adr[g_i] :
+                         (cpu_adr[3:2] == 2'd1) ? g_dat[g_i] :
+                         (cpu_adr[3:2] == 2'd2) ? {3'd0, g_wp, 3'd0, cpu_adr[8:4], g_arm, g_frz, 6'd0, g_inf[g_i]} : g_cnt;
+    always @(posedge clk) begin
+        if (cpu_asn) g_lg <= 1'b0;
+        if (!cpu_rst_n) begin
+            g_arm <= 1'b0; g_frz <= 1'b0;
+        end else if (!t_open & cpu_ring & ~cpu_rwn) begin
+            g_arm <= 1'b1; g_frz <= 1'b0; g_wp <= 5'd0; g_cnt <= 32'd0; g_lg <= 1'b1;
+        end else if (g_term & ~g_lg & ~cpu_ring & ~t_open_ring) begin
+            g_lg <= 1'b1;
+            if (g_arm & ~g_frz) begin
+                g_adr[g_wp] <= cpu_adr;
+                g_dat[g_wp] <= cpu_rwn ? cpu_din : cpu_dout;
+                g_inf[g_wp] <= {cpu_fc, cpu_rwn, cpu_size, t_open, ~cpu_berrn};
+                g_wp  <= g_wp + 5'd1;
+                g_cnt <= g_cnt + 32'd1;
+                if (~cpu_berrn) g_frz <= 1'b1;
+            end
+        end
+    end
+    // ---- FalconFPGA DIAG STR: decoder word stream + ISP ring (clk_cpu), 64 entries ----
+    // An entry is logged on every clk_cpu with a queue event (Q_HIT, IC_TAKE, PF_DONE, Q_MISS) or an ISP change,
+    // while armed (the same $7E000000 arm write, synchronised). Trigger: the first ISP write to $01xxxxxx with
+    // ISP[1] = 0 (TTM1's SP is always 2 mod 4 in the suite) or a BERR; 40 more entries are logged, then frozen.
+    // Read at $7E800000 + 16*i + 4*k, i = 0 newest: k0 {Q_HEAD,0}, k1 {word0, QF, QCNT, 0, clocks since previous entry (6), trig, frz},
+    // k2 ISP, k3 {BIW_0 (current opcode), lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, PF_DONE, F_CUR1}.
+    reg  [31:0] d_w0 [0:63];
+    reg  [31:0] d_w1 [0:63];
+    reg  [31:0] d_w2 [0:63];
+    reg  [31:0] d_w3 [0:63];
+    reg  [5:0]  d_wp = 6'd0;
+    reg  [1:0]  d_as = 2'b00;
+    reg         d_trg = 1'b0, d_frz = 1'b0, d_a1 = 1'b0;
+    reg  [5:0]  d_post = 6'd0;
+    reg  [31:0] d_sp = 32'd0;
+    reg  [5:0]  d_clk = 6'd0;           // clk_cpu cycles since the previous logged entry (saturates at 63)
+    wire [31:0] d_isp = cpu_dbg_str[63:32];
+    wire        d_ev = (cpu_dbg_str[79:76] != 4'd0) | (d_isp != d_sp);
+    always @(posedge clk_cpu) begin
+        d_as <= {d_as[0], g_arm};
+        d_a1 <= d_as[1];
+        d_sp <= d_isp;
+        if (~(d_as[1] & ~d_frz & d_ev) & (d_clk != 6'd63)) d_clk <= d_clk + 6'd1;
+        if (d_as[1] & ~d_a1) begin
+            d_wp <= 6'd0; d_trg <= 1'b0; d_frz <= 1'b0; d_post <= 6'd0;
+        end else if (d_as[1] & ~d_frz & d_ev) begin
+            d_w0[d_wp] <= cpu_dbg_str[127:96];
+            d_w1[d_wp] <= {cpu_dbg_str[95:72], d_clk, d_trg, d_frz};
+            d_clk <= 6'd1;
+            d_w2[d_wp] <= d_isp;
+            d_w3[d_wp] <= cpu_dbg_str[31:0];
+            d_wp <= d_wp + 6'd1;
+            if (~d_trg & (((d_isp != d_sp) & (d_isp[31:24] == 8'h01) & ~d_isp[1]) | (~cpu_asn & ~cpu_berrn)))
+                d_trg <= 1'b1;
+            if (d_trg) begin
+                d_post <= d_post + 6'd1;
+                if (d_post == 6'd39) d_frz <= 1'b1;
+            end
+        end
+    end
+    wire [5:0]  d_i = d_wp - 6'd1 - cpu_adr[9:4];
+    wire [31:0] d_rdat = (cpu_adr[3:2] == 2'd0) ? d_w0[d_i] : (cpu_adr[3:2] == 2'd1) ? d_w1[d_i] :
+                         (cpu_adr[3:2] == 2'd2) ? d_w2[d_i] : d_w3[d_i];
+    always @(posedge clk) t_open_ring <= cpu_asn ? 1'b0 : (t_open_ring | (cpu_ring & ~t_open));
+`endif
+    always @(posedge clk) begin
+        if (!cpu_rst_n || cpu_asn) begin
+            t_open  <= 1'b0;
+            t_dsack <= 1'b0;
+            t_berr  <= 1'b0;
+            t_got   <= 1'b0;
+            tt_req  <= 1'b0;
+            t_rp    <= 3'd0;
+        end else begin
+            t_rp <= {t_rp[1:0], 1'b0};
+            if (t_rp[2]) begin
+                t_rd    <= tt_rdata;   // tt_dout loaded on the previous edge: stable now
+                t_dsack <= 1'b1;
+            end
+            if (!t_open & cpu_tt_any) begin
+                t_open   <= 1'b1;
+                tt_we    <= ~cpu_rwn;
+                tt_la    <= cpu_adr[23:2];
+                tt_be    <= tt_lo & tt_hi;
+                tt_wdata <= cpu_dout;
+`ifdef TT_RING
+                if (cpu_ring) begin
+                    t_rd    <= cpu_adr[23] ? d_rdat : g_rdat; // [STR] $7E800000: stream ring    // DIAG ring readout / arm write: no SDRAM access
+                    t_dsack <= 1'b1;
+                end else
+`endif
+                if (cpu_tt_ram) tt_req <= 1'b1;
+                else            t_berr <= 1'b1;
+            end
+            if (tt_req & tt_ack) begin
+                tt_req  <= 1'b0;
+                t_got   <= 1'b1;
+                if (tt_we) t_dsack <= 1'b1;   // posted write
+                else       t_rp[0] <= 1'b1;
+            end
+        end
+    end
+    wire t_cycle = t_open | cpu_tt_any;   // this 030 cycle is not for the ST side
+    reg t_dsack_c = 1'b0, t_berr_c = 1'b0;
+    always @(posedge clk_cpu or posedge cpu_asn) begin
+        if (cpu_asn) begin
+            t_dsack_c <= 1'b0;
+            t_berr_c  <= 1'b0;
+        end else begin
+            t_dsack_c <= t_dsack;
+            t_berr_c  <= t_berr;
+        end
+    end
+`endif
 
     // ---- front end: request capture (clk_32) -------------------------------
     // clk_cpu is phase-locked to clk_32 (same PLL VCO, every clk_cpu edge is a
@@ -265,7 +466,11 @@ module cpu030_st_bridge #(
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             c_open <= 1'b0;
-        end else if (!c_open) begin
+        end else if (!c_open
+`ifdef TTRAM
+                     & ~t_cycle
+`endif
+                     ) begin
             // first clk_32 edge with AS low. Address, SIZE, RW, FC and the
             // write data mux are registered by the 030 with AS (S0).
             c_open  <= 1'b1;
@@ -297,10 +502,30 @@ module cpu030_st_bridge #(
     reg [15:0] s_rdata  = 16'hffff;
 
     wire term_ok = c_open & (s_tag == c_req_t);
+`ifdef TTRAM
+    // [C8] The ST terminations also go through clk_cpu flops cleared by AS (as the TT ones, C5). The raw
+    // clk_32 s_tag/s_dsack -> DSACKn -> core MOVEM_INH_WR -> AR_IN (SP) -> ADR_EFF_I path was a half-cycle
+    // (31.25 ns) path failing timing in every build (tt12 -2.6, tt14 -12.7, tt16 -6.0 ns); now a full clk_cpu
+    // cycle. DSACK reaches the core's falling-edge sample up to one clk_cpu later; the data is held in
+    // s_rdata until the next ST cycle, so the later data latch still sees it.
+    reg s_dsack_c = 1'b0, s_avec_c = 1'b0, s_berr_c = 1'b0;
+    always @(posedge clk_cpu or posedge cpu_asn) begin
+        if (cpu_asn) begin
+            s_dsack_c <= 1'b0; s_avec_c <= 1'b0; s_berr_c <= 1'b0;
+        end else begin
+            s_dsack_c <= term_ok & s_dsack; s_avec_c <= term_ok & s_avec; s_berr_c <= term_ok & s_berr;
+        end
+    end
+    assign cpu_dsackn = t_dsack_c ? 2'b00 : s_dsack_c ? 2'b01 : 2'b11;
+    assign cpu_avecn  = ~s_avec_c;
+    assign cpu_berrn  = ~(s_berr_c | t_berr_c);
+    assign cpu_din    = t_open ? t_rd : {s_rdata, s_rdata};
+`else
     assign cpu_dsackn = (term_ok & s_dsack) ? 2'b01 : 2'b11;
     assign cpu_avecn  = ~(term_ok & s_avec);
     assign cpu_berrn  = ~(term_ok & s_berr);
     assign cpu_din    = {s_rdata, s_rdata};
+`endif
 
     // =====================================================================
     // clk_32 domain: the 68000 side
@@ -331,7 +556,11 @@ module cpu030_st_bridge #(
     // en1 on that edge starts the ST cycle at once instead of one clk_32
     // later, so the 030 can follow a cycle that ends at S6 with the next S0.
     // q_* are the request fields: live on that edge, captured (c_*) after it.
+`ifdef TTRAM
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle;
+`else
     wire live    = cpu_rst_n & ~cpu_asn & ~c_open;
+`endif
     wire pending = live | (req_now != s_seen);
     wire        q_tag  = live ? ~c_req_t        : c_req_t;
     wire [23:0] q_adr  = live ? cpu_adr[23:0]   : c_adr;
@@ -605,6 +834,13 @@ module cpu030_st_bridge #(
             d_got  <= 1'b1;
             d_info <= {c_fc, c_rwn, c_size, req_bad_space};
             d_badr <= {c_adr_hi, c_adr};
+`ifdef TTRAM
+        end else if (t_berr & ~d_got) begin
+            // TT front-end BERR (A31:24 not $00/$01/$FF, or beyond TT_BYTES): 030 pins, bad_space bit = 1
+            d_got  <= 1'b1;
+            d_info <= {cpu_fc, cpu_rwn, cpu_size, 1'b1};
+            d_badr <= cpu_adr;
+`endif
         end
     end
 

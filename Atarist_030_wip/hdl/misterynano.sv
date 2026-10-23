@@ -8,6 +8,7 @@
 
 module misterynano #( 
   parameter     SDRAM_WIDTH = 32,
+  parameter     TTRAM_ON = 1'b1,        // FalconFPGA TTRAM (with `define TTRAM): TT-RAM switch, 0 = plain ST 24-bit wrap (later: helper OSD)
   parameter     SD_CLK_DIV = 3'd0,      // clock divider for SD card, 0 should be fine for 32 Mhz main clock
   parameter		EXTERNAL_PARPORT = 1'b0 // set to 1 to enable external parport
 ) (
@@ -254,11 +255,42 @@ always @(posedge clk32) begin
         ram_scramble <= ram_scramble + 2'd1;
 end
 
+// FalconFPGA: true cold start on every bitstream load / power-up.
+// Loading a new bitstream does not clear the SDRAM and ram_scramble restarts
+// at 0, so TOS found memvalid ($420) intact, took the warm path and reused the
+// old _ramtop (no TT-RAM probe). Until the first write to $420-$423 after
+// por, reads of that longword return 0 so TOS always runs its cold-boot path
+// (the hit is sampled inside sdram.v at CAS time, so it belongs to that read).
+// Same for _ramvalid ($5A8): TOS 1.6+/EmuTOS reuse the old _ramtop when it
+// is valid, so it is masked too (own flag, cleared by the first write).
+localparam TT_RV_MASK = 1'b1;   // 1: TOS probes TT-RAM after every load (tt5: EmuTOS then crashes, see TTRAM_LOG)
+reg pwr_cold = 1'b1, pwr_cold_rv = 1'b1;
+wire memvalid_hit = (ram_a[23:2] == 22'h000108);   // byte $420..$423
+wire ramvalid_hit = (ram_a[23:2] == 22'h00016A);   // byte $5A8..$5AB
+always @(posedge clk32) begin
+    if(por) begin
+        pwr_cold <= 1'b1;
+        pwr_cold_rv <= 1'b1;
+    end else begin
+        if(memvalid_hit && !we_n && (!cash_n || !casl_n))
+            pwr_cold <= 1'b0;
+        if(ramvalid_hit && !we_n && (!cash_n || !casl_n))
+            pwr_cold_rv <= 1'b0;
+    end
+end
+
 // RAM is scrambled by xor'ing adress lines 3 and 4 with the scramble bits
 wire [22:1] ram_a_s = { ram_a[22:5], 
     ram_a[4:3] ^ ram_scramble, 
     ram_a[2:1] };
 
+`ifdef TTRAM
+// FalconFPGA TTRAM: 16 MB TT-RAM at $01000000 in SDRAM banks 1/2 (docs/TTRAM_DESIGN.md)
+wire        tt_req, tt_we, tt_ack;
+wire [21:0] tt_la;
+wire [3:0]  tt_be;
+wire [31:0] tt_wdata, tt_rdata;
+`endif
 sdram sdram (
         .clk(clk32),
         .reset_n(!por),
@@ -286,7 +318,13 @@ sdram sdram (
         .ds( { cash_n, casl_n } ),  // upper/lower data strobe
         .cs( !ras_n && !ram_a[23] ),// cpu/chipset requests read/write
         .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
-        .we( !we_n )                // cpu/chipset requests write
+        .we( !we_n ),               // cpu/chipset requests write
+        .zmask( (pwr_cold && memvalid_hit) || (TT_RV_MASK && pwr_cold_rv && ramvalid_hit) )
+`ifdef TTRAM
+        ,
+        .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),
+        .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata)
+`endif
 );
    
 // ST video signals to be sent through the scan doubler
@@ -773,6 +811,10 @@ atarist atarist (
     .ram_we_n(we_n),
     .ram_data_in(mdout),
     .ram_data_out(mdin),
+`ifdef TTRAM
+    .tt_en(TTRAM_ON), .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),
+    .tt_wdata(tt_wdata), .tt_ack(tt_ack), .tt_rdata(tt_rdata),
+`endif
 
     .leds(leds[3:0]),    // HDD 1:0 / FDC 1:0
     .rom_fetch(rom_fetch),

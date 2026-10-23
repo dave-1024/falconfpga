@@ -196,6 +196,7 @@ entity WF68K30L_TOP is
         ADR_OUT         : out std_logic_vector(31 downto 0);
         DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
+        DBG_STR         : out std_logic_vector(127 downto 0); -- FalconFPGA DIAG STR: decoder word stream + ISP
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
         DATA_EN         : out std_logic; -- Enables the data port.
@@ -478,6 +479,10 @@ signal PC_LOAD_EXH              : bit;
 signal PC_LOAD_MAIN             : bit;
 signal PC_OFFSET                : std_logic_vector(7 downto 0);
 signal DBG_A5_I                 : std_logic_vector(31 downto 0);
+signal DBG_SP_I                 : std_logic_vector(31 downto 0);
+signal DBG_QF_I                 : std_logic_vector(3 downto 0);
+signal DBG_QC                   : std_logic_vector(3 downto 0);
+signal DBG_IC_I                 : std_logic_vector(15 downto 0);
 signal DBG_EXC_STB              : std_logic;
 signal PC_OFFSET_OPD            : std_logic_vector(7 downto 0);
 signal PC_RESTORE_EXH           : bit;
@@ -988,6 +993,8 @@ begin
     -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
+    DBG_QC <= x"0" when Q_COUNT = 0 else x"1" when Q_COUNT = 1 else x"2" when Q_COUNT = 2 else x"3" when Q_COUNT = 3 else x"4";
+    DBG_STR <= Q_HEAD & '0' & Q_STREAM(63 downto 48) & DBG_QF_I & DBG_QC & x"00" & DBG_SP_I & BIW_0 & DBG_IC_I; -- FalconFPGA DIAG STR
     DBG_ADR <= ADR_LATCH(23 downto 16) & ADR_P(23 downto 16) & PC_L(23 downto 16) & ADR_L(23 downto 16); -- FalconFPGA DIAG
     ADR_NXT <= ADR_L when DATA_RD = '1' or DATA_WR = '1' else PC_L; -- [PH2]
     ADR_P <= ADR_LATCH when BUS_BSY = '1' else ADR_NXT;
@@ -1182,7 +1189,8 @@ begin
             PC_LOAD                 => PC_LOAD,
             PC_RESTORE              => PC_RESTORE_EXH,
             PC_OFFSET               => PC_OFFSET,
-            DBG_A5                  => DBG_A5_I
+            DBG_A5                  => DBG_A5_I,
+            DBG_SP                  => DBG_SP_I
         );
 
     I_ALU: WF68K30L_ALU
@@ -1269,6 +1277,8 @@ begin
             Q_STREAM            => Q_STREAM, -- [PFCOF2]
             Q_COUNT             => Q_COUNT,
             Q_HEAD              => Q_HEAD, -- [FRM]
+            DBG_QF              => DBG_QF_I,
+            DBG_IC              => DBG_IC_I,
             Q_FAULT             => Q_FAULT, -- [FRM]
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
             OP_WR               => DATA_WR, -- [F65]

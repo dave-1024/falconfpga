@@ -99,7 +99,7 @@ power-up (`atarist.ini`) or at runtime, with desktop saves (the swap corruption 
 uploads through the helper, SD error recovery (`ST_SD_HARDEN`; a lost sector shows as a disk error in TOS).
 
 Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
-- Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; cold boot (`c`) clears it
+- Intermittent "System halted!" after the cartridge self-test on warm resets/bare reloads; the helper `c` reset clears it
   (pinned in TODO.md). Always `c` after a flash.
 - The blitter shows as disabled under EmuTOS.
 - GEMBench 4.03 Display is ~10% short of a stock STE (91%; pinned in TODO.md): extra 030 fetch cycles on the ST bus.
@@ -196,7 +196,7 @@ With it, a frozen CPU can be diagnosed from a photo or capture of the screen.
 ## Build option: AE350 helper alongside the desktop (`ST_HELPER`, separate build)
 
 `gw_sh build_st_helper.tcl` builds the ST desktop **with** the AE350 RISC-V
-helper running next to it (`impl/pnr/st_helper.fs`). `build_tc138k.tcl` (the
+helper running next to it (`impl/pnr/st_helper.fs`). `debug_builds/build_tc138k.tcl` (the
 desktop) does not set the define and is unchanged. Full description, register
 map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md).
 
@@ -225,8 +225,9 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
 - **Serial:** U15 (BL616 USB serial, 115200 8N1) carries the AE350's UART2;
   typing in the same terminal reaches the helper through V14. `spi_irqn`
   moves to C22 in `atarist_st_helper.cst`.
-- **ST-side test without disk or keyboard:** `ST_HELPER_CART` (on in this
-  build) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
+- **ST-side test without disk or keyboard:** `ST_HELPER_CART` (debug opt-in, OFF
+  by default since 22 Oct 2026: it calls EmuTOS-only addresses and hangs TOS 2.06;
+  uncomment it in `build_st_helper_hdn.tcl`) adds a small self-test cartridge ROM at $FA0000 that TOS runs once
   at boot: it sends a line to the helper and shows the answer, then the
   desktop starts.
 - **Firmware:** `helper_fw/companion/` (`build_companion.sh` on Linux, `.bat` on
@@ -247,7 +248,7 @@ map, expected output, risks and port plan: [docs/ST_HELPER.md](docs/ST_HELPER.md
 - **Colour monitor:** `ST_COLOUR_MONITOR` (on in this build) holds the ST's
   mono-detect line high, so TOS boots in colour (low res; medium via
   Options > Change resolution). Delete its line in `build_st_helper.tcl` to
-  get ST High (mono). The desktop build (`build_tc138k.tcl`) has no such
+  get ST High (mono). The desktop build (`debug_builds/build_tc138k.tcl`) has no such
   define and stays mono.
 - **OSD menu:** `ST_HELPER_OSD` (on in this build) puts the MiSTeryNano
   OSD (`st_helper_osd.v`) over the ST video in front of the HDMI frame
@@ -277,7 +278,7 @@ to the Falcon hardware. It is not meant to be the fastest or most compatible ST.
   itself (instruction and data caches, CACR) goes **inside** the WF68K30L core
   in `hdl/cpu030/`, so the same core can move to the Falcon unchanged. Anything
   specific to the ST bus belongs in the bridge (`hdl/cpu030/cpu030_st_bridge.v`).
-- **The 68000 stays available.** `ST_CPU_68000` (`build_st_68000.tcl`) builds the original fx68k
+- **The 68000 stays available.** `ST_CPU_68000` (`debug_builds/build_st_68000.tcl`) builds the original fx68k
   68000 instead of the 030, for comparisons.
 
 ## Where it came from
@@ -306,7 +307,7 @@ TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl
 ## Build
 
 See [docs/BUILD.md](docs/BUILD.md): `gw_sh build_st_helper.tcl` (Windows or Linux), timing checks, op 53 flashing,
-and the helper build. `build_tc138k.tcl` / `atarist_tc138k.gprj` are the old desktop build without the helper.
+and the helper build. `debug_builds/build_tc138k.tcl` / `atarist_tc138k.gprj` are the old desktop build without the helper.
 
 ## Not in this tree
 

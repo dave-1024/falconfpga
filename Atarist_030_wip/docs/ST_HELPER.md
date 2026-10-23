@@ -15,7 +15,7 @@
 Build: `gw_sh build_st_helper.tcl` (writes `` `define ST_HELPER `` into
 `hdl/tang/console138k/build_sel.vh`). Bitstream: `impl/pnr/st_helper.fs`.
 Firmware: `helper_fw/mailbox/` (`helper_mailbox.bin`, flash at `0x0600000`).
-The desktop build `build_tc138k.tcl` is unchanged: every ST_HELPER change is
+The desktop build `debug_builds/build_tc138k.tcl` is unchanged: every ST_HELPER change is
 inside `` `ifdef ST_HELPER ``. With the define off, synthesis removes it.
 
 **End goal.** The AE350 replaces the BL616 as the core's helper MCU, so that
@@ -194,8 +194,10 @@ keyboard to start `MBXTERM.PRG` from. Three ways, simplest first:
    itself. Typing in the PC terminal reaches the helper (V14), so `s`, `i`
    and echo lines work from the PC. This tests the flash handoff, the AE350
    and the AE350-to-core link. It does not test the ST side of the mailbox.
-2. **Self-test cartridge (build option `ST_HELPER_CART`, on in
-   `build_st_helper.tcl`).** A 644-byte cartridge ROM at $FA0000 is built
+2. **Self-test cartridge (build option `ST_HELPER_CART`, debug opt-in,
+   OFF by default since 22 Oct 2026 - uncomment it in `build_st_helper_hdn.tcl`;
+   its ttdiag `jsr $E00308`/`$E00C2E` are EmuTOS 1.4 internals and hang plain
+   TOS 2.06, which has vector-init code there).** A 644-byte cartridge ROM at $FA0000 is built
    into the bitstream (`st_helper_cart_rom.v`, one block RAM, contents
    `st_helper_cart.hex` generated from `helper_fw/st_test/mbxcart.s`). The GSTMCU already decodes ROM4 and
    acknowledges it like the TOS ROM; the core only supplies the data. TOS 2.06
@@ -626,7 +628,7 @@ The firmware has new console commands `put <file>`, `h <hex>` and `pend`.
   a 68030 shows Options > Cache (not Blitter), so that menu does not prove the
   blitter. _MCH cookie, DMA sound and joypads not yet verified.
 
-## 7g. 030 caches out by default (`ST_030_CACHES`), 7 Oct 2026
+## 7g. 030 caches out by default (`ST_030_CACHES`), 7 Oct 2026 (historical: caches always built since 17 Oct, on by default)
 
 - The WF68K30L I/D caches added on 4 Oct (a6e3fee/a7ccf76 icache, e9a4fd9
   dcache) were in every build since, active whenever TOS sets CACR EI/ED

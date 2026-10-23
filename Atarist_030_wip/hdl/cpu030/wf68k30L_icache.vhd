@@ -58,6 +58,9 @@ architecture RTL of WF68K30L_ICACHE is
     signal DATA_RAM : data_t := (others => (others => '0'));
     signal TAG_RAM  : tag_t := (others => (others => '0'));
     signal VALID    : std_logic_vector(63 downto 0) := (others => '0'); -- Bit line*4 + long word.
+    signal FW_V     : std_logic := '0';
+    signal FW_IDX   : integer range 0 to 63 := 0;
+    signal FW_DATA  : std_logic_vector(31 downto 0) := (others => '0');
     signal LK_LINE  : integer range 0 to 15;
     signal LK_LW    : integer range 0 to 3;
     signal FL_LINE  : integer range 0 to 15;
@@ -97,7 +100,23 @@ begin
 
     HIT <= '1' when EI = '1' and CDIS = '0' and VALID(LK_LINE * 4 + LK_LW) = '1' and
                     TAG_RAM(LK_LINE) = LK_ADR(31 downto 8) & LK_FC2 else '0';
-    HIT_DATA <= DATA_RAM(LK_LINE * 4 + LK_LW);
+    -- [C10] Write-to-read forwarding. Gowin maps DATA_RAM to a block RAM (SDPB) and retimes the
+    -- read address onto the F_ADR register input, so the read is sampled at the clock edge. A
+    -- fill at edge E and a lookup of the same long right after E (branch to 4n+2 inside the long
+    -- just fetched) then read the OLD content (no write-through), while VALID/TAG already say
+    -- hit: a stale long from another tag reached the decoder on the board (TTM1 T1: 3F3C at
+    -- 010001CE, the SP -2 slip). RTL (asynchronous read) never showed it. The forwarding register
+    -- gives the RTL semantics for any RAM mapping.
+    HIT_DATA <= FW_DATA when FW_V = '1' and FW_IDX = LK_LINE * 4 + LK_LW else DATA_RAM(LK_LINE * 4 + LK_LW);
+
+    P_FWD: process(CLK)
+    begin
+        if CLK = '1' and CLK'event then
+            FW_V <= FL_GO;
+            FW_IDX <= FL_LINE * 4 + FL_LW;
+            FW_DATA <= FL_DATA;
+        end if;
+    end process P_FWD;
 
     -- Storage without reset (distributed RAM, asynchronous read).
     P_RAM: process(CLK)

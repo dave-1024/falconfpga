@@ -43,7 +43,21 @@ module sdram (
 	input [1:0]	  ds, // upper/lower data strobe
 	input		  cs, // cpu/chipset requests read/wrie
 	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
-	input		  we          // cpu/chipset requests write
+	input		  we,         // cpu/chipset requests write
+	input		  zmask       // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
+`ifdef TTRAM
+	,
+	// FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 32-bit TT-RAM port in banks 1/2.
+	// One long word per 250 ns ST slot, slotted into the clocks the ST cycle
+	// leaves free (g2..g7 of the 8-clock slot grid); the ST access is unchanged.
+	input		  tt_req,     // level, held until tt_ack (clk domain)
+	input		  tt_we,
+	input [21:0]	  tt_la,      // long word address: TT-RAM byte A23:2
+	input [3:0]	  tt_be,      // write lanes, [3] = D31:24 (A1:0 = 00) .. [0] = D7:0
+	input [31:0]	  tt_din,
+	output reg	  tt_ack = 1'b0, // one clk: write taken (posted) / read: tt_dout complete 3 clk later
+	output reg [31:0] tt_dout
+`endif
 );
 
 assign sd_clk = ~clk;
@@ -101,11 +115,54 @@ assign sd_cas = sd_cmd[1];
 assign sd_we  = sd_cmd[0];
 
 // sd_data[31:16] and sd_dqlm[2:3] are unused with MiSTer SDRAM
+`ifdef TTRAM
+reg        tt_oe   = 1'b0;   // TT write data on the bus
+reg        tt_rdwin = 1'b0;  // TT read data window: ST write data off the bus
+reg        tt_dqme = 1'b0;   // TT owns DQM
+reg [1:0]  tt_dqm  = 2'b00;
+reg [15:0] tt_wd   = 16'h0000;
+assign sd_data[15:0] = tt_oe ? tt_wd : (tt_rdwin ? 16'bzzzz_zzzz_zzzz_zzzz :
+                       ((cs && we) ? din : 16'bzzzz_zzzz_zzzz_zzzz));
+assign sd_dqm = { 2'bzz, tt_dqme ? tt_dqm : ((!cs || !we)?2'b00:ds) };
+`else
 assign sd_data[15:0] = (cs && we) ? din : 16'bzzzz_zzzz_zzzz_zzzz;
 assign sd_dqm = { 2'bzz, (!cs || !we)?2'b00:ds };
+`endif
 
+reg csD = 1'b0;
+`ifdef TTRAM
+// ---------------------------------------------------------------------
+// FalconFPGA TTRAM engine (docs/TTRAM_DESIGN.md)
+// The GSTMCU starts its RAS cycles on a fixed 8-clock grid (video and CPU
+// halves of the 500 ns ST cycle are exactly 8 clk apart); the ST cycle here
+// is ACTIVE at g0 (g7 with the F63 early start), CAS at g1 (g0), data at
+// g3/g4. tg follows that grid from every ST start. A TT access starts at g2,
+// uses bank 1/2 only and is over (auto precharge) before the next ST ACTIVE:
+//   read : g2 ACT, g3 READ w0, g4 READ w1 +AP (ack), capture w0 g6, w1 g7 (tt_dout)
+//   write: g2 ACT (ack: posted), g4 WRITE w0, g5 WRITE w1 +AP
+// Command, data and DQM clocks never meet the ST ones (sim/ttram/tb_ttram.v
+// checks it with an SDRAM model). ST timing is not changed.
+// ---------------------------------------------------------------------
+reg  [2:0]  tg = 3'd0;      // slot grid phase of the NEXT edge
+reg         tg_ok = 1'b0;   // grid seen at least once
+reg  [2:0]  tt_t = 3'd0;    // TT sequence step
+reg         tt_busy = 1'b0;
+reg         tt_w = 1'b0;
+reg  [21:0] tt_a;
+reg  [3:0]  tt_b;
+reg  [31:0] tt_d;
+reg  [15:0] tt_w0;
+wire st_norm_start = (init_state == 0) && !(ecs && (state == STATE_IDLE || state == STATE_LAST)) &&
+                     (state == STATE_IDLE) && cs && !csD;
+wire st_ecs_start  = (init_state == 0) && ecs && (state == STATE_IDLE || state == STATE_LAST);
+wire [1:0] tt_bank = tt_a[21] ? 2'b10 : 2'b01;
+wire tt_go = (init_state == 0) && tg_ok && (tg == 3'd2) && tt_req && !tt_busy && !tt_ack &&
+             (state == 3'd0 || state == 3'd2 || state == 3'd3) && !st_norm_start && !st_ecs_start;
+
+`endif
+
+reg zmask_q = 1'b0;
 always @(posedge clk) begin
-   reg csD;   
    sd_cmd <= CMD_NOP;  // default: idle
 
    // init state machines runs once reset ends
@@ -176,6 +233,7 @@ always @(posedge clk) begin
         if(state == STATE_CMD_CONT) begin
             sd_cmd <= we?CMD_WRITE:CMD_READ;
             sd_addr <= { 4'b0010, addr[8:0] };
+            zmask_q <= zmask;
         end
 
         if(state > STATE_CMD_CONT && state < STATE_READ)
@@ -183,10 +241,54 @@ always @(posedge clk) begin
       
         // read phase
         if(state == STATE_READ && !we) begin
-            dout <= sd_data[15:0];
+            dout <= zmask_q ? 16'h0000 : sd_data[15:0];
         end
       end
    end
+`ifdef TTRAM
+
+   tg <= tg + 3'd1;
+   if (st_ecs_start)       begin tg <= 3'd0; tg_ok <= 1'b1; end   // this edge is g7
+   else if (st_norm_start) begin tg <= 3'd1; tg_ok <= 1'b1; end   // this edge is g0
+   tt_ack <= 1'b0;
+   if (!reset_n) begin
+      tt_busy <= 1'b0; tt_oe <= 1'b0; tt_rdwin <= 1'b0; tt_dqme <= 1'b0; tg_ok <= 1'b0;
+   end else if (tt_go) begin
+      tt_busy <= 1'b1; tt_t <= 3'd1;
+      tt_w <= tt_we; tt_a <= tt_la; tt_b <= tt_be; tt_d <= tt_din;
+      sd_cmd  <= CMD_ACTIVE;
+      sd_addr <= tt_la[20:8];
+      sd_ba   <= tt_la[21] ? 2'b10 : 2'b01;
+      tt_dqme <= 1'b1; tt_dqm <= 2'b00;
+      tt_rdwin <= !tt_we;
+      tt_ack  <= tt_we;   // L2: a write is posted (data held in tt_d), the 030 may end its cycle now
+   end else if (tt_busy) begin
+      tt_t <= tt_t + 3'd1;
+      if (!tt_w) begin
+         case (tt_t)
+         3'd1: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank; end
+         3'd2: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
+                     tt_ack <= 1'b1; end   // L2: early ack, tt_dout is complete 3 edges later (see bridge)
+         3'd4: tt_w0 <= sd_data[15:0];
+         3'd5: begin tt_dout <= {tt_w0, sd_data[15:0]}; tt_busy <= 1'b0;
+                     tt_rdwin <= 1'b0; tt_dqme <= 1'b0; end
+         default: ;
+         endcase
+      end else begin
+         case (tt_t)
+         // [C7] TT7: WRITE w0/w1 at g5/g6 (were g4/g5). An ST read with CAS at g1 (CL2) has the chip
+         // driving DQ until just after g4 (tOH): a TT WRITE at g4 drove DQ against it, corrupting w0
+         // (bus bench: stacked return address read back with X in D27:24).
+         3'd3: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank;
+                     tt_oe <= 1'b1; tt_wd <= tt_d[31:16]; tt_dqm <= ~tt_b[3:2]; end
+         3'd4: begin sd_cmd <= CMD_WRITE; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
+                     tt_wd <= tt_d[15:0]; tt_dqm <= ~tt_b[1:0]; end
+         3'd5: begin tt_oe <= 1'b0; tt_dqme <= 1'b0; tt_busy <= 1'b0; end
+         default: ;
+         endcase
+      end
+   end
+`endif
 end
    
 endmodule

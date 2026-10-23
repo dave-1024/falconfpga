@@ -206,7 +206,8 @@ component WF68K30L_ADDRESS_REGISTERS
         PC_LOAD             : in bit;
         PC_RESTORE          : in bit;
         PC_OFFSET           : in std_logic_vector(7 downto 0);
-        DBG_A5              : out std_logic_vector(31 downto 0)
+        DBG_A5              : out std_logic_vector(31 downto 0);
+        DBG_SP              : out std_logic_vector(31 downto 0)
     );
 end component;
 
@@ -289,6 +290,8 @@ component WF68K30L_BUS_INTERFACE
         EXH_STK             : in bit; -- [XT2]
         Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2]
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        DBG_IC              : out std_logic_vector(15 downto 0); -- FalconFPGA DIAG STR {lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, IC_FILL, FILL_MIS}
+        DBG_QF              : out std_logic_vector(3 downto 0); -- FalconFPGA DIAG STR {Q_HIT, IC_TAKE, PF_DONE, Q_MISS}
         Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM]
         Q_FAULT             : out bit_vector(0 to 3); -- [FRM]
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.

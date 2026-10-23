@@ -60,6 +60,9 @@ architecture sim of tb030 is
   signal cdisn : std_logic := '1'; -- [IC]
   signal ciforce : std_logic := '0'; -- [IC] 1: CIIN asserted on every cycle (word write to $3502, D16)
   signal berrw : integer := 0; -- [DC] RAM word whose reads bus-error (word write to $3504)
+  -- [TT] 64 KB 32-bit port at $01000000 (DSACK1:0 = 00), cachable (CIIN negated), as the TTRAM bridge
+  type tt_t is array (0 to 16383) of std_logic_vector(31 downto 0);
+  shared variable ttm : tt_t := (others => (others => '0'));
 begin
   clk <= not clk after 62.5 ns when not done;
   dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => FASTH) port map (
@@ -91,6 +94,7 @@ begin
     variable wi : integer; variable isio : boolean; variable stop_at : integer := -1;
     file rf : text;
     variable lfsr : integer := 0; variable wr : integer;
+    variable istt : boolean; variable ti, tn, tk : integer; variable tl : std_logic_vector(31 downto 0);
   begin
     if RAMFILE /= "" then
       file_open(rf, RAMFILE, read_mode); wi := 0;
@@ -114,11 +118,14 @@ begin
         isram := (a >= 8 and a < x"00010000") or (ST = 1 and a >= 8 and a < x"00400000");
         isio  := ST = 1 and ((a >= x"00FF8000" and a <= x"00FFFFFF" and a(23 downto 4) /= x"FF8C8") or (a >= x"00FA0000" and a < x"00FC0000"));
         wi := to_integer(a(21 downto 1));
+        istt := fc /= "111" and a(31 downto 16) = x"0100"; ti := to_integer(a(15 downto 2));
         if berrw /= 0 and rwn = '1' and isram and to_integer(a(15 downto 1)) = berrw / 2 and a(31 downto 16) = x"0000" then
           isram := false; -- [DC]
         end if;
         -- [IC] cache inhibit for this cycle
-        if CIMODE = 1 and ciforce = '0' and ((a >= x"00FD0000" and a < x"00FF0000") or (a >= x"00008000" and a < x"00010000") or
+        if istt then
+          ciinn <= '1';
+        elsif CIMODE = 1 and ciforce = '0' and ((a >= x"00FD0000" and a < x"00FF0000") or (a >= x"00008000" and a < x"00010000") or
                             (a >= x"00020000" and a < x"00030000")) then -- (the last range is BERR: a faulting cacheable fetch)
           ciinn <= '1';
         else
@@ -145,8 +152,20 @@ begin
         else wr := 0; end if;
         for k in 1 to 2 + WS + wr loop wait until rising_edge(clk); n := n + 1; end loop;
         din <= w & w;
+        if istt then
+          tl := ttm(ti); din <= tl; w := tl(31 downto 16);
+          if rwn = '0' then
+            if siz = "00" then tn := 4; else tn := to_integer(unsigned(siz)); end if;
+            for k in 0 to 3 loop
+              if k >= to_integer(a(1 downto 0)) and k < to_integer(a(1 downto 0)) + tn then
+                tl(31 - 8*k downto 24 - 8*k) := dout(31 - 8*k downto 24 - 8*k);
+              end if;
+            end loop;
+            ttm(ti) := tl;
+          end if;
+        end if;
         if rwn = '0' and isram then
-          if siz = "01" then
+          if siz = "01" or a(0) = '1' then -- [TT] odd address: one byte (UDS/LDS), any SIZ
             if a(0) = '0' then ram(wi) := to_integer(unsigned(dout(31 downto 24))) * 256 + (ram(wi) mod 256);
             else ram(wi) := (ram(wi) / 256) * 256 + to_integer(unsigned(dout(23 downto 16))); end if;
           else ram(wi) := to_integer(unsigned(dout(31 downto 16))); end if;
@@ -164,6 +183,7 @@ begin
         if iack and VEC6 /= 0 and a(3 downto 1) = "110" then
           w := std_logic_vector(to_unsigned(VEC6, 16)); din <= w & w; dsackn <= "01"; iack_lvl <= 6; iack_clr <= not iack_clr;
         elsif iack then avecn <= '0'; iack_lvl <= to_integer(a(3 downto 1)); iack_clr <= not iack_clr;
+        elsif istt then dsackn <= "00";
         elsif isrom or isram or isio then dsackn <= "01";
         else berrn <= '0'; end if;
         -- log
@@ -171,9 +191,11 @@ begin
         elsif rwn = '1' then kind := "RD  "; else kind := "WR  "; end if;
         write(l, n, right, 6); write(l, string'(" ")); write(l, kind); write(l, string'(" A=")); hwrite(l, adr);
         write(l, string'(" FC=")); write(l, to_integer(unsigned(fc))); write(l, string'(" SIZ=")); write(l, to_integer(unsigned(siz)));
-        if rwn = '1' then write(l, string'(" D=")); hwrite(l, w); else write(l, string'(" W=")); hwrite(l, dout); end if;
+        if rwn = '1' and istt then write(l, string'(" D=")); hwrite(l, tl);
+        elsif rwn = '1' then write(l, string'(" D=")); hwrite(l, w); else write(l, string'(" W=")); hwrite(l, dout); end if;
         write(l, string'(" IPL=")); write(l, to_integer(unsigned(not ipl)));
-        if not (isrom or isram or iack or isio) then write(l, string'(" BERR")); end if;
+        if istt then write(l, string'(" TT")); end if;
+        if not (isrom or isram or iack or isio or istt) then write(l, string'(" BERR")); end if;
         if CIMODE /= 0 and ciinn = '1' then write(l, string'(" C")); end if; -- [IC] (signal set before the wait clocks)
         if QUIET = 0 or not (fc(1 downto 0) = "10" and (a >= x"00FC0000" or QUIET = 2)) then writeline(output, l); else deallocate(l); end if;
         wait until asn = '1';
