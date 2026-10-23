@@ -4,6 +4,8 @@ Two files so Grok chat and Grok bot never overwrite each other.
 
 ## Legacy CONTEXT.md / BUILD_REQUEST.md flow (retired)
 
+Note (23 Oct 2026): `CONTEXT.md` is now plain Markdown (no base64, no flags).
+
 The former 15-minute watcher routine polled `CONTEXT.md` and `BUILD_REQUEST.md`, using the old
 `CHANGED`/`READ` flags and base64 block to decide whether to build. The watcher routine is paused;
 this flow is retained only as short history and is superseded by the **Patch handoff (from

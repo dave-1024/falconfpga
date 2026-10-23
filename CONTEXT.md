@@ -1,96 +1,57 @@
-# CONTEXT
+# CONTEXT: external memory for catching up after a context reset
 
-Not written in the clear, on purpose. Not a secret. Decode per AGENT_PROTOCOL.md before use.
-Idle polls read these three lines only. Do not decode the block unless the protocol says so.
+**Update this file whenever the project state changes.** Detailed state and next steps: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
 
-HANDOFF: 2026-09-28-2
-CHANGED: 1
-READ: 0
+## Goal
+A cycle-exact 68030 (WF68K30L, Wolfgang Foerster) on an Atari ST/STE core on the Tang Console 138K (GW5AST-138),
+via a TF534-style bridge, with the SOM's AE350 RISC-V as helper (OSD, SD, floppy images). Later: a Falcon build
+with the DSP56001.
 
-```
-IyBDT05URVhUCgpFbmdpbmVlcmluZyBoYW5kb2ZmLiBOb3QgYSBwcm9kdWN0IHBhZ2UuIE5vdCBh
-IGJ1aWxkIHJlcXVlc3QuCgpBIG5ldyBjaGF0IHNheXM6ICoqcmVhZCBDT05URVhULm1kIGFuZCBj
-b250aW51ZS4qKiBEZWNvZGUgdGhlIGJsb2NrIGZpcnN0LiBVcGRhdGUgdGhpcyBmaWxlIHdoZW4g
-YSBidWcsIGEgdGVzdCwgYSBwaW5uZWQgaWRlYSwgb3IgdGhlIHdvcmsgc3RhdGUgY2hhbmdlcy4g
-QnVtcCBgSEFORE9GRmAsIHNldCBgQ0hBTkdFRDogMWAsIGFuZCBsZWF2ZSBgUkVBRDogMGAuCgpU
-aGUgYm90IGRvZXMgKipub3QqKiBkZWNvZGUgdGhpcyBvbiBhbiBpZGxlIHBvbGwuIEl0IHJlYWRz
-IHRoZSB0aHJlZSBwbGFpbiBmbGFncyBvbmx5LiBJdCBkZWNvZGVzIG9ubHkgd2hlbiBgQ0hBTkdF
-RGAgaXMgMSBhbmQgZWl0aGVyIGEgYnVpbGQgaXMgYWJvdXQgdG8gcnVuLCBvciBgUkVBRGAgaXMg
-MS4gQWZ0ZXIgdGhhdCBpdCBzZXRzIGBDSEFOR0VEOiAwYCBhbmQgYFJFQUQ6IDBgLiBBIG5ldyBp
-ZCBpcyBub3QgYSBidWlsZC4KCmBgYApIQU5ET0ZGOiAyMDI2LTA5LTI4LTIKQ0hBTkdFRDogMApS
-RUFEOiAwClVQREFURUQ6IDIwMjYtMDktMjgKYGBgCgojIyBSaWdodCBub3cKClByb3ZlIHN0b2Nr
-IE1pU1RlcnlOYW5vIG9uIERhdmlkJ3MgVGFuZyBDb25zb2xlLiBOb3RoaW5nIGVsc2UgaXMgb3Bl
-bi4gS2VlcCB0dXJucyBzaG9ydC4gRG8gbm90IHJlLXdhbGsgdGhlIHJlcG8gdG8gcmVzdGF0ZSBh
-IGZhY3QgaW4gdGhpcyBmaWxlLiBEbyBub3QgYXJtIGEgYnVpbGQgdW5sZXNzIERhdmlkIG5hbWVk
-IHRoYXQgcHJvamVjdC4KCkRhdmlkIGlzIGNvbXBpbGluZyBOYW5vIGhpbXNlbGYuIERvIG5vdCBh
-cm0gdGhlIGJvdC4gVGhlIGxvY2FsIHN5bnRoZXNpcyBzdG9wIHdhcyBHb3dpbiBFWDM4MjgsIGEg
-Zm9yd2FyZCBoaWVyYXJjaGljYWwgcmVhZC4gRml4ZWQgaW4gdG9wLnN2LiBIZSBwdWxscyBhbmQg
-cmVidWlsZHMuCgpUaGUgcmlnc2RyYW0gam9iIERhdmlkIGFza2VkIGZvciBpcyBkb25lLiBEbyBu
-b3QgcmVidWlsZCBpdC4gRG8gbm90IHJlLWFybSAyMDI2MDkyOC0xLiBIZSBjb3JyZWN0ZWQgdGhh
-dDogdGhlIGJvdCB3YXMgdG8gYnVpbGQgcmlnc2RyYW0sIG5vdCB0aGUgVGltZXIgQyBMRUQuCgot
-IDIwMjYwOTI4LTIgUEFTUywgY29uc3VtZWQuIEFDVElPTiBpcyBOT19CVUlMRCAoNGU0MTE5Nyku
-IEJ1aWx0IDUwYTE4OGQuIEdXX0VYSVQgMCwgbm8gVEEyMDAzLiBUb3AgUklHU0RSQU1fVE9QLCB2
-ZXJzaW9uIEMsIHJlcGxpY2F0ZSBvbi4gY29yZV9jbGsgRm1heCAxOC4yMjggTUh6LiBCaXRzdHJl
-YW0gMzYzNDUwODkgYnl0ZXMsIG5vdCBmbGFzaGVkLgotIFRBMjAwMyBvbiBsb2NrX21ldGFfczAv
-UkVTRVQgaXMgZ29uZS4gVGhhdCBwaW4gZG9lcyBub3QgZXhpc3QgYWZ0ZXIgSDQ4LTMuIFRoZSBv
-bmx5IGZhbHNlIHBhdGggaXMgc3RhdGVfMV9zMC9RIHRvIHVfbG9ja19tZXRhL0QuIERvIG5vdCBw
-dXQgdGhlIFJFU0VUIGxpbmUgYmFjay4KLSBMZWZ0b3Zlciwgbm90IGEgZmFpbHVyZTogd29yc3Qg
-aG9sZCAtMC42ODAgbnMgaXMgc3RhdGVfMl9zMC9RIHRvIHVfbG9ja19tZXRhL0QuIFRoZSBmYWxz
-ZSBwYXRoIGNvdmVycyBzdGF0ZV8xX3MwIG9ubHkuIERvIG5vdCBwYXRjaCBpdCB1bmxlc3MgRGF2
-aWQgYXNrcy4KLSBOTDAwMDIgQlVTX1RSQUNFIHN3ZXB0IGlzIG5vdCBhIGZhaWx1cmUuIEFHMDEw
-MCBsb29wcyBpbiB3ZjY4azMwTCBhcmUgbm90IGEgZmFpbHVyZS4KLSBTb21lb25lIGVsc2UgY2Fu
-IGJ1aWxkIHJpZ3NkcmFtIGZyb20gdGhpcyB0cmVlLiBObyBzdXBwb3J0LgoKIyMgTmFubwoKTm90
-IGEgZGVza3RvcCB5ZXQuIERvIG5vdCBzdGFydCBhIE5hbm8gYnVpbGQgdW5sZXNzIERhdmlkIGFz
-a3MuCgotIEZhYnJpYyBhbGl2ZSAoMjAyNi0wOS0yOCk6IGxlZHNfblswXSAvIEcxMSBibGlua2Vk
-IGF0IDIgSHogZnJvbSB0aGUgNTAgTUh6IGNsb2NrLgotIEhETUkgcGluLXN0eWxlIHRoZW9yeSBp
-cyBkZWFkLiB0bWRzX2Nsa19uIGF0IEcxNiBzdGlsbCBoYWQgbm8gc3luYy4gSHlicmlkIG9uIHRo
-ZSBzYW1lIGJvYXJkIGFuZCBjYWJsZSBpcyBmaW5lLgotIFRpbWVyIEMgbGlmZS1zaWduIGlzIGlu
-IHRoZSB0cmVlLCBub3QgZmxhc2hlZC4gU2FtZSBMRUQgc3RheXMgb24gMiBIeiB1bnRpbCAxMDAg
-TUZQIFRpbWVyIEMgdGltZW91dHMsIHRoZW4gc2xvd3MgdG8gYWJvdXQgb25lIGZsYXNoIGEgc2Vj
-b25kLiBTbG93ID0gVE9TIHN0YXJ0ZWQgVGltZXIgQy4gRmFzdCBmb3JldmVyID0gQ1BVIG5ldmVy
-IHN0YXJ0ZWQgaXQuIERhcmsgPSBiaXRzdHJlYW0gZGlkIG5vdCBjb25maWd1cmUuIFByb2JlIHN0
-YXlzIGhpZXJhcmNoaWNhbDogdG9wLnN2IHJlYWRzIG1pc3RlcnluYW5vLmF0YXJpc3QubWZwLnRp
-bWVyY19wdWxzZSBhZnRlciB0aGUgaW5zdGFuY2UuIEEgcmVhZCBiZWZvcmUgdGhlIGluc3RhbmNl
-IGlzIEdvd2luIEVYMzgyOC4gRG8gbm90IGFkZCBhIHBvcnQuCi0gRGF2aWQgY29tcGlsZWQgdGhp
-cyBsb2NhbGx5IG9uIDIwMjYtMDktMjguIFN5bnRoZXNpcyBzdG9wcGVkIG9uIHRoYXQgRVgzODI4
-LiBGaXhlZC4gSGUgcHVsbHMgYW5kIHJlYnVpbGRzLiBCb3QgaXMgbm90IGFza2VkLiBvbGRfZmxn
-LCBmZGMxNzcyIGFsd2F5cy1sb29wLCBhbmQgcnRjX2luZGV4IGluIHRoYXQgbG9nIGFyZSB0aGUg
-a25vd24gaWdub3Jlcy4gVGhlIGJsNjE2X3J4IGltcGxpY2l0IHdpcmUgYW5kIHRoZSB1bmNvbm5l
-Y3RlZCBqdGFnc2VsIHdhcm5pbmcgYXJlIG5vdCB0aGUgZmFpbHVyZS4KLSBibDYxNl9qdGFnc2Vs
-IChWMTQsIHB1bGwtdXApIGlzIE9SJ2QgaW50byBwb3Igb24gdGMxMzhrIG9ubHkuIEl0IGNhbiBo
-b2xkIHRoZSBDUFUuIEl0IGRvZXMgbm90IGdhdGUgdGhlIEhETUkgUExMLiBBIHN0dWNrIGp0YWdz
-ZWwgZG9lcyBub3QgZXhwbGFpbiBubyBzeW5jLiBEbyBub3QgdXNlIGl0IGFzIHRoZSBIRE1JIHRo
-ZW9yeS4KLSBJZiBEYXZpZCBmbGFzaGVzIHRoYXQgTEVEIHRlc3Q6IG1vZHVsZSBzdGF5cyBpbiBK
-OS4gQml0c3RyZWFtIGF0IDB4MCwgdGhlbiBTVCBUT1MgMS4wNCBhdCAweDAxMDAwMDAuIFdhdGNo
-IEcxMSwgbm90IHRoZSBzY3JlZW4uIENvbXBhbmlvbiBub3QgcmVxdWlyZWQgZm9yIHRoZSBMRUQu
-IERvIG5vdCBmbGFzaCB0aGUgQkw2MTYgeWV0LgotIFRPUyBzbG90IGlzIDB4MDEwMDAwMCBTVCwg
-MHgwMTQwMDAwIFNURS4gMHg1MDAwMDAgYW5kIDB4OTAwMDAwIGFyZSB3cm9uZy4gQSBiaXRzdHJl
-YW0gYXQgMHgwIGNhbiBjb3ZlciAweDAxMDAwMDAuIFJlZmxhc2ggVE9TIGFmdGVyIGV2ZXJ5IGJp
-dHN0cmVhbSB1bnRpbCBhIHByb2dyYW1tZXIgbG9nIHNob3dzIHRoZSBlbmQgYWRkcmVzcy4gVGhl
-IC5mcyBzaXplIGlzIG5vdCB0aGUgZmxhc2ggbGVuZ3RoLgotIEFjY2VwdGFuY2UgaXMgcmVwZWF0
-ZWQgY29sZCBib290cyB0byBhIEdFTSBkZXNrdG9wLCBub3Qgb25lIExFRC4KCiMjIERvIG5vdCBv
-cGVuCgowMzAgc3BsaWNlLCBMaW5lLUYgcGlwZSB0cmFjZSwganRhZ3NlbCBwYXRjaCwgY29tcGFu
-aW9uLCBUVCwgUE1NVSwgRmFsY29uIEhETC4gTm90IHVudGlsIERhdmlkIGFza3MuCgpTdGlsbCBv
-cGVuLCBkbyBub3QgcmVkaXNjb3ZlcjoKLSB3ZjY4azMwTCBjb2xkIGJvb3QuIExhc3QgYWNjZXB0
-ZWQgc2lsaWNvbiBuZWVkcyBBVVRPX1dBUk0uIFVBUlQgMTIzNDUsIElNRz03NEQ4RTM3MywgVDAt
-VDExIFBBU1MuIDExMjM0NSBtZWFucyB0aGUgYnJva2VyIHB1bHNlIGZpcmVkIGxhdGUuIERhdmlk
-IGRvZXMgbm90IHdhbnQgQVVUT19XQVJNIGFzIHRoZSBwcm9kdWN0LgotIEZhbHNlIExpbmUtRiBh
-dCAkNDA2LiBQYXJrZWQuIE5leHQgaW5zdHJ1bWVudCBpcyBhIHBpcGUgdHJhY2UsIG5vdCBhbm90
-aGVyIGluaXRpYWxpc2VyLgotIE5hbm8gSERNSSBoYXMgbm8gc3luYy4gUGluIHBsYWNlbWVudCBp
-cyBub3QgdGhlIGZhdWx0LgoKTG9ja2VkOiBERFIzIHdyaXRlIGxhbmUgNCBkZWFkOyA2NC1iaXQg
-RERSMyByZWFkIHVwcGVyIGhhbGYgZGVhZDsgRXh0ZW5kZWQgQUhCIEhXREFUQSB1cHBlciAzMiBk
-ZWFkOyBubyBXQklOVkFMX0FMTCBhdCA2MCBIejsgdW5tYXBwZWQgRmFsY29uIElPIG11c3QgQkVS
-Ui4KCiMjIFRyZWVzCgotIEh5YnJpZDAzMC86IGZyb3plbi4gTm8gSjkgbW9kdWxlLiBEbyBub3Qg
-cmVvcGVuIGFzIHRoZSBsaXZlIHRhcmdldC4KLSByaWdzZHJhbS86IGtub3duLWdvb2QgMDMwIG9y
-YWNsZS4gTmVlZHMgSjkuIFNEQyBmaXggcHJvdmVuLiBEbyBub3QgcmVidWlsZC4gRG8gbm90IGRy
-b3AgdXBzdHJlYW0gd2Y2OGszMEwgYmFjay4KLSBtaXN0ZXJ5bmFub190YzEzOGsvOiBzdG9jayBm
-eDY4aywgQ29uc29sZSAxMzhLIG9ubHkuIE5lZWRzIEo5LiBCdWlsdCwgbm90IHByb3Zlbi4gRG8g
-bm90IHNwbGljZSB0aGUgMDMwIGludG8gdGhpcyBmb2xkZXIuCgpQblI6IFJlcGxpY2F0ZSBSZXNv
-dXJjZXMgPSBUUlVFLiBEZXZpY2UgdmVyc2lvbiBDLiBHb3dpbiBWMS45LjEyLiBEZXN0aW5hdGlv
-biBDUFUgaXMgd2Y2OGszMEwuIFNpbGljb24gZmlyc3QuIEdpdCBpcyBzb3VyY2Ugb25seS4gUHVi
-bGljIHJlcG8sIGZvbGxvdy1vbmx5LCBubyBzdXBwb3J0LgoKTmFubyBJREUgdHJhcHMsIGlmIGEg
-YnVpbGQgaXMgYXNrZWQgZm9yOiBTeXN0ZW1WZXJpbG9nIDIwMTcsIHRvcCBleGFjdGx5IGB0b3Bg
-LCBkdWFsLXB1cnBvc2Ugb24gZm9yIEpUQUcgRE9ORSBSRUFEWSBNU1BJIFNTUEkgQ1BVLCBvZmYg
-Zm9yIE1PREUgYW5kIEkyQy4gSWdub3JlIG9sZF9mbGcsIGZkYzE3NzIgYWx3YXlzLWxvb3AsIHJ0
-Y19pbmRleC4K
-```
+## Repo layout and key docs
+- `Atarist_030_wip/`: the live core. Main build `build_st_helper.tcl` = the board build (cart off, no SD debug);
+  `debug_builds/` (e.g. `build_st_helper_hdn.tcl` = main + `SD_WRITE_DEBUG`), `build_legacy/` (retired scripts).
+- Docs: [`handoff/CONTEXT.md`](handoff/CONTEXT.md) (state, next steps) · `Atarist_030_wip/docs/TODO.md` (work order) ·
+  `docs/HISTORY.md` · `docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
+  `Atarist_030_wip/docs/BUILD.md` (switches, defaults, flash map).
+- Reference trees: `rigsdram/` (030 + SDRAM oracle, do not rebuild), `misterynano_tc138k/` (stock fx68k ST),
+  `Hybrid030/` (frozen history).
+
+## Machines and access
+- **linserver** `dave@100.97.139.11` over Tailscale (from the box: SOCKS5 `localhost:1055`, ssh `ProxyCommand nc -X 5
+  -x localhost:1055 %h %p`). Gowin V1.9.12 in `/opt/gowin`; repo `~/falconfpga`; bitstreams `~/fpga_bitstreams`
+  (SHA256SUMS); tools `~/fpga_tools` (`grab.sh` HDMI grab). sudo password in env `LINSERVER_PASSWORD`.
+- **Flashing:** `pgrep programmer_cli` first (a hung one holds the cable); `programmer_cli --scan-cables`, use the
+  single reported location; wrap in `timeout -k 10`. Then `--run 1` to reload.
+- **Flash map:** core at 0 (op 53 `--fsFile`), TOS at 0x500000 (op 56 `--mcuFile`), helper firmware at 0x600000
+  (op 56 `--mcuFile --spiaddr 0x600000`).
+- **USB quirks:** after a reload ttyUSB can vanish: `sudo modprobe ftdi_sio`. The helper port can come back as
+  ttyUSB0 instead of ttyUSB1 (hc.py/up2.py still hard-code ttyUSB1). Helper serial: 115200 baud.
+- **Box quirks:** userspace tailscaled can get stuck (ping works, TCP 22 times out at the SOCKS proxy): restart it with
+  its existing state. The box sometimes loses its ssh client: reinstall and recreate `~/.ssh/config` (Host linserver
+  as above).
+
+## David's working preferences (defaults, not rules; ask before anything hard to undo)
+- Correctness fixes go in with no switch, each with a FALCON_LESSONS entry.
+- clk_cpu030 at 17 MHz or above; report Fmax and LUT/ALU for every build.
+- Credit contributors; keep licence headers.
+- One SDRAM module (J9). TT-RAM and caches on by default; always STE.
+- Finish the current queue before starting new work. Keep tokens lean.
+- Keep CUPS on linserver working.
+- PR flow: push a branch, give David the compare link, he opens the PR, then merge it with the GitHub tool. Keep main current.
+- Main tcl = board build; variants in `debug_builds/`, retired in `build_legacy/`.
+- Bulk erase, BL616, other flash areas: check with David first (writing the helper at 0x600000 to restore it is fine).
+
+## Current state (summary, 23 Oct 2026)
+main is at 38870e4. The last board build is tt26 (d270586): +1.344 ns, clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU.
+TOS 2.06 + TT-RAM reaches the desktop on a warm boot, and the blitter is detected but off (Blitmode $0002). The open
+issue is a TOS 2.06 black screen on a cold power-up (TODO 8). The board awaits David's recovery and bulk erase. Next:
+reflash tt26, TOS 2.06 and the helper, test the cold boot, switch the blitter on ($0003) and run GEMBENCH, then restore
+EmuTOS. PMMU work starts 26 Oct. Details: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
+
+## Still-true background (from the Sept 2026 file)
+- Locked SOM DDR3 faults: write lane 4 dead; 64-bit read upper half dead; extended AHB HWDATA upper 32 dead. Unmapped
+  Falcon IO must bus error.
+- PnR: Replicate Resources = TRUE, device version C. Git holds source only (no `.fs`, `impl/`, ROMs or images).
+
+History: until 28 Sep 2026 this file was a base64 block for the retired watcher flow (MiSTeryNano bring-up, Nano HDMI,
+rigsdram oracle); see git history.
