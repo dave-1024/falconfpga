@@ -49,7 +49,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | switch | default (build_st_helper.tcl) | what it does |
 |---|---|---|
 | `ST_HELPER` | on | AE350 RISC-V helper: SD card, floppy images, USB keyboard/mouse, console (ST_HELPER.md) |
-| `ST_HELPER_CART` | on | self-test cartridge at $FA0000 (helper mailbox check at boot) |
+| `ST_HELPER_CART` | off (opt-in since 22 Oct 2026) | self-test cartridge at $FA0000 (helper mailbox check at boot); its ttdiag hangs plain TOS 2.06 |
 | `ST_HELPER_USB` | on | USB host on the Console USB-A ports for the helper |
 | `ST_HELPER_OSD` | on | MiSTeryNano OSD drawn by the helper over HDMI (F12) |
 | `ST_COLOUR_MONITOR` | on | colour monitor (low/medium res); off = mono ST High |
@@ -73,8 +73,8 @@ All 13 ST scripts (`build_st_*.tcl` here and in `build_legacy/`) set `BRIDGE_EAR
 
 ## 5. place_option
 The same RTL can fail timing, or (once) give a bitstream whose helper didn't boot, depending on placement.
-`build_st_helper.tcl` uses `place_option 1`; the board builds (`*_p3.fs`, `debug_builds/build_st_helper_hdn.tcl`) use 3. If one
-fails timing, try the other. Don't relax constraints to make a build pass.
+`build_st_helper.tcl` and `debug_builds/build_st_helper_hdn.tcl` both use `place_option 3` (since 23 Oct 2026; the board builds `*_p3.fs`). If one
+fails timing, try place_option 1 or 2. Don't relax constraints to make a build pass.
 
 ## 6. Check timing (before every flash)
 In `impl/pnr/st_helper_tr_content.html`:

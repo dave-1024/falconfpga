@@ -1,5 +1,5 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Debug variant in debug_builds/ (= main build + SD_WRITE_DEBUG, place_option 3; the board/release builds tt20-tt26 used it).
+# Debug variant in debug_builds/ (= main build + SD_WRITE_DEBUG; the board/release builds tt20-tt26 used it).
 # Run from Atarist_030_wip/: gw_sh debug_builds/build_st_helper_hdn.tcl (it cds there itself)
 cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
