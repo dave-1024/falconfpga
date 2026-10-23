@@ -1,9 +1,10 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Debug/variant script in debug_builds/. Run from Atarist_030_wip/: gw_sh debug_builds/build_st_68000.tcl
+# (it cds to Atarist_030_wip/ itself, so running it from debug_builds/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
-# ST + AE350 helper image, 68000 (fx68k, 8 MHz), no 030 bridge, no cartridge,
-# plain ST chipset (no ST_STE). Same as build_st_68000.tcl otherwise.
+# ST + AE350 helper image, 68000 (fx68k, 8 MHz), no 030 bridge, no cartridge.
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
 # tcl. Same files, pins and dual-purpose options as build_tc138k.tcl, plus:
 #   st_helper_ctrl.v     boot-then-release of the SPI flash (AE350 boots first)
@@ -30,9 +31,7 @@ puts $fh "`define ST_COLOUR_MONITOR"
 # MiSTeryNano OSD on the HDMI output, drawn by the AE350 companion
 # (st_helper_osd.v, port step 5). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_OSD"
-# Plain ST chipset: no ST_STE, so the chipset comes from the OSD/atarist.ini
-# (Chipset: default ST = 0; no blitter, no STE video/DMA sound/joypads) and
-# TOS stays in the ST ROM slot (flash 0x500000) while the chipset is ST.
+puts $fh "`define ST_STE"
 # Experimental WF68K30L instruction/data caches (incomplete: no CIIN, burst
 # fill, WA or DMA snoop). Off by default; add the next line to build them in.
 # puts $fh "`define ST_030_CACHES"

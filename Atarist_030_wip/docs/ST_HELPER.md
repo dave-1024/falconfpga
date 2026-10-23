@@ -15,7 +15,7 @@
 Build: `gw_sh build_st_helper.tcl` (writes `` `define ST_HELPER `` into
 `hdl/tang/console138k/build_sel.vh`). Bitstream: `impl/pnr/st_helper.fs`.
 Firmware: `helper_fw/mailbox/` (`helper_mailbox.bin`, flash at `0x0600000`).
-The desktop build `build_tc138k.tcl` is unchanged: every ST_HELPER change is
+The desktop build `debug_builds/build_tc138k.tcl` is unchanged: every ST_HELPER change is
 inside `` `ifdef ST_HELPER ``. With the define off, synthesis removes it.
 
 **End goal.** The AE350 replaces the BL616 as the core's helper MCU, so that

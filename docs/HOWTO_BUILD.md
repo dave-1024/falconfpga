@@ -65,7 +65,7 @@ To use it before then: `git checkout tt-ram`. TT-RAM is built in by default: the
 turn on (the build script sets `TTRAM`). The 68030 I and D caches are also built in by default. An on/off option
 for TT-RAM will be added to the helper later.
 
-Note: the release build tt20 was made with `build_st_helper_hdn.tcl`, which is the same as `build_st_helper.tcl`
+Note: the release build tt20 was made with `debug_builds/build_st_helper_hdn.tcl`, which is the same as `build_st_helper.tcl`
 except `place_option 3` (instead of 1) and the extra `SD_WRITE_DEBUG` line. **GAP for David:** which of the two
 scripts this guide should tell builders to use.
 

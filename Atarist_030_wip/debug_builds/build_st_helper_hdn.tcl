@@ -1,10 +1,58 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_tc138k.tcl
+# Debug variant in debug_builds/ (= main build + SD_WRITE_DEBUG, place_option 3; the board/release builds tt20-tt26 used it).
+# Run from Atarist_030_wip/: gw_sh debug_builds/build_st_helper_hdn.tcl (it cds there itself)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
-# Desktop image. Clears the proof macro if a serial build ran last.
+# ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
+# tcl. Same files, pins and dual-purpose options as build_tc138k.tcl, plus:
+#   st_helper_ctrl.v     boot-then-release of the SPI flash (AE350 boots first)
+#   st_helper_mailbox.v  ST mailbox at $FFFB00, UART2 link to the AE350
+#   st_helper_mculink.v  AE350 = FPGA-Companion MCU on mcu_spi (BL616 off)
+#   st_helper_cart_rom.v + st_helper_cart.hex  self-test cartridge (ST_HELPER_CART, opt-in, off by default)
+#   atarist_st_helper.cst  desktop pins with U15 = AE350 UART, C22 = spi_irqn
+#   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
+# Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
+# includes it); build_tc138k.tcl writes "// desktop" there again.
+# Output: impl/pnr/st_helper.fs. See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
-puts $fh "// desktop"
+puts $fh "`define ST_HELPER"
+# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot): OFF by default
+# since 22 Oct 2026. Its ttdiag calls EmuTOS 1.4 internals ($E00308/$E00C2E),
+# which hang plain TOS 2.06. Debug opt-in only: uncomment the next line.
+# puts $fh "`define ST_HELPER_CART"
+# USB keyboard/mouse on the Console USB-A ports for the AE350 companion
+# (st_helper_usb.v, port step 4). Delete the next line to build without it.
+puts $fh "`define ST_HELPER_USB"
+# Colour monitor (ST low/medium res) instead of mono. Delete the next line
+# for ST High (mono), as in the desktop build.
+puts $fh "`define ST_COLOUR_MONITOR"
+# MiSTeryNano OSD on the HDMI output, drawn by the AE350 companion
+# (st_helper_osd.v, port step 5). Delete the next line to build without it.
+puts $fh "`define ST_HELPER_OSD"
+puts $fh "`define ST_STE"
+# WF68K30L I and D caches: ON by default (as release build tt20). The cache
+# files (wf68k30L_icache.vhd, wf68k30L_dcache.vhd) are always added below and
+# TOS enables them through CACR. No HDL tests ST_030_CACHES; the define only
+# records the intent. CIIN: only TT-RAM $01xxxxxx is cachable.
+puts $fh "`define ST_030_CACHES"
+# TT-RAM (16 MB at $01000000 on the single J9 SDRAM module): built in by
+# default, as tt20. An on/off option will be added to the helper later.
+puts $fh "`define TTRAM"
+# F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
+# original 68000 phase timing (to measure a CPU-side fix alone).
+puts $fh "`define BRIDGE_EARLY_AS"
+# F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L. Off until the RTL bench
+# has been run with the generic set to 1. Delete the comment to build it in.
+# Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
+puts $fh "`define WF030_FAST_HANDOFF"
+# SD write recovery (hdl/misc/sd_rw.v WRITE_FIX): wait for DAT0 not busy before
+# CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
+# done instead of jamming sd_card in state 13. Delete for upstream behaviour.
+puts $fh "`define ST_SD_WRITE_FIX"
+puts $fh "`define SD_WRITE_DEBUG"
+puts $fh "`define ST_FLOPPY_MEDIACH"
+puts $fh "`define ST_SD_HARDEN"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -107,6 +155,7 @@ add_file hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m_mod.v
 add_file hdl/tang/console138k/pll_init.v
+add_file hdl/tang/console138k/reset_sync.v
 add_file hdl/helper/key_debounce.v
 add_file hdl/helper/gowin_pll_ae350/gowin_pll_ae350.v
 add_file hdl/helper/gowin_pll_ae350/gowin_pll_ae350_mod.v
@@ -120,15 +169,24 @@ add_file hdl/tang/console138k/hdmi_640.sv
 add_file hdl/tang/console138k/hdmi_testpattern_640.sv
 add_file hdl/tang/console138k/st_framebuffer.v
 add_file hdl/tang/console138k/diag_overlay.v
-add_file hdl/tang/console138k/atarist.cst
-add_file hdl/tang/console138k/atarist.sdc
+add_file hdl/tang/console138k/st_helper_ctrl.v
+add_file hdl/tang/console138k/st_helper_mailbox.v
+add_file hdl/tang/console138k/st_helper_mculink.v
+add_file hdl/tang/console138k/st_helper_cart_rom.v
+add_file hdl/tang/console138k/st_helper_cart.hex
+add_file hdl/tang/console138k/st_helper_usb.v
+add_file hdl/tang/console138k/st_helper_osd.v
+add_file hdl/tang/console138k/usb_hid_host.v
+add_file hdl/tang/console138k/usb_hid_host_rom.hex
+add_file hdl/tang/console138k/atarist_st_helper.cst
+add_file hdl/tang/console138k/atarist_st_helper.sdc
 add_file hdl/fx68k/microrom.mem
 add_file hdl/fx68k/nanorom.mem
 add_file hdl/ikbd/rom/ikbd.hex
 add_file hdl/misc/atarist_xml.hex
 
 set_option -synthesis_tool gowinsynthesis
-set_option -output_base_name atarist_tc138k
+set_option -output_base_name st_helper
 set_option -verilog_std sysv2017
 set_option -top_module top
 set_option -use_mspi_as_gpio 1
@@ -155,6 +213,11 @@ set_option -cst_warn_to_error 1
 set_option -rpt_auto_place_io_info 1
 set_option -convert_sdp32_36_to_sdp16_18 1
 set_option -correct_hold_violation 1
+# F60 build: with the default placer (0) the AE350 DDR3 PLL init counter
+# (u_gowin_pll_ddr3/u_pll_init/waitcnt, clk_osc) missed hold by up to 0.131 ns
+# (clk_osc hold TNS -0.371, 4 endpoints; clock skew -0.75 ns). Placer 1 is
+# clean on every clock (clk_cpu030 17.65 MHz, clk32_core 32.11 MHz).
+set_option -place_option 3
 set_option -loading_rate 70.000
 set_option -ireg_in_iob 1
 set_option -oreg_in_iob 1

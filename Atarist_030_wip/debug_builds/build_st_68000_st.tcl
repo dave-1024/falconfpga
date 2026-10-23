@@ -1,13 +1,17 @@
 # FalconFPGA: Console 138K only. device_version C (this SOM). Replicate on.
-# Run from this directory: gw_sh build_st_helper.tcl
+# Debug/variant script in debug_builds/. Run from Atarist_030_wip/: gw_sh debug_builds/build_st_68000_st.tcl
+# (it cds to Atarist_030_wip/ itself, so running it from debug_builds/ works too)
+cd [file normalize [file join [file dirname [file normalize [info script]]] ..]]
 
 
+# ST + AE350 helper image, 68000 (fx68k, 8 MHz), no 030 bridge, no cartridge,
+# plain ST chipset (no ST_STE). Same as build_st_68000.tcl otherwise.
 # ST + AE350 helper image (build option ST_HELPER). Does not change the desktop
 # tcl. Same files, pins and dual-purpose options as build_tc138k.tcl, plus:
 #   st_helper_ctrl.v     boot-then-release of the SPI flash (AE350 boots first)
 #   st_helper_mailbox.v  ST mailbox at $FFFB00, UART2 link to the AE350
 #   st_helper_mculink.v  AE350 = FPGA-Companion MCU on mcu_spi (BL616 off)
-#   st_helper_cart_rom.v + st_helper_cart.hex  self-test cartridge (ST_HELPER_CART, opt-in, off by default)
+#   st_helper_cart_rom.v + st_helper_cart.hex  self-test cartridge (ST_HELPER_CART)
 #   atarist_st_helper.cst  desktop pins with U15 = AE350 UART, C22 = spi_irqn
 #   atarist_st_helper.sdc  desktop constraints + AE350 clocks asynchronous
 # Gowin has no -verilog_define, so the macro goes into build_sel.vh (top.sv
@@ -15,10 +19,10 @@
 # Output: impl/pnr/st_helper.fs. See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
-# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot): OFF by default
-# since 22 Oct 2026. Its ttdiag calls EmuTOS 1.4 internals ($E00308/$E00C2E),
-# which hang plain TOS 2.06. Debug opt-in only: uncomment the next line.
-# puts $fh "`define ST_HELPER_CART"
+# fx68k 68000 at 8 MHz instead of the WF68K30L + bridge (atarist.v).
+puts $fh "`define ST_CPU_68000"
+# Self-test cartridge ROM at $FA0000 (TOS runs it once at boot). Delete the
+# next line to build without it.
 # USB keyboard/mouse on the Console USB-A ports for the AE350 companion
 # (st_helper_usb.v, port step 4). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_USB"
@@ -28,29 +32,22 @@ puts $fh "`define ST_COLOUR_MONITOR"
 # MiSTeryNano OSD on the HDMI output, drawn by the AE350 companion
 # (st_helper_osd.v, port step 5). Delete the next line to build without it.
 puts $fh "`define ST_HELPER_OSD"
-puts $fh "`define ST_STE"
-# WF68K30L I and D caches: ON by default (as release build tt20). The cache
-# files (wf68k30L_icache.vhd, wf68k30L_dcache.vhd) are always added below and
-# TOS enables them through CACR. No HDL tests ST_030_CACHES; the define only
-# records the intent. CIIN: only TT-RAM $01xxxxxx is cachable.
-puts $fh "`define ST_030_CACHES"
-# TT-RAM (16 MB at $01000000 on the single J9 SDRAM module): built in by
-# default, as tt20. An on/off option will be added to the helper later.
-puts $fh "`define TTRAM"
+# Plain ST chipset: no ST_STE, so the chipset comes from the OSD/atarist.ini
+# (Chipset: default ST = 0; no blitter, no STE video/DMA sound/joypads) and
+# TOS stays in the ST ROM slot (flash 0x500000) while the chipset is ST.
+# Experimental WF68K30L instruction/data caches (incomplete: no CIIN, burst
+# fill, WA or DMA snoop). Off by default; add the next line to build them in.
+# puts $fh "`define ST_030_CACHES"
 # F64: 030 bridge asserts AS for ST RAM cycles at the S0 en2 (busfix/RAM_PATH.md). Delete for the
 # original 68000 phase timing (to measure a CPU-side fix alone).
 puts $fh "`define BRIDGE_EARLY_AS"
 # F65: prefetch-to-prefetch S5-to-S0 handoff in WF68K30L. Off until the RTL bench
 # has been run with the generic set to 1. Delete the comment to build it in.
 # Independent of BRIDGE_EARLY_AS: delete that line to measure this fix alone.
-puts $fh "`define WF030_FAST_HANDOFF"
 # SD write recovery (hdl/misc/sd_rw.v WRITE_FIX): wait for DAT0 not busy before
 # CMD17/CMD24, 1 s write busy timeout, bounded CMD24 retry, failed write reports
 # done instead of jamming sd_card in state 13. Delete for upstream behaviour.
 puts $fh "`define ST_SD_WRITE_FIX"
-puts $fh "`define SD_WRITE_DEBUG"
-puts $fh "`define ST_FLOPPY_MEDIACH"
-puts $fh "`define ST_SD_HARDEN"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -215,7 +212,7 @@ set_option -correct_hold_violation 1
 # (u_gowin_pll_ddr3/u_pll_init/waitcnt, clk_osc) missed hold by up to 0.131 ns
 # (clk_osc hold TNS -0.371, 4 endpoints; clock skew -0.75 ns). Placer 1 is
 # clean on every clock (clk_cpu030 17.65 MHz, clk32_core 32.11 MHz).
-set_option -place_option 3
+set_option -place_option 1
 set_option -loading_rate 70.000
 set_option -ireg_in_iob 1
 set_option -oreg_in_iob 1
