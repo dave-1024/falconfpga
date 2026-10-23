@@ -27,7 +27,7 @@ then unused.
 
 | File | Origin / licence |
 |---|---|
-| `wf68k30L_*.vhd` | WF68K30L IP core, (C) Wolfgang Foerster / Inventronik, CERN OHL 1.2. Started as copies of `rigsdram/src/wf68k30L_*.vhd` at commit 73ea60b (the audited core with the rigsdram fixes); since modified here (Fnn tags and dated revision blocks in each file). `wf68k30L_icache.vhd` and `wf68k30L_dcache.vhd` are the MC68030 caches (rewritten 17 Oct 2026, same CERN OHL 1.2 header). |
+| `wf68k30L_*.vhd` | WF68K30L IP core, (C) Wolfgang Foerster / Inventronik, CERN OHL 1.2. Started as copies of `reference/rigsdram/src/wf68k30L_*.vhd` at commit 73ea60b (the audited core with the rigsdram fixes); since modified here (Fnn tags and dated revision blocks in each file). `wf68k30L_icache.vhd` and `wf68k30L_dcache.vhd` are the MC68030 caches (rewritten 17 Oct 2026, same CERN OHL 1.2 header). |
 | `cpu030_st_bridge.v` | New for FalconFPGA. GPL-2.0-only, modelled on TerribleFire's TF534 (C) Stephen J. Leary: `rtl/bus_top.v`, `arb.v`, `m6800.v`, `bus_delay.v`, ATARI build. |
 | `LICENSE-GPL2-TF534` | GPL v2 text, copied from the TF534 source tree. |
 | `sim/` | Test benches, the test program and scripts (no ROMs, netlists or vvp files). |

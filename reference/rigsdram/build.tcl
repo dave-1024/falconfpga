@@ -1,10 +1,10 @@
 # Headless build of rigsdram — replicate_resources MUST be on
-cd /workspace/repos/falconfpga/rigsdram
+cd /workspace/repos/falconfpga/reference/rigsdram
 
-if {[catch {open_project /workspace/repos/falconfpga/rigsdram/rigsdram.gprj} err]} {
+if {[catch {open_project /workspace/repos/falconfpga/reference/rigsdram/rigsdram.gprj} err]} {
   puts "open_project failed: $err"
   puts "Falling back to create_project + add_file"
-  create_project -name rigsdram -dir /workspace/repos/falconfpga/rigsdram/proj_fallback \
+  create_project -name rigsdram -dir /workspace/repos/falconfpga/reference/rigsdram/proj_fallback \
     -pn GW5AST-LV138PG484AC1/I0 -device_version C -force
   foreach f {
     src/pll_init.v
@@ -27,7 +27,7 @@ if {[catch {open_project /workspace/repos/falconfpga/rigsdram/rigsdram.gprj} err
     src/rigsdram.cst
     src/rigsdram.sdc
   } {
-    add_file /workspace/repos/falconfpga/rigsdram/$f
+    add_file /workspace/repos/falconfpga/reference/rigsdram/$f
   }
   set_device -name GW5AST-138C -device_version C
   # pn already set at create

@@ -13,8 +13,11 @@ with the DSP56001.
 - Docs: [`handoff/CONTEXT.md`](handoff/CONTEXT.md) (state, next steps) · `Atarist_030_wip/docs/TODO.md` (work order) ·
   `Atarist_030_wip/docs/HISTORY.md` · `Atarist_030_wip/docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
   `Atarist_030_wip/docs/BUILD.md` (switches, defaults, flash map).
-- Reference trees: `rigsdram/` (030 + SDRAM oracle, do not rebuild), `misterynano_tc138k/` (stock fx68k ST),
-  `Hybrid030/` (frozen history).
+- Docs index: `docs/README.md`; beginner guide `docs/HOWTO_BUILD.md`; history (retired agent files, dated handoffs,
+  patches, investigations such as float_panic/prefetch_cof) in `docs/history/`.
+- Reference trees under `reference/` (see `reference/README.md`): `rigsdram/` (030 + SDRAM oracle, do not rebuild),
+  `misterynano_tc138k/` (stock fx68k ST), `Hybrid030/` (frozen history).
+- `tools/` (hc.sh, up2.py); root `LICENSE` (GPL-3.0 for original work) + `NOTICE.md`.
 
 ## Machines and access
 - **linserver** `dave@100.97.139.11` over Tailscale (from the box: SOCKS5 `localhost:1055`, ssh `ProxyCommand nc -X 5

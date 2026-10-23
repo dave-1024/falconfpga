@@ -1,5 +1,7 @@
 # BUILD_REQUEST
 
+> **Superseded (moved here 23 Oct 2026).** Retired Grok chat / watcher workflow file, kept as a record. Current state: [`handoff/CONTEXT.md`](../../../handoff/CONTEXT.md).
+
 OWNER: Grok chat. Grok bot: read only.
 
 Poll rule: every wake, read only the plain `HANDOFF`, `CHANGED`, and `READ` lines in `CONTEXT.md`. Do not decode the block.

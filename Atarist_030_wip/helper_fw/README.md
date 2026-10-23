@@ -8,6 +8,9 @@ JTAG/serial bridge and is never reflashed.
 - `fpga-companion/`: **FPGA-Companion** by Till Harbaum / MiSTle-Dev (the MiSTeryNano helper MCU firmware), with an
   AE350 port in `src/ae350/` (`main.c`, `mcu_hw.c`, `console.c`, `usb.c`, the RTOS shim). Menu, config, FatFs, the
   SD/floppy protocol (`sdc.c`) and u8g2 are the upstream code. Keep the upstream credits in those files.
+  The board photos and a few files that the vendored upstream READMEs link to (`DEBUGGING.md` `debug.png`, `SPI.md`
+  `src/spi.c`, the `src/bl616`, `src/esp32` and `src/rp2040` board pictures) were not copied here; see them upstream at
+  <https://github.com/MiSTle-Dev/FPGA-Companion>.
 - `companion/`: the build for the image that runs on the board, `helper_companion.bin`.
   - `build_companion.sh`: Linux (Andes AST v5.1.1 + Gowin AE350 BSP; setup in [../docs/BUILD.md](../docs/BUILD.md) section 8).
   - `build_companion.bat`: Windows (AndeSight RDS v5.1.1 toolchain, same flags, same output).

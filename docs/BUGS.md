@@ -1,7 +1,7 @@
 # Bugs: fixed and still open
 
 Plain-English list for the 68030 ST core (`Atarist_030_wip`). Sources: `Atarist_030_wip/docs/FALCON_LESSONS.md`,
-`HISTORY.md`, `TODO.md`, `float_panic/FLOAT_PANIC.md` and the TT-RAM work log (21 Oct 2026). Where a source does not
+`HISTORY.md`, `TODO.md`, `docs/history/investigations/float_panic/FLOAT_PANIC.md` and the TT-RAM work log (21 Oct 2026). Where a source does not
 say something, it is marked **TODO** or **(unsure)**.
 
 ## Fixed

@@ -171,7 +171,7 @@ The 030 -> bridge path is now at about 14.7 ns slack (it was the critical path a
 - `c`: EmuTOS desktop (reference correlation 1.0).
 - 10 reloads: 10/10 desktop. 3 + 2 warm resets (`w`): every classified frame was desktop. Two frames were black and two grabs came back empty; these are capture dropouts (the capture goes black for about a minute even at an idle desktop, and a mouse nudge or a later grab shows the desktop). No halts.
 - Drives/windows: TOS 2.06 desktop, Options > Change resolution to ST Medium, opened A: (gbref.st, 7 items), started GEMBENCH from the A: window, quit back to the desktop. All fine.
-- GEMBENCH 6 from `gbref.st`, ST Medium, STE reference, Blitter/FPU off (same mode as the F66 baseline). The CPU group and the Display group were run one after the other (10:02-10:17 BST), so every test ran. Results screen: `phase2/gembench_ph2_1080p.png` (1920x1080).
+- GEMBENCH 6 from `gbref.st`, ST Medium, STE reference, Blitter/FPU off (same mode as the F66 baseline). The CPU group and the Display group were run one after the other (10:02-10:17 BST), so every test ran. Results screen: `docs/img/gembench_phase2_132.png` (1920x1080).
 
 | Test | Time (s) | Ratio | F66 baseline |
 |---|---|---|---|
@@ -255,7 +255,7 @@ Work log (kept current so an interrupted run loses little):
     so the boot-time halt is not caused by option (b). Open: the "System halted!" after a bare reload (EmuTOS banner, mailbox test passes).
   - One HDMI capture state showed heavy colour noise and survived a `c`; 5246d00 showed the same earlier (ph2 r1/r5). A capture/HDMI issue.
 - GEMBENCH 6 (gbref.st, ST Medium, STE reference, Blitter/FPU off; Display group 12:33, CPU group 12:38 BST).
-  Results screen: `phase2/gembench_wp_1080p.png`.
+  Results screen: `docs/history/investigations/phase2/gembench_wp_1080p.png`.
 
 | Test | Time (s) | Ratio | 5246d00 |
 |---|---|---|---|

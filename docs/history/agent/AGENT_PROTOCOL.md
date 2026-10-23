@@ -1,5 +1,7 @@
 # Agent protocol
 
+> **Superseded (moved here 23 Oct 2026).** Retired Grok chat / watcher workflow file, kept as a record. Current state: [`handoff/CONTEXT.md`](../../../handoff/CONTEXT.md).
+
 Two files so Grok chat and Grok bot never overwrite each other.
 
 ## Legacy CONTEXT.md / BUILD_REQUEST.md flow (retired)

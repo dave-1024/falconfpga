@@ -78,7 +78,7 @@ p3: route IBUF->LUT 5.271, capture route 5.617 -> slack -4.124. p2: -7.053.
 ## 3. Reasoning per constraint
 
 ### 3.1 Clock definitions (part 1)
-These follow Gowin's own AE350 reference (Hybrid030/hybrid_falcon030/src/ae350_stage0.sdc, "taken verbatim in form
+These follow Gowin's own AE350 reference (reference/Hybrid030/hybrid_falcon030/src/ae350_stage0.sdc, "taken verbatim in form
 from Gowin's DDR3_Shared example"):
 ```
 create_clock -name flash_sysclk -period 20 [get_nets {u_RiscV_AE350_SOC_Top/FLASH_SPI_CLK_in}]

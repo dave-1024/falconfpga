@@ -2,7 +2,9 @@
 
 Frozen hybrid scaffold: Musashi on the AE350 plus the REV11b HDL fabric.
 
-**Just want to flash and use?** Unzip [Binaries/Binaries.zip](Binaries/Binaries.zip) and follow [Binaries/README.md](Binaries/README.md). No compile. No support.
+> **Frozen copy (23 Oct 2026).** Kept as history only; not the live target (that is [`Atarist_030_wip/`](../../Atarist_030_wip/)). Some files (e.g. `riscv_ae350_soc.v`, the HDMI PLL) were copied from here into `Atarist_030_wip/` and changed there; edit those copies, not these.
+
+**Binaries:** `Binaries/Binaries.zip` (Falcon030.fs + falcon_m28.bin) was removed from the current tree on 23 Oct 2026 (git holds source only). It is still in git history (before commit tidy-up); see [Binaries/README.md](Binaries/README.md). No support.
 
 **GUI build of the HDL fails until two boxes are ticked.** Open Configuration → Place & Route → Dual-Purpose Pin. Tick **Use MSPI as regular IO** and **Use CPU as regular IO**. Leave JTAG, SSPI, READY and DONE unticked. Steps: [hybrid_falcon030/GUI.md](hybrid_falcon030/GUI.md). The CLI script `hybrid_falcon030/build_hybrid.tcl` sets them.
 

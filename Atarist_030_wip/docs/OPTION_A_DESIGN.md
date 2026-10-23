@@ -128,7 +128,7 @@ Split "the cycle is accepted" from "the data is here":
     "ST reset via sysctrl"): 3/3 DESK, serial OK after each. GEMBENCH next.
 - 23:50 UK, **GEMBENCH on 08e1cf8** (ST Medium, STE ref, gembench.sh steps driven by hand because the scripted
   DISK A double-click was lost once): Display 89%, CPU 251%, Average 132%. Same as vchain (89/251/132); every line
-  within noise. No halts, no "System halted!". Screenshot `prefetch_cof/board/gb_oa_08e1cf8.png`.
+  within noise. No halts, no "System halted!". Screenshot `docs/history/investigations/prefetch_cof/board/gb_oa_08e1cf8.png`.
   **The board is left on st_helper_hdn_oa_08e1cf8_p3.fs (passed all board tests). Rollback: vchain db04754.**
 - Conclusion of step 2: correct and safe, 1 clock per MOVEM register write saved, but no measurable ST-time gain:
   the next AS still misses the ST en1. Bigger wins need the read side (4 → ≤2 clocks) and run-ahead requests (A3),
@@ -150,7 +150,7 @@ Split "the cycle is accepted" from "the data is here":
   Warm resets: the first `w` got the helper help line instead of a reset (not counted, see FALCON_LESSONS); then 3 `w`
   answered "ST reset via sysctrl R=1", 3/3 DESK, serial OK after each. GEMBENCH running.
 - 01:05 UK, **GEMBENCH on 039c710**: Display 89%, CPU 252%, Average 133% (vchain / 08e1cf8: 89/251/132). Most lines
-  0.005-0.01 s faster (Integer Division 669% vs 667%). No halts. Screenshot `prefetch_cof/board/gb_oa_039c710.png`.
+  0.005-0.01 s faster (Integer Division 669% vs 667%). No halts. Screenshot `docs/history/investigations/prefetch_cof/board/gb_oa_039c710.png`.
   **Board left on st_helper_hdn_oa_039c710_p3.fs (all board tests passed). Rollback: oa_08e1cf8, then vchain db04754.**
 - **A3 (issue the next request before the current data): assessed, not implemented.**
   - Why: after steps 2 and 3, the remaining MOVEM read loop is DATA_RDY → INIT_EXEC_WB → SWITCH_STATE → CALC_AEFF
