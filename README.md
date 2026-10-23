@@ -1,172 +1,69 @@
 # FalconFPGA
 
-Hello — thanks for opening this.
+**An Atari ST with a 68030 processor, rebuilt inside an FPGA chip, on a small Sipeed Tang Console 138K board.**
+The goal is a cycle-exact 68030 (it should run every instruction in the same number of clock cycles as the real
+chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processor.
 
-This is a private workshop for bringing an **Atari Falcon** up on a small modern FPGA board. It is not a finished core you download and play. It is the notes, HDL, and build plumbing for one machine on the bench: a Sipeed Tang Console with a 138K SOM, a real 68030 as the teacher, and a lot of patience.
+> **Please read the [Credits](#credits).** This project stands on the work of other people: the CPU cores, the
+> Atari ST core, the TerribleFire bus design and more. If you use, share or build on anything here, please keep
+> their names with it.
 
-The owner of the board is David. If you are reading this as a future-me, or as someone helping compile, the useful sentence is: we already had a software 68030 that could boot TOS and render for a day without drifting a byte. Now we are teaching the same machine to exist in gates, carefully, on hardware we can hold.
+> **This is a personal workbench, not a product.** No support, no promises, no release dates. Please read
+> [This is not a product](#this-is-not-a-product) before you buy any hardware because of this repository.
 
-> **Please read the [Credits](#credits) before anything else.**
-> This project stands on the work of other people: the CPU cores, the Atari ST
-> core, the TerribleFire bus design and more. It matters to me that they get
-> the credit they are due. If you use, share or build on anything here, please
-> keep their names with it.
+![TOS 2.06 running GEMBench on the 68030 core: 132% of a stock Atari STE](docs/img/gembench_phase2_132.png)
 
-## This is not a product
+*GEMBench running on the 68030 core under TOS 2.06 (Phase 2 build): 132% of a stock Atari STE overall.*
 
-**Read this before you buy a Tang Console, an SDRAM module, or anything else because of this repository.**
+## What works now (23 Oct 2026)
+- Boots **TOS 2.06** and **EmuTOS** to the GEM desktop, low and medium resolution, 4 MB ST-RAM.
+- A 68030 CPU with its **instruction and data caches**, plus **16 MB of TT-RAM** (fast RAM only the 68030 sees),
+  both on by default. GEMBench: about 132% of a stock STE.
+- Floppy images from an **SD card**, including saving from the desktop; **USB keyboard and mouse**; an on-screen
+  menu (OSD), all run by a small helper processor (the AE350) on the same chip.
+- HDMI/DVI video out.
 
-This is a **personal workbench**, published so other people can follow along if they want to. It is not a product. It is not a promise of a product. It is not a promise that a Falcon, an ST desktop, or any particular game will ever work on your board.
+## What doesn't work yet
+- TOS 2.06 with TT-RAM: black screen after a **cold power-up** (a warm reset is fine; EmuTOS is fine).
+- The **blitter** is found by TOS 2.06 but left off by default, as on a real 68030 machine; the full test with it
+  switched on is still to do. EmuTOS does not detect it when TT-RAM is fitted.
+- The serial port can stall after one kind of blitter operation.
+- No **PMMU** yet (work starts 26 Oct 2026). No Falcon hardware yet (VIDEL video, DSP, IDE).
+- Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);
+  bugs in plain English: [`docs/BUGS.md`](docs/BUGS.md); TOS versions: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md).
 
-- Do **not** buy hardware expecting a finished core you can plug in and use.
-- David will **not** provide technical support to get “X” working on your machine.
-- Issues, mail, and “it doesn’t boot” tickets are not a support channel.
-- Dates, checklists, and “where it is headed” are a map of *this* bench. They are not a delivery schedule.
+## What you need
+- A **Sipeed Tang Console** with the **138K** module (GW5AST-LV138PG484AC1/I0, device version C).
+- **One Tang SDRAM module** in slot **J9** (ST-RAM and TT-RAM share it). Never flash with J9 empty.
+- A microSD card (FAT) with `.st` floppy images, an HDMI screen, a USB keyboard and mouse.
+- Your own **TOS** image (TOS 2.06 or EmuTOS). Atari TOS is not in this repository.
+- **Gowin EDA V1.9.12.03** (Windows or Linux) to build, and for the helper firmware the Andes AST v5.1.1 toolchain.
+  No ready-made bitstreams are published: this repository is source only.
 
-If you clone this anyway, you are on your own — same as any other public FPGA notebook.
+## How to try it
+1. Build the core: `cd Atarist_030_wip` then `gw_sh build_st_helper.tcl`.
+2. Build the helper firmware: `Atarist_030_wip/helper_fw/companion/build_companion.sh`.
+3. Flash with Gowin's `programmer_cli`: core at 0, TOS at 0x500000, helper at 0x600000. Put floppy images on the SD card.
 
-## AI assistance
+Step by step, in plain words: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md). Engineer's version (switches, flash
+map, rules): [`Atarist_030_wip/docs/BUILD.md`](Atarist_030_wip/docs/BUILD.md). All docs: [`docs/README.md`](docs/README.md).
 
-This bench is **one person**. An AI assistant is used for engineering help: HDL drafts and review, documentation, and git plumbing. That is how a single workbench produces this much writing.
-
-It does not replace the board, the real 68030, or the decision of what is known-good. Silicon results and the instruction audit are David’s. Commit volume is not a team. The cores listed under Credits were written by the people named there, not by the assistant.
-
----
-
-FPGA work toward an Atari Falcon on a **Sipeed Tang Console** with the **GW5AST-138K** SOM (device `GW5AST-LV138PG484AC1/I0`, **Version C**). Toolchain is **Gowin IDE / gw_sh V1.9.12.03**, on Windows or on a headless Linux box (same results). The AE350 helper firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**, on Linux (`build_companion.sh`) or Windows (`.bat`). How to build and flash: [`Atarist_030_wip/docs/BUILD.md`](Atarist_030_wip/docs/BUILD.md).
-
-This repository is **source only**. Bitstreams, `impl/`, and disk images stay on the machine that built or flashed them. **Atari TOS is not in git.** The hybrid was designed so **any TOS the user owns can be loaded from an SD card**.
-
-## What this is
-
-The long goal is a Falcon-class machine in FPGA: Motorola **68030** guest, ST-compatible chipset first, Falcon hardware later.
-
-The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes. It was also **heavily audited for CPU instruction errors** against a real 68030: opcode by opcode, including cases where the tests passed and the silicon still disagreed. What lives in `rigsdram/` is that tree, not an unmodified download. It is not a Musashi rewrite and it is not fx68k.
-
-The 68030 instruction and data caches are now built into the core per the MC68030 manual (17 Oct 2026). A 68030 PMMU is a planned later step, in HDL inside the CPU core (not a walk on the AE350 RISC-V).
-
-## Where it started
-
-The project began as a **hybrid scaffold**: HDL fabric plus C modules on the SOM’s **Andes AE350** RISC-V. The guest CPU in that scaffold was **Musashi**. That hybrid was accurate enough to:
-
-- boot **Atari TOS 4.04** from an SD image the user supplies (that became the default guest TOS; EmuTOS was not the only target)
-- run ST games on the Falcon model (Robocop, Treasure Island Dizzy, Frontier) through a GAMEX wrapper
-- accept Atari legacy HD tools and GEM partitions on IDE images
-- survive a 36-hour POV-Ray soak whose output file matched the same POV-Ray version on a real Atari STE
-
-C was assembled with Windows batch files and `riscv32-elf-gcc`, not Andesight. Debug was Hatari state saves plus disassembly.
-
-The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine.
-
-Archive: **`Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight. **No Tang SDRAM module** — see Hardware notes.
-
-**GUI build of that HDL fails until two boxes are ticked.** Configuration → Place & Route → Dual-Purpose Pin: tick **Use MSPI as regular IO** and **Use CPU as regular IO**. Leave JTAG, SSPI, READY and DONE unticked. Steps: [`Hybrid030/hybrid_falcon030/GUI.md`](Hybrid030/hybrid_falcon030/GUI.md). The CLI script `build_hybrid.tcl` sets them.
-
-## SOM DDR3 — faults that were not published
-
-These are not bugs in the HDL in this repo. They are faults in the **Gowin DDR3 IP** on this 138K SOM, used with the Andes AE350. They were measured here in July 2026.
-
-As of September 2026 they were not in Gowin's IP notes, not in Sipeed's board documentation, and not in Sipeed's public repositories. They were not found described anywhere else on the public web either. They are written here so the next person does not have to discover them the same way.
-
-- Shared DDR3 **write lane 4** never completes. `wr_done` does not arrive, including on an isolated copy of the vendor example. Tied off 14 July 2026. `falcon_wprobe` returned nothing.
-- The **upper half of a 64-bit DDR3 read** is dead. Measured 11 July 2026: `fb_base` latched address-independent garbage while `magic[31:0]` validated. Lanes were cut from 64-bit to 32-bit. 32-bit is the width Gowin's own `DDR3_Shared` example validates.
-- The **upper 32 bits of Extended AHB `HWDATA`** are dead. 32-bit transfers, even-word addresses, payload at +0 and +8. A write at +4 does not land.
-
-There is no published workaround. Using the IP as documented does not work for those lanes. This project did not fix the IP. It stopped using the dead parts. A real fix is to **write your own DDR3 controller** instead of the Gowin IP, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
-
-These faults do **not** apply to `misterynano_tc138k/` or `rigsdram/`. Those trees do not use this IP. The original note is the revision header of the bring-up top, `ae350_stage0_top.v`. The write-up is [`Hybrid030/AE350_ERRATA.md`](Hybrid030/AE350_ERRATA.md).
-
-## Where we are
-
-The live work is **`Atarist_030_wip/`**: an Atari STE whose 68000 is replaced by the re-engineered wf68k30L behind a TerribleFire TF534-style bridge, with the SOM's AE350 as the helper (SD card, floppy images, USB keyboard/mouse, OSD).
-
-### `Atarist_030_wip/`: 68030 ST (status 23 Oct 2026)
-
-- **Now (23 Oct 2026):** `main` matches the board build: `build_st_helper.tcl` (cart off, no SD debug); debug
-  scripts in `debug_builds/`, retired ones in `build_legacy/`. 030 core with TT-RAM and caches on by default, always
-  STE; CPU phase 2 (S5 handoff) merged, GEMBENCH ~132%. Build **tt26**: slack +1.344 ns, clk_cpu030 24.087 MHz,
-  40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reaches the desktop on a warm boot; the blitter is detected (Blitmode
-  `$0002`) but off by default, as on a real 030. Test blits pass; a full blitter-on test and GEMBENCH with the
-  blitter are pending. **Open:** TOS 2.06 black screen on a cold power-up (EmuTOS fine; [`TOS_COMPAT.md`](docs/TOS_COMPAT.md),
-  TODO item 8); EmuTOS still skips blitter detection when TT-RAM is present; AUX stall after a masked blit (TODO 9).
-  **Next:** PMMU work starts 26 Oct.
-
-- *History, superseded by the 23 Oct bullet above:* **TT-RAM (branch `tt-ram`, 21-22 Oct 2026):** 16 MB of 030-side fast RAM at `$01000000`, on the same single SDRAM
-  module in J9 (no second module needed). Built in by default, with the I and D caches on by default; a TT-RAM on/off
-  option will come in the helper later. EmuTOS 256K finds it ("Alt-RAM 16 MB"). The caches-on crash is fixed by
-  [C10] (71624aa): Gowin had turned the I-cache data store into a block RAM that returns old data when read one clock
-  after a write; a forwarding register fixes it. Release build **tt20**: clk32 33.38 MHz, clk_cpu030 22.42 MHz,
-  worst slack -4.89 ns, 41127 LUT + 5036 ALU. **FrontBench prgflags 7 lastcount: 1362 TT-RAM caches on, 1169 caches
-  off, 990 ST-RAM.** Bugs: [`docs/BUGS.md`](docs/BUGS.md); TOS: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md);
-  build how-to: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md); notes: [`docs/ttram/`](docs/ttram/).
-
-- TOS 2.06 (no TT-RAM) boots to the GEM desktop from cold; 4 MB, low/medium res.
-- **68030 I and D caches built** per the MC68030 manual (MC68030UM ch. 6): 256 B each, CACR/CAAR, write-through D cache with WA, CDIS. CIIN comes from a per-cycle address decode in the bridge, TF536-style: only the reserved 030-side fast-RAM range `$01000000-$01FFFFFF` is cachable, every ST ROM/RAM/IO cycle is cache-inhibited. The data-fault fixes (no program cycle after a write fault, short $A frame) are included. Merged on `main` 17 Oct 2026. Design: [`ICACHE_DESIGN.md`](Atarist_030_wip/docs/ICACHE_DESIGN.md), [`DCACHE_DESIGN.md`](Atarist_030_wip/docs/DCACHE_DESIGN.md), [`FAULT_FIXES.md`](Atarist_030_wip/docs/FAULT_FIXES.md).
-- *History (18 Oct, before TT-RAM):* board build **`st_helper_hdn_f3a_7919eb3_p3.fs`** (SHA256 `56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e`): main + MOVEM timing F1/F2/F3 (F1/F2 merged 18 Oct 2026, F3 back-to-back MOVEM writes on `f3-write-queue`, [`MOVEM_TIMING_F1_F2.md`](Atarist_030_wip/docs/MOVEM_TIMING_F1_F2.md)). LUT ~37.9k, Fmax clk_cpu030 20.94 MHz / clk32_core 34.02 MHz, TNS 0. TOS 2.06 switches the caches on at boot. Rollback order: F3a `7919eb3` (this), then F2 `st_helper_hdn_f2_c4de2ec_p3.fs` (SHA256 `f7d2672c0cd87ee585b1fe9a086436c914d1d70b98979c394a429b3cf7a796fb`), then `dc_ff6af03` (SHA256 `c9a160b6c34df3c28a97826b73198999a57cbe03be9961f8217cdbae1d41c39e`).
-- *History (18 Oct):* **GEMBENCH 6.08** (`gb608.st`, exxos; title bar "GEMBENCH 6.31"): RAM Access 101%, ROM Access 104% of a stock STE (68000 8 MHz) after the MOVEM timing work F1-F3 (was 71 / 73%); CPU 186%, Average 92% against STE20608 (an STE with blitter), Display 94% / Average 132% against STFM1048 (an ST without blitter). GEMBENCH 6 then reported **no blitter** ("BLiTTER NP"; on tt26 TOS 2.06 now finds it, see above), so most of the display gap against the STE reference is the blitter. **GEMBench 4.03** (`gbref.st`, the tables before 18 Oct called it "GEMBENCH 6"/"6.31"): 135% (RAM 115 / ROM 115 / Display 91 / CPU 255). With no fast RAM fitted then, the caches gave nothing. Earlier gains: CPU rework phase 2, option (a) ([`OPTION_A_DESIGN.md`](Atarist_030_wip/docs/OPTION_A_DESIGN.md)), MOVEM F1/F2. **Float Math OK**. Phase 2: [`PHASE2_DESIGN.md`](Atarist_030_wip/docs/PHASE2_DESIGN.md).
-- SD floppy images work at power-up and at runtime, including desktop saves; the SD path recovers from card errors and reports a lost sector to TOS as a disk error.
-- Open: see the 23 Oct bullet above and [`TODO.md`](Atarist_030_wip/docs/TODO.md). (The 18 Oct list naming 030-side fast RAM and the PMMU as future items is superseded: TT-RAM is in, PMMU starts 26 Oct.)
-- Docs: [`README`](Atarist_030_wip/README.md), [`BUILD.md`](Atarist_030_wip/docs/BUILD.md) (switches, defaults, Linux builds, flash map and rules), [`FALCON_LESSONS.md`](Atarist_030_wip/docs/FALCON_LESSONS.md) (lessons and every bug found), [`SD_WRITE_DEBUG.md`](Atarist_030_wip/docs/SD_WRITE_DEBUG.md), [`handoff/`](handoff/README.md).
-
-The two older vehicles below are kept as references. They do not share a top. `Hybrid030/` is frozen history.
-
-### `rigsdram/` — 030 + external SDRAM oracle
-
-The re-engineered wf68k30L plus a guest image that walks T0–T11 (BSRAM through vectors, including a 32 MB march). Last cold-and-warm silicon that is treated as known-good printed:
-
-```
-12345
-RIGSDRAM GUEST
-IMG=74D8E373
-T0–T11 PASS
-DONE P
-```
-
-`12345` is the healthy UART signature. `112345` only means the AUTO_WARM broker pulse fired late. PnR uses **Replicate Resources = TRUE**. CPU target is **16 MHz**; current Fmax on that tree is above that.
-
-The instruction audit was run against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 session and the work before it). The audit was treated as complete for the scoped instruction set. The A1200 overturned more than one paper argument about `$A`/`$B` boundaries — F38 looked fine in tests and was still wrong. That machine is the oracle for CPU behaviour. Do not drop a fresh upstream wf68k30L on top of this tree and expect the same results.
-
-Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
-
-**Needs the Tang SDRAM module in J9.** Do not flash this bitstream with the socket empty.
-
-### `misterynano_tc138k/` — stock ST desktop on this board
-
-Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano) (upstream snapshot `c8e4601`). CPU here is still **fx68k** (68000). Build with `gw_sh build_tc138k.tcl` from that folder (Version C, JTAG-as-GPIO). A one-line board fix dropped a stale `.clk` port map that upstream tc138k still carries (`20260925-mn3`). Replay `mn4` matched. Bitstream is not in git (~36.5 MB `.fs` on the build box).
-
-This tree is **not yet a proven desktop on David’s Console**. Companion firmware, TOS in SPI flash, and the **Tang SDRAM module in J9** are still required. Do not splice the 030 into this folder. Do not flash it with J9 empty.
-
-## Where it is headed
-
-1. ~~Clone MiSTeryNano~~ (`Atarist_030_wip/`), ~~splice the wf68k30L via TF534-style bus arbitration~~, ~~8 then 16 MHz CPU on the stock 8 MHz ST bus~~, ~~AE350 as the helper (OSD, floppy images from microSD, USB keyboard/mouse; the BL616 stays the JTAG/serial bridge)~~. Done as of October 2026.
-2. **Now:** finish the 030 on the ST bus (the open list in `Atarist_030_wip/docs/TODO.md`). ~~Request-handoff rework~~ and ~~I/D caches~~ done (17 Oct 2026); next 030-side fast RAM so the caches have something to cache, then the 68030 PMMU in HDL.
-3. Then move the same core onto **Falcon** glue (VIDEL, IDE, the hybrid memory map). The PMMU is planned in HDL (not on the AE350).
-
-Keep `rigsdram/` alive the whole way. If the ST desktop dies, that is the isolated 030+SDRAM check.
-
-Every step from here is an HDL build. **All of them need the Tang SDRAM module.** The hybrid is the only tree that does not.
-
-## Methods
-
-- **Silicon first.** A passing Gowin log is not a passing board.
-- **One golden guest at a time.** Do not judge Line-F work against a shorter test that was never the flashed image.
-- **Instruction audit against a real 030** (A1200 + ACA1230-55N). Tests that pass can still be wrong; the Amiga was allowed to overrule them. Hatari + state saves for TOS/game behaviour on the hybrid.
-- **Gowin on this SOM:** device Version **C**, Replicate Resources **TRUE** when chasing Fmax. Do not flip that flag to “compare” old reports.
-- **Git handshake** for the compile box: `BUILD_REQUEST.md` (chat) / `BUILD_REPORT.md` (bot). See `AGENT_PROTOCOL.md`. The bot compiles and reports; it does not invent HDL. Chat writes the RTL.
-- **Session handoff:** `CONTEXT.md`. Read it when a chat has no history. Update it when a durable fact changes. It is not a build request.
-- **No double-reset as a product.** AUTO_WARM is a board workaround, not a core fix.
-
-## Hardware notes
-
-The **Tang SDRAM module** is the plug-in board in **J9**. It is not the DDR3 soldered on the 138K SOM.
-
-- **`Hybrid030/` does not need the module.** Guest RAM is the SOM’s on-board DDR3, through the AE350. Console, HDMI, USB, TF card, and the speaker header are enough.
-- **Every HDL build from here does.** `misterynano_tc138k/`, `rigsdram/`, the 030 splice, and later Falcon HDL all use that module. Do not flash those bitstreams with J9 empty.
-
-- Tang Console + 138K SOM.
-- `Atarist_030_wip/` runs FPGA-Companion on the SOM's AE350 (source in `Atarist_030_wip/helper_fw/`); the BL616 is not reflashed. Stock `misterynano_tc138k/` still expects a BL616 companion, which is not in this repo. The hybrid does not use Companion.
-- Hybrid TOS: user-supplied image on **SD**. EmuTOS 1.4 may ship as a GPL C array; Atari TOS does not.
-- Flash map for `Atarist_030_wip/`: bitstream from 0 (ends ~0x4B6000), **TOS at 0x500000**, **helper at 0x600000**. Core flashes use op 53 only; never bulk erase.
+## Glossary
+- **FPGA**: a chip that can be rewired by loading a file (a **bitstream**, `.fs`) into it. Here it becomes an Atari.
+- **Atari ST / STE / TT / Falcon**: Atari home computers. ST (1985) and STE (1989) use a 68000; TT (1990) and Falcon
+  (1992) use a 68030.
+- **68000 / 68030**: Motorola processors. The 68030 is a faster, 32-bit successor with caches and a PMMU.
+- **TOS**: the Atari operating system (with the GEM desktop). **EmuTOS** is a free, open-source replacement.
+- **Cache**: a small fast memory inside the CPU that keeps recently used code and data.
+- **TT-RAM**: extra fast memory that only the 68030 uses (named after the Atari TT); the chipset can't see it.
+- **Blitter**: a chip in the STE that copies and draws blocks of graphics without the CPU.
+- **PMMU**: the 68030's memory management unit (address translation, memory protection, cache control per area).
+- **DSP56001**: the Falcon's digital signal processor (sound and maths).
+- **AE350 helper**: a small RISC-V processor built into the board's chip; here it handles the SD card, floppy images,
+  USB keyboard/mouse and the on-screen menu.
+- **GEMBench / GEMBENCH**: Atari benchmark programs; results are a percentage of a real machine.
+- **Cycle-exact**: every instruction takes the same number of clock cycles, and bus accesses happen at the same
+  points, as on the real chip.
 
 ## Credits
 
@@ -192,20 +89,128 @@ in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 If a name is missing or something is credited wrongly, please say so and it
 will be fixed.
 
-## Layout
+## Licence
+Original work is GPL-3.0-or-later ([`LICENSE`](LICENSE), [`LICENSE-ORIGINAL.md`](LICENSE-ORIGINAL.md)). Third-party
+parts keep their own licences (CERN OHL v1.2, GPL-2, MIT-style and others); the map is [`NOTICE.md`](NOTICE.md) and
+the header in each file wins.
 
-| Path | Role |
+## Repository layout
+| Path | What it is |
 |---|---|
-| `CONTEXT.md` | engineering handoff for a new chat. Not a build request. |
-| `rigsdram/` | re-engineered and instruction-audited wf68k30L + SDRAM guest tests. **Needs the SDRAM module.** |
-| `misterynano_tc138k/` | stock ST, fx68k, Console 138K only. **Needs the SDRAM module.** |
-| `Atarist_030_wip/` | **the live tree:** ST with the 68030 in place of the 68000, via a TF534-style bridge, AE350 helper. **Needs the SDRAM module.** Docs in `Atarist_030_wip/docs/`. |
-| `Hybrid030/` | hybrid scaffold (C + HDL together). **No SDRAM module.** |
-| `Hybrid030/hybrid_falcon030/GUI.md` | GUI ticks before a hybrid Place & Route. MSPI and CPU only. |
-| `Hybrid030/AE350_ERRATA.md` | measured AE350 / DDR3 / AHB dead-lane faults. Not our bugs. Not in vendor docs. |
-| `Hybrid030/hybrid_falcon030/` | REV11b Gowin fabric |
-| `Hybrid030/hybrid_musashi/` | Musashi guest + bats |
-| `patches/` | named diffs the bot may apply when a request says so |
-| `AGENT_PROTOCOL.md` | chat / bot rules |
-| `BUILD_REQUEST.md` / `BUILD_REPORT.md` | current compile handshake |
-| `NOTICE.md` / `LICENSE-ORIGINAL.md` | license map; David’s original files are GPL-3.0-or-later |
+| [`Atarist_030_wip/`](Atarist_030_wip/) | **The live core:** ST(E) with the 68030 in place of the 68000 via a TF534-style bridge, AE350 helper. Main build `build_st_helper.tcl`; `debug_builds/`, `build_legacy/`; design docs in `docs/`; status in its [README](Atarist_030_wip/README.md). |
+| [`docs/`](docs/) | Project-wide docs ([index](docs/README.md)), images, and [`history/`](docs/history/README.md) (old workflow files, handovers, patches, investigations). |
+| [`reference/`](reference/) | Older trees kept for comparison: `rigsdram/`, `misterynano_tc138k/`, `Hybrid030/` ([what each is for](reference/README.md)). |
+| [`handoff/`](handoff/) | Current engineering state and next steps ([`handoff/CONTEXT.md`](handoff/CONTEXT.md)). |
+| [`tools/`](tools/) | Small board scripts (helper console `hc.sh`, uploader `up2.py`). |
+| `CONTEXT.md` | Short briefing used to catch up after a break. |
+| `LICENSE`, `NOTICE.md`, `LICENSE-ORIGINAL.md` | Licences. |
+
+---
+
+## Background and project history
+
+### This is not a product
+
+**Read this before you buy a Tang Console, an SDRAM module, or anything else because of this repository.**
+
+This is a **personal workbench**, published so other people can follow along if they want to. It is not a product. It is not a promise of a product. It is not a promise that a Falcon, an ST desktop, or any particular game will ever work on your board.
+
+- Do **not** buy hardware expecting a finished core you can plug in and use.
+- David will **not** provide technical support to get “X” working on your machine.
+- Issues, mail, and “it doesn’t boot” tickets are not a support channel.
+- Dates, checklists, and “where it is headed” are a map of *this* bench. They are not a delivery schedule.
+
+If you clone this anyway, you are on your own — same as any other public FPGA notebook.
+
+### AI assistance
+
+This bench is **one person**. An AI assistant is used for engineering help: HDL drafts and review, documentation, and git plumbing. That is how a single workbench produces this much writing.
+
+It does not replace the board, the real 68030, or the decision of what is known-good. Silicon results and the instruction audit are David’s. Commit volume is not a team. The cores listed under Credits were written by the people named there, not by the assistant.
+
+### Toolchain
+Gowin IDE / gw_sh **V1.9.12.03** on Windows or headless Linux (same results), device **Version C**. The AE350 helper
+firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**. This repository is
+**source only**: bitstreams, `impl/`, ROMs and disk images stay on the machine that built or flashed them.
+
+### The CPU
+The guest CPU started from the public **wf68k30L** core. That stock core was **heavily re-engineered** here — initialisers, exception frames, MOVEM/abort, NBCD, RTD, SFC/DFC reset, and a pile of smaller bus and privilege fixes. It was also **heavily audited for CPU instruction errors** against a real 68030 (an Amiga A1200 with an ACA1230-55N): opcode by opcode, including cases where the tests passed and the silicon still disagreed. It is not a Musashi rewrite and it is not fx68k. Change history: [`Atarist_030_wip/docs/HISTORY.md`](Atarist_030_wip/docs/HISTORY.md); lessons and every bug found: [`Atarist_030_wip/docs/FALCON_LESSONS.md`](Atarist_030_wip/docs/FALCON_LESSONS.md).
+
+### Where it started
+
+The project began as a **hybrid scaffold**: HDL fabric plus C modules on the SOM’s **Andes AE350** RISC-V. The guest CPU in that scaffold was **Musashi**. That hybrid was accurate enough to:
+
+- boot **Atari TOS 4.04** from an SD image the user supplies (that became the default guest TOS; EmuTOS was not the only target)
+- run ST games on the Falcon model (Robocop, Treasure Island Dizzy, Frontier) through a GAMEX wrapper
+- accept Atari legacy HD tools and GEM partitions on IDE images
+- survive a 36-hour POV-Ray soak whose output file matched the same POV-Ray version on a real Atari STE
+
+C was assembled with Windows batch files and `riscv32-elf-gcc`, not Andesight. Debug was Hatari state saves plus disassembly.
+
+The hybrid exists to **move modules from C to RTL one at a time**, not as the finished machine.
+
+Archive: **`reference/Hybrid030/`** — `hybrid_falcon030/` (HDL) and `hybrid_musashi/` (C + bats). Compile notes: `reference/Hybrid030/hybrid_musashi/FIRST_TIME.md`. Do not install AndeSight. **No Tang SDRAM module** — see Hardware notes.
+
+**GUI build of that HDL fails until two boxes are ticked.** Configuration → Place & Route → Dual-Purpose Pin: tick **Use MSPI as regular IO** and **Use CPU as regular IO**. Leave JTAG, SSPI, READY and DONE unticked. Steps: [`reference/Hybrid030/hybrid_falcon030/GUI.md`](reference/Hybrid030/hybrid_falcon030/GUI.md). The CLI script `build_hybrid.tcl` sets them.
+
+### SOM DDR3 — faults that were not published
+
+These are not bugs in the HDL in this repo. They are faults in the **Gowin DDR3 IP** on this 138K SOM, used with the Andes AE350. They were measured here in July 2026.
+
+As of September 2026 they were not in Gowin's IP notes, not in Sipeed's board documentation, and not in Sipeed's public repositories. They were not found described anywhere else on the public web either. They are written here so the next person does not have to discover them the same way.
+
+- Shared DDR3 **write lane 4** never completes. `wr_done` does not arrive, including on an isolated copy of the vendor example. Tied off 14 July 2026. `falcon_wprobe` returned nothing.
+- The **upper half of a 64-bit DDR3 read** is dead. Measured 11 July 2026: `fb_base` latched address-independent garbage while `magic[31:0]` validated. Lanes were cut from 64-bit to 32-bit. 32-bit is the width Gowin's own `DDR3_Shared` example validates.
+- The **upper 32 bits of Extended AHB `HWDATA`** are dead. 32-bit transfers, even-word addresses, payload at +0 and +8. A write at +4 does not land.
+
+There is no published workaround. Using the IP as documented does not work for those lanes. This project did not fix the IP. It stopped using the dead parts. A real fix is to **write your own DDR3 controller** instead of the Gowin IP, or wait until Gowin learns of the faults and ships an updated IP. No such update existed when this was written.
+
+These faults do **not** apply to `reference/misterynano_tc138k/` or `reference/rigsdram/`. Those trees do not use this IP. The original note is the revision header of the bring-up top, `ae350_stage0_top.v`. The write-up is [`Hybrid030/AE350_ERRATA.md`](reference/Hybrid030/AE350_ERRATA.md).
+
+### Reference trees
+Kept as references; they do not share a top. See [`reference/README.md`](reference/README.md).
+
+#### `reference/rigsdram/` — 030 + external SDRAM oracle
+
+The re-engineered wf68k30L plus a guest image that walks T0–T11 (BSRAM through vectors, including a 32 MB march). Last cold-and-warm silicon that is treated as known-good printed:
+
+```
+12345
+RIGSDRAM GUEST
+IMG=74D8E373
+T0–T11 PASS
+DONE P
+```
+
+`12345` is the healthy UART signature. `112345` only means the AUTO_WARM broker pulse fired late. PnR uses **Replicate Resources = TRUE**. CPU target is **16 MHz**; current Fmax on that tree is above that.
+
+The instruction audit was run against a real **68030 in an Amiga A1200 + ACA1230-55N** (FIXREV14 session and the work before it). The audit was treated as complete for the scoped instruction set. The A1200 overturned more than one paper argument about `$A`/`$B` boundaries — F38 looked fine in tests and was still wrong. That machine is the oracle for CPU behaviour. Do not drop a fresh upstream wf68k30L on top of this tree and expect the same results.
+
+Parked on this tree: a false Line-F at `$406` after a cold start; the next instrument is a pipe trace, not another reset workaround.
+
+**Needs the Tang SDRAM module in J9.** Do not flash this bitstream with the socket empty.
+
+#### `reference/misterynano_tc138k/` — stock ST desktop on this board
+
+Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano) (upstream snapshot `c8e4601`). CPU here is still **fx68k** (68000). Build with `gw_sh build_tc138k.tcl` from that folder (Version C, JTAG-as-GPIO). A one-line board fix dropped a stale `.clk` port map that upstream tc138k still carries (`20260925-mn3`). Replay `mn4` matched. Bitstream is not in git (~36.5 MB `.fs` on the build box).
+
+This tree is **not yet a proven desktop on David’s Console**. Companion firmware, TOS in SPI flash, and the **Tang SDRAM module in J9** are still required. Do not splice the 030 into this folder. Do not flash it with J9 empty.
+
+### Where it is headed
+1. ~~Clone MiSTeryNano, splice the wf68k30L via a TF534-style bridge, 16 MHz+ CPU on the 8 MHz ST bus, AE350 helper~~ (done, October 2026); ~~caches~~, ~~TT-RAM~~ (done).
+2. **Now:** finish the 030 on the ST bus ([`TODO.md`](Atarist_030_wip/docs/TODO.md)); the 68030 PMMU in HDL from 26 Oct 2026.
+3. Then move the same core onto **Falcon** glue (VIDEL, IDE, DSP56001).
+
+### Methods
+- **Silicon first.** A passing Gowin log is not a passing board.
+- **Instruction audit against a real 030** (A1200 + ACA1230-55N). Tests that pass can still be wrong; the Amiga was allowed to overrule them.
+- **Gowin on this SOM:** device Version **C**, Replicate Resources **TRUE** when chasing Fmax.
+- **No double-reset as a product.** AUTO_WARM is a board workaround, not a core fix.
+
+### Hardware notes
+- The **Tang SDRAM module** is the plug-in board in **J9**, not the DDR3 soldered on the 138K SOM. Every HDL build
+  here needs it (`Atarist_030_wip/`, `reference/rigsdram/`, `reference/misterynano_tc138k/`); only
+  `reference/Hybrid030/` does not.
+- `Atarist_030_wip/` runs FPGA-Companion on the SOM's AE350 (source in `Atarist_030_wip/helper_fw/`); the BL616 stays
+  the USB JTAG/serial bridge. Stock `reference/misterynano_tc138k/` still expects a BL616 companion, which is not in this repo.
+- Flash map for `Atarist_030_wip/`: bitstream from 0 (ends ~0x4B6000), **TOS at 0x500000**, **helper at 0x600000**.

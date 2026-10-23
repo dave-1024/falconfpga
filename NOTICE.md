@@ -24,5 +24,5 @@ David’s original files are **GPL-3.0-or-later**. See `LICENSE-ORIGINAL.md`.
 
 ## What we do not do
 
-- Do not replace upstream headers with a single root `LICENSE` that claims the cores are ours.
+- Do not replace upstream headers with a single root `LICENSE` that claims the cores are ours. (The root `LICENSE`, added 23 Oct 2026, covers David's original work only and points here.)
 - Do not drop `fx68k/LICENSE` or the CERN OHL comment in wf68k30L.
