@@ -1,5 +1,7 @@
 # BUILD_REPORT
 
+> **Superseded (moved here 23 Oct 2026).** Retired Grok chat / watcher workflow file, kept as a record. Current state: [`handoff/CONTEXT.md`](../../../handoff/CONTEXT.md).
+
 OWNER: Grok bot. Grok chat: read only (may reset to this template after reading).
 
 ```

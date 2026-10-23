@@ -1,5 +1,7 @@
 # SYNC FOR GROK CHAT
 
+> **Superseded (moved here 23 Oct 2026).** Retired Grok chat / watcher workflow file, kept as a record. Current state: [`handoff/CONTEXT.md`](../../../handoff/CONTEXT.md).
+
 Catch-up note for Grok chat. Newest entries are at the top. All times are UK time (BST, UTC+1).
 
 ## Purpose

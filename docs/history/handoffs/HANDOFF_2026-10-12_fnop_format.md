@@ -1,5 +1,7 @@
 # HANDOFF 2026-10-12: F65 done, FNOP frame fault open (for Grok Bot)
 
+> **Superseded (moved here 23 Oct 2026).** Dated handover, kept as a record; flashing details (laptop, cable 417, "never write 0x600000") are out of date. Current state: [`handoff/CONTEXT.md`](../../../handoff/CONTEXT.md).
+
 This file is self-contained. Grok Bot has the repo and the board. David is new
 to Git. Paths are relative to the repo root unless they start with `C:\`.
 
