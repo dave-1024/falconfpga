@@ -11,3 +11,22 @@ output/
 .gowin/
 *.user
 *.log
+
+# Source only: no bitstreams, firmware images, ROMs, disk images or archives.
+*.fs
+*.bin
+*.zip
+*.tar.gz
+*.tgz
+*.img
+*.st
+*.msa
+*.stx
+*.tos
+*.rom
+__pycache__/
+*.pyc
+# Allow-list: ROM/init data the builds need, as .hex (not ignored above):
+#   Atarist_030_wip/hdl/**/*.hex, reference/**/*.hex
+# Add exceptions for wanted binaries here with a leading "!", e.g.
+# !path/to/needed.bin
