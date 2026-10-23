@@ -366,7 +366,7 @@ is mostly firmware. The hardware stays as it is in this build unless noted.
    The AE350 has no USB host, but the fabric can be one. nand2mario's
    `usb_hid_host.v` (low-speed HID boot protocol, 12 MHz clock) is already
    in `/workspace/ae350_old_bringup/168ktest/src/` and
-   `Hybrid030/hybrid_falcon030/src/` with its `usb_hid_host_rom.hex` and
+   `reference/Hybrid030/hybrid_falcon030/src/` with its `usb_hid_host_rom.hex` and
    `gowin_pll_usb`. It runs on the Console's two USB-A host ports (USB1 D+/D-
    = H13/G13, USB2 = M15/M16, pins from the NESTang Console port). These
    pins are free in the Atarist CST. Two ways to wire it, both behind a new

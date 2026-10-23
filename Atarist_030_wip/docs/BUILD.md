@@ -65,7 +65,7 @@ Rule: options are `define switches; fixes that are proven go on by default; debu
 | `ST_CPU_68000` | off (`debug_builds/build_st_68000.tcl`, `debug_builds/build_st_68000_st.tcl`) | build the fx68k 68000 instead of the 030, for comparisons |
 | `SD_WRITE_DEBUG` | off (on in `debug_builds/build_st_helper_hdn.tcl`, `build_legacy/build_st_helper_{mch,sdlog}.tcl`) | SD request ring + state/counters in sd_card.v/sd_rw.v, read by the helper's `sdwlog`/`sdstate`/`sdrw` |
 | `DIAG_OVERLAY` | off | on-screen 030 state overlay (DIAG_OVERLAY.md) |
-| `DIAG_HIWATCH`, `DIAG_HIWATCH_V6`, `DIAG_EXCWATCH`, `DIAG_DMAWATCH`, `DIAG_GDTRACE` | off (own tcl each) | float-panic hunt probes (float_panic/FLOAT_PANIC.md); debug only, never on main |
+| `DIAG_HIWATCH`, `DIAG_HIWATCH_V6`, `DIAG_EXCWATCH`, `DIAG_DMAWATCH`, `DIAG_GDTRACE` | off (own tcl each) | float-panic hunt probes (docs/history/investigations/float_panic/FLOAT_PANIC.md); debug only, never on main |
 | `WF030_TRACE` | off (branch `diag-trace`) | in-fabric bus trace (how the JSR SP bug was found) |
 | `DISABLE_BLITTER`, `DISABLE_ACSI` | off | leave those blocks out |
 
@@ -139,7 +139,7 @@ reset, `ls`, `mount a <img>`, `eject`, `save` (atarist.ini), `crc <file>`, `scrc
 - Board: cold boot (4096 KB memory test, desktop), ST Medium, GEMBench 4.03 All Tests (`gbref.st`) and GEMBENCH 6.08
   All Tests (`gb608.st`, key `a`; reference sets STE20608 default and STFM1048 via File > Open Test) from known-good images
   (check its CRC first: a corrupt image once looked like a CPU bug for days), a runtime image swap with a desktop save.
-- Board scripts (box, from `docs/prefetch_cof/board/`, run in a dir with `../hc.sh`): `rl.sh tag` = `c` + 10 reloads with the
+- Board scripts (box, from `docs/history/investigations/prefetch_cof/board/`, run in a dir with `../hc.sh`): `rl.sh tag` = `c` + 10 reloads with the
   5-grab halt rule; `gembench.sh tag` = GEMBENCH All Tests (ST Medium, STE ref) from a fresh low-res desktop, result
   image `gb_<tag>_result.png`; `go.sh`/`gg.sh`/`grab2.sh`/`cls.py` helpers. Check the serial with `hc.sh s` first.
   The disk-A double-click often needs a second `click 2`; GEMBENCH 6.08 All Tests is started with the `a` key.

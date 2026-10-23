@@ -55,7 +55,7 @@ Branch `prefetch-cof` (off main 9e27c24). Unconditional correctness/behaviour fi
   simplest form. The remaining waste happens before the branch reaches the pipe head: the long fetch that
   carries the branch's last word also brings the next word, and the queue starts the following long while
   the branch is still behind the running instruction.
-- Potential (trace analysis, docs/prefetch_cof/waste.py): in prog_bus 1973 of 10101 ST cycles (19.5%)
+- Potential (trace analysis, docs/history/investigations/prefetch_cof/waste.py): in prog_bus 1973 of 10101 ST cycles (19.5%)
   are instruction words fetched past a change of flow and thrown away.
 - Timing (p3, hdn build): clk_cpu030 20.711 MHz (constraint 16 MHz; main 20.901), clk32 36.031 MHz, TNS 0.
 
@@ -146,10 +146,10 @@ board halt on reloads is still unexplained and step 2 uses the same hold path.
 - 21:19 UK GEMBENCH All Tests on vchain db04754 (ST Medium, STE ref): Display 89%, CPU 251%, Average 132%
   (= the ph2 reference 89/251/132). Per test: Dialog 80, VDI Text 98, Text Eff 93, Small Text 96, VDI Graphics 72,
   GEM Window 81, Int Div 667, Float 109, RAM 115, ROM 115, Blitting 90, Scroll 99, Justified 96, Enquire 96,
-  New Dialogs 81. Image: docs/prefetch_cof/board/gembench_vchain_db04754_1080p.png.
+  New Dialogs 81. Image: docs/history/investigations/prefetch_cof/board/gembench_vchain_db04754_1080p.png.
   So vchain passes: 10 reloads (9 seen + 1 not captured), 3 warm resets, GEMBENCH equal to 132%.
   (The CPU hold changes no GEMBENCH ratio at its display resolution: expected, the bench is mostly VDI/RAM bound.)
-- Reusable board scripts: docs/prefetch_cof/board/ (gembench.sh = the GEMBENCH drive sequence, go.sh pointer
+- Reusable board scripts: docs/history/investigations/prefetch_cof/board/ (gembench.sh = the GEMBENCH drive sequence, go.sh pointer
   positioning, gg.sh grab-until-not-black, rl.sh c + 10 reloads with the 5-grab halt rule).
 
 ## Final (16 Oct 2026, 22:00 UK)

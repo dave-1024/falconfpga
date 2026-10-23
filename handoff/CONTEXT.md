@@ -124,7 +124,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 ## Doc map
 README.md (top) · Atarist_030_wip/README.md (status) · docs/BUILD.md (build, switches, flash) · docs/TODO.md (order) ·
 docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PHASE2_DESIGN.md · docs/CACHE_PLAN.md · docs/ICACHE_DESIGN.md · docs/DCACHE_DESIGN.md · docs/FAULT_FIXES.md · docs/MOVEM_TIMING_F1_F2.md · docs/SD_WRITE_DEBUG.md · docs/ST_HELPER.md ·
-docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
+../docs/history/investigations/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
 ## Next-fix order as of 2026-10-17 (history; current order in docs/TODO.md and "Next steps" above)

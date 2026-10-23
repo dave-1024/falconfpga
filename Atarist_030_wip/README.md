@@ -310,11 +310,10 @@ to the Falcon hardware. It is not meant to be the fastest or most compatible ST.
 
 ## Where it came from
 
-A copy of `misterynano_tc138k/` at commit `c2d695d` (stage 2: ST video through
+A copy of `reference/misterynano_tc138k/` at commit `c2d695d` (stage 2: ST video through
 an on-chip frame buffer to 640x480@60 DVI), made on 2026-09-30. New HDL work
-happens here; `misterynano_tc138k/` is kept as it was. File, module and output
-names (`atarist_tc138k`) were left unchanged. `HOW_TO_FILL.md` still describes
-the original `misterynano_tc138k` upload.
+happens here; `reference/misterynano_tc138k/` is kept as it was. File, module and output
+names (`atarist_tc138k`) were left unchanged.
 
 ## Core limits
 
@@ -328,7 +327,7 @@ TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl
 - Top: `hdl/tang/console138k/top.sv` (`module top`)
 - Output name: `atarist_tc138k`
 - **Tang SDRAM module required**, in J9 / SDRAM0 (`hdl/tang/mega138kpro/sdram.v`, CS0 tied low). This is the plug-in module, not the DDR3 on the SOM. Do not flash this bitstream with J9 empty.
-- `Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `rigsdram/`, and the 030 splice.
+- `reference/Hybrid030/` is the only tree that does **not** need that module. Every HDL build from here does, including this one, `reference/rigsdram/`, and the 030 splice.
 - SPI flash: bitstream from 0, **TOS at 0x500000** (with `ST_STE` too), **helper firmware at 0x600000**. Only the bitstream changes between builds (op 53). Never bulk erase, and don't use Gowin Programmer's "SRAM Erase".
 
 ## Build

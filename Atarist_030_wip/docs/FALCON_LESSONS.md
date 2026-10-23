@@ -1,7 +1,7 @@
 # Lessons for the Falcon core
 
 What we learned on the 030 ST core (Atarist_030_wip, Tang Console 138K, AE350 helper) and want to keep
-doing from day one on a Falcon core. Background: `BUILD.md`, `float_panic/FLOAT_PANIC.md`, `float_panic/BLITTER_REVIEW.md`.
+doing from day one on a Falcon core. Background: `BUILD.md`, `docs/history/investigations/float_panic/FLOAT_PANIC.md`, `docs/history/investigations/float_panic/BLITTER_REVIEW.md`.
 
 ## Build and switches
 1. **Make every major path a compile-time switch.** CPU type (`ST_CPU_68000` vs 030), bridge, `BRIDGE_EARLY_AS`,
@@ -34,7 +34,7 @@ doing from day one on a Falcon core. Background: `BUILD.md`, `float_panic/FLOAT_
     Our core put `$FFFF` in D0 after `move.w $FFFA40,d0`. Falcon software probes a lot of addresses, so fix this before reusing the core.
 11. **Match Hatari exactly before comparing.** Same machine type (`_MCH`, ST vs STE vs Falcon), `_SND`, TOS version,
     RAM size, cartridge image and resolution. STE vs ST changes software paths. Note that Hatari forces EmuTOS 192 to a 68000.
-12. **Cross-check differences in a differential harness first.** Musashi vs the RTL bench (`float_panic/diff/`) cleared the
+12. **Cross-check differences in a differential harness first.** Musashi vs the RTL bench (`docs/history/investigations/float_panic/diff/`) cleared the
     CPU in a few hours. Then move to the board-only differences (DMA, blitter, helper, IRQ sources).
 13. **Bus arbitration must be cycle-correct.** Blitter HOG/BUSY, BR/BG/BGACK through the 030 bridge, and floppy DMA must
     never own the bus together. The Falcon adds more masters (DSP, sound DMA, VIDEL), so plan arbitration and tags in from the start.

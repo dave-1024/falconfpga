@@ -13,8 +13,8 @@ with the DSP56001.
 - Docs: [`handoff/CONTEXT.md`](handoff/CONTEXT.md) (state, next steps) · `Atarist_030_wip/docs/TODO.md` (work order) ·
   `Atarist_030_wip/docs/HISTORY.md` · `Atarist_030_wip/docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
   `Atarist_030_wip/docs/BUILD.md` (switches, defaults, flash map).
-- Reference trees: `rigsdram/` (030 + SDRAM oracle, do not rebuild), `misterynano_tc138k/` (stock fx68k ST),
-  `Hybrid030/` (frozen history).
+- Reference trees: `reference/rigsdram/` (030 + SDRAM oracle, do not rebuild), `reference/misterynano_tc138k/` (stock fx68k ST),
+  `reference/Hybrid030/` (frozen history).
 
 ## Machines and access
 - **linserver** `dave@100.97.139.11` over Tailscale (from the box: SOCKS5 `localhost:1055`, ssh `ProxyCommand nc -X 5

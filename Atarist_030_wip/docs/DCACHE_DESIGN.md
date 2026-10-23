@@ -215,6 +215,6 @@ independent of the cache correctness above. Proposed as its own branch step afte
   - Overall 133%, Display 89%, CPU 252%, the same as ic_47eba71 and oa_039c710.
   - GEM Dialog 9.805, VDI Text 14.200, Text Effects 25.725, Small Text 14.020, VDI Graphics 25.935, GEM Window 4.025, Int Div 2.690, Float 12.030, RAM 5.475, ROM 5.475, Blitting 9.795, Scroll 13.530, Justified 14.165, Enquire 2.720, New Dialogs 11.620. These are within 5 ms of ic_47eba71.
   - No crash, no screen corruption, no wrong results, no disk errors. The floppy directory and GEMBENCH loaded correctly.
-  - Grab: docs/prefetch_cof/board/gb_dc_ff6af03_run1.png.
+  - Grab: docs/history/investigations/prefetch_cof/board/gb_dc_ff6af03_run1.png.
 - Run 2, Cache toggled off and back on to force a CACR rewrite: **not done**. The desktop never registered a menu-item click from the helper, so the tick stayed as it was after 3 attempts. Since the option is already on by default, run 1 already covers "cache option on".
 - Reading: no measurable gain with caches on. This fits CIIN inhibiting every ST-side access (TF536 rule): with no 030-side fast RAM, nothing GEMBENCH touches is cacheable. The D-Q2 stale-data risk was not seen in this run, but the cache is probably not caching anything.

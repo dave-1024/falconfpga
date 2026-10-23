@@ -19,7 +19,7 @@ purpose (most people have only one). The SDRAM is 16 bits wide, so each 32-bit T
   debug-ring build had video dropouts (debug ring is a commented-out `TT_RING` line in `build_st_helper.tcl`).
 
 ## Files
-- [OVERNIGHT_2026-10-21.md](OVERNIGHT_2026-10-21.md): the overnight test log and results table.
+- [OVERNIGHT_2026-10-21.md](../history/investigations/ttram/OVERNIGHT_2026-10-21.md): the overnight test log and results table.
 - [T1_TIMING_MAP.md](T1_TIMING_MAP.md): clock-by-clock map of the failing T1 loop.
 - Design: [../../Atarist_030_wip/docs/TTRAM_DESIGN.md](../../Atarist_030_wip/docs/TTRAM_DESIGN.md).
 - Bugs: [../BUGS.md](../BUGS.md). Lessons: [FALCON_LESSONS.md](../../Atarist_030_wip/docs/FALCON_LESSONS.md) (C10 entry).
