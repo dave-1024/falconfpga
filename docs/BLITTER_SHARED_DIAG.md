@@ -1,0 +1,53 @@
+# Blitter shared-mode hang diagnosis (worktree /workspace/wt_blit, branch blitfix-shared off movem-path 0e8a2dc)
+- netlist: /workspace/blsim/wf030_e0e6.vg (fresh wf030_syn.tcl of e0e6d5b core)
+- test ROM: sim/st/prog_blt.s (BLTTEST test 4 replica, code in ST-RAM $4000, CACR/SR/MFPT via ASFLAGS --defsym); run_bus.sh gained $ASFLAGS
+- runs rA..rG (cph 15625, TTRAM): caches on/off, IPL7/3/1 (HBL ints fired 0x68-0x71 times): ALL PASS, checksum d090 correct, 1 CPU loop
+- MFP timer A ints never fired in sim (setup or sim MFP clock) - not pursued
+- next: cph 46875 phase; check board-only defines (BRIDGE_EARLY_AS etc)
+- FOUND: board build defines BRIDGE_EARLY_AS + WF030_FAST_HANDOFF (build_st_helper_hdn.tcl:41,45); sims rA-rG had neither. Rerun rH (caches on, SR 2100) / rI (caches off, 2700) with them.
+- rJ (MFP ta, ph15625), rK (HBL+MFP, ph46875) with EARLY_AS; tb_bus got MFP/BLT-own monitor
+- rJ/rK (EARLY_AS+FAST_HANDOFF, ph 15625 and 46875, caches on, HBL ints): PASS; monitor shows 4 blitter ownership windows (64-cycle timeout -> CPU -> re-grant) working
+- MFP timer A never counts in sim (ctrl=1 dat=14 ier/imr set, no T_O_PULSE): vectored MFP IACK during a shared blit NOT covered
+- CONCLUSION so far: no RTL repro; blitter/bridge BR/BG/BGACK handover + timeout/re-request correct in sim
+## Board run (David approved), 22 Oct 13:17+
+- BLTMASK.PRG (tests/blitter/bltmask.s): medium res, pass1 T4 masked, pass2 all masked, pass3 T4 unmasked; markers "> run $nn masked ... blit done"
+- bm1.st (mkst_small, 2 sides): ran twice: only title, "00", pass headers, "0000" -> text beyond ~0x5e4 (image sector 9 = track0 side1) reads as zeros on the ST. SD copy verified correct (get 4608). Grabs /workspace/frontbench/tt22/bm1, bm1b
+- NOTE: old BLTTEST tests table at 0x536; entries from test 6 and beyond lie past that boundary -> the earlier "hang at test 4" result is suspect
+- retry bm1s.st single-sided (NH=1), CRC 6bbf7932
+- bm1s (NH=1) same result. Fix: vars/stack to .bss (build_bss.sh), file first on disk (mkst_small_t0.py) -> PRG within track 0 sectors 4-8: bm2.st crc 1c0dd8c2
+## 14:05 steering (David): standard images only
+- INVALID: all results from 18 KB images (blts/bt2/bm1/bm1s/bm2), INCLUDING the tt22 "BLTTEST hangs at test 4". On those
+  images the ST got zeros for file data from image sector 9 on (BLTTEST's test table entries 6+ sat past it).
+- bm2 upload killed. Uploader slowness was up.py itself (sp.read(200) waits 2 s timeout per 64 B line) ->
+  /workspace/bm/up2.py (same protocol, polls in_waiting): 720K in ~3.7 min (~3.4 KB/s).
+- bm720.st = standard 720K (tttest/mkst2.py, same generator as the working tt*.st images), AUTO/BLTMASK.PRG (bss build), crc 23ff8430
+- bm720 run 1 (BLTMASK 1.0): Blitmode $00; PASS1 test 4 MASKED: PASS (0 bad words, 0 cpu errs). PASS2 hung inside print
+  ("> run $" shown, digits not) = in Bconout(AUX) after Cconws -> serial TX stall, not a blit. Grabs frontbench/tt22/bm720/s3,s6,s12
+- BLTMASK 1.1: print to screen only (NOAUX). bm720b.st
+- bm720b run (BLTMASK 1.1, screen only), finished < 80 s, NO HANG anywhere:
+  PASS1 T4 masked PASS; PASS2 all masked: 04,05 PASS, 06 FAIL (bad words ~$09), 07 FAIL (~$03), 08-0D PASS (01-03 scrolled off);
+  PASS3 T4 UNMASKED PASS; RESULT fail $02. cpu errs 0 everywhere. Grabs frontbench/tt22/bm720b/s4,s10,s16 (medium-res grab is blended but readable)
+- => shared mode with an active 030 works on tt22, masked and unmasked. MFP theory not supported. The old "hang at test 4" = 18K image
+  load fault + AUX Bconout stall. Open: tests 6/7 (NFSR cases) mismatch - model vs hardware, unverified; AUX output stall after a masked blit.
+- Board: tts.st remounted + cold boot -> TTSEL prompt (restore_tts.png). tt22 core untouched.
+## 14:30 NFSR/FXSR check: model vs Hatari blitter.c reviewed (matches); RTL sim rN (prog_nfsr.s, ram_dump.hex) running
+- rN (unfixed RTL): T6 9 / T7 3 words differ from Hatari model = exactly the board counts ($09/$03). rtlmodel.py mode 3 reproduces the
+  RTL exactly: on the last word of EVERY NFSR line the RTL shifts in the last bus word before the write and the written word after it
+  (stBlitter.sv nfsrCycle = ... & XC1). Hatari does that only for xcount=1 lines. Proposed [B1]: nfsrCycle &= (xStart==1). rN2 = fixed RTL.
+- DECISIVE: Hatari 2.5 (apt, STE, 68030, EmuTOS 1.4) runs BLTMASK 1.1 with the SAME failures (T6 $09, T7 $03) as board and RTL.
+  => RTL is right, my reference model was wrong (it was a port of my reading of Hatari main's code, which only does the dummy
+  shifts for xcount=1). [B1] RTL change reverted, not needed.
+- BLTMASK 1.2: model shifts the last bus word in before, and the written word after, the last word of every NFSR line.
+  Hatari: ALL PASS 15/15 (blsim/hat/h3.png). Board run bm720c.st (crc 840614d8) + restore tts.st queued.
+- 15:20 board bm720c (BLTMASK 1.2): RESULT pass $0F fail $00 ALL PASS (frontbench/tt22/bm720c/s6.png). tts.st restored, TTSEL prompt (restore.png). rN2 NOT run: [B1] withdrawn, RTL is correct.
+
+## FINAL RESULT (23 Oct 2026)
+- **Blitter hardware works with the 030 in shared mode.** BLTMASK 1.2/1.3: 15/15 PASS on the board (tt22) and in Hatari 2.5,
+  masked and unmasked.
+- The tests 6/7 (NFSR) mismatch was a bug in my reference model, not the RTL: the RTL matches Hatari 2.5. No RTL change ([B1] reverted).
+- The old "hang at test 4" was two test artefacts: 18 KB non-standard images (zeros from sector 9 on) and the AUX stall below.
+- Yellow text was the medium-res default pen 3 (BLTMASK 1.3 sets it black), not a core fault.
+- TOS 2.06 + TT-RAM on tt26: Blitmode(-1) = $0002 (blitter found, off by default on a 030). EmuTOS skips blitter detection
+  when TT-RAM is present, by design (24-bit blitter; bios/machine.c:303-321).
+- **Still open:** serial AUX (Bconout) output stalls after a masked blit.
+- tools/up2.py: fast uploader (~3.4 KB/s, 720K image in ~220 s).

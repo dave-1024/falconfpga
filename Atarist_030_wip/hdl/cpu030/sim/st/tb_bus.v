@@ -279,6 +279,7 @@ module tb_bus;
         $write("TTDIFF:"); for (k = 0; k < 160; k = k + 1) if (ttm[k] !== ram[16'h8000+k]) $write(" %0d:%04x/%04x", k, ttm[k], ram[16'h8000+k]); $display("");
         $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1370>>1; k = k + 1) $write(" %04x", ram[k]); $display(" V=%04x%04x", ram[16'h1ff8>>1], ram[16'h1ffa>>1]);
 `endif
+        if ($test$plusargs("ramdump")) $writememh("ram_dump.hex", ram, 0, 24'h1ffff);
         $fclose(tf); $finish;
     end endtask
     // bus test ROM: done marker at $1FFC, results at $1000/$1100/$1200
@@ -296,6 +297,17 @@ module tb_bus;
             $display("%0d.%03d asn030=%b rw030=%b dsack=%b s_dsack=%b open=%b ph=%0d stAS=%b en1=%b en2=%b clkcpu=%b a030=%h", $time/1000, $time%1000,
                      dut.cpu030.cpu_asn, dut.cpu030.cpu_rwn, dut.cpu030.cpu_dsackn, dut.cpu030.s_dsack, dut.cpu030.c_open, ph, dut.cpu_as_n,
                      dut.cpu030.enPhi1, dut.cpu030.enPhi2, clk_cpu, dut.cpu030.cpu_adr[23:0]);
+    // blitter/IRQ monitor (blitter shared-mode diagnosis): MFP INT, IACKs, blitter bus ownership
+    integer nmfp = 0, nown = 0; reg mfpq = 1, ownq = 0;
+    always @(posedge clk32) begin
+        mfpq <= dut.mfpint_n; ownq <= dut.blitter_has_bus;
+        if (mfpq && !dut.mfpint_n) begin nmfp = nmfp + 1; if (nmfp < 4) $display("%0t MFP INT", $time); end
+        if (!ownq && dut.blitter_has_bus) begin nown = nown + 1; if (nown < 40) $display("%0t BLT own #%0d", $time, nown); end
+        if (ownq && !dut.blitter_has_bus && nown < 40) $display("%0t BLT release", $time);
+    end
+    reg tdq = 0; integer ntd = 0;
+    always @(posedge clk32) begin tdq <= dut.mfp.timera_done; if (dut.mfp.timera_done && !tdq) begin ntd = ntd + 1; if (ntd < 4) $display("%0t TA done ier=%h imr=%h ipr=%h ctrl=%h", $time, dut.mfp.ier, dut.mfp.imr, dut.mfp.ipr, dut.mfp.timera_ctrl_o); end end
+    initial begin #600000000; $display("MFP@600us ctrl=%h dat=%h ier=%h imr=%h ipr=%h rst=%b xclk=%0d", dut.mfp.timera_ctrl_o, dut.mfp.timera_dat_o, dut.mfp.ier, dut.mfp.imr, dut.mfp.ipr, dut.mfp.reset, 0); end
     integer maxus = 30000;
     initial begin if ($value$plusargs("maxus=%d", maxus)) ; #(maxus * 1000000.0); $display("TIMEOUT"); report; end
 endmodule
