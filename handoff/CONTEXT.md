@@ -1,17 +1,20 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-18 13:00 (F3 back-to-back MOVEM writes done on f3-write-queue, merge to main approved by David; board f3a_7919eb3). Owner: David Dunne (dave-1024).
+Last update: 2026-10-23 (main 38870e4; tt26 last board build; board awaiting David's recovery/bulk erase). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
 Active core: `Atarist_030_wip/` = ST core (STE chipset) + WF68K30L 68030 (`hdl/cpu030`, Wolfgang Foerster,
 CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD, floppy images).
 
-## David's rules
-- **Flash:** rescan cables every time (`programmer_cli --scan-cables`, location changes). Core = op 53 with
-  `--fsFile` only (~300 s). Never write 0x500000 (TOS) or 0x600000 (helper) in a core flash. Helper = op 56
-  `--mcuFile --spiaddr 0x600000` only. No bulk erase. No test builds on the board without David's OK.
-  Always leave the board on a working build; then `--run 1` to reload. After flashing on Linux: `modprobe ftdi_sio`.
+## David's preferences (sensible defaults, not hard rules; check with David before anything hard to undo)
+- **Flash (linserver):** check `pgrep programmer_cli` first (a hung programmer holds the cable); rescan with
+  `programmer_cli --scan-cables` every time and use the single reported location. Wrap calls in `timeout -k 10`.
+  Core = op 53 `--fsFile` (~300 s). TOS = op 56 `--mcuFile` at 0x500000; helper firmware = op 56 `--mcuFile
+  --spiaddr 0x600000` (writing the helper there to restore it is fine). Bulk erase, the BL616 and other flash areas:
+  ask David first. Always leave the board on a working build; then `--run 1` to reload. After a reload, if ttyUSB
+  vanishes: `sudo modprobe ftdi_sio`; the helper port may come back as ttyUSB0 instead of ttyUSB1 (hc.py/up2.py
+  still assume ttyUSB1).
 - **No hacks:** fix root causes, cycle-correct like real hardware; no timing-constraint relaxing.
 - **Switches are `define`s** (build tcl), each documented in docs/BUILD.md with default.
 - **Keep credits/licence headers** (WF68K30L CERN OHL v1.2, TF534 GPL-2, others); mark our changes (Fnn tags + dated revision block).
@@ -25,13 +28,30 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - **linserver** `dave@100.97.139.11` (Tailscale; from the box via SOCKS `localhost:1055`, `nc -X 5 -x localhost:1055`).
   Gowin V1.9.12.03 `/opt/gowin`, programmer `/opt/gowin/Programmer/bin/programmer_cli` (root), repo `~/falconfpga`,
   bitstreams `~/fpga_bitstreams` (SHA256SUMS), tools `~/fpga_tools` (README, `grab.sh` = HDMI frame grab, gbref/gbsnap .st),
-  flash scripts `~/flash_core.sh`, `~/flash_both.sh`. The FT2232 helper serial is ttyUSB1 (unbound while programming; `modprobe ftdi_sio`).
-- **David's laptop** (Windows): Gowin + programmer_cli as alternative.
+  flash scripts `~/flash_core.sh`, `~/flash_both.sh`. The FT2232 helper serial is usually ttyUSB1 (sometimes ttyUSB0 after a reload; unbound while programming; `sudo modprobe ftdi_sio`).
 - **hc.sh** (helper console): `/workspace/gb/hc.sh` on the box, copy in repo `tools/hc.sh`. Usage `hc.sh "cmd1" "cmd2" ...` (`sleep N` allowed);
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Board state (2026-10-18 midday, UK)
+## Current state (2026-10-23, UK)
+- `main` = 38870e4. Main build `build_st_helper.tcl` (`ST_HELPER_CART` off, no SD debug); debug variants in
+  `debug_builds/` (`build_st_helper_hdn.tcl` = main + `SD_WRITE_DEBUG`), retired scripts in `build_legacy/`.
+  TT-RAM and the I/D caches on by default; always STE. CPU phase 2 (S5 handoff) merged.
+- Last board build: **tt26** (`debug_builds/build_st_helper_hdn.tcl`, d270586): worst +1.344 ns, clk32 33.44 /
+  clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reached the desktop on a warm boot, Blitmode(-1) =
+  $0002 (blitter found, off by default as on a 030). Open: TOS 2.06 black screen on cold power-up (TODO 8; EmuTOS fine).
+- Board now unreachable: David does recovery mode and a bulk erase himself.
+
+## Next steps (when David says the board is back on USB)
+1. `pgrep programmer_cli`, `--scan-cables`; flash tt26 (op 53), TOS 2.06 at 0x500000 (op 56 `--mcuFile`), helper
+   firmware at 0x600000.
+2. TOS 2.06 cold power-up test (TODO 8).
+3. Blitter on: `Blitmode(1)`, expect `Blitmode(-1)` = $0003; visual check; GEMBENCH.
+4. Restore EmuTOS at 0x500000.
+5. Update the READMEs only if these pass.
+6. PMMU work starts 26 Oct 2026.
+
+## Older board state (2026-10-18 midday, UK; history)
 - Core: `st_helper_hdn_f3a_7919eb3_p3.fs` (SHA256 56556195a0eedbee3a4a23b2978d05bbfe7a16ad41cbe6a46dd79168e211d78e; F1/F2 + F3
   back-to-back MOVEM writes, branch f3-write-queue 304b885 = same HDL as 7919eb3), location 4193. Cold boot `c` clean
   (2/2). GEMBENCH 6.08 vs STE20608: RAM 101%, ROM 104%, Display 46, CPU 186, Average 92; vs STFM1048: Display 94,
@@ -91,7 +111,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   (SHA256SUMS). Helper `helper_companion_osd3.bin`; tag `rollback-2026-10-09-eas`.
 
 ## Branches
-`main` is the truth (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct, `option-a` and
+`main` is the truth (38870e4 on 23 Oct; tt-ram, movem-path, nocart, blitfix-shared, sync-leftovers merged and deleted) (all done work merged; `berr-nowb` F66 merged 15 Oct, `cpu-phase2` merged 16 Oct, `option-a` and
 `caches` (contains `fault-fixes`) merged 17 Oct, `f1-movem-timing` merged 18 Oct). `f3-write-queue` (F3): done, merge approved by David 18 Oct. Feature branches (sd-harden, sd-mediach, sd-write-log, f65-handoff, berr-nowb ...) are merged or parked.
 
 ## Build
@@ -107,7 +127,7 @@ docs/FALCON_LESSONS.md (rules learnt + Bugs found) · docs/HISTORY.md · docs/PH
 docs/float_panic/ · docs/notes/ (RAM_PATH, SPI_SDC, TF536_NOTES) · LICENSE-NOTES.md · UPSTREAM.md ·
 hdl/cpu030/README.md + license/ · helper_fw/README.md · handoff/ (handovers, this file).
 
-## Next-fix order (docs/TODO.md, updated 2026-10-17)
+## Next-fix order as of 2026-10-17 (history; current order in docs/TODO.md and "Next steps" above)
 1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`, and
    the one-off halt noted during the fault-fixes testing (not reproduced).
 2. EmuTOS blitter greyed out.

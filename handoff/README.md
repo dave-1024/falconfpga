@@ -23,8 +23,9 @@ Never in git: `.fs`, `impl/`, ROMs, disk images. Credit contributors. No compati
 
 ## Before you write a change
 - Build, switches, flash map and rules: [`Atarist_030_wip/docs/BUILD.md`](../Atarist_030_wip/docs/BUILD.md).
-  Core = `gw_sh build_st_helper.tcl`, flashed with op 53 only. TOS at 0x500000 and the helper at 0x600000 are never
-  written by a core flash; no bulk erase. Helper changes: `helper_fw/companion/build_companion.sh`, op 56 at 0x600000.
+  Core = `gw_sh build_st_helper.tcl` (cart off, no SD debug; variants in `debug_builds/`, old ones in
+  `build_legacy/`), flashed with op 53. TOS (0x500000) and the helper (0x600000) are written separately with op 56
+  `--mcuFile`. Bulk erase and other flash areas: check with David first. Current state: [`CONTEXT.md`](CONTEXT.md).
 - New behaviour goes behind a `define in `build_st_helper.tcl` (off until proven on the board).
 - Open work and its order: [`docs/TODO.md`](../Atarist_030_wip/docs/TODO.md). Past bugs and lessons:
   [`docs/FALCON_LESSONS.md`](../Atarist_030_wip/docs/FALCON_LESSONS.md). SD path: [`docs/SD_WRITE_DEBUG.md`](../Atarist_030_wip/docs/SD_WRITE_DEBUG.md).

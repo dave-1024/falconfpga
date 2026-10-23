@@ -1,6 +1,10 @@
 # cpu030: WF68K30L (68030) in place of fx68k (first integration, Atarist_030_wip)
 
-Current status (18 Oct 2026, main): runs on the board (TOS 2.06 desktop, GEMBench 4.03 135% of a stock STE,
+Current status (23 Oct 2026, main): board build tt26 (d270586; +1.344 ns, clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU)
+with TT-RAM and the I/D caches on by default; TOS 2.06 + TT-RAM reaches the desktop on a warm boot (cold power-up
+black screen open, docs/TODO.md item 8). PMMU work starts 26 Oct. Full status: Atarist_030_wip/README.md.
+
+Earlier status (18 Oct 2026, history): runs on the board (TOS 2.06 desktop, GEMBench 4.03 135% of a stock STE,
 GEMBENCH 6.08 RAM 101% / ROM 104%, board build `st_helper_hdn_f3a_7919eb3_p3.fs`). Since this file was first written
 the core gained the prefetch queue, the S5 bus handoff, posted writes, MOVEM overlap, the data-fault fixes
 (docs/FAULT_FIXES.md), the 68030 I and D caches (docs/ICACHE_DESIGN.md, docs/DCACHE_DESIGN.md) and the MOVEM timing
