@@ -11,6 +11,10 @@ Details, reasons and the rules are below. What went wrong before and why is in
 - **Gowin EDA V1.9.12.03**: every build here was made and timed with it. Windows (`gw_sh.exe`) or Linux headless
   (`/opt/gowin/IDE/bin/gw_sh`, run with `QT_QPA_PLATFORM=offscreen`); both give the same results. Other versions
   place differently, and this design is placement sensitive (section 5).
+- **Use exactly V1.9.12.03.** The AE350 SoC (`hdl/helper/riscv_ae350_soc/riscv_ae350_soc.v`) is a netlist
+  pre-synthesised by V1.9.12.03. Other Gowin versions can name its flash clock net differently, and then
+  `run all` stops with TA2003/TA2004 "Cannot get clock with name 'ae350_flash_clk'" from
+  `atarist_st_helper.sdc` lines 91-127. Install V1.9.12.03 and rebuild.
 - **Board:** Sipeed Tang Console 138K (GW5AST-LV138PG484AC1/I0, **device version C**) with the **Tang SDRAM module in
   J9**. Don't flash with J9 empty.
 - **TOS:** TOS 2.06 (256 KB) for all tests; EmuTOS 256K also boots. It lives in the board flash at 0x500000, not in
