@@ -4,7 +4,7 @@
 main: build `build_st_helper.tcl` (cart off, no SD debug; variants in `debug_builds/`, retired in `build_legacy/`),
 TT-RAM and caches on by default, always STE. Last board build tt26 (d270586): +1.344 ns, clk_cpu030 24.09 MHz,
 40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reaches the desktop on a warm boot (Blitmode $0002). Open: item 8 (TOS 2.06
-black screen on cold power-up), item 9 (AUX stall after a masked blit), EmuTOS skips blitter detection with TT-RAM.
+black screen on cold power-up), item 9 (AUX stall after a masked blit). (EmuTOS skipping the blitter with TT-RAM is by design, not an issue.)
 Next: reflash tt26 + TOS 2.06 + helper, cold-boot test, blitter-on test and GEMBENCH; PMMU from 26 Oct 2026.
 The dated status blocks below are history.
 
@@ -42,7 +42,7 @@ STE (was 71 / 73), GEMBench 4.03 134%. Rollback: F2 c4de2ec, then dc_ff6af03. Ne
 - **GEMBENCH 6 sees no blitter (new, 18 Oct 2026):** its System panel shows "BLiTTER NP" under TOS 2.06, so the
   Display group compares software drawing with a blitter STE (46%; Blitting 15%), while against the blitter-less
   STFM1048 set it is 93% (Blitting 90%). Check how GEMBENCH 6 detects the blitter (Blitmode / cookie / register
-  probe) and whether TOS 2.06 uses ours; ties in with "EmuTOS blitter greyed out" below.
+  probe) and whether TOS 2.06 uses ours; (EmuTOS greys out the blitter with TT-RAM by design: bios/machine.c detect_blitter, 24-bit blitter).
 
 ## Status 17 Oct 2026
 The 68030 I and D caches (MC68030UM ch. 6) and the data-fault fixes are merged on `main` (branch `caches`, which
@@ -90,7 +90,7 @@ Done items move to the "Bugs found" list in [`FALCON_LESSONS.md`](FALCON_LESSONS
 FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all closed 15 Oct 2026).
 
 1. **Warm-reset halt**: PINNED, see "Pinned: warm-reset halt" below (no work on it for now).
-2. **EmuTOS blitter greyed out** (works under TOS 2.06; HDL path inspected and correct).
+2. ~~EmuTOS blitter greyed out~~: **not a bug.** EmuTOS deliberately skips the blitter when TT-RAM is present (bios/machine.c detect_blitter: the Atari blitter only has 24-bit addressing). Works under TOS 2.06 (BLITON + BLITFIX).
 3. **Helper port** (AE350 companion firmware port).
 4. ~~Phase 2 of the CPU rework~~: **done** 16 Oct 2026 (merged; PHASE2_DESIGN.md, GEMBENCH 132%).
 
