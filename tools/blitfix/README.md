@@ -17,6 +17,12 @@ desktop. `vro_cpyfm` from a TT-RAM buffer (`Mxalloc(,1)`) to the screen and from
 buffer with the blitter on; checks the pixels and that the ST-RAM alias (address & `$FFFFFF`) of the destination
 is unchanged. Prints Blitmode, its basepage and buffer addresses, PASS/FAIL; waits for a key.
 
+Under EmuTOS 1.4 (from the source, not yet tested on the board): TTRAM.PRG prints "already installed" because
+EmuTOS registers TT-RAM itself; BLITON cannot switch the blitter on because EmuTOS hides it when TT-RAM is present
+(bios/machine.c detect_blitter: the blitter only has 24-bit addressing); BLITFIX does not patch EmuTOS's drawing, it
+only lets programs running in ST-RAM see the real blitter (blitfix.txt). So the floppy is safe with EmuTOS, EmuTOS stays
+TT-RAM safe and its own drawing does not use the blitter. That is normal behaviour, not a bug.
+
 Why: the STE blitter has 24 address bits on the ST bus and cannot reach TT-RAM; a blit from or to `$01xxxxxx`
 would hit ST-RAM at the low 24 bits. Without BLITFIX (TTRAM + BLITON only) the TOS 2.06 desktop draws no icons
 and bombs (2 bombs) on the board.

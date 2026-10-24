@@ -32,7 +32,14 @@ reach, and you get crashes or bombs on screen.
 processor instead of the blitter. This is the standard fix on real hardware, not a hack for this core.
 
 **EmuTOS** (the free replacement for TOS) already knows about this limit. When TT-RAM is fitted it leaves the blitter
-off on purpose, so it needs no BLITFIX and its Blitter menu item is simply greyed out.
+off on purpose, so it needs no BLITFIX and its Blitter menu item is simply greyed out. With EmuTOS 1.4, no blitter
+when TT-RAM is fitted is normal behaviour, not a bug.
+
+The blitfix.st floppy is safe to use with EmuTOS 1.4 too. TTRAM.PRG says "already installed", because EmuTOS finds
+TT-RAM by itself. BLITON cannot switch the blitter on, because EmuTOS hides it when TT-RAM is present. BLITFIX does not
+change how EmuTOS draws; it only lets programs that run in ST-RAM see the real blitter. So EmuTOS stays safe with
+TT-RAM and does its own drawing without the blitter. (This comes from reading the programs' source; it has not been
+tested on the board with EmuTOS yet.)
 
 ### Why there is a TT-RAM driver
 TOS 2.06 does not know that TT-RAM exists, so on its own it never uses it. The small program **TTRAM.PRG** tells TOS
