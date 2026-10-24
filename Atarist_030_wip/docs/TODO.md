@@ -120,7 +120,11 @@ FNOP probe, disk-change corruption, Float Math/gb403, BERR writeback F66: all cl
    23 Oct 2026, after a full power-cycle: flat black video (3 reloads, waits >100 s, key presses); EmuTOS on the same
    core boots fine. TOS 2.06 + TT-RAM reached the desktop on tt26 the night before after a warm boot. Not diagnosed;
    next: sim cold boot (tos206 fast ROM) and ROM stub checkpoints, then retest on the board.
-9. **Serial AUX (Bconout) stalls after a masked blit** (open, from the BLTMASK work on `blitfix-shared`).
+   24 Oct 2026: cold boots via the helper `c` on tt26rmc/tt26rmc1/tt26rmc2 reach the desktop every time; a real power-cycle is still to retest.
+9. **Blitter hang with the blitter on (TOS VT52 scroll): fixed** (PR #15, 24 Oct 2026): bridge RMC/BR deadlock [T9b], cycle-correct
+   RMC in the WF68K30L [RMC1], failed CAS does no write [RMC2]. tt26rmc2: BT12/16/17 pass, GEMBENCH 6.31 blitter on 131%.
+   Follow-up: the blitter is 24-bit and cannot reach TT-RAM; BLITFIX (software fallback for blits outside ST-RAM).
+10. **Serial AUX (Bconout) stalls after a masked blit** (open, from the BLTMASK work on `blitfix-shared`).
 
 ## When the caches go in
 Full plan: [`CACHE_PLAN.md`](CACHE_PLAN.md). Summary: real 030 I/D (256 B each, CIIN on ST-side, CDIS hard off,

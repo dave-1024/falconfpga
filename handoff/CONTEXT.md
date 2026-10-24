@@ -40,7 +40,8 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - Last board build: **tt26** (`debug_builds/build_st_helper_hdn.tcl`, d270586): worst +1.344 ns, clk32 33.44 /
   clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reached the desktop on a warm boot, Blitmode(-1) =
   $0002 (blitter found, off by default as on a 030). Open: TOS 2.06 black screen on cold power-up (TODO 8; EmuTOS fine).
-- Board now unreachable: David does recovery mode and a bulk erase himself.
+- 24 Oct 2026: board back; tt26rmc2 flashed (PR #15 fixes). Blitter on works: BT12/16/17 pass, GEMBENCH 6.31 131%.
+  Next: BLITFIX + boot floppy (TT-RAM driver, BLITON, BLITFIX).
 
 ## Next steps (when David says the board is back on USB)
 1. `pgrep programmer_cli`, `--scan-cables`; flash tt26 (op 53), TOS 2.06 at 0x500000 (op 56 `--mcuFile`), helper

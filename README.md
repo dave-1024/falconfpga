@@ -40,8 +40,9 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 
 ## What doesn't work yet
 - TOS 2.06 with TT-RAM: black screen after a **cold power-up** (a warm reset is fine; EmuTOS is fine).
-- The **blitter** is found by TOS 2.06 but left off by default, as on a real 68030 machine; the full test with it
-  switched on is still to do. EmuTOS does not detect it when TT-RAM is fitted.
+- The **blitter** is found by TOS 2.06 but left off by default, as on a real 68030 machine. Switched on (BLITON) it
+  now works: the TOS scroll hang is fixed (PR #15) and GEMBENCH 6.31 gives 131% with it on. The blitter cannot reach
+  TT-RAM (24-bit ST bus), so blits from TT-RAM need a software fallback (BLITFIX). EmuTOS does not detect it when TT-RAM is fitted.
 - The serial port can stall after one kind of blitter operation.
 - No **PMMU** yet (work starts 26 Oct 2026). No Falcon hardware yet (VIDEL video, DSP, IDE).
 - Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);

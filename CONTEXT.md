@@ -44,12 +44,12 @@ with the DSP56001.
 - Main tcl = board build; variants in `debug_builds/`, retired in `build_legacy/`.
 - Bulk erase, BL616, other flash areas: check with David first (writing the helper at 0x600000 to restore it is fine).
 
-## Current state (summary, 23 Oct 2026)
-main is at 38870e4. The last board build is tt26 (d270586): +1.344 ns, clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU.
-TOS 2.06 + TT-RAM reaches the desktop on a warm boot, and the blitter is detected but off (Blitmode $0002). The open
-issue is a TOS 2.06 black screen on a cold power-up (TODO 8). The board awaits David's recovery and bulk erase. Next:
-reflash tt26, TOS 2.06 and the helper, test the cold boot, switch the blitter on ($0003) and run GEMBENCH, then restore
-EmuTOS. PMMU work starts 26 Oct. Details: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
+## Current state (summary, 24 Oct 2026)
+PR #15 merged (blitter hang: bridge RMC/BR fix, cycle-correct RMC, failed CAS no write). Board runs tt26rmc2
+(d270586 + RMC1/RMC2): clk_cpu030 21.857 MHz, 40309 LUT, TNS 0. With the blitter on (BLITON, $0003) BT12/16/17 pass and
+GEMBENCH 6.31 gives 131% (Display 97, CPU 176). Cold boots via the helper work; a real power-cycle test of TODO 8 is
+still open. Next: BLITFIX (blitter cannot reach TT-RAM) and a boot floppy with TT-RAM driver + BLITON + BLITFIX.
+PMMU work starts 26 Oct. Details: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
 
 ## Still-true background (from the Sept 2026 file)
 - Locked SOM DDR3 faults: write lane 4 dead; 64-bit read upper half dead; extended AHB HWDATA upper 32 dead. Unmapped
