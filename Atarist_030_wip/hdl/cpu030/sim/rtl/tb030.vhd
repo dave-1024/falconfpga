@@ -21,6 +21,7 @@ entity tb030 is
            TRIG6    : integer := 0;       -- IPL_MODE=2: raise level 6 instead of level 4
            WSRND    : integer := 0;        -- extra random 0..WSRND wait clocks per cycle (seed IRQ_DLY)
            GAPLOG   : integer := 0;        -- [PH2] 1: log the clocks between AS negation and the next AS assertion
+           RMCMON   : integer := 0;        -- [RMC1] 1: tag cycles run with RMCn low (" RMC") and log RMCn/ASn edges
            FASTH    : integer := 1;        -- [PH2] FAST_HANDOFF generic of the core (the board builds use 1)
            CIMODE   : integer := 0);       -- [IC] 0: CIINn asserted on every cycle (as the ST bridge). 1: negated for ROM
                                            -- $FD0000-$FEFFFF, RAM $8000-$FFFF and the BERR range $20000-$2FFFF (a fake cacheable region); log marks them " C".
@@ -57,6 +58,7 @@ architecture sim of tb030 is
   signal trig_at : integer := -1;
   signal iack_clr : boolean := false;
   signal ciinn : std_logic := '0'; -- [IC]
+  signal rmcn : std_logic; -- [RMC1]
   signal cdisn : std_logic := '1'; -- [IC]
   signal ciforce : std_logic := '0'; -- [IC] 1: CIIN asserted on every cycle (word write to $3502, D16)
   signal berrw : integer := 0; -- [DC] RAM word whose reads bus-error (word write to $3504)
@@ -69,7 +71,7 @@ begin
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
-    ASn => asn, RWn => rwn, RMCn => open, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
+    ASn => asn, RWn => rwn, RMCn => rmcn, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
     BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1',
     CIINn => ciinn, CDISn => cdisn, CBACKn => '1', CBREQn => open, CIOUTn => open); -- [IC]
 
@@ -197,11 +199,21 @@ begin
         if istt then write(l, string'(" TT")); end if;
         if not (isrom or isram or iack or isio or istt) then write(l, string'(" BERR")); end if;
         if CIMODE /= 0 and ciinn = '1' then write(l, string'(" C")); end if; -- [IC] (signal set before the wait clocks)
+        if RMCMON /= 0 and rmcn = '0' then write(l, string'(" RMC")); end if; -- [RMC1]
         if QUIET = 0 or not (fc(1 downto 0) = "10" and (a >= x"00FC0000" or QUIET = 2)) then writeline(output, l); else deallocate(l); end if;
         wait until asn = '1';
         dsackn <= "11"; berrn <= '1'; avecn <= '1'; ciinn <= '0';
       end if;
     end loop;
+  end process;
+  -- [RMC1] RMCn / ASn edge log (time in ns) for the read-modify-write timing check.
+  rmcmon_p : process(rmcn, asn)
+    variable l : line;
+  begin
+    if RMCMON /= 0 and now > 0 ns then
+      if rmcn'event then write(l, string'("EDGE RMCn=")); write(l, std_logic'image(rmcn)); write(l, string'(" t=")); write(l, now / 1 ns); writeline(output, l); end if;
+      if asn'event and rmcn = '0' then write(l, string'("EDGE ASn=")); write(l, std_logic'image(asn)); write(l, string'(" t=")); write(l, now / 1 ns); writeline(output, l); end if;
+    end if;
   end process;
   -- FalconFPGA DIAG: log the core's exception report (DBG_EXC) on its rising strobe
   exmon: process

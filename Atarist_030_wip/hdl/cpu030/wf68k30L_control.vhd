@@ -569,10 +569,13 @@ begin
     -- write in that same clock, so the bus interface latched the previous address: write 1 went to
     -- whatever ADR_EFF_WB still held (Rn2 of the last CAS2) and write 2 to Rn1. Hold the request for
     -- that one clock. Registered from ADR_MARK_USED: nothing new on the DSACK path.
+    -- [RMC1] CAS (one operand) loads ADR_EFF_WB the same way. It was hidden while the prefetcher ran
+    -- between the locked read and the write; with no cycle allowed there (cycle-correct RMC) the write
+    -- request came in the load clock and went to the previous instruction's address.
     P_CAS2_WGAP: process
     begin
         wait until CLK = '1' and CLK' event;
-        if OP_WB_I = CAS2 and ADR_MARK_USED_W = '1' then
+        if (OP_WB_I = CAS2 or OP_WB_I = CAS) and ADR_MARK_USED_W = '1' then -- [RMC1] CAS has the same race
             CAS2_WGAP <= '1';
         else
             CAS2_WGAP <= '0';

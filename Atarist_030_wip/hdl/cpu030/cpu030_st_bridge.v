@@ -616,7 +616,12 @@ module cpu030_st_bridge #(
     reg [1:0] arb_nx;
     reg       granting = 1'b0;
     wire bg_block  = (phase == P_S0) | rmc_lock;   // no grant while a cycle starts or during RMC
-    wire bus_avail = BRi & BgackI & (arb == A_IDLE);
+    // TODO 9: while the 030 holds RMC (rmc_lock) no grant is given (bg_block), so a pending BR must not
+    // stop the 030's own cycles either: the WF68K30L asserts RMCn already during the cycles before the TAS
+    // read (seen: the move.w d2,(a5) blitter start write and the prefetches after it), and with the blitter
+    // requesting (BRi low) the bridge neither started those cycles nor granted the bus -> deadlock (TOS
+    // VT52 scroll restart loop tas/nop/bmi at $E06672 hung the machine). A 68000 keeps the bus across RMC.
+    wire bus_avail = (BRi | rmc_lock) & BgackI & (arb == A_IDLE);
 
     always @* begin
         arb_nx = arb;

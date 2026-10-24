@@ -82,5 +82,14 @@
         cas.w d0,d1,(a4)
         move.w sr,0x5038
         move.w (a4),0x503a
+| case 8 [RMC2]: word CAS fails, low bytes equal ($5634 vs $1234): no write, Dc = mem, N=1 C=1.
+        move.w #0x1234,(a4)
+        move.l #0x5634,d0
+        move.l #0x9999,d1
+        cas.w d0,d1,(a4)
+        move.w sr,d7
+        move.w (a4),0x503c
+        move.w d0,0x503e
+        move.w d7,0x5040
         move.l #0x600dc0de,0x3300
 h:      bra.s h

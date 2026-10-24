@@ -104,9 +104,18 @@ module tb_bus;
         if (dut.gstmcu.time0_s == 1'b0) begin if (we_n) n_rasrd = n_rasrd + 1; else n_raswr = n_raswr + 1; end else n_vid = n_vid + 1; end
     // ---- flash_dspi.v cycle model ----
     reg fD = 0, fD2 = 0, busy = 0; reg [5:0] fs = 0; reg [15:0] fw;
+    // TODO 9: +fl0=<n> flash start state (8 = flash_dspi continuous read; lower = slower read), missed-edge monitor
+    integer fl0 = 8, n_flmiss = 0; initial if ($value$plusargs("fl0=%d", fl0)) ;
+    // short rom_n pulses (ROM select that ends before the flash read can finish)
+    reg rnq = 1; integer rn_t0 = 0, n_rnshort = 0;
+    always @(posedge clk32) begin rnq <= rom_n;
+        if (rnq && !rom_n) rn_t0 = $time;
+        if (!rnq && rom_n && ($time - rn_t0) < 200000) begin n_rnshort = n_rnshort + 1; if (n_rnshort < 20) $display("%0t SHORT rom_n pulse %0d ns A=%h blt=%b", $time, ($time-rn_t0)/1000, {rom_addr,1'b0}, dut.blitter_has_bus); end
+    end
     always @(posedge flclk) begin
         fD <= !rom_n; fD2 <= fD;
-        if (fD && !fD2 && !busy) begin busy <= 1; fs <= 8; end
+        if (fD && !fD2 && !busy) begin busy <= 1; fs <= fl0; end
+        if (fD && !fD2 && busy) begin n_flmiss = n_flmiss + 1; if (n_flmiss < 20) $display("%0t FLASH MISSED rom_n edge while busy (fs=%0d) A=%h", $time, fs, {rom_addr,1'b0}); end
         if (busy) begin
             fs <= fs + 1;
             if (fs == 8) fw = rom[rom_addr[17:1]];
@@ -279,6 +288,7 @@ module tb_bus;
         $write("TTDIFF:"); for (k = 0; k < 160; k = k + 1) if (ttm[k] !== ram[16'h8000+k]) $write(" %0d:%04x/%04x", k, ttm[k], ram[16'h8000+k]); $display("");
         $write("R1300:"); for (k = 16'h1300>>1; k < 16'h1370>>1; k = k + 1) $write(" %04x", ram[k]); $display(" V=%04x%04x", ram[16'h1ff8>>1], ram[16'h1ffa>>1]);
 `endif
+        $display("FLASH: missed edges %0d, short rom_n pulses %0d", n_flmiss, n_rnshort);
         if ($test$plusargs("ramdump")) $writememh("ram_dump.hex", ram, 0, 24'h1ffff);
         $fclose(tf); $finish;
     end endtask
@@ -297,6 +307,16 @@ module tb_bus;
             $display("%0d.%03d asn030=%b rw030=%b dsack=%b s_dsack=%b open=%b ph=%0d stAS=%b en1=%b en2=%b clkcpu=%b a030=%h", $time/1000, $time%1000,
                      dut.cpu030.cpu_asn, dut.cpu030.cpu_rwn, dut.cpu030.cpu_dsackn, dut.cpu030.s_dsack, dut.cpu030.c_open, ph, dut.cpu_as_n,
                      dut.cpu030.enPhi1, dut.cpu030.enPhi2, clk_cpu, dut.cpu030.cpu_adr[23:0]);
+    // TODO 9 arbitration monitor: +mf=<ns> +mt=<ns>
+    integer mf = 0, mt = 0; initial begin if ($value$plusargs("mf=%d", mf)) ; if ($value$plusargs("mt=%d", mt)) ; end
+    always @(dut.cpu030.arb or dut.cpu030.BRi or dut.cpu030.BgackI or dut.cpu030.BGn or dut.cpu030.phase or dut.cpu030.rmc_lock
+             or dut.stBlitter.bltBusCtrl.dmaState or dut.stBlitter.bltBusCtrl.busOwned or dut.stBlitter.busy or dut.cpu030.cpu_asn
+             or dut.cpu030.cpu_rmcn or dut.cpu030.pending or dut.as_n or dut.stBlitter.bltControl.bltActive)
+        if ($time/1000 >= mf && $time/1000 < mt)
+            $display("%0d ARB arb=%0d BRi=%b BgI=%b BGn=%b ph=%0d rmc=%b/%b pend=%b asn030=%b a030=%h | blt dma=%0d own=%b act=%b busy=%b stAS=%b",
+                $time/1000, dut.cpu030.arb, dut.cpu030.BRi, dut.cpu030.BgackI, dut.cpu030.BGn, dut.cpu030.phase, dut.cpu030.rmc_lock, dut.cpu030.cpu_rmcn,
+                dut.cpu030.pending, dut.cpu030.cpu_asn, dut.cpu030.cpu_adr[23:0], dut.stBlitter.bltBusCtrl.dmaState, dut.stBlitter.bltBusCtrl.busOwned,
+                dut.stBlitter.bltControl.bltActive, dut.stBlitter.busy, dut.as_n);
     // blitter/IRQ monitor (blitter shared-mode diagnosis): MFP INT, IACKs, blitter bus ownership
     integer nmfp = 0, nown = 0; reg mfpq = 1, ownq = 0;
     always @(posedge clk32) begin
