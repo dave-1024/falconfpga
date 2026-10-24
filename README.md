@@ -74,20 +74,32 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
-## What works now (23 Oct 2026)
-- Boots **TOS 2.06** and **EmuTOS** to the GEM desktop, low and medium resolution, 4 MB ST-RAM.
-- A 68030 CPU with its **instruction and data caches**, plus **16 MB of TT-RAM** (fast RAM only the 68030 sees),
-  both on by default. GEMBench: about 132% of a stock STE.
+## What works now (24 Oct 2026)
+- Boots **TOS 2.06** and **EmuTOS** to the GEM desktop, low and medium resolution, 4 MB ST-RAM. A restart from the
+  helper's cold-boot command (a full reset of the machine) reaches the TOS 2.06 desktop every time.
+- A 68030 CPU with its **instruction and data caches** (small fast memories inside the CPU), plus **16 MB of TT-RAM**
+  (fast RAM only the 68030 sees), both on by default. GEMBENCH 6.31 (a speed test): about 132% of a stock STE with the
+  blitter off.
+- **Blitter** (the STE's graphics copy chip): works with TOS 2.06 once switched on with BLITON. All our blitter tests
+  and a full GEMBENCH 6.31 run pass on the board with no hangs: Display 97%, CPU 176%, average 131%.
+  A hang when TOS scrolled text was found and fixed: the CPU and the blitter could each end up waiting for the other
+  to give up the bus (the shared connection to memory) while the CPU held it locked for a special instruction.
+- The CPU now locks the bus for its "test-and-set" and "compare-and-swap" instructions (used to share memory safely)
+  exactly like a real 68030, and a compare-and-swap mistake (it could write to memory when it should not) was fixed.
+  Both were checked in simulation and on the board.
+- **TT-RAM under TOS 2.06** works with the small TTRAM.PRG driver (EmuTOS finds TT-RAM by itself). Blitter plus
+  TT-RAM is safe with BLITFIX; use the ready-made floppy `tools/blitfix/blitfix.st`. See
+  [The blitter, TT-RAM and BLITFIX](#the-blitter-tt-ram-and-blitfix-correct-behaviour-not-a-fault).
 - Floppy images from an **SD card**, including saving from the desktop; **USB keyboard and mouse**; an on-screen
   menu (OSD), all run by a small helper processor (the AE350) on the same chip.
 - HDMI/DVI video out.
 
 ## What doesn't work yet
-- TOS 2.06 with TT-RAM: black screen after a **cold power-up** (a warm reset is fine; EmuTOS is fine).
-- Blitter with TT-RAM: not a fault. It behaves like real hardware; see
-  [The blitter, TT-RAM and BLITFIX](#the-blitter-tt-ram-and-blitfix-correct-behaviour-not-a-fault).
+- TOS 2.06 after switching the board **off and on** (a real power-cycle): it gave a black screen on 23 Oct; resets
+  now reach the desktop, but the power-cycle test still has to be repeated. EmuTOS is fine.
 - The serial port can stall after one kind of blitter operation.
-- No **PMMU** yet (work starts 26 Oct 2026). No Falcon hardware yet (VIDEL video, DSP, IDE).
+- No **PMMU** yet (the 68030's memory-mapping unit; work starts 26 Oct 2026). No Falcon hardware yet (VIDEL video,
+  DSP, IDE).
 - Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);
   bugs in plain English: [`docs/BUGS.md`](docs/BUGS.md); TOS versions: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md).
 
