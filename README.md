@@ -45,6 +45,16 @@ tested on the board with EmuTOS yet.)
 TOS 2.06 does not know that TT-RAM exists, so on its own it never uses it. The small program **TTRAM.PRG** tells TOS
 the memory is there. On real hardware a driver program does the same job.
 
+### Hard disk drivers and the blitter
+
+Some hard disk drivers can use the blitter too. HDDriver (version 11 and later) has an optional setting that uses the
+blitter to speed up IDE hard disk transfers. Because the blitter cannot reach TT-RAM, that setting does not work
+once TT-RAM is in use, and BLITFIX does not cover it, since BLITFIX only fixes TOS's own drawing. So with TT-RAM on,
+**leave HDDriver's blitter option off**. This is the same advice owners of real accelerated STs and Falcons with fast
+RAM are given ([Badwolf on exxos's forum](https://www.exxosforum.co.uk/forum/viewtopic.php?start=560&t=5934)), so it
+is a limit of the original chip, not a fault in this core. HDDriver still works normally without it. Few STs have an
+IDE port anyway, and some accelerator cards with their own IDE port handle fast RAM with their own hardware.
+
 ### How to use it
 Use the ready-made floppy image [`tools/blitfix/blitfix.st`](tools/blitfix/blitfix.st). Its AUTO folder runs these
 programs at start-up, in this order: **TTRAM**, then **BLITON**, then **BLITFIX**. (The AUTO folder is where TOS looks
