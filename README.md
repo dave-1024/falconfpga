@@ -11,6 +11,40 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > **This is a personal workbench, not a product.** No support, no promises, no release dates. Please read
 > [This is not a product](#this-is-not-a-product) before you buy any hardware because of this repository.
 
+## The blitter, TT-RAM and BLITFIX: correct behaviour, not a fault
+
+If you run TOS 2.06 on this core and switch the blitter on, you also need BLITFIX. This is how a real Atari with a
+68030 and extra memory behaves too. It is not a fault in the core.
+
+### Why the blitter starts switched off
+The **blitter** is a helper chip in the STE that copies blocks of screen graphics so the main processor does not
+have to. When TOS 2.06 finds a 68030 processor, it leaves the blitter switched off on purpose. It does exactly the
+same on real 68030 hardware: the Options menu shows "Cache" where "Blitter" would normally be. To use the blitter,
+switch it on with the small program **BLITON**.
+
+### Why BLITFIX is needed when the blitter is on
+**TT-RAM** is extra, faster memory that only the 68030 processor can use. The blitter can only reach the ST's own
+memory (ST-RAM). A real Mega STE or TT with fast memory has exactly the same limit. TOS 2.06 does not know about this
+limit. So when the blitter is on and a program sits in TT-RAM, TOS can ask the blitter to copy memory it cannot
+reach, and you get crashes or bombs on screen.
+
+**BLITFIX** is a free tool by agranlund (also used on real accelerated STs). It makes TOS do those copies with the
+processor instead of the blitter. This is the standard fix on real hardware, not a hack for this core.
+
+### Why there is a TT-RAM driver
+TOS 2.06 does not know that TT-RAM exists, so on its own it never uses it. The small program **TTRAM.PRG** tells TOS
+the memory is there. On real hardware a driver program does the same job.
+
+### How to use it
+Use the ready-made floppy image [`tools/blitfix/blitfix.st`](tools/blitfix/blitfix.st). Its AUTO folder runs these
+programs at start-up, in this order: **TTRAM**, then **BLITON**, then **BLITFIX**. (The AUTO folder is where TOS looks
+for programs to start automatically at boot.) It also has a test program, BFTEST. Details:
+[`tools/blitfix/README.md`](tools/blitfix/README.md).
+
+GEMBENCH and most older programs still load into ST-RAM unless they are marked to use TT-RAM. GEMBENCH's own
+screen says "Ran from ST-RAM".
+
+
 ![GEMBENCH 6.31 on the 68030 STE core](docs/img/gembench_631.png)
 
 *Real capture from the actual device: a Tang Console 138K running the 68030 STE core, grabbed from its HDMI output.
