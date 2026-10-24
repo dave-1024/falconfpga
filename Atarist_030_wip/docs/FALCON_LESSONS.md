@@ -305,3 +305,26 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
 - **Lesson.** Any arbiter that blocks the grant during a lock must not also block the lock holder: check both
   sides of every hold condition. A loop that hangs only from ROM points at timing, so reproduce it with the
   exact code and alignment.
+
+## TODO 9 follow-up: cycle-correct RMC in the WF68K30L [RMC1]
+
+- **Problem.** The control unit's `RMC` was high for the whole TAS/CAS/CAS2 instruction, and the bus interface
+  drove `RMCn` and its own bus lock straight from it. RMCn went low on prefetches and on the previous
+  instruction's writes, before the locked read, and the core refused BR there (the root of the [T9b] deadlock).
+  The prefetcher also ran between the locked read and its write (`RD, PROG, PROG, WR` with RMCn low).
+- **Change (bus_interface).** `RMC_PIN` drives RMCn, the BR hold in the bus controller and the arbiter:
+  low from S0 of the first operand read while RMC is set, held through the reads and writes, and released
+  after S5 of the write that matches the last locked read (`RMC_NR`/`RMC_NW` cycle counts; CAS2 = R R W W).
+  If no write comes (failed compare), it is released when RMC drops. While the lock is held and writes are
+  still owed, no opcode cycle may start (`PF_REQ`/`OPC_LEGACY` masked by `RMC_HOLD`). MC68030UM 7.6.
+- **Latent race found (control).** Without a prefetch between read and write, CAS requested its write in
+  the clock that ADR_EFF_WB is loaded (one clock after ADR_MARK_USED) and wrote to the previous instruction's
+  address. CAS2 already had the fix ([C1] `CAS2_WGAP`); it now covers CAS too.
+- **Checks.** GHDL bench, old core vs new, programs prog_* at 0/1/3 wait states: every log identical except
+  prog_tas/prog_cas2/prog_dcache (the RMC programs), whose write sequences (address, size, data) are
+  identical; RMCn falls with AS of the locked read and rises one half clock after AS of the last write.
+  Full ST bench prog_scrom2 (exact TOS tas loop, blitter): completes (600DC0DE, 39 blits, same checksum),
+  ~260 us sooner than before; identical trace with and without the [T9b] bridge change, so the deadlock
+  window is gone in the core itself. The bridge change stays as a guard.
+- **Lesson.** A pin that only means something per bus cycle must be derived from the bus cycle, not from the
+  instruction state. Removing a cycle from a sequence can expose address/data races the cycle used to hide.
