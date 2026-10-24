@@ -55,12 +55,12 @@ GEMBENCH and most older programs still load into ST-RAM unless they are marked t
 screen says "Ran from ST-RAM".
 
 
-![GEMBENCH 6.31 on the 68030 STE core](docs/img/gembench_631.png)
+![GEMBENCH 6.31 on the 68030 STE core, blitter on](docs/img/gembench_631.png)
 
-*Real capture from the actual device: a Tang Console 138K running the 68030 STE core, grabbed from its HDMI output.
-GEMBENCH 6.31 under TOS 2.06 (ST Medium, STE 68000 reference, I and D caches on, run from ST-RAM): CPU 182%,
-integer division 510%, TT-RAM (ALT RAM) access 206%. The display tests are low because the blitter was not enabled
-for this run, so the overall average is 91%.*
+*Real capture from the actual device: a Tang Console 138K running the 68030 STE core (current build, with the
+RMC/blitter fixes), grabbed from its HDMI output. GEMBENCH 6.31 under TOS 2.06 (ST Medium, STE 68000 reference,
+I and D caches on, run from ST-RAM), with the blitter switched on using BLITON: Display 97%, CPU 176%,
+average 131%.*
 
 ![FrontBench (Frontier: Elite 2 benchmark) on the 68030 STE core](docs/img/frontbench_frontier.png)
 
