@@ -134,7 +134,7 @@ tools/ · LICENSE, NOTICE.md, LICENSE-ORIGINAL.md · handoff/ (this file).
 ## Next-fix order as of 2026-10-17 (history; current order in docs/TODO.md and "Next steps" above)
 1. Warm-reset halt: PINNED (TODO.md; branch warm-reset 65e8b32). Includes the halt on a bare reload without `c`, and
    the one-off halt noted during the fault-fixes testing (not reproduced).
-2. EmuTOS blitter greyed out.
+2. ~~EmuTOS blitter greyed out~~: by design (EmuTOS skips the 24-bit blitter when TT-RAM is present), not an issue.
 3. Helper port (AE350 companion).
 4. D-Q2: board check of D cache write allocate (CACR-read program; with WA, ST-side aligned long writes allocate
    entries). Fallback CDIS.

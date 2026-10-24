@@ -31,6 +31,9 @@ reach, and you get crashes or bombs on screen.
 **BLITFIX** is a free tool by agranlund (also used on real accelerated STs). It makes TOS do those copies with the
 processor instead of the blitter. This is the standard fix on real hardware, not a hack for this core.
 
+**EmuTOS** (the free replacement for TOS) already knows about this limit. When TT-RAM is fitted it leaves the blitter
+off on purpose, so it needs no BLITFIX and its Blitter menu item is simply greyed out.
+
 ### Why there is a TT-RAM driver
 TOS 2.06 does not know that TT-RAM exists, so on its own it never uses it. The small program **TTRAM.PRG** tells TOS
 the memory is there. On real hardware a driver program does the same job.
