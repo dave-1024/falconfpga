@@ -328,3 +328,21 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   window is gone in the core itself. The bridge change stays as a guard.
 - **Lesson.** A pin that only means something per bus cycle must be derived from the bus cycle, not from the
   instruction state. Removing a cycle from a sequence can expose address/data races the cycle used to hide.
+
+### Failed CAS/CAS2 compare: no write cycle [RMC2]
+
+- **Rule.** MC68030UM 3.2.11 (Table 3-11: CAS "destination - Dc -> CC; if Z then Du -> destination") and
+  7.3.3 (the RMW cycle "conditionally modifies the data ... and may write the data out to memory"; Fig. 7-29:
+  no write -> negate RMC, unlock the bus). Only the MC68040 writes the operand back on a failed compare.
+- **Bug found (alu).** The structure was already right (EXECUTE -> WRITEBACK on ALU_COND = false, and
+  [RMC1] releases RMCn when RMC drops with no write owed), but `ALU_COND_I` for CAS had an unsized byte term:
+  `OP = CAS and RESULT(7 downto 0) = 0`. A word or long CAS whose low bytes matched (e.g. mem $1234, Dc $5634)
+  counted as equal: it wrote Du to memory and did not load Dc, while the CCR (full width) said Z = 0. prog_cas2
+  case 7 hid it because Du happened to equal the memory value. Fix: the byte term tests `OP_SIZE = BYTE`.
+- **Checks.** prog_cas2 case 8 (word CAS fails, low bytes equal: memory unchanged, Dc = memory, N C set) passes at
+  WS 0/1/3/7; on dade512 it writes $9999. RMC windows (RMCMON) at WS 0/1/3/7: TAS RW x30; CAS ok RW, CAS fail R;
+  CAS2 ok RRWW / RRRRWWWW, CAS2 fail RR; no PROG inside a window; after a failed compare RMCn rises before the
+  next opcode cycle and RMC_LK/RMC_DONE/counters clear with RMC (no lock held over). Old (dade512) vs new full
+  logs at WS 0/1/3: all prog_* identical except prog_cas2 (the failing-CAS write is gone, 4 cycles fewer).
+- **Lesson.** Check a condition flag against the flag register it is meant to agree with: here Z and ALU_COND
+  disagreed and nothing compared them.

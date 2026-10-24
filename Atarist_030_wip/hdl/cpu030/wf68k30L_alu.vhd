@@ -1560,7 +1560,7 @@ begin
     ALU_COND_I <= false when OP = CAS2 and CAS2_COND = false else
                   true when (OP = CAS or OP = CAS2) and OP_SIZE = LONG and RESULT_INTOP = x"00000000" else
                   true when (OP = CAS or OP = CAS2) and OP_SIZE = WORD and RESULT_INTOP (15 downto 0) = x"0000" else
-                  true when OP = CAS and RESULT_INTOP (7 downto 0) = x"00" else
+                  true when OP = CAS and OP_SIZE = BYTE and RESULT_INTOP (7 downto 0) = x"00" else -- [RMC2] was unsized: a word/long CAS whose low byte matched counted as equal and wrote Du
                   false when OP = CAS or OP = CAS2 else
                   true when OP = TRAPV and STATUS_REG(1) = '1' else
                   false when OP = TRAPV else
