@@ -586,6 +586,8 @@ signal RMCn_I                   : std_logic;
 signal TT0_HIT, TT1_HIT         : std_logic;
 signal TT_CI                    : std_logic;
 signal CIINn_EFF                : std_logic;
+signal DC_WR_TTCI               : std_logic;
+signal DC_WR_GO_EFF             : std_logic;
 signal CACR_WR                  : bit;
 signal CACR_RD                  : bit;
 signal CAAR                     : std_logic_vector(31 downto 0);
@@ -821,6 +823,19 @@ begin
                         and (MMU_TT1(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
     TT_CI <= (TT0_HIT and MMU_TT0(10)) or (TT1_HIT and MMU_TT1(10));
     CIINn_EFF <= CIINn and not TT_CI;
+    -- [PMMU1] MC68030UM 6.1.2 p6-8: with CIOUT asserted the data cache is completely ignored, even on
+    -- writes in write-allocation mode. The write's own address and FC (R/W = write) are matched, so a
+    -- write in a TT CI block neither updates a hit nor allocates. (A locked RMC write portion is matched
+    -- as a plain write here; RMC operands are not cached anyway, MC68030UM 6.1.2.)
+    DC_WR_TTCI <= '1' when (MMU_TT0(15) = '1' and MMU_TT0(10) = '1'
+                            and ((DC_WR_ADR(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                            and ((DC_WR_FC xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                            and (MMU_TT0(8) = '1' or MMU_TT0(9) = '0'))
+                       or (MMU_TT1(15) = '1' and MMU_TT1(10) = '1'
+                            and ((DC_WR_ADR(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                            and ((DC_WR_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                            and (MMU_TT1(8) = '1' or MMU_TT1(9) = '0')) else '0';
+    DC_WR_GO_EFF <= DC_WR_GO and not DC_WR_TTCI;
     ADR_OUT <= ADR_OUT_I;
     FC_OUT <= FC_OUT_I;
     RWn <= RWn_I;
@@ -1195,7 +1210,7 @@ begin
             LK_SZ     => DC_LK_SZ,
             LK_HIT    => DC_HIT,
             LK_DATA   => DC_HIT_DATA,
-            WR_GO     => DC_WR_GO,
+            WR_GO     => DC_WR_GO_EFF,
             WR_ADR    => DC_WR_ADR,
             WR_FC     => DC_WR_FC,
             WR_SZ     => DC_WR_SZ,

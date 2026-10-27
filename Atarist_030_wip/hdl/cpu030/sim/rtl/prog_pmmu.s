@@ -95,6 +95,21 @@ start:
         pmove   (a0),tt0
         move.w  0x8020,d1
         move.w  0x8020,d1               | hit: no bus read
+| TT0 CI on a write: the data cache is completely ignored, even in write-allocation mode (6.1.2 p6-8)
+        clr.l   (a0)
+        pmove   (a0),tt0
+        move.l  #0x2100,d0              | WA + ED
+        movec   d0,cacr
+        move.l  #0x11111111,0x8030      | write allocates the long
+        move.l  #0x00ff8507,(a0)
+        pmove   (a0),tt0
+        move.l  #0x22222222,0x8030      | TT CI: memory only, the cache keeps $1111
+        clr.l   (a0)
+        pmove   (a0),tt0
+        move.w  0x8030,(a4)+            | hit: stale $1111 (the manual's stale-data case)
+        move.l  #0x2900,d0              | CD: clear the data cache
+        movec   d0,cacr
+        move.w  0x8030,(a4)+            | from memory: $2222
         moveq   #0,d0
         movec   d0,cacr
         move.l  #0x600dc0de,0x3300
