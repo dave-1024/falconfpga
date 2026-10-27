@@ -382,3 +382,9 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   translation is real; they now load an identity CRP (DT = 1) first.
 - Known deviation (core, not MMU): RTE does not rerun a faulted *write* (SSW DF); a faulted read is rerun. Demand paging
   of writes needs that; listed for stage 3.
+- Bug (board, PMMUTEST pmmu3): PFLUSH/PLOAD/PTEST are decoded as an F-line LEA with the An write switched off. The data
+  register write strobe is "on at every writeback unless an An write locks it out", so with the An write gone the
+  instruction wrote its EA into Dn (d5 = $00029000 after `move.l (a1),d5; ptestr #5,(a1),#7`). Fix: the MMU LEA
+  never writes a register; prog_pmop now checks a data register across a PTEST.
+- Lesson: when an instruction borrows another's path and switches one write off, check every strobe that was keyed on
+  the one you removed (here DR_WR_1 used AR_WR as its lock).

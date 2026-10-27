@@ -91,3 +91,8 @@
   Bitstream sha db91c2ff, linserver `~/fpga_bitstreams/st_helper_hdn_pmmu3.fs`.
 - Board: flashed pmmu3 (cable LOC 4817), serial OK before and after, boots to the EmuTOS 1.4 desktop
   (pmmu3_boot.png). PMMUTEST stage 2b image pmt3.st uploading.
+- PMMUTEST on pmmu3 (EmuTOS 1.4, AUTO on pmt3.st): it **does run from AUTO under EmuTOS**. Stage 1 all PASS, vector 56
+  now PASS (no DEV). First run: xlate SKIP (no Mshrink, so no free ST-RAM; fixed). Second run: translation works on
+  the board (write through page A lands in page B, U+M set, PFLUSHA + PTEST #0 gives I, invalid page -> bus error),
+  but 2 FAILs: d5/d4 overwritten by the PTEST EA ($00029000), a core bug (see FALCON_LESSONS). Fixed in 2951ec9;
+  pmmu4 build running. Screenshots `pmmu3_pmmutest.png`, `pmmu3_pmmutest2.png` (in /workspace/pmmu_out/shots).
