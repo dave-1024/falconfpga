@@ -601,6 +601,9 @@ signal PMMU_OP, MMU_CMD_BUSY, MMU_SR_WR, MMU_CMD_TT : std_logic;
 signal PMMU_EXT, MMU_SR_NEW     : std_logic_vector(15 downto 0);
 signal MMU_CMD_FC               : std_logic_vector(2 downto 0);
 signal MMU_DN_FC                : std_logic_vector(2 downto 0); -- [PMMU3]
+signal MMU_AN_WR                : std_logic; -- [PMMU3] PTEST A = 1
+signal MMU_AN_DATA              : std_logic_vector(31 downto 0);
+signal AR_WR_1_REG              : bit;
 signal CIINn_EFF                : std_logic;
 signal DC_WR_TTCI               : std_logic;
 signal DC_WR_GO_EFF             : std_logic;
@@ -900,7 +903,7 @@ begin
             P_DATA_EN => DATA_EN, P_BUS_EN => BUS_EN, P_DSACKn => DSACKn, P_STERMn => STERMn, P_BERRn => BERRn,
             P_DATA_IN => DATA_IN, ATC_CI => ATC_CI, WALKING => MMU_WALKING,
             CMD => PMMU_OP, CMD_EXT => PMMU_EXT, CMD_EA => DATA_IN_EXH, CMD_FC => MMU_CMD_FC, CMD_TT => MMU_CMD_TT,
-            CMD_BUSY => MMU_CMD_BUSY, SR_WR => MMU_SR_WR, SR_OUT => MMU_SR_NEW);
+            CMD_BUSY => MMU_CMD_BUSY, SR_WR => MMU_SR_WR, SR_OUT => MMU_SR_NEW, AN_WR => MMU_AN_WR, AN_DATA => MMU_AN_DATA);
     -- [PMMU2b] FC operand of PFLUSH/PLOAD/PTEST (9.8): 10XXX immediate, 00000 SFC, 00001 DFC.
     MMU_CMD_FC <= PMMU_EXT(2 downto 0) when PMMU_EXT(4 downto 3) = "10" else MMU_DN_FC when PMMU_EXT(4 downto 3) = "01" else SFC when PMMU_EXT(0) = '0' else DFC;
     -- PTEST level 0 sets T when TT0/TT1 match the tested address, FC and R/W (Table 9-3).
@@ -920,7 +923,9 @@ begin
 
     AR_SEL_RD_1 <= "111" when BUSY_EXH = '1' else AR_SEL_RD_1_MAIN; -- ISP during exception.
 
-    AR_IN_1 <= DATA_TO_CORE when BUSY_EXH = '1' else
+    AR_WR_1_REG <= AR_WR_1 or To_Bit(MMU_AN_WR);
+    AR_IN_1 <= MMU_AN_DATA when MMU_AN_WR = '1' else -- [PMMU3] PTEST A = 1 (the core is stalled by MMU_BUSY)
+               DATA_TO_CORE when BUSY_EXH = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
                -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
@@ -1363,7 +1368,7 @@ begin
             USP_WR                  => USP_WR,
             AR_DEC                  => AR_DEC,
             AR_INC                  => AR_INC,
-            AR_WR_1                 => AR_WR_1,
+            AR_WR_1                 => AR_WR_1_REG,
             AR_WR_2                 => AR_WR_2,
             UNMARK                  => UNMARK,
             EXT_WORD                => EXT_WORD,

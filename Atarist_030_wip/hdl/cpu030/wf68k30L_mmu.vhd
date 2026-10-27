@@ -75,6 +75,8 @@ entity WF68K30L_MMU is
         CMD_BUSY    : out std_logic; -- A command is pending or its table search runs.
         SR_WR       : out std_logic; -- PTEST result for MMUSR (Table 9-3, p. 9-60).
         SR_OUT      : out std_logic_vector(15 downto 0);
+        AN_WR       : out std_logic; -- [PMMU3] PTEST A = 1: write the last descriptor address to An (p. 9-63).
+        AN_DATA     : out std_logic_vector(31 downto 0);
         WALKING     : out std_logic
     );
 end entity WF68K30L_MMU;
@@ -192,7 +194,7 @@ begin
     G_CHIT: for i in 0 to NE - 1 generate
         C_HITV(i) <= '1' when E_V(i) = '1' and E_FC(i) = C_CFC and ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000" else '0';
     end generate;
-    CMD_BUSY <= '1' when CMD = '1' or C_PEND = '1' or M_LOAD = '1' or M_TEST = '1' else '0';
+    CMD_BUSY <= '1' when CMD = '1' or C_PEND = '1' or M_LOAD = '1' or M_TEST = '1' or SR_WR = '1' else '0'; -- [PMMU3] SR_WR: An write clock
     P_HITMUX: process(HITV, E_B, E_CI, E_WP, E_M, E_PA)
         variable B, CI, WP, M : std_logic;
         variable PA : std_logic_vector(23 downto 0);
@@ -322,7 +324,7 @@ begin
             if WS = W_IDLE and HIT_OK = '1' and C_ASn = '0' then
                 if (E_USED or HITV) = (E_USED'range => '1') then E_USED <= HITV; else E_USED <= E_USED or HITV; end if;
             end if;
-            SR_WR <= '0';
+            SR_WR <= '0'; AN_WR <= '0';
             if CMD = '1' then
                 C_PEND <= '1'; C_EXT <= CMD_EXT; C_EA <= CMD_EA; C_CFC <= CMD_FC; C_TT <= CMD_TT;
             end if;
@@ -512,7 +514,7 @@ begin
                         end loop;
                         if M_TEST = '1' then
                             -- PTEST levels 1-7 result (Table 9-3 p. 9-60): B, L, S, W, I, M, N; T = 0; no ATC entry.
-                            SR_WR <= '1';
+                            SR_WR <= '1'; AN_WR <= C_EXT(8); AN_DATA <= DADR;
                             SR_OUT <= R_BERR & R_LIM & (ACC_S and not L_FC(2)) & '0' & ACC_WP & BAD & (D0(4) and LAST_PAGE and not BAD)
                                       & "000000" & conv_std_logic_vector(NLEV, 3);
                             RMC_W <= '0'; WS <= W_IDLE;

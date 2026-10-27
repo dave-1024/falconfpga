@@ -1516,7 +1516,7 @@ begin
                 -- [PMMU2b] PFLUSHA, PFLUSH, PLOAD, PTEST (MC68030UM 9.8, pp. A-? / 9-64): decoded as an LEA that computes
                 -- the control EA (no operand access) and hands EA + extension word to the MMU at writeback instead of
                 -- writing An. Forms with no EA (PFLUSHA, PFLUSH FC,#MASK) use (A0) as a dummy EA.
-                -- FC field: 10XXX immediate, 00000 SFC, 00001 DFC 01RRR Dn [PMMU3]. PTEST with A = 1: not yet.
+                -- FC field: 10XXX immediate, 00000 SFC, 00001 DFC 01RRR Dn [PMMU3]. PTEST A = 1 [PMMU3]: level 1-7 only.
                 if IPIPE.D(11 downto 6) = "000000" and
                    (IPIPE.C(4 downto 3) = "10" or IPIPE.C(4 downto 3) = "01" or IPIPE.C(4 downto 1) = "0000" or IPIPE.C(12 downto 10) = "001") and
                    ((IPIPE.D(5 downto 0) = "000000" and IPIPE.C = x"2400") or -- PFLUSHA
@@ -1525,7 +1525,8 @@ begin
                       (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and
                      ((IPIPE.C(15 downto 8) = x"38") or -- PFLUSH FC,#MASK,<ea>
                       (IPIPE.C(15 downto 10) = "001000" and IPIPE.C(8 downto 5) = "0000") or -- PLOAD
-                      (IPIPE.C(15 downto 13) = "100" and IPIPE.C(8 downto 5) = "0000")))) then -- PTEST, A = 0
+                      (IPIPE.C(15 downto 13) = "100" and (IPIPE.C(8 downto 5) = "0000" or -- PTEST, A = 0
+                       (IPIPE.C(8) = '1' and IPIPE.C(12 downto 10) /= "000")))))) then -- [PMMU3] A = 1 (not with level 0)
                     OP_I <= LEA;
                 elsif IPIPE.D(11 downto 6) = "000000" and ((IPIPE.D(5 downto 3) >= "010" and IPIPE.D(5 downto 3) < "111") or
                    (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and

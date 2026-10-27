@@ -86,6 +86,14 @@ start:
         pflush  d2,#7
         ptestr  #1,0xa000,#0
         pmove   psr,(a4)+               | -> $0400 (flushed through d2)
+        move.l  #0x55555555,a2          | [PMMU3] PTEST A = 1: An = address of the last descriptor fetched (p. 9-63)
+        ptestr  #5,0xb000,#7,a2
+        move.l  a2,(a4)+                | -> $0000612C (B[$B])
+        ptestr  #5,0xd000,#1,a3
+        move.l  a3,(a4)+                | -> $00006000 (A[0], level 1)
+        lea     0xa000,a1
+        ptestr  #5,(a1),#7,a1
+        move.l  a1,(a4)+                | -> $00006128 (B[$A]; the EA used the old a1)
         move.l  #0x00ff8507,0x4010      | TT0: everything, CI
         pmove   0x4010,tt0
         ptestr  #5,0xa000,#0

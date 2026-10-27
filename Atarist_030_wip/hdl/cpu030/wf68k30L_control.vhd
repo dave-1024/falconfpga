@@ -762,6 +762,7 @@ begin
                    BIW_0(2 downto 0) when OP = LINK else
                    MOVEM_PNTR(2 downto 0) when OP = MOVEM else
                    BIW_0(2 downto 0) when OP = MOVE_USP else
+                   BIW_1(7 downto 5) when OP = LEA and BIW_0(13 downto 12) = "11" else -- [PMMU3] PTEST A = 1: An.
                    BIW_0(11 downto 9); -- ADDA, EXG, LEA, MOVE, MOVEA, SUBA.
     
     AR_WR_1 <= AR_WR_I;
