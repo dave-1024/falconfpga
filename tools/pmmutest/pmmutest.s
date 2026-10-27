@@ -102,7 +102,7 @@ check:	move.l	%a0,-(%sp)
 2:	bsr	puts
 	move.l	(%sp)+,%a0
 	bsr	puts
-	lea	s_exp(%pc),%a0
+	lea	s_exp(%pc),%a0		| values on their own line (40 columns in ST low)
 	bsr	puts
 	move.l	%d6,%d0
 	bsr	puthex
@@ -257,7 +257,16 @@ priv_i:	pmove	%tc,(%a0)		| handler returns to supervisor mode after it
 	bra	check
 | 9.7.3 p9-57 + 11.x: TT0/TT1 match with CI=1 -> cache inhibited. Measured with the 200 Hz timer:
 | a loop with caches on, then with TT0 (CI, all FC) over the loop, then TT1, then TT0 not matching (FC mask 0).
-T_ttci:	move.l	#0x3111,%d0		| ICache+DCache on, burst bits as TOS would
+T_ttci:	lea	ttloop(%pc),%a0		| only TT-RAM ($01xxxxxx) is cachable on falconfpga (bridge CIIN)
+	move.l	%a0,%d0
+	rol.l	#8,%d0
+	cmp.b	#1,%d0
+	beq	1f
+	lea	ndev(%pc),%a0
+	addq.w	#1,(%a0)
+	lea	s_skip(%pc),%a0
+	bra	puts
+1:	move.l	#0x3111,%d0		| ICache+DCache on, burst bits as TOS would
 	movec	%d0,%cacr
 	moveq	#0,%d0
 	bsr	ttloop
@@ -441,11 +450,12 @@ s_title: .asciz	"\33EPMMUTEST stage 1 (MC68030UM)\r\n"
 s_pass:	.asciz	"PASS "
 s_fail:	.asciz	"FAIL "
 s_dev:	.asciz	"DEV  "
-s_exp:	.asciz	" exp="
+s_exp:	.asciz	"\r\n     exp="
 s_got:	.asciz	" got="
 s_nl:	.asciz	"\r\n"
 s_sum1:	.asciz	"FAILS="
 s_sum2:	.asciz	" DEVS="
+s_skip:	.asciz	"SKIP TT CI timing: not in TT-RAM\r\n     (load TTRAM.PRG first)\r\n"
 s_key:	.asciz	"press a key\r\n"
 n_tc:	.asciz	"TC mask p9-52"
 n_tt0:	.asciz	"TT0 mask p9-57"
@@ -456,7 +466,7 @@ n_crpl:	.asciz	"CRP lo p9-54"
 n_srph:	.asciz	"SRP hi p9-54"
 n_srpl:	.asciz	"SRP lo p9-54"
 n_tcinvE: .asciz "TC invalid E=0 p9-53"
-n_tcinvX: .asciz "TC invalid -> vec 56 (p9-64) got vector off="
+n_tcinvX: .asciz "TC invalid->vec56 p9-64\r\n     got vector off="
 n_priv:	.asciz	"user PMOVE -> priv viol p9-65"
 n_tm0:	.asciz	"     ticks cached     "
 n_tm1:	.asciz	"     ticks TT0 CI     "
