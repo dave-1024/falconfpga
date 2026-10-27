@@ -37,7 +37,7 @@ say something, it is marked **TODO** or **(unsure)**.
 
 
 Release build tt20 (71624aa, 21 Oct 2026): clk32 33.38 MHz, clk_cpu030 22.42 MHz, worst slack -4.89 ns, 41127 LUT + 5036 ALU.
-| [P1] TOS 2.06 desktop stops taking clicks in Set Preferences when choosing ST Medium (parked) | Pointer still moves; Medium, OK and Cancel ignored (`docs/img/pmmu/pmmu5_tos206_prefs_hang.png`, 27 Oct 2026). Clicks work elsewhere on the desktop, so the helper's click injection is fine | **Unknown.** David: seen before the PMMU work; probably the same medium-res fault as the older medium-res DESKTOP.INF crash (medium-res addressing, blitter or cache). May also explain the GEMBENCH VDI/display scores below 100%. Investigate all three together after the PMMU | Plan: pmmu2 vs pmmu5, BLITON on/off, caches off, TT-RAM off, EmuTOS vs TOS 2.06. Note: pmmu2 did not come up with TOS 2.06 in flash (serial dead, no HDMI) | open | 27 Oct 2026 |
+| [P1] TOS 2.06 desktop stops taking clicks in Set Preferences when choosing ST Medium (parked) | Pointer still moves; Medium, OK and Cancel ignored (`docs/img/pmmu/pmmu5_tos206_prefs_hang.png`, 27 Oct 2026). Clicks work elsewhere on the desktop, so the helper's click injection is fine | **Unknown.** David: seen before the PMMU work; probably the same medium-res fault as the older medium-res DESKTOP.INF crash (medium-res addressing, blitter or cache). May also explain the GEMBENCH VDI/display scores below 100%. Investigate all three together after the PMMU | Plan: pmmu2 vs pmmu5, BLITON on/off, caches off, TT-RAM off, EmuTOS vs TOS 2.06. Note: pmmu2 did not come up with TOS 2.06 in flash (serial dead, no HDMI) (open, 27 Oct 2026) |
 
 ## Planned / later
 
