@@ -346,3 +346,13 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   logs at WS 0/1/3: all prog_* identical except prog_cas2 (the failing-CAS write is gone, 4 cycles fewer).
 - **Lesson.** Check a condition flag against the flag register it is meant to agree with: here Z and ALU_COND
   disagreed and nothing compared them.
+
+## WF68K30L: CpID 0 (PMMU) F-line must be privileged; PMMU stage 1 (branch pmmu)
+- Symptom: user-mode `$F0xx` (CpID 0, MMU) opcodes took Line-F (vector 11). MC68030UM p. 9-65 says every MMU
+  instruction is privileged: in user mode they must take privilege violation (vector 8) first. Fixed unconditionally.
+- Stage 1 PMMU adds PMOVE TC/TT0/TT1/MMUSR/CRP/SRP with manual masks (TC $83FFFFFF, TTx $FFFF8777,
+  MMUSR $EE47, CRP/SRP $FFFF0003_FFFFFFF0). TT0/TT1 matches with CI=1 drive CIOUTn and block cache fills.
+  No ATC or table walk yet: TC.E is stored but translation is identity. EmuTOS 1.4 (CONF_WITH_68030_PMMU)
+  writes CRP/TC/TT0/TT1 with PMOVE abs.L at boot, so CRP/SRP had to be in stage 1. TOS 2.06 has no PMOVE.
+- Lesson: PMOVE reuses the MOVES operand path; the R/W bit is ext-word bit 9 (not MOVES bit 11). Any mux keyed on the
+  direction must check BIW_1(9), or data reads back as 0.
