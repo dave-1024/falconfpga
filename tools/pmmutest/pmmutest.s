@@ -359,8 +359,12 @@ ratio:	move.l	%a0,-(%sp)
 1:	moveq	#0,%d6
 	lea	n_tmr(%pc),%a0
 	bra	check
-| loop: returns 200 Hz ticks in d0 (preserves d1)
-ttloop:	move.l	0x4ba,%d2
+| loop: returns 200 Hz ticks in d0 (preserves d1). Clears both caches first: on a cache hit the MMU
+| and so the TT CI bit are ignored (MC68030UM 6.1 p6-3), so lines cached before the TT change would still hit.
+ttloop:	movec	%cacr,%d2
+	or.w	#0x0808,%d2
+	movec	%d2,%cacr
+	move.l	0x4ba,%d2
 1:	cmp.l	0x4ba,%d2
 	beq	1b
 	move.l	0x4ba,%d2
