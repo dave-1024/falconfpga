@@ -19,3 +19,7 @@
   prog_bus netlist, so it looks like a gate-level ordering artifact. Not proven yet: check it on the board.
 - FALCON_LESSONS entry added (e7be193).
 - Board not flashed: the user's computer (the board host) is offline.
+- Same-script main (4f9ce7d) PnR: clk32 35.24, cpu030 21.86 MHz, 40309 LUT + 5038 ALU, 16119 regs, CLS 44%.
+  pmmu 3ad4633 vs main: +756 LUT, +28 ALU, +221 regs, cpu030 -0.35 MHz, clk32 unchanged; BSRAM 171/340, DSP 10.5/298 both.
+- Remaining (best guess): ~90k of 138k logic, ~38k of 69k CLS (keep ~20-25% free for routing/Fmax -> ~20-25k LUT
+  usable), 169 BSRAM, ~287 DSP. Planned stage 2 (22-entry fully associative ATC + table walker) est. 3-6k LUT + ~1.5k FF.
