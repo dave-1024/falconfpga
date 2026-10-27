@@ -459,6 +459,9 @@ component WF68K30L_CONTROL
         PMMU_WR             : out bit;
         PMMU_WR_SEL         : out std_logic_vector(5 downto 0);
         PMMU_FD             : out std_logic;
+        PMMU_OP             : out std_logic;
+        PMMU_EXT            : out std_logic_vector(15 downto 0);
+        MMU_BUSY            : in std_logic := '0';
         PMMU_RD_SEL         : out std_logic_vector(5 downto 0);
         PMMU_LD_HI          : out bit;
         PMMU_LO             : out bit;

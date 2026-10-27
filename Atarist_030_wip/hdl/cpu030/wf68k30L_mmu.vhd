@@ -65,6 +65,16 @@ entity WF68K30L_MMU is
         P_BERRn     : in std_logic;
         P_DATA_IN   : in std_logic_vector(31 downto 0);
         ATC_CI      : out std_logic; -- Page CI of the hit entry (CIOUT, cache inhibit).
+        -- [PMMU2b] PFLUSHA / PFLUSH / PLOAD / PTEST from the core (9.8): strobe with the extension word, the
+        -- effective address and the resolved function code; CMD_TT = TT0/TT1 match of that address (PTEST level 0).
+        CMD         : in std_logic := '0';
+        CMD_EXT     : in std_logic_vector(15 downto 0) := (others => '0');
+        CMD_EA      : in std_logic_vector(31 downto 0) := (others => '0');
+        CMD_FC      : in std_logic_vector(2 downto 0) := (others => '0');
+        CMD_TT      : in std_logic := '0';
+        CMD_BUSY    : out std_logic; -- A command is pending or its table search runs.
+        SR_WR       : out std_logic; -- PTEST result for MMUSR (Table 9-3, p. 9-60).
+        SR_OUT      : out std_logic_vector(15 downto 0);
         WALKING     : out std_logic
     );
 end entity WF68K30L_MMU;
@@ -128,6 +138,16 @@ signal CYC_CI   : std_logic := '0';
 signal CYC_PA   : std_logic_vector(23 downto 0);
 signal CYC_MASK : std_logic_vector(23 downto 0);
 signal XLATE_L  : std_logic; -- XLATE for a new cycle only.
+signal C_PEND   : std_logic := '0';
+signal C_HITV   : std_logic_vector(NE - 1 downto 0);
+signal C_EXT    : std_logic_vector(15 downto 0);
+signal C_EA     : std_logic_vector(31 downto 0);
+signal C_CFC    : std_logic_vector(2 downto 0);
+signal C_TT     : std_logic;
+signal M_LOAD, M_TEST : std_logic := '0'; -- The running search is a PLOAD / a PTEST.
+signal R_BERR, R_LIM : std_logic;           -- PTEST: bus error / limit violation during the search.
+signal NLEV     : integer range 0 to 7;     -- Descriptors fetched (PTEST N).
+signal TLEV     : integer range 0 to 7;     -- PTEST level.
 
 function TIW(T : std_logic_vector; L : integer) return integer is
 begin
@@ -169,6 +189,10 @@ begin
         HITV(i) <= '1' when E_V(i) = '1' and E_FC(i) = C_FC and ((E_LA(i) xor C_ADR(31 downto 8)) and PMASK) = x"000000" else '0';
     end generate;
     HIT <= '1' when HITV /= (HITV'range => '0') else '0';
+    G_CHIT: for i in 0 to NE - 1 generate
+        C_HITV(i) <= '1' when E_V(i) = '1' and E_FC(i) = C_CFC and ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000" else '0';
+    end generate;
+    CMD_BUSY <= '1' when CMD = '1' or C_PEND = '1' or M_LOAD = '1' or M_TEST = '1' else '0';
     P_HITMUX: process(HITV, E_B, E_CI, E_WP, E_M, E_PA)
         variable B, CI, WP, M : std_logic;
         variable PA : std_logic_vector(23 downto 0);
@@ -298,14 +322,55 @@ begin
             if WS = W_IDLE and HIT_OK = '1' and C_ASn = '0' then
                 if (E_USED or HITV) = (E_USED'range => '1') then E_USED <= HITV; else E_USED <= E_USED or HITV; end if;
             end if;
+            SR_WR <= '0';
+            if CMD = '1' then
+                C_PEND <= '1'; C_EXT <= CMD_EXT; C_EA <= CMD_EA; C_CFC <= CMD_FC; C_TT <= CMD_TT;
+            end if;
             if RESET = '1' then
-                WS <= W_IDLE; RMC_W <= '0';
+                WS <= W_IDLE; RMC_W <= '0'; C_PEND <= '0'; M_LOAD <= '0'; M_TEST <= '0';
             elsif FLUSH_ALL = '1' and WS = W_IDLE then
                 E_V <= (others => '0'); E_USED <= (others => '0');
             else
                 case WS is
                     when W_IDLE =>
-                        if XLATE = '1' and C_ASn = '0' and HIT_OK = '0' and FAULT_NOW = '0' then
+                        M_LOAD <= '0'; M_TEST <= '0'; R_BERR <= '0'; R_LIM <= '0'; NLEV <= 0;
+                        if C_PEND = '1' and C_ASn = '1' and CYC_ON = '0' then
+                            C_PEND <= '0';
+                            if C_EXT(15 downto 13) = "001" and C_EXT(12 downto 10) /= "000" then
+                                -- PFLUSHA (010), PFLUSH FC,#MASK (100), PFLUSH FC,#MASK,<ea> (110): 9.8, p. 9-17.
+                                for i in 0 to NE - 1 loop
+                                    if C_EXT(12 downto 10) = "010" or
+                                       (((E_FC(i) xor C_CFC) and C_EXT(7 downto 5)) = "000" and
+                                        (C_EXT(11) = '0' or ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000")) then
+                                        E_V(i) <= '0'; E_USED(i) <= '0';
+                                    end if;
+                                end loop;
+                            elsif C_EXT(15 downto 13) = "100" and C_EXT(12 downto 10) = "000" then
+                                -- PTEST level 0: ATC search only (Table 9-3).
+                                SR_WR <= '1';
+                                if C_TT = '1' then
+                                    SR_OUT <= x"0040"; -- T
+                                else
+                                    SR_OUT <= (others => '0');
+                                    for i in 0 to NE - 1 loop
+                                        if E_V(i) = '1' and E_FC(i) = C_CFC and ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000" then
+                                            SR_OUT(15) <= E_B(i); SR_OUT(11) <= E_WP(i); SR_OUT(10) <= E_B(i); SR_OUT(9) <= E_M(i);
+                                        end if;
+                                    end loop;
+                                    if C_HITV = (C_HITV'range => '0') then SR_OUT(10) <= '1'; end if;
+                                end if;
+                            else
+                                -- PLOAD (R/W = ext bit 9: 1 = read) or PTEST levels 1-7: a table search for <ea>, FC.
+                                L_LA <= C_EA; L_FC <= C_CFC; L_WR <= not C_EXT(9); WS <= W_ROOT;
+                                if C_EXT(15 downto 13) = "100" then
+                                    M_TEST <= '1'; TLEV <= conv_integer(C_EXT(12 downto 10));
+                                else
+                                    M_LOAD <= '1';
+                                    -- The new entry replaces an existing one for that page.
+                                    E_V <= E_V and not C_HITV;
+                                end if;
+                            end if;
+                        elsif XLATE = '1' and C_ASn = '0' and HIT_OK = '0' and FAULT_NOW = '0' then
                             L_LA <= C_ADR; L_FC <= C_FC; L_WR <= C_WR; WS <= W_ROOT;
                             -- A write that hit an entry with M = 0: that entry is replaced by the new one (9.4.1 M bit).
                             if HIT = '1' then E_V <= E_V and not HITV; end if;
@@ -342,7 +407,7 @@ begin
                         end if;
                         if LVL /= 0 and LIM_ON = '1' and TLONG = '1' and
                            ((LIM_LU = '0' and IDX(14 downto 0) > LIM) or (LIM_LU = '1' and IDX(14 downto 0) < LIM)) then
-                            BAD <= '1'; WS <= W_DONE; -- Limit violation.
+                            BAD <= '1'; R_LIM <= '1'; WS <= W_DONE; -- Limit violation.
                         else
                             if LVL /= 0 then
                                 SH <= std_logic_vector(shl(SH, conv_std_logic_vector(W, 5)));
@@ -354,7 +419,7 @@ begin
                         end if;
                     when W_FETCH =>
                         if BM_DONE = '1' then
-                            if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE;
+                            if BM_ERR = '1' then BAD <= '1'; R_BERR <= '1'; WS <= W_DONE;
                             elsif TLONG = '1' then
                                 D0 <= BM_RDATA; BM_ADR <= DADR + x"4"; BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH2;
                             else
@@ -363,10 +428,11 @@ begin
                         end if;
                     when W_FETCH2 =>
                         if BM_DONE = '1' then
-                            if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE; else D1 <= BM_RDATA; WS <= W_EVAL; end if;
+                            if BM_ERR = '1' then BAD <= '1'; R_BERR <= '1'; WS <= W_DONE; else D1 <= BM_RDATA; WS <= W_EVAL; end if;
                         end if;
                     when W_EVAL =>
                         DT := D0(1 downto 0);
+                        if NLEV < 7 then NLEV <= NLEV + 1; end if;
                         if LVL = 0 then NEXTW := TIW(TC, 1); elsif LVL < 4 then NEXTW := TIW(TC, LVL + 1); else NEXTW := 0; end if;
                         if IND = '1' then
                             -- Descriptor reached through an indirect descriptor: must be a page.
@@ -391,6 +457,8 @@ begin
                                 else BM_ADR <= D0(31 downto 2) & "00"; DADR <= D0(31 downto 2) & "00"; end if;
                                 BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH;
                                 LAST_PAGE <= '0';
+                            elsif M_TEST = '1' and NLEV + 1 >= TLEV then
+                                LAST_PAGE <= '0'; WS <= W_DONE; -- PTEST: the level given is reached.
                             else
                                 LAST_PAGE <= '0'; WS <= W_UPD; -- Table descriptor: update U, go down.
                             end if;
@@ -401,7 +469,9 @@ begin
                         if LAST_PAGE = '1' and L_WR = '1' and ACC_WP = '0' and not (ACC_S = '1' and L_FC(2) = '0') then
                             DM := '1';
                         end if;
-                        if DU = '0' or DM /= D0(4) then -- Locked write of the descriptor's first long (RMC held).
+                        if M_TEST = '1' then -- PTEST does not change the history bits.
+                            WS <= W_NEXT;
+                        elsif DU = '0' or DM /= D0(4) then -- Locked write of the descriptor's first long (RMC held).
                             D0(3) <= '1'; D0(4) <= DM;
                             BM_ADR <= DADR; BM_WDATA <= D0(31 downto 5) & DM & '1' & D0(2 downto 0);
                             BM_WR <= '1'; BM_GO <= '1'; WS <= W_UPDW;
@@ -436,6 +506,13 @@ begin
                             if E_V(i) = '0' then FREE := i; end if;
                             if E_USED(i) = '0' then NRU := i; end if;
                         end loop;
+                        if M_TEST = '1' then
+                            -- PTEST levels 1-7 result (Table 9-3 p. 9-60): B, L, S, W, I, M, N; T = 0; no ATC entry.
+                            SR_WR <= '1';
+                            SR_OUT <= R_BERR & R_LIM & (ACC_S and not L_FC(2)) & '0' & ACC_WP & BAD & (D0(4) and LAST_PAGE and not BAD)
+                                      & "000000" & conv_std_logic_vector(NLEV, 3);
+                            RMC_W <= '0'; WS <= W_IDLE;
+                        else
                         if FREE >= 0 then IDXI := FREE; elsif NRU >= 0 then IDXI := NRU; else IDXI := 0; end if;
                         E_V(IDXI) <= '1'; E_FC(IDXI) <= L_FC; E_LA(IDXI) <= L_LA(31 downto 8) and PMASK;
                         E_PA(IDXI) <= PA32(31 downto 8);
@@ -447,6 +524,7 @@ begin
                         E_M(IDXI) <= D0(4) or (L_WR and not BAD);
                         E_USED(IDXI) <= '1';
                         RMC_W <= '0'; WS <= W_IDLE;
+                        end if;
                 end case;
             end if;
         end if;

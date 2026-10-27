@@ -277,6 +277,9 @@ entity WF68K30L_CONTROL is
         PMMU_WR             : out bit; -- [PMMU1] PMOVE <ea>,MRn writeback strobe.
         PMMU_WR_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of that PMOVE.
         PMMU_FD             : out std_logic; -- [PMMU2b] FD bit (ext word bit 8) of that PMOVE.
+        PMMU_OP             : out std_logic; -- [PMMU2b] PFLUSH/PLOAD/PTEST writeback strobe (EA on the ALU result).
+        PMMU_EXT            : out std_logic_vector(15 downto 0); -- [PMMU2b] its extension word.
+        MMU_BUSY            : in std_logic := '0'; -- [PMMU2b] MMU operation still running: no next opcode.
         PMMU_RD_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of the current PMOVE.
         PMMU_LD_HI          : out bit; -- [PMMU1] Upper long of a CRP/SRP read is on DATA_TO_CORE.
         PMMU_LO             : out bit; -- [PMMU1] Second (lower) long of a CRP/SRP transfer.
@@ -344,7 +347,9 @@ type FETCH_STATES is (START_OP, CALC_AEFF, FETCH_DISPL, FETCH_EXWORD_1, FETCH_D_
 type EXEC_WB_STATES is (IDLE, EXECUTE, ADR_PIPELINE, WRITEBACK, WRITE_DEST);
 signal MV_RW, MV_AN, MV_RW_WB : std_logic; -- [PMMU1]
 signal PM_INFL : std_logic := '0'; -- [PMMU2]
-signal PMMU_WR_D : std_logic := '0'; -- [PMMU2] PMMU_WR one clock later (START_OP hold).
+signal PMMU_WR_D : std_logic := '0';
+signal BIW_0_WB_MMU : std_logic := '0'; -- [PMMU2b] the instruction in writeback is an F-line (MMU) LEA.
+signal PMMU_OP_I : std_logic; -- [PMMU2] PMMU_WR one clock later (START_OP hold).
 signal PM_QUAD : std_logic; -- [PMMU1] PMOVE of the 64-bit CRP or SRP: two long bus transfers (EA, EA+4).
 signal FETCH_STATE          : FETCH_STATES := START_OP;  -- [F49] was
     -- uninitialised while its partner NEXT_FETCH_STATE had an init (F44a).
@@ -456,7 +461,7 @@ begin
 
     OW_REQ <= '0' when BUSY_EXH = '1' else
               '0' when EXH_REQ = '1' and LOOP_BSY = '0' else -- Non interrupt exception requests, loop has priority.
-              '0' when PM_INFL = '1' or PMMU_WR_D = '1' else -- [PMMU2] PMOVE to the MMU: no next opcode before its writeback (8.1.10).
+              '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' else -- [PMMU2] PMOVE to the MMU: no next opcode before its writeback (8.1.10).
               '0' when OPD_ACK = '1' or OW_RDY = '1' else
               '1' when NO_PIPELINE = true and FETCH_STATE = START_OP and ALU_BSY = '0' else
               '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else '0';
@@ -681,6 +686,7 @@ begin
     -- Addressing mode:
     ADR_MODE <= ADR_MODE_I;
     ADR_MODE_I <= "010" when OP = BSR or OP = CAS2 or OP = LINK or OP = UNLK else -- (An), (Dn).
+                  "010" when OP = LEA and BIW_0(13 downto 12) = "11" and BIW_0(5 downto 3) = "000" else -- [PMMU2b] PFLUSHA etc.: dummy (A0).
                   "010" when OP = RTD or OP = RTR or OP = RTS else -- (An).
                   "011" when OP = CMPM else -- (An)+
                   "100" when OP = ABCD or OP = SBCD else -- -(An).
@@ -769,6 +775,7 @@ begin
                '1' when (OP_WB_I = ADDQ or OP_WB_I = SUBQ) and BIW_0_WB(5 downto 3) = "001" else
                '1' when OP_WB_I = EXG and BIW_0_WB(7 downto 3) = "01001" else -- Two address registers.
                '1' when OP_WB_I = EXG and BIW_0_WB(7 downto 3) = "10001" else -- Data and Address register.
+               '0' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' else -- [PMMU2b] MMU operation: no An.
                '1' when OP_WB_I = LEA else
                '1' when OP_WB_I = MOVE_USP and BIW_0_WB(3) = '1' else
                '1' when OP_WB_I = MOVEA else
@@ -1014,6 +1021,7 @@ begin
             MOVEM_ADn_WB <= MOVEM_ADn_I;
             OP_WB_I <= OP;
             BIW_0_WB <= BIW_0(11 downto 0);
+            if BIW_0(13 downto 12) = "11" then BIW_0_WB_MMU <= '1'; else BIW_0_WB_MMU <= '0'; end if;
             BIW_1_WB <= BIW_1;
         end if;
     end process WB_BUFFER;
@@ -1159,20 +1167,23 @@ begin
     P_PMMU_WR_D: process(CLK)
     begin
         if CLK = '1' and CLK' event then
-            if OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK then
+            if (OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK) or PMMU_OP_I = '1' then
                 PMMU_WR_D <= '1';
             else
                 PMMU_WR_D <= '0';
             end if;
             if RESET_CPU = '1' or PMMU_WR_D = '1' then
                 PM_INFL <= '0';
-            elsif FETCH_STATE = INIT_EXEC_WB and OP = PMOVE and BIW_1(9) = '0' then
+            elsif FETCH_STATE = INIT_EXEC_WB and ((OP = PMOVE and BIW_1(9) = '0') or (OP = LEA and BIW_0(13 downto 12) = "11")) then
                 PM_INFL <= '1';
             end if;
         end if;
     end process P_PMMU_WR_D;
     PMMU_WR_SEL <= BIW_1_WB(15 downto 10);
     PMMU_FD <= BIW_1_WB(8);
+    PMMU_OP_I <= '1' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' and EXEC_WB_STATE = WRITEBACK else '0';
+    PMMU_OP <= PMMU_OP_I;
+    PMMU_EXT <= BIW_1_WB;
 
     CACR_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"002" else '0';
     CACR_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1_WB(11 downto 0) = x"002" and EXEC_WB_STATE = WRITEBACK else '0';
@@ -1829,7 +1840,7 @@ begin
 
     FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
-                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
+                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
     -- ASH: avoid structural hazard.
     -- ASH: avoid control hazard.
@@ -1838,7 +1849,7 @@ begin
             when START_OP =>
                 if OPD_ACK = '0' and OW_RDY = '0' then
                     NEXT_FETCH_STATE <= START_OP;
-                elsif PM_INFL = '1' or PMMU_WR_D = '1' then
+                elsif PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' then -- [PMMU2b] also an MMU operation (PLOAD/PTEST walk)
                     -- [PMMU2] A PMOVE to an MMU register finishes its writeback before the next instruction
                     -- starts, so the post-instruction MMU configuration exception (8.1.10) is taken before it.
                     NEXT_FETCH_STATE <= START_OP;

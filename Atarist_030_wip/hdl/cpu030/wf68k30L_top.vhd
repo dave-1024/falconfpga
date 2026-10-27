@@ -597,6 +597,9 @@ signal C_DOUT                   : std_logic_vector(31 downto 0);
 signal C_DSACKn                 : std_logic_vector(1 downto 0);
 signal C_STERMn, C_BERRn        : std_logic;
 signal P_RWn, P_RMCn            : std_logic;
+signal PMMU_OP, MMU_CMD_BUSY, MMU_SR_WR, MMU_CMD_TT : std_logic;
+signal PMMU_EXT, MMU_SR_NEW     : std_logic_vector(15 downto 0);
+signal MMU_CMD_FC               : std_logic_vector(2 downto 0);
 signal CIINn_EFF                : std_logic;
 signal DC_WR_TTCI               : std_logic;
 signal DC_WR_GO_EFF             : std_logic;
@@ -774,6 +777,8 @@ begin
                 MMU_TC(31) <= '0';
                 MMU_TT0(15) <= '0';
                 MMU_TT1(15) <= '0';
+            elsif MMU_SR_WR = '1' then
+                MMU_SR <= MMU_SR_NEW; -- [PMMU2b] PTEST result.
             elsif PMMU_WR = '1' then
                 case PMMU_WR_SEL is
                     when "010000" => -- TC
@@ -892,7 +897,18 @@ begin
             P_ADR => ADR_OUT, P_FC => FC_OUT, P_SIZE => SIZE, P_ASn => ASn, P_DSn => DSn, P_RWn => RWn,
             P_RMCn => RMCn, P_ECSn => ECSn, P_OCSn => OCSn, P_DBENn => DBENn, P_DATA_OUT => DATA_OUT,
             P_DATA_EN => DATA_EN, P_BUS_EN => BUS_EN, P_DSACKn => DSACKn, P_STERMn => STERMn, P_BERRn => BERRn,
-            P_DATA_IN => DATA_IN, ATC_CI => ATC_CI, WALKING => MMU_WALKING);
+            P_DATA_IN => DATA_IN, ATC_CI => ATC_CI, WALKING => MMU_WALKING,
+            CMD => PMMU_OP, CMD_EXT => PMMU_EXT, CMD_EA => DATA_IN_EXH, CMD_FC => MMU_CMD_FC, CMD_TT => MMU_CMD_TT,
+            CMD_BUSY => MMU_CMD_BUSY, SR_WR => MMU_SR_WR, SR_OUT => MMU_SR_NEW);
+    -- [PMMU2b] FC operand of PFLUSH/PLOAD/PTEST (9.8): 10XXX immediate, 00000 SFC, 00001 DFC.
+    MMU_CMD_FC <= PMMU_EXT(2 downto 0) when PMMU_EXT(4 downto 3) = "10" else SFC when PMMU_EXT(0) = '0' else DFC;
+    -- PTEST level 0 sets T when TT0/TT1 match the tested address, FC and R/W (Table 9-3).
+    MMU_CMD_TT <= '1' when (MMU_TT0(15) = '1' and ((DATA_IN_EXH(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                            and ((MMU_CMD_FC xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                            and (MMU_TT0(8) = '1' or PMMU_EXT(9) = MMU_TT0(9)))
+                       or (MMU_TT1(15) = '1' and ((DATA_IN_EXH(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                            and ((MMU_CMD_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                            and (MMU_TT1(8) = '1' or PMMU_EXT(9) = MMU_TT1(9))) else '0';
 
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
@@ -1623,6 +1639,9 @@ begin
             PMMU_WR                 => PMMU_WR,
             PMMU_WR_SEL             => PMMU_WR_SEL,
             PMMU_FD                 => PMMU_FD,
+            PMMU_OP                 => PMMU_OP,
+            PMMU_EXT                => PMMU_EXT,
+            MMU_BUSY                => MMU_CMD_BUSY,
             PMMU_RD_SEL             => PMMU_RD_SEL,
             PMMU_LD_HI              => PMMU_LD_HI,
             PMMU_LO                 => PMMU_LO,
