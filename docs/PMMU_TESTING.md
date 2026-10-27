@@ -76,3 +76,12 @@ Findings so far (27 Oct 2026):
 - Board (pmmu8, TOS 2.06, 4 MB): AUTO is reached (STAGE0.TXT), but MiNT never opens BOOT.LOG and MPTEST never
   runs, with memory protection on **and off**. So the stop is before MiNT's file system init and is not caused
   by MiNT's page tables (with MEM_PROT=NO MiNT does not set TC.E). Cause not found yet; see PMMU_PROGRESS.
+
+### Status 27 Oct 21:30 UTC (MiNT on the board)
+- Last on-screen text, MP on (mint_scr.st, WRITE_BOOT=NO): FAT/VFAT banner `(c) 2000-2010 by Frank Naumann.`
+  (img/pmmu/mint_board_stop.png). With DIAG_OVERLAY (img/pmmu/mint_mpon_overlay_halt.png) the CPU is halted
+  (double bus fault) right after mint030 set_mmu does `pmove 12(sp),tc` (TC $80D04447, CRP table $BC000);
+  last bus cycle = a table-search read at $BC186.
+- Theory: a PMMU/table-search fault seen only on the board (bridge/bus side): the same state replayed on the
+  RTL core (tools/minttest/sim) translates correctly. Next: whole-ST bench or DIAG_EXCWATCH.
+- MP off (mint_nomp.st) is separate: CPU keeps running past `Installing BIOS keyboard table`, no BOOT.LOG yet.
