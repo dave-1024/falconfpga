@@ -277,6 +277,8 @@ entity WF68K30L_CONTROL is
         PMMU_WR             : out bit; -- [PMMU1] PMOVE <ea>,MRn writeback strobe.
         PMMU_WR_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of that PMOVE.
         PMMU_RD_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of the current PMOVE.
+        PMMU_LD_HI          : out bit; -- [PMMU1] Upper long of a CRP/SRP read is on DATA_TO_CORE.
+        PMMU_LO             : out bit; -- [PMMU1] Second (lower) long of a CRP/SRP transfer.
         CACR_RD             : out bit;
         CAAR_WR             : out bit;
         CAAR_RD             : out bit;
@@ -340,6 +342,7 @@ type FETCH_STATES is (START_OP, CALC_AEFF, FETCH_DISPL, FETCH_EXWORD_1, FETCH_D_
                       FETCH_ABS_LO, FETCH_IDATA_B2, FETCH_IDATA_B1, FETCH_MEMADR, FETCH_OPERAND, INIT_EXEC_WB, SLEEP, SWITCH_STATE);
 type EXEC_WB_STATES is (IDLE, EXECUTE, ADR_PIPELINE, WRITEBACK, WRITE_DEST);
 signal MV_RW, MV_AN, MV_RW_WB : std_logic; -- [PMMU1]
+signal PM_QUAD : std_logic; -- [PMMU1] PMOVE of the 64-bit CRP or SRP: two long bus transfers (EA, EA+4).
 signal FETCH_STATE          : FETCH_STATES := START_OP;  -- [F49] was
     -- uninitialised while its partner NEXT_FETCH_STATE had an init (F44a).
     -- Both are read by the TRAP_V/TRAP_cc terms; leaving one uninitialised
@@ -1142,6 +1145,10 @@ begin
     MV_AN <= '0' when OP = PMOVE else BIW_1(15);
     MV_RW_WB <= BIW_1_WB(9) when OP_WB_I = PMOVE else BIW_1_WB(11);
     PMMU_RD_SEL <= BIW_1(15 downto 10);
+    PM_QUAD <= '1' when OP = PMOVE and BIW_1(15 downto 11) = "01001" else '0';
+    -- First (upper) long of a quad read: the top level keeps it until the writeback of the lower long.
+    PMMU_LD_HI <= '1' when PM_QUAD = '1' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and PHASE2 = false else '0';
+    PMMU_LO <= '1' when PHASE2 = true else '0'; -- Quad write: the lower long is the second ALU load.
     PMMU_WR <= '1' when OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK else '0';
     PMMU_WR_SEL <= BIW_1_WB(15 downto 10);
 
@@ -1501,6 +1508,12 @@ begin
                     if FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
                         ADR_OFFS_VAR := ADR_OFFS_VAR + "10";
                     end if;
+                when PMOVE => -- [PMMU1] CRP/SRP: the lower long is at EA+4.
+                    if PM_QUAD = '1' and PHASE2 = false and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' then
+                        ADR_OFFS_VAR := ADR_OFFS_VAR + "100";
+                    elsif PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
+                        ADR_OFFS_VAR := ADR_OFFS_VAR + "100";
+                    end if;
                 when others => null;
             end case;
         end if;
@@ -1685,6 +1698,10 @@ begin
             PHASE2 <= true; -- Used as a control flow switch.
         elsif (OP = CHK2 or OP = CMP2 or OP = CMPM) and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
             PHASE2 <= true; -- Used as a control flow switch.
+        elsif PM_QUAD = '1' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' then
+            PHASE2 <= true; -- [PMMU1] Upper long read, the lower one follows.
+        elsif PM_QUAD = '1' and MV_RW = '1' and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
+            PHASE2 <= true; -- [PMMU1] Upper long loaded for writing, the lower one follows.
         elsif OP = JSR and FETCH_STATE = SLEEP then
             PHASE2 <= true; -- One clock cycle delay for address calculation.
         elsif OP = PEA and FETCH_STATE = SWITCH_STATE then
@@ -1721,6 +1738,7 @@ begin
                false when (OP_WB_I = BFCHG or OP_WB_I = BFCLR or OP_WB_I = BFINS or OP_WB_I = BFSET) and BF_BYTES = 5 else
                false when OP_WB_I = MOVEM and OP = MOVEM and FETCH_STATE /= START_OP and FETCH_STATE /= SLEEP else
                false when OP_WB_I = MOVEP and OP = MOVEP and FETCH_STATE /= START_OP else
+               false when OP_WB_I = PMOVE and PM_QUAD = '1' and PHASE2 = false and FETCH_STATE /= START_OP else -- [PMMU1]
                true;
 
     P_FI_DIRTY: process
@@ -2524,6 +2542,12 @@ begin
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             end if;
+                        when PMOVE => -- [PMMU1] CRP/SRP: read the lower long at EA+4.
+                            if PM_QUAD = '1' and PHASE2 = false then
+                                NEXT_FETCH_STATE <= CALC_AEFF;
+                            else
+                                NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                            end if;
                         when others => 
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                     end case;
@@ -2675,6 +2699,14 @@ begin
                             NEXT_FETCH_STATE <= SWITCH_STATE;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
+                        end if;
+                    when PMOVE => -- [PMMU1] CRP/SRP to memory: a second ALU load and write for the lower long.
+                        if ALU_BSY = '0' and PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false then
+                            NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                        elsif ALU_BSY = '0' then
+                            NEXT_FETCH_STATE <= START_OP;
+                        else
+                            NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVEP =>
                         if ALU_BSY = '0' and MOVEP_PNTR_I = 0 then

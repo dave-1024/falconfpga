@@ -1508,12 +1508,14 @@ begin
                 -- [PMMU1] PMOVE (MC68030UM 9.8, CpID 0, opword $F000 + EA, one extension word).
                 -- Memory alterable EA only: (An), (An)+, -(An), (d16,An), (d8,An,Xn)/full, (xxx).W, (xxx).L.
                 -- Extension word: 000 P-REG R/W FD 00000000 (TT0 = 010, TT1 = 011),
-                --                 010 P-REG R/W FD 00000000 (TC = 000; SRP 010 / CRP 011 are stage 1b, still Line-F),
+                --                 010 P-REG R/W FD 00000000 (TC = 000, SRP = 010, CRP = 011; the 64-bit SRP/CRP
+                --                 not yet with (An)+ / -(An): those two still take the F-line trap),
                 --                 011 000   R/W 0  00000000 (MMUSR, word).
                 if IPIPE.D(11 downto 6) = "000000" and ((IPIPE.D(5 downto 3) >= "010" and IPIPE.D(5 downto 3) < "111") or
                    (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and
                    ((IPIPE.C(15 downto 13) = "000" and IPIPE.C(12 downto 11) = "01") or
                     (IPIPE.C(15 downto 10) = "010000") or
+                    (IPIPE.C(15 downto 11) = "01001" and IPIPE.D(5 downto 3) /= "011" and IPIPE.D(5 downto 3) /= "100") or
                     (IPIPE.C(15 downto 10) = "011000" and IPIPE.C(8) = '0')) then
                     OP_I <= PMOVE;
                 else

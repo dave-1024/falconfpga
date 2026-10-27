@@ -49,6 +49,24 @@ start:
         move.l  8(a1),(a4)+             | -> $00FF0000
         pmove   tt1,0x4030
         move.l  0x4030,(a4)+            | -> $11228007
+| 64-bit CRP/SRP (9.7.1): two long transfers, EA and EA+4; masks $FFFF0003 / $FFFFFFF0
+        move.l  #0xffffffff,(a0)
+        move.l  #0xffffffff,4(a0)
+        pmove   (a0),crp
+        pmove   crp,0x4040
+        move.l  0x4040,(a4)+            | -> $FFFF0003
+        move.l  0x4044,(a4)+            | -> $FFFFFFF0
+        move.l  #0x80000002,0x4050
+        move.l  #0x0012345f,0x4054
+        .long   0xf0394800,0x00004050   | pmove $4050.l,srp (EmuTOS style absolute long)
+        lea     0x4060,a5
+        pmove   srp,(a5)
+        move.l  (a5)+,(a4)+             | -> $80000002
+        move.l  (a5)+,(a4)+             | -> $00123450
+        pmove   crp,4(a5)               | CRP unchanged by the SRP load
+        move.l  4(a5),(a4)+             | -> $FFFF0003
+        move.l  8(a5),(a4)+             | -> $FFFFFFF0
+        .word   0xf018,0x4c00           | pmove (a0)+,crp: not yet (stage 1 deviation): F-line -> $002C
         clr.l   (a0)
         pmove   (a0),tt0
         pmove   (a0),tt1

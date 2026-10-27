@@ -570,6 +570,11 @@ signal MMU_TC                   : std_logic_vector(31 downto 0) := (others => '0
 signal MMU_TT0                  : std_logic_vector(31 downto 0) := (others => '0');
 signal MMU_TT1                  : std_logic_vector(31 downto 0) := (others => '0');
 signal MMU_SR                   : std_logic_vector(15 downto 0) := (others => '0');
+signal MMU_CRP                  : std_logic_vector(63 downto 0) := (others => '0');
+signal MMU_SRP                  : std_logic_vector(63 downto 0) := (others => '0');
+signal PMMU_HI, PMMU_HI_WB      : std_logic_vector(31 downto 0) := (others => '0');
+signal PMMU_LD_HI               : bit;
+signal PMMU_LO                  : bit;
 signal PMMU_WR                  : bit;
 signal PMMU_WR_SEL              : std_logic_vector(5 downto 0);
 signal PMMU_RD_SEL              : std_logic_vector(5 downto 0);
@@ -772,13 +777,34 @@ begin
                     when "000010" => MMU_TT0 <= DATA_IN_EXH and x"FFFF8777";
                     when "000011" => MMU_TT1 <= DATA_IN_EXH and x"FFFF8777";
                     when "011000" => MMU_SR <= DATA_IN_EXH(15 downto 0) and x"EE47";
+                    -- CRP/SRP (9.7.1, Figure 9-35): L/U, LIMIT, DT in the upper long, table address bits 31-4 in
+                    -- the lower; bits 3-0 are ignored. DT = 0 is loaded as written (the configuration exception
+                    -- it causes is a later stage).
+                    when "010010" => MMU_SRP <= (PMMU_HI_WB and x"FFFF0003") & (DATA_IN_EXH and x"FFFFFFF0");
+                    when "010011" => MMU_CRP <= (PMMU_HI_WB and x"FFFF0003") & (DATA_IN_EXH and x"FFFFFFF0");
                     when others => null;
                 end case;
             end if;
         end if;
     end process P_MMU_REGS;
 
-    PMMU_RD_DATA <= MMU_TC when PMMU_RD_SEL = "010000" else
+    P_PMMU_HI: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            if PMMU_LD_HI = '1' then
+                PMMU_HI <= DATA_TO_CORE;
+            end if;
+            if ALU_INIT = '1' and OP = PMOVE then
+                PMMU_HI_WB <= PMMU_HI; -- Hand the upper long on with the instruction to its writeback.
+            end if;
+        end if;
+    end process P_PMMU_HI;
+
+    PMMU_RD_DATA <= MMU_SRP(63 downto 32) when PMMU_RD_SEL = "010010" and PMMU_LO = '0' else
+                    MMU_SRP(31 downto 0) when PMMU_RD_SEL = "010010" else
+                    MMU_CRP(63 downto 32) when PMMU_RD_SEL = "010011" and PMMU_LO = '0' else
+                    MMU_CRP(31 downto 0) when PMMU_RD_SEL = "010011" else
+                    MMU_TC when PMMU_RD_SEL = "010000" else
                     MMU_TT0 when PMMU_RD_SEL = "000010" else
                     MMU_TT1 when PMMU_RD_SEL = "000011" else
                     x"0000" & MMU_SR;
@@ -1529,6 +1555,8 @@ begin
             PMMU_WR                 => PMMU_WR,
             PMMU_WR_SEL             => PMMU_WR_SEL,
             PMMU_RD_SEL             => PMMU_RD_SEL,
+            PMMU_LD_HI              => PMMU_LD_HI,
+            PMMU_LO                 => PMMU_LO,
             CAAR_RD                 => CAAR_RD,
             CAAR_WR                 => CAAR_WR,
             ISP_RD                  => ISP_RD,

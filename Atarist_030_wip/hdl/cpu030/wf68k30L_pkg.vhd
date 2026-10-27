@@ -459,6 +459,8 @@ component WF68K30L_CONTROL
         PMMU_WR             : out bit;
         PMMU_WR_SEL         : out std_logic_vector(5 downto 0);
         PMMU_RD_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_LD_HI          : out bit;
+        PMMU_LO             : out bit;
         CACR_RD             : out bit;
         CAAR_WR             : out bit;
         CAAR_RD             : out bit;
