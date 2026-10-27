@@ -150,6 +150,21 @@ signal M_LOAD, M_TEST : std_logic := '0'; -- The running search is a PLOAD / a P
 signal R_BERR, R_LIM : std_logic;           -- PTEST: bus error / limit violation during the search.
 signal NLEV     : integer range 0 to 7;     -- Descriptors fetched (PTEST N).
 signal TLEV     : integer range 0 to 7;     -- PTEST level.
+-- [PMMU3] 11.7 table search timing (MC68030UM pp. 11-51..11-57): the search is held until the clocks of the
+-- Motorola shell script (overhead + per descriptor + U/M writes + indirection + early termination) have passed.
+-- Bus times are the measured ones of each descriptor access, so wait states stretch it as on a real 68030.
+signal BM_CLKS  : integer range 0 to 63;    -- Bus cycle time of the last walker access (AS to termination, both halves).
+signal BUSA     : integer range 0 to 63;    -- First long of a long descriptor.
+signal W_TGT    : integer range 0 to 1023;  -- Script clocks of the running search.
+signal W_NCK    : integer range 0 to 1023;  -- Clocks since the search began.
+-- [PMMU3] 11.7.2 MMU instruction clocks (p. 11-60, I-cache case + (An) EA 4 where an <ea> is used): CMD_BUSY
+-- is held for I_PAD clocks after the command (PFLUSH(A), PTEST #0) or after the search (PLOAD, PTEST #1-7).
+-- The K constants are the clocks the core spends outside that window (decode, EA, write back), measured with
+-- prog_mmut.s at 0 wait states.
+signal I_PAD    : integer range 0 to 63 := 0;
+constant K_FL   : integer := 4;
+constant K_LD   : integer := -7; -- The search overlaps the core by 7 clocks.
+constant K_T0   : integer := 4;
 
 function TIW(T : std_logic_vector; L : integer) return integer is
 begin
@@ -194,7 +209,7 @@ begin
     G_CHIT: for i in 0 to NE - 1 generate
         C_HITV(i) <= '1' when E_V(i) = '1' and E_FC(i) = C_CFC and ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000" else '0';
     end generate;
-    CMD_BUSY <= '1' when CMD = '1' or C_PEND = '1' or M_LOAD = '1' or M_TEST = '1' or SR_WR = '1' else '0'; -- [PMMU3] SR_WR: An write clock
+    CMD_BUSY <= '1' when CMD = '1' or C_PEND = '1' or M_LOAD = '1' or M_TEST = '1' or SR_WR = '1' or I_PAD /= 0 else '0'; -- [PMMU3] SR_WR: An write clock
     P_HITMUX: process(HITV, E_B, E_CI, E_WP, E_M, E_PA)
         variable B, CI, WP, M : std_logic;
         variable PA : std_logic_vector(23 downto 0);
@@ -270,9 +285,10 @@ begin
                     when B_IDLE =>
                         if BM_GO = '1' then
                             BM_A <= BM_ADR; BM_D <= BM_WDATA; BM_SZ <= "00"; BM_HALF <= '0'; BM_ERR <= '0';
-                            BM_AS <= '1'; BM_DS <= not BM_WR; BM_CNT <= "00"; BS <= B_CYC;
+                            BM_AS <= '1'; BM_DS <= not BM_WR; BM_CNT <= "00"; BS <= B_CYC; BM_CLKS <= 0;
                         end if;
                     when B_CYC => -- Wait for the termination (sampled on the rising edge).
+                        if BM_CLKS < 63 then BM_CLKS <= BM_CLKS + 1; end if;
                         if BM_CNT /= "11" then BM_CNT <= BM_CNT + '1'; end if;
                         BM_DS <= '1';
                         if P_BERRn = '0' then
@@ -317,6 +333,7 @@ begin
         variable FREE : integer range -1 to NE - 1;
         variable NRU : integer range -1 to NE - 1;
         variable DST, DWP, DU, DM, DCI : std_logic;
+        variable TG : integer range 0 to 255;
     begin
         if CLK = '1' and CLK' event then
             BM_GO <= '0';
@@ -325,6 +342,8 @@ begin
                 if (E_USED or HITV) = (E_USED'range => '1') then E_USED <= HITV; else E_USED <= E_USED or HITV; end if;
             end if;
             SR_WR <= '0'; AN_WR <= '0';
+            if WS /= W_IDLE and W_NCK < 1023 then W_NCK <= W_NCK + 1; end if;
+            if I_PAD /= 0 then I_PAD <= I_PAD - 1; end if;
             if CMD = '1' then
                 C_PEND <= '1'; C_EXT <= CMD_EXT; C_EA <= CMD_EA; C_CFC <= CMD_FC; C_TT <= CMD_TT;
             end if;
@@ -336,10 +355,20 @@ begin
                 case WS is
                     when W_IDLE =>
                         M_LOAD <= '0'; M_TEST <= '0'; R_BERR <= '0'; R_LIM <= '0'; NLEV <= 0;
+                        W_NCK <= 1; -- The clock the search starts is the first after the missed cycle's start.
+                        -- Overhead: cough 7 + startup 8 + termination 8; startup 2 less with an FC lookup (p. 11-54).
+                        if TC(24) = '1' then W_TGT <= 21; else W_TGT <= 23; end if;
                         if C_PEND = '1' and C_ASn = '1' and CYC_ON = '0' then
                             C_PEND <= '0';
                             if C_EXT(15 downto 13) = "001" and C_EXT(12 downto 10) /= "000" then
                                 -- PFLUSHA (010), PFLUSH FC,#MASK (100), PFLUSH FC,#MASK,<ea> (110): 9.8, p. 9-17.
+                                -- 11.7.2: PFLUSHA 12; PFLUSH 16, FC from SFC/DFC 20; the <ea> form + 4 (An).
+                                if C_EXT(12 downto 10) = "010" then null; -- PFLUSHA (12) already takes longer here: not padded.
+                                else
+                                    if C_EXT(4 downto 3) = "00" then TG := 20; else TG := 16; end if;
+                                    if C_EXT(11) = '1' then TG := TG + 4; end if;
+                                    I_PAD <= TG - K_FL;
+                                end if;
                                 for i in 0 to NE - 1 loop
                                     if C_EXT(12 downto 10) = "010" or
                                        (((E_FC(i) xor C_CFC) and C_EXT(7 downto 5)) = "000" and
@@ -348,8 +377,8 @@ begin
                                     end if;
                                 end loop;
                             elsif C_EXT(15 downto 13) = "100" and C_EXT(12 downto 10) = "000" then
-                                -- PTEST level 0: ATC search only (Table 9-3).
-                                SR_WR <= '1';
+                                -- PTEST level 0: ATC search only (Table 9-3). 11.7.2: 22 + EA 4.
+                                SR_WR <= '1'; I_PAD <= 26 - K_T0;
                                 if C_TT = '1' then
                                     SR_OUT <= x"0040"; -- T
                                 else
@@ -386,6 +415,7 @@ begin
                         TADR <= RP(31 downto 4) & "0000";
                         LIM_ON <= '1'; LIM_LU <= RP(63); LIM <= RP(62 downto 48);
                         DT := RP(33 downto 32);
+                        if DT = "01" or DT = "00" then W_TGT <= 0; end if; -- No descriptor access: no script time.
                         if DT = "01" then -- Root page descriptor: early termination at the root, PA = address + LA.
                             D0 <= x"00000001"; D1 <= RP(31 downto 8) & x"00"; TLONG <= '1'; LAST_PAGE <= '1';
                             WS <= W_DONE; -- No descriptor in memory: no U/M update.
@@ -423,6 +453,7 @@ begin
                         if BM_DONE = '1' then
                             if BM_ERR = '1' then BAD <= '1'; R_BERR <= '1'; WS <= W_DONE;
                             elsif TLONG = '1' then
+                                BUSA <= BM_CLKS;
                                 D0 <= BM_RDATA; BM_ADR <= DADR + x"4"; BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH2;
                             else
                                 D0 <= BM_RDATA; D1 <= BM_RDATA; WS <= W_EVAL;
@@ -436,6 +467,22 @@ begin
                         DT := D0(1 downto 0);
                         if NLEV < 7 then NLEV <= NLEV + 1; end if;
                         if LVL = 0 then NEXTW := TIW(TC, 1); elsif LVL < 4 then NEXTW := TIW(TC, LVL + 1); else NEXTW := 0; end if;
+                        -- [PMMU3] Script clocks for this descriptor (p. 11-55).
+                        DT := D0(1 downto 0);
+                        if LVL = 0 then NEXTW := TIW(TC, 1); elsif LVL < 4 then NEXTW := TIW(TC, LVL + 1); else NEXTW := 0; end if;
+                        if IND = '1' then -- Indirection level: short 3 + bus, long 2 + 2 * bus.
+                            if TLONG = '1' then TG := 2 + BUSA + BM_CLKS; else TG := 3 + BM_CLKS; end if;
+                        elsif TLONG = '1' then -- Long: 6 + bus + max(bus - 4, 0).
+                            TG := 6 + BUSA;
+                            if BUSA > 4 then TG := TG + BUSA - 4; end if;
+                        else -- Short: 3 + bus.
+                            TG := 3 + BM_CLKS;
+                        end if;
+                        if IND = '0' and DT = "01" then
+                            if LVL = 0 or NEXTW /= 0 then TG := TG + 3;      -- Early termination penalty.
+                            elsif TLONG = '1' then TG := TG - 2; end if;      -- A long page: one box less.
+                        end if;
+                        W_TGT <= W_TGT + TG;
                         if IND = '1' then
                             -- Descriptor reached through an indirect descriptor: must be a page.
                             if DT /= "01" then BAD <= '1'; WS <= W_DONE;
@@ -448,7 +495,7 @@ begin
                         elsif DT = "00" then
                             BAD <= '1'; WS <= W_DONE; -- Invalid descriptor.
                         else
-                            -- [PMMU3] An indirect descriptor has no WP or S bit (9.5.1.4, Figures 9-14/9-15: bits 31-2
+                            -- [PMMU3] An indirect descriptor has no WP or S bit (9.5.1.11/12, Figures 9-17/9-18 pp. 9-27/9-28: bits 31-2
                             -- are the address), so only a table or page descriptor adds to WP/S.
                             if not (DT(1) = '1' and NEXTW = 0 and LVL /= 0) then
                                 if TLONG = '1' then ACC_S <= ACC_S or D0(8); end if;
@@ -486,6 +533,10 @@ begin
                         end if;
                     when W_UPDW =>
                         if BM_DONE = '1' then
+                            -- U set in a pointer: 4 + max(bus - 3, 0); U/M in the page: 2 + max(bus - 3, 0).
+                            if LAST_PAGE = '1' then TG := 2; else TG := 4; end if;
+                            if BM_CLKS > 3 then TG := TG + BM_CLKS - 3; end if;
+                            W_TGT <= W_TGT + TG;
                             if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE; else WS <= W_NEXT; end if;
                         end if;
                     when W_NEXT =>
@@ -498,6 +549,12 @@ begin
                             WS <= W_LEVEL;
                         end if;
                     when W_DONE =>
+                      if W_NCK < W_TGT then
+                        null; -- [PMMU3] 11.7: hold until the script time has passed.
+                      else
+                        -- synthesis translate_off
+                        report "MMUWALK clocks=" & integer'image(W_NCK) & " script=" & integer'image(W_TGT) & " bus=" & integer'image(BM_CLKS) severity note;
+                        -- synthesis translate_on
                         -- Physical page: descriptor address + logical bits below the last index used (early term.).
                         if TLONG = '1' then PA32 := D1(31 downto 8) & x"00"; else PA32 := D0(31 downto 8) & x"00"; end if;
                         OFF := (others => '0');
@@ -515,6 +572,7 @@ begin
                         if M_TEST = '1' then
                             -- PTEST levels 1-7 result (Table 9-3 p. 9-60): B, L, S, W, I, M, N; T = 0; no ATC entry.
                             SR_WR <= '1'; AN_WR <= C_EXT(8); AN_DATA <= DADR;
+                            I_PAD <= 26 - K_LD; -- PTEST #1-7: as level 0 plus the search ("somewhat longer", p. 11-52).
                             SR_OUT <= R_BERR & R_LIM & (ACC_S and not L_FC(2)) & '0' & ACC_WP & BAD & (D0(4) and LAST_PAGE and not BAD)
                                       & "000000" & conv_std_logic_vector(NLEV, 3);
                             RMC_W <= '0'; WS <= W_IDLE;
@@ -530,7 +588,11 @@ begin
                         E_M(IDXI) <= D0(4) or (L_WR and not BAD);
                         E_USED(IDXI) <= '1';
                         RMC_W <= '0'; WS <= W_IDLE;
+                        if M_LOAD = '1' then -- PLOAD: 8, FC from SFC/DFC 12, + EA 4, then the search.
+                            if C_EXT(4 downto 3) = "00" then I_PAD <= 16 - K_LD; else I_PAD <= 12 - K_LD; end if;
                         end if;
+                        end if;
+                      end if;
                 end case;
             end if;
         end if;
