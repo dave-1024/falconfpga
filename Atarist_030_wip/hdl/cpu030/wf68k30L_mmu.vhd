@@ -1,0 +1,426 @@
+------------------------------------------------------------------------
+-- [PMMU2] WF68K30L MMU: address translation cache (ATC) and table walker (MC68030UM section 9).
+--
+-- Sits between the bus interface and the pins. With TC.E set, a cycle that is not CPU space (FC 7) and not in
+-- a transparent window (TT0/TT1) is looked up in the 22-entry fully associative ATC (9.4, p9-17..9-20):
+--   hit, B = 0 and no write-protect / M = 0 problem: the cycle goes out at once with the physical address;
+--   hit with B = 1, or a write / RMW to a WP page: the core's cycle ends with BERR (fault address = logical);
+--   miss, or a write to a page whose entry has M = 0: the core's cycle is held (it sees wait states), the
+--   walker searches the tables (9.5.2, Figure 9-19) with its own bus cycles, RMC asserted for the whole
+--   search (locked U/M updates, 9.5.3), stores a new entry and the held cycle then goes out (the retry).
+-- Descriptors: short and long, table / page / early termination / invalid / indirect (9.5.1); root pointer
+-- by SRE and FC2 (Table 9-2); FCL function code level; IS, TIA-TID; limits (long tables, L/U); WP and S
+-- accumulated; U set on every table and page descriptor used, M on the page for writes.
+-- Replacement: an invalid entry first, else not-recently-used (one used bit per entry; 9.4.1 calls it
+-- pseudo-LRU). Flush: all entries on PMOVE (FD = 0) to CRP/SRP/TC/TT0/TT1 (9.4).
+-- Table search bus cycles: FC = 5 (supervisor data), long accesses with dynamic bus sizing (16 or 32 bit).
+------------------------------------------------------------------------
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.std_logic_unsigned.all;
+use ieee.std_logic_arith.conv_std_logic_vector;
+
+entity WF68K30L_MMU is
+    port (
+        CLK         : in std_logic;
+        RESET       : in std_logic;
+        TC          : in std_logic_vector(31 downto 0);
+        CRP         : in std_logic_vector(63 downto 0);
+        SRP         : in std_logic_vector(63 downto 0);
+        TT_HIT      : in std_logic; -- TT0 or TT1 match for the core's cycle (logical address).
+        FLUSH_ALL   : in std_logic;
+        -- Core side (from / to the bus interface).
+        C_ADR       : in std_logic_vector(31 downto 0);
+        C_FC        : in std_logic_vector(2 downto 0);
+        C_SIZE      : in std_logic_vector(1 downto 0);
+        C_ASn       : in std_logic;
+        C_DSn       : in std_logic;
+        C_RWn       : in std_logic;
+        C_RMCn      : in std_logic;
+        C_ECSn      : in std_logic;
+        C_OCSn      : in std_logic;
+        C_DBENn     : in std_logic;
+        C_DATA_OUT  : in std_logic_vector(31 downto 0);
+        C_DATA_EN   : in std_logic;
+        C_BUS_EN    : in std_logic;
+        C_DSACKn    : out std_logic_vector(1 downto 0);
+        C_STERMn    : out std_logic;
+        C_BERRn     : out std_logic;
+        -- Pins.
+        P_ADR       : out std_logic_vector(31 downto 0);
+        P_FC        : out std_logic_vector(2 downto 0);
+        P_SIZE      : out std_logic_vector(1 downto 0);
+        P_ASn       : out std_logic;
+        P_DSn       : out std_logic;
+        P_RWn       : out std_logic;
+        P_RMCn      : out std_logic;
+        P_ECSn      : out std_logic;
+        P_OCSn      : out std_logic;
+        P_DBENn     : out std_logic;
+        P_DATA_OUT  : out std_logic_vector(31 downto 0);
+        P_DATA_EN   : out std_logic;
+        P_BUS_EN    : out std_logic;
+        P_DSACKn    : in std_logic_vector(1 downto 0);
+        P_STERMn    : in std_logic;
+        P_BERRn     : in std_logic;
+        P_DATA_IN   : in std_logic_vector(31 downto 0);
+        ATC_CI      : out std_logic; -- Page CI of the hit entry (CIOUT, cache inhibit).
+        WALKING     : out std_logic
+    );
+end entity WF68K30L_MMU;
+
+architecture BEHAVIOUR of WF68K30L_MMU is
+constant NE : integer := 22;
+type T24 is array (0 to NE - 1) of std_logic_vector(23 downto 0);
+type T3 is array (0 to NE - 1) of std_logic_vector(2 downto 0);
+signal E_V, E_B, E_CI, E_WP, E_M, E_USED : std_logic_vector(NE - 1 downto 0) := (others => '0');
+signal E_FC  : T3;
+signal E_LA  : T24;
+signal E_PA  : T24;
+
+signal PMASK    : std_logic_vector(23 downto 0); -- 1 = logical address bit A(8+i) is compared / translated.
+signal XLATE    : std_logic;
+signal HITV     : std_logic_vector(NE - 1 downto 0);
+signal HIT      : std_logic;
+signal H_B, H_CI, H_WP, H_M : std_logic;
+signal H_PA     : std_logic_vector(23 downto 0);
+signal C_WR     : std_logic;
+signal FAULT_NOW, HIT_OK : std_logic;
+
+type WSTATES is (W_IDLE, W_ROOT, W_LEVEL, W_FETCH, W_FETCH2, W_EVAL, W_UPD, W_UPDW, W_NEXT, W_DONE);
+signal WS : WSTATES := W_IDLE;
+-- Bus master of the walker.
+type BSTATES is (B_IDLE, B_CYC, B_LAT, B_END, B_GAP);
+signal BS : BSTATES := B_IDLE;
+signal BM_GO, BM_WR, BM_DONE, BM_ERR : std_logic := '0';
+signal BM_ADR, BM_WDATA, BM_RDATA : std_logic_vector(31 downto 0);
+signal BM_HALF : std_logic := '0'; -- Second word of a long on a 16-bit port.
+signal BM_A, BM_D : std_logic_vector(31 downto 0);
+signal BM_SZ : std_logic_vector(1 downto 0);
+signal BM_DS, BM_AS : std_logic := '0';
+signal BM_CNT : std_logic_vector(1 downto 0);
+signal BM_P32 : std_logic := '0'; -- The port answered 32 bits.
+signal BM_P16 : std_logic := '0';
+
+signal L_LA     : std_logic_vector(31 downto 0); -- Logical address of the search.
+signal L_FC     : std_logic_vector(2 downto 0);
+signal L_WR     : std_logic;
+signal SH       : std_logic_vector(31 downto 0); -- Logical address bits not yet used as an index.
+signal LVL      : integer range 0 to 4;          -- 0 = FC level (if FCL), 1..4 = TIA..TID.
+signal TADR     : std_logic_vector(31 downto 0); -- Address of the current table.
+signal TLONG    : std_logic;                     -- Current table holds 8-byte descriptors.
+signal LIM_ON, LIM_LU : std_logic;
+signal LIM      : std_logic_vector(14 downto 0);
+signal DADR     : std_logic_vector(31 downto 0); -- Address of the current descriptor.
+signal D0, D1   : std_logic_vector(31 downto 0); -- Descriptor (short: D0; long: D0 = status, D1 = address).
+signal ACC_WP, ACC_S, BAD : std_logic;
+signal USED_BITS: integer range 0 to 32;         -- IS + index bits used so far.
+signal LAST_PAGE: std_logic;                     -- The descriptor being updated is the page descriptor.
+signal IND      : std_logic;
+signal RMC_W    : std_logic := '0';
+signal P_PA     : std_logic_vector(23 downto 0);
+signal P_CI, P_M: std_logic;
+
+function TIW(T : std_logic_vector; L : integer) return integer is
+begin
+    case L is
+        when 1 => return conv_integer(T(15 downto 12));
+        when 2 => if T(15 downto 12) = x"0" then return 0; end if; return conv_integer(T(11 downto 8));
+        when 3 => if T(15 downto 12) = x"0" or T(11 downto 8) = x"0" then return 0; end if; return conv_integer(T(7 downto 4));
+        when 4 => if T(15 downto 12) = x"0" or T(11 downto 8) = x"0" or T(7 downto 4) = x"0" then return 0; end if; return conv_integer(T(3 downto 0));
+        when others => return 0;
+    end case;
+end function;
+
+begin
+    -- Page size mask (PS = TC 23-20, 8 .. 15).
+    P_MASK: process(TC)
+    begin
+        for i in 0 to 23 loop
+            if i + 8 >= conv_integer(TC(23 downto 20)) then PMASK(i) <= '1'; else PMASK(i) <= '0'; end if;
+        end loop;
+    end process P_MASK;
+
+    XLATE <= '1' when TC(31) = '1' and C_FC /= "111" and TT_HIT = '0' and C_BUS_EN = '1' else '0';
+    C_WR <= not C_RWn;
+
+    -- Fully associative lookup (9.4: logical address and FC; fewer bits compared for bigger pages).
+    G_HIT: for i in 0 to NE - 1 generate
+        HITV(i) <= '1' when E_V(i) = '1' and E_FC(i) = C_FC and ((E_LA(i) xor C_ADR(31 downto 8)) and PMASK) = x"000000" else '0';
+    end generate;
+    HIT <= '1' when HITV /= (HITV'range => '0') else '0';
+    P_HITMUX: process(HITV, E_B, E_CI, E_WP, E_M, E_PA)
+        variable B, CI, WP, M : std_logic;
+        variable PA : std_logic_vector(23 downto 0);
+    begin
+        B := '0'; CI := '0'; WP := '0'; M := '0'; PA := (others => '0');
+        for i in 0 to NE - 1 loop
+            if HITV(i) = '1' then
+                B := B or E_B(i); CI := CI or E_CI(i); WP := WP or E_WP(i); M := M or E_M(i); PA := PA or E_PA(i);
+            end if;
+        end loop;
+        H_B <= B; H_CI <= CI; H_WP <= WP; H_M <= M; H_PA <= PA;
+    end process P_HITMUX;
+
+    FAULT_NOW <= '1' when XLATE = '1' and HIT = '1' and (H_B = '1' or (H_WP = '1' and (C_WR = '1' or C_RMCn = '0'))) else '0';
+    HIT_OK <= '1' when XLATE = '1' and HIT = '1' and H_B = '0' and FAULT_NOW = '0' and not (C_WR = '1' and H_M = '0') else '0';
+
+    -- Pin multiplexer.
+    P_PINS: process(WS, XLATE, HIT_OK, C_ADR, C_FC, C_SIZE, C_ASn, C_DSn, C_RWn, C_RMCn, C_ECSn, C_OCSn, C_DBENn,
+                    C_DATA_OUT, C_DATA_EN, C_BUS_EN, H_PA, PMASK, BM_A, BM_D, BM_SZ, BM_AS, BM_DS, BM_WR, BS, RMC_W,
+                    P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI)
+        variable BLK : boolean;
+    begin
+        BLK := WS /= W_IDLE or (XLATE = '1' and HIT_OK = '0');
+        if WS /= W_IDLE then -- The walker owns the bus.
+            P_ADR <= BM_A; P_FC <= "101"; P_SIZE <= BM_SZ;
+            P_ASn <= not BM_AS; P_DSn <= not BM_DS; P_RWn <= not BM_WR; P_RMCn <= not RMC_W;
+            if BS = B_CYC and BM_AS = '1' and BM_CNT = "00" then P_ECSn <= '0'; P_OCSn <= '0'; else P_ECSn <= '1'; P_OCSn <= '1'; end if;
+            if BM_AS = '1' then P_DBENn <= '0'; else P_DBENn <= '1'; end if;
+            P_DATA_OUT <= BM_D; P_DATA_EN <= BM_WR; P_BUS_EN <= '1';
+        else
+            if XLATE = '1' then
+                for i in 0 to 23 loop
+                    if PMASK(i) = '1' then P_ADR(i + 8) <= H_PA(i); else P_ADR(i + 8) <= C_ADR(i + 8); end if;
+                end loop;
+                P_ADR(7 downto 0) <= C_ADR(7 downto 0);
+            else
+                P_ADR <= C_ADR;
+            end if;
+            P_FC <= C_FC; P_SIZE <= C_SIZE; P_RWn <= C_RWn; P_RMCn <= C_RMCn;
+            P_DATA_OUT <= C_DATA_OUT; P_DATA_EN <= C_DATA_EN; P_BUS_EN <= C_BUS_EN;
+            if BLK then
+                P_ASn <= '1'; P_DSn <= '1'; P_ECSn <= '1'; P_OCSn <= '1'; P_DBENn <= '1';
+            else
+                P_ASn <= C_ASn; P_DSn <= C_DSn; P_ECSn <= C_ECSn; P_OCSn <= C_OCSn; P_DBENn <= C_DBENn;
+            end if;
+        end if;
+        if BLK then
+            C_DSACKn <= "11"; C_STERMn <= '1';
+            if WS = W_IDLE and FAULT_NOW = '1' and C_ASn = '0' then C_BERRn <= '0'; else C_BERRn <= '1'; end if;
+        else
+            C_DSACKn <= P_DSACKn; C_STERMn <= P_STERMn; C_BERRn <= P_BERRn;
+        end if;
+    end process P_PINS;
+
+    ATC_CI <= '1' when WS = W_IDLE and HIT_OK = '1' and H_CI = '1' else '0';
+    WALKING <= '1' when WS /= W_IDLE else '0';
+
+    -- Walker bus master: one long (or a word pair on a 16-bit port), AS from a rising edge, data latched the
+    -- clock after the termination, one idle clock between cycles.
+    P_BM: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            BM_DONE <= '0';
+            if RESET = '1' then
+                BS <= B_IDLE; BM_AS <= '0'; BM_DS <= '0';
+            else
+                case BS is
+                    when B_IDLE =>
+                        if BM_GO = '1' then
+                            BM_A <= BM_ADR; BM_D <= BM_WDATA; BM_SZ <= "00"; BM_HALF <= '0'; BM_ERR <= '0';
+                            BM_AS <= '1'; BM_DS <= not BM_WR; BM_CNT <= "00"; BS <= B_CYC;
+                        end if;
+                    when B_CYC => -- Wait for the termination (sampled on the rising edge).
+                        if BM_CNT /= "11" then BM_CNT <= BM_CNT + '1'; end if;
+                        BM_DS <= '1';
+                        if P_BERRn = '0' then
+                            BM_ERR <= '1'; BS <= B_END;
+                        elsif P_STERMn = '0' or P_DSACKn = "00" then
+                            BM_P32 <= '1'; BM_P16 <= '0'; BS <= B_LAT;
+                        elsif P_DSACKn = "01" then
+                            BM_P32 <= '0'; BM_P16 <= '1'; BS <= B_LAT;
+                        elsif P_DSACKn = "10" then -- 8-bit port: not for translation tables.
+                            BM_ERR <= '1'; BS <= B_END;
+                        end if;
+                    when B_LAT => -- Data one clock after the termination (as the core's S4/S5).
+                        if BM_P32 = '1' then BM_RDATA <= P_DATA_IN;
+                        elsif BM_HALF = '0' then BM_RDATA(31 downto 16) <= P_DATA_IN(31 downto 16);
+                        else BM_RDATA(15 downto 0) <= P_DATA_IN(31 downto 16); end if;
+                        BS <= B_END;
+                    when B_END =>
+                        BM_AS <= '0'; BM_DS <= '0';
+                        if BM_ERR = '0' and BM_P16 = '1' and BM_HALF = '0' then
+                            BS <= B_GAP; -- Second word on the 16-bit port.
+                        else
+                            BS <= B_IDLE; BM_DONE <= '1';
+                        end if;
+                    when B_GAP =>
+                        BM_HALF <= '1';
+                        BM_A <= BM_A + x"2"; BM_D <= BM_D(15 downto 0) & BM_D(15 downto 0); BM_SZ <= "10";
+                        BM_AS <= '1'; BM_DS <= not BM_WR; BM_CNT <= "00"; BS <= B_CYC;
+                end case;
+            end if;
+        end if;
+    end process P_BM;
+
+    -- Table walker (Figure 9-19) and the ATC registers.
+    P_WALK: process(CLK)
+        variable RP : std_logic_vector(63 downto 0);
+        variable DT : std_logic_vector(1 downto 0);
+        variable W, IDXI : integer range 0 to 31;
+        variable IDX : std_logic_vector(31 downto 0);
+        variable NEXTW : integer range 0 to 15;
+        variable REM_BITS : integer range 0 to 32;
+        variable PA32, OFF : std_logic_vector(31 downto 0);
+        variable FREE : integer range -1 to NE - 1;
+        variable NRU : integer range -1 to NE - 1;
+        variable DST, DWP, DU, DM, DCI : std_logic;
+    begin
+        if CLK = '1' and CLK' event then
+            BM_GO <= '0';
+            -- Used bits for the replacement (set on a hit by a cycle that goes out).
+            if WS = W_IDLE and HIT_OK = '1' and C_ASn = '0' then
+                if (E_USED or HITV) = (E_USED'range => '1') then E_USED <= HITV; else E_USED <= E_USED or HITV; end if;
+            end if;
+            if RESET = '1' then
+                WS <= W_IDLE; RMC_W <= '0';
+            elsif FLUSH_ALL = '1' and WS = W_IDLE then
+                E_V <= (others => '0'); E_USED <= (others => '0');
+            else
+                case WS is
+                    when W_IDLE =>
+                        if XLATE = '1' and C_ASn = '0' and HIT_OK = '0' and FAULT_NOW = '0' then
+                            L_LA <= C_ADR; L_FC <= C_FC; L_WR <= C_WR; WS <= W_ROOT;
+                            -- A write that hit an entry with M = 0: that entry is replaced by the new one (9.4.1 M bit).
+                            if HIT = '1' then E_V <= E_V and not HITV; end if;
+                        end if;
+                    when W_ROOT =>
+                        if TC(25) = '1' and L_FC(2) = '1' then RP := SRP; else RP := CRP; end if;
+                        RMC_W <= '1'; ACC_WP <= '0'; ACC_S <= '0'; BAD <= '0'; IND <= '0';
+                        -- SH: logical address shifted left by IS (TC 19-16).
+                        SH <= std_logic_vector(shl(L_LA, TC(19 downto 16)));
+                        USED_BITS <= conv_integer(TC(19 downto 16));
+                        TADR <= RP(31 downto 4) & "0000";
+                        LIM_ON <= '1'; LIM_LU <= RP(63); LIM <= RP(62 downto 48);
+                        DT := RP(33 downto 32);
+                        if DT = "01" then -- Root page descriptor: early termination at the root, PA = address + LA.
+                            D0 <= x"00000001"; D1 <= RP(31 downto 8) & x"00"; TLONG <= '1'; LAST_PAGE <= '1';
+                            WS <= W_DONE; -- No descriptor in memory: no U/M update.
+                        elsif DT = "00" then
+                            BAD <= '1'; WS <= W_DONE;
+                        else
+                            TLONG <= DT(0); -- 2 = 4-byte, 3 = 8-byte descriptors in the first table.
+                            if TC(24) = '1' then LVL <= 0; else LVL <= 1; end if;
+                            WS <= W_LEVEL;
+                        end if;
+                    when W_LEVEL =>
+                        if LVL = 0 then
+                            IDX := x"0000000" & '0' & L_FC; -- Function code level: not limited (9.5.3.2).
+                            W := 0;
+                        else
+                            W := TIW(TC, LVL);
+                            IDX := (others => '0');
+                            for k in 0 to 15 loop
+                                if k < W then IDX(k) := SH(31 - W + 1 + k); end if;
+                            end loop;
+                        end if;
+                        if LVL /= 0 and LIM_ON = '1' and TLONG = '1' and
+                           ((LIM_LU = '0' and IDX(14 downto 0) > LIM) or (LIM_LU = '1' and IDX(14 downto 0) < LIM)) then
+                            BAD <= '1'; WS <= W_DONE; -- Limit violation.
+                        else
+                            if LVL /= 0 then
+                                SH <= std_logic_vector(shl(SH, conv_std_logic_vector(W, 5)));
+                                USED_BITS <= USED_BITS + W;
+                            end if;
+                            if TLONG = '1' then DADR <= TADR + (IDX(28 downto 0) & "000"); BM_ADR <= TADR + (IDX(28 downto 0) & "000");
+                            else DADR <= TADR + (IDX(29 downto 0) & "00"); BM_ADR <= TADR + (IDX(29 downto 0) & "00"); end if;
+                            BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH;
+                        end if;
+                    when W_FETCH =>
+                        if BM_DONE = '1' then
+                            if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE;
+                            elsif TLONG = '1' then
+                                D0 <= BM_RDATA; BM_ADR <= DADR + x"4"; BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH2;
+                            else
+                                D0 <= BM_RDATA; D1 <= BM_RDATA; WS <= W_EVAL;
+                            end if;
+                        end if;
+                    when W_FETCH2 =>
+                        if BM_DONE = '1' then
+                            if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE; else D1 <= BM_RDATA; WS <= W_EVAL; end if;
+                        end if;
+                    when W_EVAL =>
+                        DT := D0(1 downto 0);
+                        if LVL = 0 then NEXTW := TIW(TC, 1); elsif LVL < 4 then NEXTW := TIW(TC, LVL + 1); else NEXTW := 0; end if;
+                        if IND = '1' then
+                            -- Descriptor reached through an indirect descriptor: must be a page.
+                            if DT /= "01" then BAD <= '1'; WS <= W_DONE;
+                            else
+                                LAST_PAGE <= '1';
+                                if TLONG = '1' then ACC_S <= ACC_S or D0(8); end if;
+                                ACC_WP <= ACC_WP or D0(2);
+                                WS <= W_UPD;
+                            end if;
+                        elsif DT = "00" then
+                            BAD <= '1'; WS <= W_DONE; -- Invalid descriptor.
+                        else
+                            if TLONG = '1' then ACC_S <= ACC_S or D0(8); end if;
+                            ACC_WP <= ACC_WP or D0(2);
+                            if DT = "01" then
+                                LAST_PAGE <= '1'; WS <= W_UPD; -- Page (early termination if levels remain).
+                            elsif NEXTW = 0 and LVL /= 0 then
+                                -- No more TIx: an indirect descriptor (DT 2 = to a short, 3 = to a long page descriptor).
+                                IND <= '1'; TLONG <= DT(0);
+                                if TLONG = '1' then BM_ADR <= D1(31 downto 2) & "00"; DADR <= D1(31 downto 2) & "00";
+                                else BM_ADR <= D0(31 downto 2) & "00"; DADR <= D0(31 downto 2) & "00"; end if;
+                                BM_WR <= '0'; BM_GO <= '1'; WS <= W_FETCH;
+                                LAST_PAGE <= '0';
+                            else
+                                LAST_PAGE <= '0'; WS <= W_UPD; -- Table descriptor: update U, go down.
+                            end if;
+                        end if;
+                    when W_UPD =>
+                        -- U for every descriptor used, M on the page for a write without WP or S violation (9.5.3).
+                        DU := D0(3); DM := D0(4);
+                        if LAST_PAGE = '1' and L_WR = '1' and ACC_WP = '0' and not (ACC_S = '1' and L_FC(2) = '0') then
+                            DM := '1';
+                        end if;
+                        if DU = '0' or DM /= D0(4) then -- Locked write of the descriptor's first long (RMC held).
+                            D0(3) <= '1'; D0(4) <= DM;
+                            BM_ADR <= DADR; BM_WDATA <= D0(31 downto 5) & DM & '1' & D0(2 downto 0);
+                            BM_WR <= '1'; BM_GO <= '1'; WS <= W_UPDW;
+                        else
+                            WS <= W_NEXT;
+                        end if;
+                    when W_UPDW =>
+                        if BM_DONE = '1' then
+                            if BM_ERR = '1' then BAD <= '1'; WS <= W_DONE; else WS <= W_NEXT; end if;
+                        end if;
+                    when W_NEXT =>
+                        if LAST_PAGE = '1' then WS <= W_DONE;
+                        else -- Next table.
+                            if TLONG = '1' then TADR <= D1(31 downto 4) & "0000"; LIM_ON <= '1'; LIM_LU <= D0(31); LIM <= D0(30 downto 16);
+                            else TADR <= D0(31 downto 4) & "0000"; LIM_ON <= '0'; end if;
+                            TLONG <= D0(0);
+                            if LVL < 4 then LVL <= LVL + 1; end if;
+                            WS <= W_LEVEL;
+                        end if;
+                    when W_DONE =>
+                        -- Physical page: descriptor address + logical bits below the last index used (early term.).
+                        if TLONG = '1' then PA32 := D1(31 downto 8) & x"00"; else PA32 := D0(31 downto 8) & x"00"; end if;
+                        OFF := (others => '0');
+                        for k in 8 to 31 loop
+                            if k < 32 - USED_BITS then OFF(k) := L_LA(k); end if;
+                        end loop;
+                        PA32 := PA32 + OFF;
+                        DCI := D0(6);
+                        -- Replacement: invalid entry first, else the first not-recently-used one.
+                        FREE := -1; NRU := -1;
+                        for i in NE - 1 downto 0 loop
+                            if E_V(i) = '0' then FREE := i; end if;
+                            if E_USED(i) = '0' then NRU := i; end if;
+                        end loop;
+                        if FREE >= 0 then IDXI := FREE; elsif NRU >= 0 then IDXI := NRU; else IDXI := 0; end if;
+                        E_V(IDXI) <= '1'; E_FC(IDXI) <= L_FC; E_LA(IDXI) <= L_LA(31 downto 8) and PMASK;
+                        E_PA(IDXI) <= PA32(31 downto 8);
+                        E_B(IDXI) <= BAD or (ACC_S and not L_FC(2));
+                        E_CI(IDXI) <= DCI and not BAD; E_WP(IDXI) <= ACC_WP;
+                        E_M(IDXI) <= D0(4);
+                        E_USED(IDXI) <= '1';
+                        RMC_W <= '0'; WS <= W_IDLE;
+                end case;
+            end if;
+        end if;
+    end process P_WALK;
+end architecture BEHAVIOUR;

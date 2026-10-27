@@ -49,3 +49,20 @@
   normally. Still listed as open.
 - Full run_rtl.sh on e68e21f (data cache write fix): PASS, including PMMU stage 1 and the new p6-8 case.
   Next: rebuild (pmmu2), check old-vs-new bus logs, board test, then stage 2 (ATC and table walker).
+
+## 2026-10-27: pmmu2 build, board test, EmuTOS, stage 2a/2b
+
+- **pmmu2** (68acd88, TT CI write fix): 41008 LUT / 5065 ALU / 16350 regs, BSRAM 171/340, DSP 10.5/298.
+  clk32_core 33.68 MHz (32 req.), clk_cpu030 24.31 MHz (16 req.), TNS 0. Bitstream sha 62c90a56,
+  `~/fpga_bitstreams/st_helper_hdn_pmmu2.fs` on linserver.
+- Board (TOS 2.06): PMMUTEST FAILS=0 DEVS=1 (DEV = vector 56, not in pmmu2), loop ticks cached 178,
+  TT0 CI 661, TT1 CI 661, FC no-match 177 (`docs/img/pmmu/pmmu2_pmmutest.png`).
+- **EmuTOS 1.4** (`etos256uk.bin`, via `~/flash_tos_rom.sh`, op 56 at 0x500000) on pmmu2: boot screen shows
+  CPU M68030, ST-RAM 4 MB, Alt-RAM 16 MB; no Line-F/exception during its CPU/MMU detection (PMOVE TC/TTx),
+  desktop reached (`pmmu2_emutos14_boot.png`, `pmmu2_emutos14_desktop.png`).
+- **TOS in flash now: EmuTOS 1.4** (TOS 2.06 backup: `~/fpga_bitstreams/tos206_backup.bin`).
+- Stage 2a (MMU configuration exception, vector 56, format $2, 8.1.10 / p9-64): full `run_rtl.sh` PASS;
+  61 old programs cycle-identical vs the previous bench.
+- Stage 2b: `hdl/cpu030/wf68k30L_mmu.vhd` (22-entry ATC, NRU replacement, table walker FC=5 / RMC locked,
+  U/M updates p9-26.., limits, early termination, indirect, WP/S checks, BERR on B-hit) compiles in GHDL;
+  not wired into top yet. Next: integration + sim tests, then PFLUSH/PLOAD/PTEST.
