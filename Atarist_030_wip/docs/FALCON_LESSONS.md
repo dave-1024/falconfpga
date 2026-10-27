@@ -397,3 +397,8 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   Figures 9-14 and 9-15), so a pointer such as $6906 made the page look write protected (PTEST gave W). Fix: only table and
   page descriptors add to WP (and S on long ones); prog_xlate3 has an indirect pointer with bit 2 set.
 - Lesson: a descriptor field is only that field for the descriptor types that have it; check the DT before reading flags.
+- Stage 3: RTE of a format $A frame now reads the SSW ($0A); with DF = 1 and RW = 0 it reads the fault address ($10)
+  and the data output buffer ($18) and reruns the write with the SSW's FC and size before restoring PC and SR
+  (MC68030UM 8.1.2, 8.2.1). Before this a demand-paging handler that fixed a page saw the faulted write lost.
+  prog_df covers word, odd byte and long writes with the handler fixing WP and TC left on; prog_xlate's WP case now
+  expects the rerun. Limits: format $B frames still restart (no rerun); a rerun that faults again takes a new bus error.

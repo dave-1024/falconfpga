@@ -69,7 +69,7 @@ start:
         move.w  0xd000,d0               | read OK
         move.w  d0,(a4)+                | -> $0000
         move.w  #0x1234,0xd000          | WP -> bus error, rerun with TC off
-        move.w  0xd000,(a4)+            | -> $0000: the 030 reruns a faulted write on RTE (DF, 8.2.1); this core does not yet (stage 3)
+        move.w  0xd000,(a4)+            | -> $1234: RTE reruns the faulted write (DF, 8.2.1) with TC off
         move.w  0x5100,(a4)+            | bus errors: 2
         move.l  0x5104,(a4)+            | fault addresses: $0000B000
         move.l  0x5108,(a4)+            | $0000D000

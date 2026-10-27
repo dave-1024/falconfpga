@@ -149,4 +149,12 @@ for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3"; do
   $G -r $O tb030 -gROMFILE=prog_xlate3.hex $g -gMAXCLK=150000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_xlate3.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_xlate3 $g: $(bwres)"; fail=1; }
 done
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok, PMMU translation ok, PFLUSH/PLOAD/PTEST ok, long/limit/indirect/S ok, short indirect ok"
+# [PMMU3] RTE reruns a faulted write (prog_df.s, expect_df.txt): MC68030UM 8.1.2, 8.2.1.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_df.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_df.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3"; do
+  $G -r $O tb030 -gROMFILE=prog_df.hex $g -gMAXCLK=150000 2>/dev/null > r.log || true
+  [ "$(bwres)" = "$(cat $H/expect_df.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_df $g: $(bwres)"; fail=1; }
+done
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok, PMMU translation ok, PFLUSH/PLOAD/PTEST ok, long/limit/indirect/S ok, short indirect ok, write rerun ok"

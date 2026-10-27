@@ -602,6 +602,9 @@ signal PMMU_EXT, MMU_SR_NEW     : std_logic_vector(15 downto 0);
 signal MMU_CMD_FC               : std_logic_vector(2 downto 0);
 signal MMU_DN_FC                : std_logic_vector(2 downto 0); -- [PMMU3]
 signal MMU_AN_WR                : std_logic; -- [PMMU3] PTEST A = 1
+signal EXH_RERUN                : std_logic; -- [PMMU3] RTE write rerun (DF)
+signal EXH_RR_ADR, EXH_RR_DATA  : std_logic_vector(31 downto 0);
+signal EXH_RR_FC                : std_logic_vector(2 downto 0);
 signal MMU_AN_DATA              : std_logic_vector(31 downto 0);
 signal AR_WR_1_REG              : bit;
 signal CIINn_EFF                : std_logic;
@@ -713,6 +716,7 @@ begin
     FRM_RB <= STG_BF when STG_BA = '1' else QS_BF when QS_BV = '1' else '0';
 
     DATA_EXH <= -- Exception handler multiplexing:
+                EXH_RR_DATA when EXH_RERUN = '1' else -- [PMMU3] DOB of the faulted write.
                 SR_CPY & PC(31 downto 16) when STACK_POS = 2 else
                 PC(15 downto 0) & STACK_FORMAT & "00" & IVECT_OFFS when STACK_POS = 4 else
                 PMOVE_PC when STACK_FORMAT = x"2" and STACK_POS = 6 and IVECT_OFFS = "0011100000" else -- [PMMU2] vector 56.
@@ -1181,6 +1185,7 @@ begin
 
     ADR_L <= x"000000" & "000" & BIW_0(2 downto 0) & "00" when BKPT_CYCLE = '1' else
              x"FFFFFFF" & IRQ_PEND & '1' when CPU_SPACE_EXH = '1' else
+             EXH_RR_ADR when EXH_RERUN = '1' else -- [PMMU3] RTE rerun of a faulted write.
              ADR_EFF_WB when DATA_WR_MAIN = '1' else ADR_EFF; -- Exception handler uses ADR_EFF for read and write access.
 
     -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
@@ -1218,7 +1223,8 @@ begin
     end process P_ADR_LATCHES;
 
     FC_I <= FC_LATCH when BUS_BSY = '1' else FC_NXT;
-    FC_NXT <= SFC when USE_SFC = '1' else
+    FC_NXT <= EXH_RR_FC when EXH_RERUN = '1' else -- [PMMU3] FC of the faulted write (SSW).
+            SFC when USE_SFC = '1' else
             DFC when USE_DFC = '1' else
             "111" when (DATA_RD = '1' or DATA_WR = '1') and CPU_SPACE = '1' else
             "101" when (DATA_RD = '1' or DATA_WR = '1') and SBIT = '1' else
@@ -1800,7 +1806,11 @@ begin
             EX_TRACE_IN             => EX_TRACE,
             VBR_WR                  => VBR_WR,
             VBR                     => VBR,
-            EX_IS_AERR              => EX_IS_AERR
+            EX_IS_AERR              => EX_IS_AERR,
+            RERUN_WR                => EXH_RERUN,
+            RERUN_ADR               => EXH_RR_ADR,
+            RERUN_DATA              => EXH_RR_DATA,
+            RERUN_FC                => EXH_RR_FC
         );
 
     I_OPCODE_DECODER: WF68K30L_OPCODE_DECODER

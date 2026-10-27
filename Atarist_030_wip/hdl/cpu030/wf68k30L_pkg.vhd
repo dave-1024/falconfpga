@@ -605,7 +605,13 @@ component WF68K30L_EXCEPTION_HANDLER
         VBR_WR              : in bit;
         VBR                 : out std_logic_vector(31 downto 0);
 
-        EX_IS_AERR          : out std_logic -- F28/H22.
+        EX_IS_AERR          : out std_logic;
+        -- [PMMU3] RTE of a format $A frame with SSW DF = 1 and RW = 0 reruns the faulted write (MC68030UM 8.2.1,
+        -- 8.1.2): address ($10), data output buffer ($18), FC and size from the SSW ($0A).
+        RERUN_WR            : out std_logic;
+        RERUN_ADR           : out std_logic_vector(31 downto 0);
+        RERUN_DATA          : out std_logic_vector(31 downto 0);
+        RERUN_FC            : out std_logic_vector(2 downto 0) -- F28/H22.
     );
 end component;
 
