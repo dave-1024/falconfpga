@@ -108,8 +108,15 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 - TOS 2.06 after switching the board **off and on** (a real power-cycle): it gave a black screen on 23 Oct; resets
   now reach the desktop, but the power-cycle test still has to be repeated. EmuTOS is fine.
 - The serial port can stall after one kind of blitter operation.
-- No **PMMU** yet (the 68030's memory-mapping unit; work starts 26 Oct 2026). No Falcon hardware yet (VIDEL video,
-  DSP, IDE).
+- The **PMMU** (the 68030's memory-mapping unit) is not on main yet. Work has begun on the `pmmu` branch: the first
+  stage (the MMU's settings registers, the instructions that read and write them, marking whole memory areas as
+  "don't cache", and blocking MMU instructions from normal programs) passes on the board. Next comes the address
+  translation itself, the part that reads the page tables, and the remaining MMU instructions, all built to follow
+  Motorola's MC68030 User's Manual as closely as possible.
+- **Faster memory is paused for now and will be worked on next.** The plan is to run the memory chips twice as fast
+  (64 MHz instead of 32 MHz) to speed up TT-RAM and let the 68030 fill its caches in quick bursts. A first try showed a
+  clock-timing problem that is still being tracked down.
+- No Falcon hardware yet (VIDEL video, DSP, IDE).
 - Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);
   bugs in plain English: [`docs/BUGS.md`](docs/BUGS.md); TOS versions: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md).
 
@@ -279,7 +286,7 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 ### Where it is headed
 1. ~~Clone MiSTeryNano, splice the wf68k30L via a TF534-style bridge, 16 MHz+ CPU on the 8 MHz ST bus, AE350 helper~~ (done, October 2026); ~~caches~~, ~~TT-RAM~~ (done).
-2. **Now:** finish the 030 on the ST bus ([`TODO.md`](Atarist_030_wip/docs/TODO.md)); the 68030 PMMU in HDL from 26 Oct 2026.
+2. **Now:** finish the 030 on the ST bus ([`TODO.md`](Atarist_030_wip/docs/TODO.md)); the 68030 PMMU (begun on the `pmmu` branch; stage 1 passes on the board); then faster memory (64 MHz SDRAM for faster TT-RAM and cache burst fills, paused for now).
 3. Then move the same core onto **Falcon** glue (VIDEL, IDE, DSP56001).
 
 ### Methods

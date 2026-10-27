@@ -35,7 +35,10 @@ Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
 - Serial AUX stall after a masked blit (TODO item 9).
 - Placement sensitivity: always check TNS and recovery/removal before flashing.
 
-Next: PMMU work starts 26 Oct 2026.
+Next: PMMU work has begun on the `pmmu` branch (stage 1 passes on the board: MMU registers, PMOVE, transparent
+translation with cache inhibit, user-mode privilege check). Address translation, the table walker and the remaining MMU
+instructions follow, built to the MC68030 User's Manual. Faster memory (64 MHz SDRAM for faster TT-RAM and burst fills)
+is paused after a first try showed a clock-timing problem, and will be picked up next.
 
 No rollback list is kept here: the older `st_helper_hdn_*_p3.fs` builds predate TT-RAM and the T10 bridge rules.
 Full history: [docs/HISTORY.md](docs/HISTORY.md).
@@ -317,7 +320,7 @@ names (`atarist_tc138k`) were left unchanged.
 
 ## Core limits
 
-No MMU (a 68030 PMMU in HDL is planned), no FPU, no cache burst fills, and no address error on odd word accesses, so it
+No MMU on main (a 68030 PMMU is in progress on the `pmmu` branch), no FPU, no cache burst fills, and no address error on odd word accesses, so it
 is not yet a complete 68030. The I and D caches are built but have nothing cachable until 030-side fast RAM is fitted.
 TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl/cpu030/README.md` for the bridge.
 
