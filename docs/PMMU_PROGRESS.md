@@ -23,3 +23,9 @@
   pmmu 3ad4633 vs main: +756 LUT, +28 ALU, +221 regs, cpu030 -0.35 MHz, clk32 unchanged; BSRAM 171/340, DSP 10.5/298 both.
 - Remaining (best guess): ~90k of 138k logic, ~38k of 69k CLS (keep ~20-25% free for routing/Fmax -> ~20-25k LUT
   usable), 169 BSRAM, ~287 DSP. Planned stage 2 (22-entry fully associative ATC + table walker) est. 3-6k LUT + ~1.5k FF.
+
+## 2026-10-27 09:2x board test (linserver)
+- Flashed pmmu1 = 3ad4633 bitstream (sha d65d7967..., cable LOC 4817). Serial '?' OK before and after.
+  TOS 2.06 boots on its own (memory test 4096 KB, docs/img/pmmu/pmmu1_flash_boot.png).
+- Cold boot ('c' + 'key space') with blitfix.st in A and tts.st in B: desktop OK (pmmu1_blitfix_desktop.png).
+- tools/pmmutest/: PMMUTEST.PRG (WIP) for stage-1 checks, build.sh. Hatari 2.5 runs to be sorted out.
