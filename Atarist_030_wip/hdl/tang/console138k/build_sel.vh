@@ -1,6 +1,13 @@
 `define ST_HELPER
-`define ST_HELPER_CART
 `define ST_HELPER_USB
 `define ST_COLOUR_MONITOR
 `define ST_HELPER_OSD
 `define ST_STE
+`define ST_030_CACHES
+`define TTRAM
+`define BRIDGE_EARLY_AS
+`define WF030_FAST_HANDOFF
+`define ST_SD_WRITE_FIX
+`define SD_WRITE_DEBUG
+`define ST_FLOPPY_MEDIACH
+`define ST_SD_HARDEN

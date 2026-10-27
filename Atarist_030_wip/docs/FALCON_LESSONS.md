@@ -356,3 +356,13 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   writes CRP/TC/TT0/TT1 with PMOVE abs.L at boot, so CRP/SRP had to be in stage 1. TOS 2.06 has no PMOVE.
 - Lesson: PMOVE reuses the MOVES operand path; the R/W bit is ext-word bit 9 (not MOVES bit 11). Any mux keyed on the
   direction must check BIW_1(9), or data reads back as 0.
+
+## WF68K30L: a TT cache-inhibited write must not touch the data cache (branch pmmu, e68e21f)
+- Rule: MC68030UM 6.1.2 p6-8: "when CIOUT is asserted, the data cache is completely ignored, even on write
+  cycles operating in the write-allocation mode". 6.1 p6-3: a read that hits the cache ignores the MMU, so CI bits only
+  matter for accesses that go to the bus.
+- Bug: stage 1 fed TT CI only into CIIN (fills). A write into a TT CI block still updated a hit, or allocated with
+  CACR WA set. Fix: DC_WR_GO is gated by a TT CI match on the write's own address and FC. prog_pmmu case: write-allocate
+  $1111, TT CI write $2222, the hit then reads stale $1111 (as the manual says), and $2222 after CD.
+- Lesson for tests: after changing TTx/TC, clear the caches (CACR CI/CD) before timing a cache-inhibited region,
+  or the old lines keep hitting (the first PMMUTEST board run "failed" this way).
