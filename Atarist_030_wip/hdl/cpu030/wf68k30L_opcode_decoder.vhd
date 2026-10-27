@@ -800,14 +800,18 @@ begin
                  C when (OP_I = DIVS or OP_I = DIVU) and IPIPE.D(8 downto 6) = "001" else
                  C when OP_I = EORI or OP_I = EORI_TO_CCR or OP_I = EORI_TO_SR else
                  C when OP_I = LINK or OP_I = MOVEC else
-                 C when OP_I = MOVEM or OP_I = MOVEP or OP_I = MOVES else
+                 C when OP_I = MOVEM or OP_I = MOVEP or OP_I = MOVES or OP_I = PMOVE else
                  C when (OP_I = MULS or OP_I = MULU) and IPIPE.D(8 downto 6) = "000" else
                  C when OP_I = ORI_TO_CCR or OP_I = ORI_TO_SR or OP_I = ORI else
                  C when OP_I = PACK or OP_I = RTD or OP_I = SUBI or OP_I = STOP else
                  C when OP_I = TRAPcc and IPIPE.D(2 downto 0) = "010" else 
                  C when OP_I = UNPK else D;
 
-    TRAP_CODE_I <= T_1010 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"A" else
+    -- [PMMU1] MC68030UM 9.8 (p. 9-64/9-65): an F-line instruction with CpID = 0 that the 68030 does not
+    -- support takes the F-line trap in supervisor mode but a privilege violation in user mode; PMOVE is privileged.
+    TRAP_CODE_I <= T_PRIV when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 9) = "1111000" and SBIT = '0' else
+                   T_PRIV when OP_I = PMOVE and SBIT = '0' else
+                   T_1010 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"A" else
                    T_1111 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"F"  else
                    T_ILLEGAL when OP_I = ILLEGAL else 
                    T_RTE when OP_I = RTE and SBIT = '1' else -- Handled like a trap simplifies the code.
@@ -1501,7 +1505,20 @@ begin
                     OP_I <= ROTL; -- Register shifts.
                 end if;
             when x"F" => -- 1111, Coprocessor Interface / 68K40 Extensions.
-                OP_I <= UNIMPLEMENTED;
+                -- [PMMU1] PMOVE (MC68030UM 9.8, CpID 0, opword $F000 + EA, one extension word).
+                -- Memory alterable EA only: (An), (An)+, -(An), (d16,An), (d8,An,Xn)/full, (xxx).W, (xxx).L.
+                -- Extension word: 000 P-REG R/W FD 00000000 (TT0 = 010, TT1 = 011),
+                --                 010 P-REG R/W FD 00000000 (TC = 000; SRP 010 / CRP 011 are stage 1b, still Line-F),
+                --                 011 000   R/W 0  00000000 (MMUSR, word).
+                if IPIPE.D(11 downto 6) = "000000" and ((IPIPE.D(5 downto 3) >= "010" and IPIPE.D(5 downto 3) < "111") or
+                   (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and
+                   ((IPIPE.C(15 downto 13) = "000" and IPIPE.C(12 downto 11) = "01") or
+                    (IPIPE.C(15 downto 10) = "010000") or
+                    (IPIPE.C(15 downto 10) = "011000" and IPIPE.C(8) = '0')) then
+                    OP_I <= PMOVE;
+                else
+                    OP_I <= UNIMPLEMENTED;
+                end if;
             when others => -- U, X, Z, W, H, L, -.
                 null;
             end case;

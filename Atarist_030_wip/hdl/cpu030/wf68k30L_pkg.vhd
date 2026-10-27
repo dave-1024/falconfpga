@@ -72,7 +72,7 @@ type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, AND
                 CHK, CHK2, CLR, CMP, CMP2, CMPA, CMPI, CMPM, DBcc, DIVS, DIVU, EOR, EORI, EORI_TO_CCR, 
                 EORI_TO_SR, EXG, EXT, EXTB, ILLEGAL, JMP, JSR, LEA, LINK, LSL, LSR, MOVE, MOVE_FROM_CCR, MOVE_TO_CCR, 
                 MOVE_FROM_SR, MOVE_TO_SR, MOVE_USP, MOVEA, MOVEC, MOVEM, MOVEP, MOVEQ, MOVES, MULS, MULU, NBCD, NEG, 
-                NEGX, NOP, NOT_B, OR_B, ORI, ORI_TO_CCR, ORI_TO_SR, PACK, PEA, RESET, ROTL, ROTR, ROXL, ROXR, RTD, 
+                NEGX, NOP, NOT_B, OR_B, ORI, ORI_TO_CCR, ORI_TO_SR, PACK, PEA, PMOVE, RESET, ROTL, ROTR, ROXL, ROXR, RTD, 
                 RTE, RTR, RTS, SBCD, Scc, STOP, SUB, SUBA, SUBI, SUBQ, SUBX, SWAP, TAS, TRAP, TRAPcc, TRAPV, TST, 
                 UNLK, UNPK, UNIMPLEMENTED);
 
@@ -456,6 +456,9 @@ component WF68K30L_CONTROL
         VBR_WR              : out bit;
         VBR_RD              : out bit;
         CACR_WR             : out bit;
+        PMMU_WR             : out bit;
+        PMMU_WR_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_RD_SEL         : out std_logic_vector(5 downto 0);
         CACR_RD             : out bit;
         CAAR_WR             : out bit;
         CAAR_RD             : out bit;

@@ -565,6 +565,22 @@ signal VBR                      : std_logic_vector(31 downto 0);
 signal VBR_WR                   : bit;
 signal VBR_RD                   : bit;
 signal CACR                     : std_logic_vector(31 downto 0);
+-- [PMMU1] MMU registers (MC68030UM 9.7). Stage 1: TC, TT0, TT1, MMUSR by PMOVE; TT0/TT1 drive CIOUT.
+signal MMU_TC                   : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_TT0                  : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_TT1                  : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_SR                   : std_logic_vector(15 downto 0) := (others => '0');
+signal PMMU_WR                  : bit;
+signal PMMU_WR_SEL              : std_logic_vector(5 downto 0);
+signal PMMU_RD_SEL              : std_logic_vector(5 downto 0);
+signal PMMU_RD_DATA             : std_logic_vector(31 downto 0);
+signal ADR_OUT_I                : std_logic_vector(31 downto 0);
+signal FC_OUT_I                 : std_logic_vector(2 downto 0);
+signal RWn_I                    : std_logic;
+signal RMCn_I                   : std_logic;
+signal TT0_HIT, TT1_HIT         : std_logic;
+signal TT_CI                    : std_logic;
+signal CIINn_EFF                : std_logic;
 signal CACR_WR                  : bit;
 signal CACR_RD                  : bit;
 signal CAAR                     : std_logic_vector(31 downto 0);
@@ -723,6 +739,67 @@ begin
         end if;
     end process P_CACHE_REGS;
 
+    -- [PMMU1] MMU registers, written by PMOVE <ea>,MRn in its writeback (MC68030UM 9.7.2-9.7.4).
+    -- Unimplemented bits read as zero: TC $83FFFFFF, TTx $FFFF8777, MMUSR $EE47.
+    -- RESET clears only the E bits of TC, TT0, TT1 (9.2.2, 9.7.3); there is no ATC yet, so FD has no effect.
+    -- TC written with E = 1 and an invalid PS (< 8) or IS + PS + TIA..(first zero TIx) /= 32 is stored with
+    -- E cleared (9.7.2); the MMU configuration exception (vector 56, 8.1.10) itself is a later stage.
+    P_MMU_REGS: process(CLK)
+        variable SUM : std_logic_vector(5 downto 0);
+        variable STOPPED : boolean;
+        variable TIX : std_logic_vector(3 downto 0);
+    begin
+        if CLK = '1' and CLK' event then
+            if RESET_CPU = '1' then
+                MMU_TC(31) <= '0';
+                MMU_TT0(15) <= '0';
+                MMU_TT1(15) <= '0';
+            elsif PMMU_WR = '1' then
+                case PMMU_WR_SEL is
+                    when "010000" => -- TC
+                        SUM := "00" & DATA_IN_EXH(23 downto 20);
+                        SUM := SUM + DATA_IN_EXH(19 downto 16);
+                        STOPPED := false;
+                        for i in 3 downto 0 loop
+                            TIX := DATA_IN_EXH(i*4+3 downto i*4);
+                            if TIX = "0000" then STOPPED := true; end if;
+                            if not STOPPED then SUM := SUM + TIX; end if;
+                        end loop;
+                        MMU_TC <= DATA_IN_EXH and x"83FFFFFF";
+                        if DATA_IN_EXH(31) = '1' and (DATA_IN_EXH(23) = '0' or SUM /= 32) then
+                            MMU_TC(31) <= '0';
+                        end if;
+                    when "000010" => MMU_TT0 <= DATA_IN_EXH and x"FFFF8777";
+                    when "000011" => MMU_TT1 <= DATA_IN_EXH and x"FFFF8777";
+                    when "011000" => MMU_SR <= DATA_IN_EXH(15 downto 0) and x"EE47";
+                    when others => null;
+                end case;
+            end if;
+        end if;
+    end process P_MMU_REGS;
+
+    PMMU_RD_DATA <= MMU_TC when PMMU_RD_SEL = "010000" else
+                    MMU_TT0 when PMMU_RD_SEL = "000010" else
+                    MMU_TT1 when PMMU_RD_SEL = "000011" else
+                    x"0000" & MMU_SR;
+
+    -- [PMMU1] Transparent translation match (MC68030UM 9.3, 9.7.3) on the cycle on the bus: E set,
+    -- A31-A24 equal to the base outside the mask, FC equal to FC BASE outside FC MASK, and R/W equal
+    -- to the R/W bit unless RWM is set; a read-modify-write (RMC) cycle matches only with RWM set.
+    -- Both match: the CI bits are ORed. CIOUT inhibits the on-chip caches (9.3) exactly like CIIN.
+    TT0_HIT <= '1' when MMU_TT0(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                        and ((FC_OUT_I xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                        and (MMU_TT0(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT0(9))) else '0';
+    TT1_HIT <= '1' when MMU_TT1(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                        and ((FC_OUT_I xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                        and (MMU_TT1(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
+    TT_CI <= (TT0_HIT and MMU_TT0(10)) or (TT1_HIT and MMU_TT1(10));
+    CIINn_EFF <= CIINn and not TT_CI;
+    ADR_OUT <= ADR_OUT_I;
+    FC_OUT <= FC_OUT_I;
+    RWn <= RWn_I;
+    RMCn <= RMCn_I;
+
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
                       ALU_RESULT_MV when F3_BYP = '1' else -- [F3] Next MOVEM register, in the clock its write is presented.
@@ -769,6 +846,7 @@ begin
                   DR_OUT_1 when OP = EXG else -- Two data registers.
                   VBR when OP = MOVEC and VBR_RD = '1' else
                   CACR when OP = MOVEC and CACR_RD = '1' else
+                  PMMU_RD_DATA when OP = PMOVE and BIW_1(9) = '1' else -- [PMMU1] PMOVE MRn,<ea>.
                   CAAR when OP = MOVEC and CAAR_RD = '1' else
                   x"0000000" & '0' & SFC when OP = MOVEC and SFC_RD = '1' else
                   x"0000000" & '0' & DFC when OP = MOVEC and DFC_RD = '1' else
@@ -1109,7 +1187,7 @@ begin
         );
 
     CBREQn <= '1'; -- [IC] No burst fill until a burst-capable fast RAM exists (CACR IBE has no effect).
-    CIOUTn <= '1'; -- [IC] No PMMU, so no page or TT register can ask for cache inhibit.
+    CIOUTn <= not TT_CI; -- [PMMU1] TT0/TT1 CI (MC68030UM 9.3); page descriptor CI comes with the ATC.
 
     -- The core talks to the bus interface for data; the bus interface serves read hits from the data cache.
     -- Instruction words come from the prefetch queue, which the instruction cache feeds.
@@ -1239,10 +1317,10 @@ begin
             CLK_F               => CLK_F, -- [F58]
 
             ADR_IN_P            => ADR_P,
-            ADR_OUT_P           => ADR_OUT,
+            ADR_OUT_P           => ADR_OUT_I,
 
             FC_IN               => FC_I,
-            FC_OUT              => FC_OUT,
+            FC_OUT              => FC_OUT_I,
 
             DATA_PORT_IN        => DATA_IN,
             DATA_PORT_OUT       => DATA_OUT,
@@ -1300,7 +1378,7 @@ begin
             IC_FILL_ADR         => IC_FILL_ADR,
             IC_FILL_FC2         => IC_FILL_FC2,
             IC_FILL_DATA        => IC_FILL_DATA,
-            CIINn               => CIINn,
+            CIINn               => CIINn_EFF,
             DC_FILL_EN          => DC_FILL_EN, -- [DC]
             DC_ON               => DC_ON,
             DC_LK_ADR           => DC_LK_ADR,
@@ -1333,8 +1411,8 @@ begin
             DSACKn              => DSACKn,
             ASn                 => ASn,
             DSn                 => DSn,
-            RWn                 => RWn,
-            RMCn                => RMCn,
+            RWn                 => RWn_I,
+            RMCn                => RMCn_I,
             ECSn                => ECSn,
             OCSn                => OCSn,
             DBENn               => DBENn,
@@ -1448,6 +1526,9 @@ begin
             VBR_WR                  => VBR_WR,
             CACR_RD                 => CACR_RD,
             CACR_WR                 => CACR_WR,
+            PMMU_WR                 => PMMU_WR,
+            PMMU_WR_SEL             => PMMU_WR_SEL,
+            PMMU_RD_SEL             => PMMU_RD_SEL,
             CAAR_RD                 => CAAR_RD,
             CAAR_WR                 => CAAR_WR,
             ISP_RD                  => ISP_RD,

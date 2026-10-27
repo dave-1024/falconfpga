@@ -93,4 +93,16 @@ echo "$ic" | grep -q "^PASS" || { echo "FAIL run_icache"; fail=1; }
 # [DC] Data cache unit test (prog_dcache.s, 16 configs, expect_dcache_ci*.txt).
 dc=$(bash $H/run_dcache.sh $W || true); echo "$dc" | grep FAIL || true
 echo "$dc" | grep -q "^PASS" || { echo "FAIL run_dcache"; fail=1; }
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok"
+# [PMMU1] Stage 1 PMMU (prog_pmmu.s, expect_pmmu.txt): PMOVE to/from TC, TT0, TT1, MMUSR with the field masks and
+# the TC consistency check, PMOVE addressing modes, CpID 0 F-line / privilege violation, and TT0 cache inhibit: with
+# CACR ED a second read of $8000 hits, a TT0 CI block makes both reads of $8010 go to the bus, an FC-masked TT0
+# that does not match supervisor data lets $8020 hit again (bus reads of $8000/$8010/$8020 must be 1/2/1).
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_pmmu.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_pmmu.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3"; do
+  $G -r $O tb030 -gROMFILE=prog_pmmu.hex -gCIMODE=1 $g -gMAXCLK=20000 2>/dev/null > r.log || true
+  rd=$(for a in 8000 8010 8020; do grep -c "RD   A=0000$a " r.log; done | tr '\n' ' ')
+  [ "$(bwres)" = "$(cat $H/expect_pmmu.txt)" ] && [ "$rd" = "1 2 1 " ] && grep -q DONE r.log || { echo "FAIL prog_pmmu $g: $(bwres) reads $rd"; fail=1; }
+done
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok"
