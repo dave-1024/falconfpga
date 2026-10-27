@@ -405,7 +405,7 @@ begin
                                 if k < W then IDX(k) := SH(31 - W + 1 + k); end if;
                             end loop;
                         end if;
-                        if LVL /= 0 and LIM_ON = '1' and TLONG = '1' and
+                        if LVL /= 0 and LIM_ON = '1' and
                            ((LIM_LU = '0' and IDX(14 downto 0) > LIM) or (LIM_LU = '1' and IDX(14 downto 0) < LIM)) then
                             BAD <= '1'; R_LIM <= '1'; WS <= W_DONE; -- Limit violation.
                         else

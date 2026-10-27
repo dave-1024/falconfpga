@@ -388,3 +388,7 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   never writes a register; prog_pmop now checks a data register across a PTEST.
 - Lesson: when an instruction borrows another's path and switches one write off, check every strobe that was keyed on
   the one you removed (here DR_WR_1 used AR_WR as its lock).
+- Bug (sim, prog_xlate2): the walker checked a table's LIMIT only when the *next* table was long. MC68030UM 9.5.1.x: the
+  limit belongs to the long descriptor (or root pointer) that points to the table, whatever that table's format. A long
+  table descriptor with DT = 2 (short next table) ignored its limit. Fix: the check depends only on the limit coming from a
+  long descriptor / root pointer (LIM_ON).

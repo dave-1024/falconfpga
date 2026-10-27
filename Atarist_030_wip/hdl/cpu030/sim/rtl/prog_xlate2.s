@@ -26,6 +26,10 @@ start:
         dbf     d0,2b
         move.l  #0x000f0003,0x6000      | A[0]: L/U 0, LIMIT $0F, DT 3 (long table)
         move.l  #0x00006100,0x6004
+        move.l  #0x80800003,0x6008      | A[1]: L/U 1 (lower limit), LIMIT $80 -> table B
+        move.l  #0x00006100,0x600c
+        move.l  #0x000f0002,0x6010      | A[2]: long descriptor, LIMIT $0F, DT 2: next table is SHORT ($6900)
+        move.l  #0x00006900,0x6014
         move.l  #0x7fff0001,0x6078      | A[$F]: page (early termination)
         move.l  #0x00f00000,0x607c
         move.l  #0x7fff0003,0x7000      | A'[0]: long table, no limit
@@ -78,6 +82,12 @@ start:
         pmove   psr,(a4)+               | limit: L, I, N = 1 -> $4401
         ptestr  #5,0x8000,#7
         pmove   psr,(a4)+               | supervisor tree, no S: N = 2 -> $0002
+        ptestr  #5,0x17f000,#7
+        pmove   psr,(a4)+               | lower limit: index $7F < $80: L, I, N = 1 -> $4401
+        ptestr  #5,0x180000,#7
+        pmove   psr,(a4)+               | index $80 passes the limit, B[$80] invalid: I, N = 2 -> $0402
+        ptestr  #5,0x21f000,#7
+        pmove   psr,(a4)+               | long descriptor's limit on a short table: L, I, N = 1 -> $4401
 | user mode: CRP tree
         lea     0x7800,a2
         move.l  a2,usp
