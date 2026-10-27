@@ -203,3 +203,22 @@
 - Next: DIAG_OVERLAY build of pmmu (live program-fetch address, first BERR, bus state on screen) to get the
   PC where MiNT is stuck, then map it with Hatari (same image, same load address). Build started on
   linserver 20:26 UTC (~/ovl_build.sh, st_helper_hdn_pmmu8ovl_3b42b52.fs).
+
+### DIAG_OVERLAY result (st_helper_hdn_pmmu8ovl_46d3eee.fs: clk_cpu030 20.03 MHz, clk32_core 32.95 MHz, 52288 logic / 45245 LUT)
+- **MP on (mint_scr.st): the 68030 is HALTED (double bus fault).** Overlay frozen in every frame
+  (img/pmmu/mint_mpon_overlay_halt.png): row d HALT_OUTn = 0, no bus cycle in progress, last cycle (row c) =
+  supervisor-data word read at $000BC186 (FC 5 = an MMU table-search read; MiNT's CRP table is at $BC000),
+  terminated by DSACK; last program fetch (row f) $05CE9A = prefetch just after `pmove 12(sp),tc ; rts` in
+  mint030 set_mmu (TC = $80D04447: PS 8K, TIA/TIB/TIC/TID 4/4/4/7, all long descriptors). Row a (first BERR
+  since power-up, $41FFFE) is TOS's memory sizing probe at boot, not MiNT. So the core dies on the first
+  table searches after MiNT enables translation. This is a PMMU fault on the board.
+- Replaying that exact moment on the RTL core (tools/minttest/sim, Hatari RAM snapshot + TOS 2.06 in tb030) does
+  **not** fail: translation on, walks fine, MiNT continues through the same TOS calls as Hatari at WS 0/1/3/rnd.
+  So the failure needs something the core-alone bench doesn't model (bridge, caches build options, ST bus
+  timing of walker cycles, or an exception the walk raises only on the board). Next: whole-ST bench
+  (sim/st/run_bus.sh, needs a netlist) with the same RAM image, or an overlay variant that records the
+  exceptions taken (DIAG_EXCWATCH) just before the halt.
+- **MP off (mint_nomp.st)** is a different case: not halted, the CPU keeps running (row f moves, fetches in the
+  TOS ROM at $E021B0) and the screen gets past `Installing BIOS keyboard table ... AKP 0`
+  (img/pmmu/mint_mpoff_overlay_running.png); after that MiNT writes to BOOT.LOG (WRITE_BOOT=YES), which never
+  reached the disk. Not yet looked at.
