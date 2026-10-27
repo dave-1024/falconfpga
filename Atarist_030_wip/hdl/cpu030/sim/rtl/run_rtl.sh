@@ -9,7 +9,7 @@
 set -e
 H=$(cd "$(dirname "$0")" && pwd); S=${WF_SRC:-$H/../..}; W=${1:-/tmp/sim030rtl}; mkdir -p $W/work; cd $W
 G=${GHDL:-ghdl}; O="--std=08 -fsynopsys -frelaxed --workdir=work"
-for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control icache dcache top; do
+for f in pkg exception_handler opcode_decoder address_registers data_registers alu bus_interface control icache dcache mmu top; do
   $G -a $O $S/wf68k30L_$f.vhd 2>/dev/null; done
 echo ffff > prog.hex; $G -a $O $H/tb030.vhd 2>/dev/null && $G -e $O tb030
 fail=0
@@ -114,4 +114,14 @@ for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3"; do
   $G -r $O tb030 -gROMFILE=prog_mmucfg.hex $g -gMAXCLK=20000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_mmucfg.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_mmucfg $g: $(bwres)"; fail=1; }
 done
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok"
+# [PMMU2b] Address translation (prog_xlate.s, expect_xlate.txt, MC68030UM 9.4/9.5): short two-level tree with early
+# termination, remapped page, U/M updates written back, ATC hit after a table change, flush by PMOVE (FD=0) and not by
+# PMOVEFD, invalid descriptor and write-protect bus errors with the fault address, 40-page ATC replacement.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_xlate.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_xlate.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3" "-gWS=0 -gCIMODE=1"; do
+  $G -r $O tb030 -gROMFILE=prog_xlate.hex $g -gMAXCLK=100000 2>/dev/null > r.log || true
+  [ "$(bwres)" = "$(cat $H/expect_xlate.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_xlate $g: $(bwres)"; fail=1; }
+done
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok, PMMU translation ok"

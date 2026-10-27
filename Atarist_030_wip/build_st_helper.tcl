@@ -87,6 +87,7 @@ add_file hdl/cpu030/wf68k30L_exception_handler.vhd
 add_file hdl/cpu030/wf68k30L_opcode_decoder.vhd
 add_file hdl/cpu030/wf68k30L_icache.vhd
 add_file hdl/cpu030/wf68k30L_dcache.vhd
+add_file hdl/cpu030/wf68k30L_mmu.vhd
 add_file hdl/cpu030/wf68k30L_top.vhd
 add_file hdl/cpu030/cpu030_st_bridge.v
 add_file hdl/fdc1772/fdc1772.v

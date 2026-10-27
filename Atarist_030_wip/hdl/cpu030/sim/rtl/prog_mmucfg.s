@@ -24,6 +24,9 @@ nx2:    moveq   #2,d3
         moveq   #0,d3
         move.l  #0x7fff0002,0x4010      | DT = 2: valid, no exception
         pmove   0x4010,srp
+        move.l  #1,0x4018               | [PMMU2b] identity CRP (DT 1) for the valid-TC window
+        clr.l   0x401c
+        pmove   0x4018,crp
         move.l  #0x80c0aa00,(a0)        | valid TC
         pmove   (a0),tc
         clr.l   (a0)

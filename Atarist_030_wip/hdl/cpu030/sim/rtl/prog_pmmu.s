@@ -14,6 +14,9 @@ start:
         move.l  #trap0,0x80
         move.l  #mmucfg,0xe0            | [PMMU2] vector 56: count at $5100
         clr.w   0x5100
+        move.l  #1,0x4070               | [PMMU2b] CRP = early-termination root page at 0 (identity, 9.5.3.3)
+        clr.l   0x4074                  | so the short TC E=1 window below translates 1:1
+        pmove   0x4070,crp
         lea     0x5000,a4
         lea     0x4000,a0
         move.l  #0x12345678,(a0)

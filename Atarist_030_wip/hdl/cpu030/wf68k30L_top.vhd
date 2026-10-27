@@ -587,6 +587,16 @@ signal RWn_I                    : std_logic;
 signal RMCn_I                   : std_logic;
 signal TT0_HIT, TT1_HIT         : std_logic;
 signal TT_CI                    : std_logic;
+-- [PMMU2b] MMU (ATC + table walker) between the bus interface and the pins.
+signal PMMU_FD, MMU_FLUSH, ATC_CI, MMU_WALKING, MMU_RESET, TT_HIT_ANY : std_logic;
+signal C_ADR_O                  : std_logic_vector(31 downto 0);
+signal C_FC_O                   : std_logic_vector(2 downto 0);
+signal C_SIZE_O                 : std_logic_vector(1 downto 0);
+signal C_ASn, C_DSn, C_ECSn, C_OCSn, C_DBENn, C_DEN, C_BEN : std_logic;
+signal C_DOUT                   : std_logic_vector(31 downto 0);
+signal C_DSACKn                 : std_logic_vector(1 downto 0);
+signal C_STERMn, C_BERRn        : std_logic;
+signal P_RWn, P_RMCn            : std_logic;
 signal CIINn_EFF                : std_logic;
 signal DC_WR_TTCI               : std_logic;
 signal DC_WR_GO_EFF             : std_logic;
@@ -852,7 +862,7 @@ begin
                         and ((FC_OUT_I xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
                         and (MMU_TT1(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
     TT_CI <= (TT0_HIT and MMU_TT0(10)) or (TT1_HIT and MMU_TT1(10));
-    CIINn_EFF <= CIINn and not TT_CI;
+    CIINn_EFF <= CIINn and not TT_CI and not ATC_CI; -- [PMMU2b] page CI (9.5.1) like TT CI.
     -- [PMMU1] MC68030UM 6.1.2 p6-8: with CIOUT asserted the data cache is completely ignored, even on
     -- writes in write-allocation mode. The write's own address and FC (R/W = write) are matched, so a
     -- write in a TT CI block neither updates a hit nor allocates. (A locked RMC write portion is matched
@@ -866,10 +876,23 @@ begin
                             and ((DC_WR_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
                             and (MMU_TT1(8) = '1' or MMU_TT1(9) = '0')) else '0';
     DC_WR_GO_EFF <= DC_WR_GO and not DC_WR_TTCI;
-    ADR_OUT <= ADR_OUT_I;
-    FC_OUT <= FC_OUT_I;
-    RWn <= RWn_I;
-    RMCn <= RMCn_I;
+    -- [PMMU2b] The MMU sits between the bus interface and the pins. With TC.E = 0 it is a wire.
+    TT_HIT_ANY <= TT0_HIT or TT1_HIT;
+    MMU_RESET <= '1' when RESET_CPU = '1' else '0';
+    -- 9.4 p9-17 / 9.7.5.1 p9-61: a PMOVE to CRP, SRP, TC, TT0 or TT1 with FD = 0 flushes the ATC.
+    MMU_FLUSH <= '1' when PMMU_WR = '1' and PMMU_FD = '0' and (PMMU_WR_SEL = "010000" or PMMU_WR_SEL = "010010"
+                     or PMMU_WR_SEL = "010011" or PMMU_WR_SEL = "000010" or PMMU_WR_SEL = "000011") else '0';
+    I_MMU: entity work.WF68K30L_MMU
+        port map(CLK => CLK, RESET => MMU_RESET, TC => MMU_TC, CRP => MMU_CRP, SRP => MMU_SRP,
+            TT_HIT => TT_HIT_ANY, FLUSH_ALL => MMU_FLUSH,
+            C_ADR => ADR_OUT_I, C_FC => FC_OUT_I, C_SIZE => C_SIZE_O, C_ASn => C_ASn, C_DSn => C_DSn,
+            C_RWn => RWn_I, C_RMCn => RMCn_I, C_ECSn => C_ECSn, C_OCSn => C_OCSn, C_DBENn => C_DBENn,
+            C_DATA_OUT => C_DOUT, C_DATA_EN => C_DEN, C_BUS_EN => C_BEN,
+            C_DSACKn => C_DSACKn, C_STERMn => C_STERMn, C_BERRn => C_BERRn,
+            P_ADR => ADR_OUT, P_FC => FC_OUT, P_SIZE => SIZE, P_ASn => ASn, P_DSn => DSn, P_RWn => RWn,
+            P_RMCn => RMCn, P_ECSn => ECSn, P_OCSn => OCSn, P_DBENn => DBENn, P_DATA_OUT => DATA_OUT,
+            P_DATA_EN => DATA_EN, P_BUS_EN => BUS_EN, P_DSACKn => DSACKn, P_STERMn => STERMn, P_BERRn => BERRn,
+            P_DATA_IN => DATA_IN, ATC_CI => ATC_CI, WALKING => MMU_WALKING);
 
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
@@ -1167,7 +1190,7 @@ begin
                 when WORD => ADR_LATCH <= ADR_LATCH + x"2";
                 when others => ADR_LATCH <= ADR_LATCH + x"1";
             end case;
-        elsif BERRn = '0' then
+        elsif C_BERRn = '0' then
             FAULT_ADR <= ADR_LATCH;
         end if;
     end process P_ADR_LATCHES;
@@ -1258,7 +1281,7 @@ begin
         );
 
     CBREQn <= '1'; -- [IC] No burst fill until a burst-capable fast RAM exists (CACR IBE has no effect).
-    CIOUTn <= not TT_CI; -- [PMMU1] TT0/TT1 CI (MC68030UM 9.3); page descriptor CI comes with the ATC.
+    CIOUTn <= not (TT_CI or ATC_CI); -- [PMMU1] TT0/TT1 CI (MC68030UM 9.3); page descriptor CI comes with the ATC.
 
     -- The core talks to the bus interface for data; the bus interface serves read hits from the data cache.
     -- Instruction words come from the prefetch queue, which the instruction cache feeds.
@@ -1394,15 +1417,15 @@ begin
             FC_OUT              => FC_OUT_I,
 
             DATA_PORT_IN        => DATA_IN,
-            DATA_PORT_OUT       => DATA_OUT,
+            DATA_PORT_OUT       => C_DOUT,
             DATA_FROM_CORE      => DATA_FROM_CORE,
             DATA_TO_CORE        => BUS_DATA_WORD,
             OPCODE_TO_CORE      => BUS_OPCODE_WORD,
 
-            DATA_PORT_EN        => DATA_EN,
-            BUS_EN              => BUS_EN,
+            DATA_PORT_EN        => C_DEN,
+            BUS_EN              => C_BEN,
 
-            SIZE                => SIZE,
+            SIZE                => C_SIZE_O,
             OP_SIZE             => OP_SIZE_BUS,
 
             RD_REQ_IN           => DC_BUS_REQ,
@@ -1479,16 +1502,16 @@ begin
             INBUFFER            => INBUFFER,
             OUTBUFFER           => OUTBUFFER,
 
-            DSACKn              => DSACKn,
-            ASn                 => ASn,
-            DSn                 => DSn,
+            DSACKn              => C_DSACKn,
+            ASn                 => C_ASn,
+            DSn                 => C_DSn,
             RWn                 => RWn_I,
             RMCn                => RMCn_I,
-            ECSn                => ECSn,
-            OCSn                => OCSn,
-            DBENn               => DBENn,
+            ECSn                => C_ECSn,
+            OCSn                => C_OCSn,
+            DBENn               => C_DBENn,
 
-            STERMn              => STERMn,
+            STERMn              => C_STERMn,
 
             BRn                 => BRn,
             BGACKn              => BGACKn,
@@ -1501,7 +1524,7 @@ begin
 
             AVECn               => AVECn_BUSIF,
             HALTn               => HALT_INn,
-            BERRn               => BERRn,
+            BERRn               => C_BERRn,
             AERR                => AERR,
 
             BUS_BSY             => BUS_BSY
@@ -1599,6 +1622,7 @@ begin
             CACR_WR                 => CACR_WR,
             PMMU_WR                 => PMMU_WR,
             PMMU_WR_SEL             => PMMU_WR_SEL,
+            PMMU_FD                 => PMMU_FD,
             PMMU_RD_SEL             => PMMU_RD_SEL,
             PMMU_LD_HI              => PMMU_LD_HI,
             PMMU_LO                 => PMMU_LO,

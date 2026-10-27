@@ -120,6 +120,14 @@ signal IND      : std_logic;
 signal RMC_W    : std_logic := '0';
 signal P_PA     : std_logic_vector(23 downto 0);
 signal P_CI, P_M: std_logic;
+-- A cycle the pins already run keeps the translation it started with (TC, TTx or a flush may change in the
+-- middle of it, e.g. the PMOVE to TC writes back while the next prefetch is on the bus).
+signal CYC_ON   : std_logic := '0';
+signal CYC_X    : std_logic := '0';
+signal CYC_CI   : std_logic := '0';
+signal CYC_PA   : std_logic_vector(23 downto 0);
+signal CYC_MASK : std_logic_vector(23 downto 0);
+signal XLATE_L  : std_logic; -- XLATE for a new cycle only.
 
 function TIW(T : std_logic_vector; L : integer) return integer is
 begin
@@ -141,7 +149,19 @@ begin
         end loop;
     end process P_MASK;
 
-    XLATE <= '1' when TC(31) = '1' and C_FC /= "111" and TT_HIT = '0' and C_BUS_EN = '1' else '0';
+    XLATE_L <= '1' when TC(31) = '1' and C_FC /= "111" and TT_HIT = '0' and C_BUS_EN = '1' else '0';
+    XLATE <= XLATE_L and not CYC_ON;
+
+    P_CYC: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            if C_ASn = '1' or RESET = '1' then
+                CYC_ON <= '0'; CYC_X <= '0'; CYC_CI <= '0';
+            elsif CYC_ON = '0' and WS = W_IDLE and (XLATE = '0' or HIT_OK = '1') then
+                CYC_ON <= '1'; CYC_X <= XLATE; CYC_PA <= H_PA; CYC_MASK <= PMASK; CYC_CI <= XLATE and H_CI;
+            end if;
+        end if;
+    end process P_CYC;
     C_WR <= not C_RWn;
 
     -- Fully associative lookup (9.4: logical address and FC; fewer bits compared for bigger pages).
@@ -168,7 +188,7 @@ begin
     -- Pin multiplexer.
     P_PINS: process(WS, XLATE, HIT_OK, C_ADR, C_FC, C_SIZE, C_ASn, C_DSn, C_RWn, C_RMCn, C_ECSn, C_OCSn, C_DBENn,
                     C_DATA_OUT, C_DATA_EN, C_BUS_EN, H_PA, PMASK, BM_A, BM_D, BM_SZ, BM_AS, BM_DS, BM_WR, BS, RMC_W,
-                    P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI)
+                    P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI, CYC_ON, CYC_X, CYC_PA, CYC_MASK)
         variable BLK : boolean;
     begin
         BLK := WS /= W_IDLE or (XLATE = '1' and HIT_OK = '0');
@@ -179,7 +199,12 @@ begin
             if BM_AS = '1' then P_DBENn <= '0'; else P_DBENn <= '1'; end if;
             P_DATA_OUT <= BM_D; P_DATA_EN <= BM_WR; P_BUS_EN <= '1';
         else
-            if XLATE = '1' then
+            if CYC_ON = '1' and CYC_X = '1' then
+                for i in 0 to 23 loop
+                    if CYC_MASK(i) = '1' then P_ADR(i + 8) <= CYC_PA(i); else P_ADR(i + 8) <= C_ADR(i + 8); end if;
+                end loop;
+                P_ADR(7 downto 0) <= C_ADR(7 downto 0);
+            elsif XLATE = '1' then
                 for i in 0 to 23 loop
                     if PMASK(i) = '1' then P_ADR(i + 8) <= H_PA(i); else P_ADR(i + 8) <= C_ADR(i + 8); end if;
                 end loop;
@@ -203,7 +228,7 @@ begin
         end if;
     end process P_PINS;
 
-    ATC_CI <= '1' when WS = W_IDLE and HIT_OK = '1' and H_CI = '1' else '0';
+    ATC_CI <= CYC_CI when CYC_ON = '1' else '1' when WS = W_IDLE and HIT_OK = '1' and H_CI = '1' else '0';
     WALKING <= '1' when WS /= W_IDLE else '0';
 
     -- Walker bus master: one long (or a word pair on a 16-bit port), AS from a rising edge, data latched the
@@ -416,7 +441,10 @@ begin
                         E_PA(IDXI) <= PA32(31 downto 8);
                         E_B(IDXI) <= BAD or (ACC_S and not L_FC(2));
                         E_CI(IDXI) <= DCI and not BAD; E_WP(IDXI) <= ACC_WP;
-                        E_M(IDXI) <= D0(4);
+                        -- M of the entry: the page descriptor's M after the update; a write through a root-pointer
+                        -- page (no descriptor in memory, 9.5.3.3) marks the entry modified directly, else the
+                        -- retried write would miss again (M = 0) and search forever.
+                        E_M(IDXI) <= D0(4) or (L_WR and not BAD);
                         E_USED(IDXI) <= '1';
                         RMC_W <= '0'; WS <= W_IDLE;
                 end case;

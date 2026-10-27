@@ -276,6 +276,7 @@ entity WF68K30L_CONTROL is
         CACR_WR             : out bit;
         PMMU_WR             : out bit; -- [PMMU1] PMOVE <ea>,MRn writeback strobe.
         PMMU_WR_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of that PMOVE.
+        PMMU_FD             : out std_logic; -- [PMMU2b] FD bit (ext word bit 8) of that PMOVE.
         PMMU_RD_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of the current PMOVE.
         PMMU_LD_HI          : out bit; -- [PMMU1] Upper long of a CRP/SRP read is on DATA_TO_CORE.
         PMMU_LO             : out bit; -- [PMMU1] Second (lower) long of a CRP/SRP transfer.
@@ -1171,6 +1172,7 @@ begin
         end if;
     end process P_PMMU_WR_D;
     PMMU_WR_SEL <= BIW_1_WB(15 downto 10);
+    PMMU_FD <= BIW_1_WB(8);
 
     CACR_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"002" else '0';
     CACR_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1_WB(11 downto 0) = x"002" and EXEC_WB_STATE = WRITEBACK else '0';
