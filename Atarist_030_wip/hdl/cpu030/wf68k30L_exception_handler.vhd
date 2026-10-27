@@ -171,6 +171,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         TRAP_VECTOR         : in std_logic_vector(3 downto 0);
         TRAP_cc             : in bit;
         TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
         EX_TRACE_IN         : in bit;
         VBR_WR              : in bit;
         VBR                 : out std_logic_vector(31 downto 0);
@@ -187,7 +188,7 @@ type EX_STATES is (IDLE, BUILD_STACK, BUILD_TSTACK, CALC_VECT_No, EXAMINE_VERSIO
                    READ_TOP, REFILL_PIPE, RESTORE_ISP, RESTORE_PC, RESTORE_STATUS, UPDATE_PC, SWITCH_STATE, VALIDATE_FRAME);
 
 type EXCEPTIONS is (EX_NONE, EX_1010, EX_1111, EX_AERR, EX_BERR, EX_CHK, EX_DIVZERO, EX_FORMAT, EX_ILLEGAL,
-                    EX_INT, EX_PRIV, EX_RESET, EX_RTE, EX_TRACE, EX_TRAP, EX_TRAPcc, EX_TRAPV);
+                    EX_INT, EX_PRIV, EX_RESET, EX_RTE, EX_TRACE, EX_TRAP, EX_TRAPcc, EX_TRAPV, EX_MMUCFG);
 
 signal ACCESS_ERR           : bit := '0';  -- [F54] measured warm-boot value
 signal AVEC                 : bit := '0';  -- [F54] measured warm-boot value
@@ -230,6 +231,7 @@ signal EX_P_TRACE           : bit := '0';  -- [F51] no spurious pending exceptio
 signal EX_P_TRAP            : bit := '0';  -- [F52] init
 signal EX_P_TRAPcc          : bit := '0';  -- [F50] belt-and-braces init
 signal EX_P_TRAPV           : bit := '0';  -- [F52] init
+signal EX_P_MMUCFG          : bit := '0';  -- [PMMU2]
 signal INT_VECT             : std_logic_vector(31 downto 0); -- Interrupt vector.
 signal IBOUND               : boolean := false;  -- [F54] measured warm-boot value
 signal IRQ                  : std_logic_vector(2 downto 0);
@@ -324,6 +326,15 @@ begin
             EX_P_AERR <= '0';
         elsif SYS_INIT = '1' then
             EX_P_AERR <= '0';
+        end if;
+        --
+        -- [PMMU2] MMU configuration exception: pending from the PMOVE writeback until its frame is built.
+        if TRAP_MMUCFG = '1' then
+            EX_P_MMUCFG <= '1';
+        elsif EX_STATE = BUILD_STACK and EXCEPTION = EX_MMUCFG then
+            EX_P_MMUCFG <= '0';
+        elsif SYS_INIT = '1' then
+            EX_P_MMUCFG <= '0';
         end if;
         --
         if EX_TRACE_IN = '1' then
@@ -475,7 +486,7 @@ begin
     EXH_REQ <= '0' when EX_STATE /= IDLE else
                '1' when TRAP_CODE_OPC /= NONE else
                '1' when (EX_P_RESET or EX_P_BERR or EX_P_AERR or EX_P_DIVZERO or EX_P_CHK) = '1' else
-               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ) = '1' else '0';
+               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ or EX_P_MMUCFG) = '1' else '0';
 
     INT_VECTOR: process
     -- This process provides the vector base register handling and 
@@ -502,6 +513,7 @@ begin
                 when EX_TRAPcc      => VECT_No := x"07";
                 when EX_TRAPV       => VECT_No := x"07";
                 when EX_PRIV        => VECT_No := x"08";
+                when EX_MMUCFG      => VECT_No := x"38"; -- [PMMU2] vector 56 (Table 8-1).
                 when EX_TRACE       => VECT_No := x"09";
                 when EX_1010        => VECT_No := x"0A";
                 when EX_1111        => VECT_No := x"0B";
@@ -560,6 +572,8 @@ begin
             EXCEPTION <= EX_TRAPV;
         elsif EX_STATE = IDLE and EX_P_FORMAT = '1' then
             EXCEPTION <= EX_FORMAT;
+        elsif EX_STATE = IDLE and EX_P_MMUCFG = '1' then
+            EXCEPTION <= EX_MMUCFG; -- [PMMU2] group 2 (Table 8-4).
         -- Priority level 3:
         elsif EX_STATE = IDLE and EX_P_ILLEGAL = '1' then
             EXCEPTION <= EX_ILLEGAL;
@@ -668,7 +682,8 @@ begin
               '1' when EXCEPTION = EX_INT and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_TRAP and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_TRAPcc and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
-              '1' when EXCEPTION = EX_TRAPV and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else '0';
+              '1' when EXCEPTION = EX_TRAPV and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
+              '1' when EXCEPTION = EX_MMUCFG and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else '0'; -- [PMMU2] next PC (8.1.10).
 
     ISP_DEC <= '1' when EX_STATE = INIT and EXCEPTION /= EX_RESET and EXCEPTION /= EX_RTE else -- Early due to one clock cycle address calculation.
                '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and NEXT_EX_STATE = BUILD_STACK else
@@ -732,7 +747,7 @@ begin
                 when EX_INT | EX_ILLEGAL | EX_1010 | EX_1111 | EX_FORMAT | EX_PRIV | EX_TRAP =>
                     STACK_POS_VAR := 4; -- Format 0.
                     STACK_FORMAT_I <= x"0";
-                when EX_CHK | EX_TRAPcc | EX_TRAPV | EX_TRACE | EX_DIVZERO =>
+                when EX_CHK | EX_TRAPcc | EX_TRAPV | EX_TRACE | EX_DIVZERO | EX_MMUCFG =>
                     STACK_POS_VAR := 6; -- Format 2.
                     STACK_FORMAT_I <= x"2";
                 when EX_AERR | EX_BERR =>
@@ -837,7 +852,7 @@ begin
                     NEXT_EX_STATE <= IDLE; -- Wait until the pipelined architecture is ready.
                 elsif EX_P_RESET = '1' or EX_P_AERR = '1' or EX_P_BERR = '1' then
                     NEXT_EX_STATE <= INIT;
-                elsif EX_P_TRAP = '1' or EX_P_TRAPcc = '1' or EX_P_TRAPV = '1' or EX_P_CHK = '1' or EX_P_DIVZERO = '1' then
+                elsif EX_P_TRAP = '1' or EX_P_TRAPcc = '1' or EX_P_TRAPV = '1' or EX_P_CHK = '1' or EX_P_DIVZERO = '1' or EX_P_MMUCFG = '1' then
                     NEXT_EX_STATE <= INIT;
                 elsif EX_P_FORMAT = '1' then
                     NEXT_EX_STATE <= INIT;

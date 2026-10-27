@@ -12,6 +12,8 @@ start:
         move.l  #priv,0x20
         move.l  #fline,0x2c
         move.l  #trap0,0x80
+        move.l  #mmucfg,0xe0            | [PMMU2] vector 56: count at $5100
+        clr.w   0x5100
         lea     0x5000,a4
         lea     0x4000,a0
         move.l  #0x12345678,(a0)
@@ -110,6 +112,7 @@ start:
         move.l  #0x2900,d0              | CD: clear the data cache
         movec   d0,cacr
         move.w  0x8030,(a4)+            | from memory: $2222
+        move.w  0x5100,(a4)+            | [PMMU2] three invalid TC loads (E=1) -> 3 configuration exceptions
         moveq   #0,d0
         movec   d0,cacr
         move.l  #0x600dc0de,0x3300
@@ -122,4 +125,6 @@ fline:  move.w  6(sp),(a4)+
         addq.l  #4,2(sp)
         rte
 trap0:  or.w    #0x2000,(sp)
+        rte
+mmucfg: addq.w  #1,0x5100
         rte

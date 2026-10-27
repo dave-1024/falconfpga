@@ -553,6 +553,8 @@ signal TRAP_cc                  : bit;
 signal TRAP_CHK                 : bit;
 signal TRAP_DIVZERO             : bit;
 signal TRAP_V                   : bit;
+signal TRAP_MMUCFG              : bit; -- [PMMU2]
+signal PMOVE_PC                 : std_logic_vector(31 downto 0); -- [PMMU2] address of the last PMOVE.
 signal UNMARK                   : bit;
 signal USE_APAIR                : boolean;
 signal USE_DFC                  : bit;
@@ -696,6 +698,7 @@ begin
     DATA_EXH <= -- Exception handler multiplexing:
                 SR_CPY & PC(31 downto 16) when STACK_POS = 2 else
                 PC(15 downto 0) & STACK_FORMAT & "00" & IVECT_OFFS when STACK_POS = 4 else
+                PMOVE_PC when STACK_FORMAT = x"2" and STACK_POS = 6 and IVECT_OFFS = "0011100000" else -- [PMMU2] vector 56.
                 PC when STACK_FORMAT = x"2" and STACK_POS = 6 else
                 PC when STACK_FORMAT = x"9" and STACK_POS = 6 else
                 -- F28/H22: MC68030UM p8-29 -- "If an address error exception
@@ -797,10 +800,37 @@ begin
                 PMMU_HI <= DATA_TO_CORE;
             end if;
             if ALU_INIT = '1' and OP = PMOVE then
+                PMOVE_PC <= PC; -- [PMMU2] for the configuration exception frame (8.1.10).
                 PMMU_HI_WB <= PMMU_HI; -- Hand the upper long on with the instruction to its writeback.
             end if;
         end if;
     end process P_PMMU_HI;
+
+    -- [PMMU2] MMU configuration exception (8.1.10): a PMOVE that loads TC with E=1 and a bad layout
+    -- (PS < 8 or PS+IS+TIA.. up to the first zero TIx /= 32, 9.7.2), or CRP/SRP with DT = 0 (9.7.1).
+    -- A strobe with the writeback, so the exception is pending before the next instruction starts.
+    P_MMUCFG: process(PMMU_WR, PMMU_WR_SEL, DATA_IN_EXH, PMMU_HI_WB)
+        variable SUM : std_logic_vector(5 downto 0);
+        variable STOPPED : boolean;
+        variable TIX : std_logic_vector(3 downto 0);
+    begin
+        SUM := "00" & DATA_IN_EXH(23 downto 20);
+        SUM := SUM + DATA_IN_EXH(19 downto 16);
+        STOPPED := false;
+        for i in 3 downto 0 loop
+            TIX := DATA_IN_EXH(i*4+3 downto i*4);
+            if TIX = "0000" then STOPPED := true; end if;
+            if not STOPPED then SUM := SUM + TIX; end if;
+        end loop;
+        TRAP_MMUCFG <= '0';
+        if PMMU_WR = '1' then
+            if PMMU_WR_SEL = "010000" and DATA_IN_EXH(31) = '1' and (DATA_IN_EXH(23) = '0' or SUM /= 32) then
+                TRAP_MMUCFG <= '1';
+            elsif (PMMU_WR_SEL = "010010" or PMMU_WR_SEL = "010011") and PMMU_HI_WB(1 downto 0) = "00" then
+                TRAP_MMUCFG <= '1';
+            end if;
+        end if;
+    end process P_MMUCFG;
 
     PMMU_RD_DATA <= MMU_SRP(63 downto 32) when PMMU_RD_SEL = "010010" and PMMU_LO = '0' else
                     MMU_SRP(31 downto 0) when PMMU_RD_SEL = "010010" else
@@ -1715,6 +1745,7 @@ begin
             TRAP_VECTOR             => BIW_0(3 downto 0),
             TRAP_cc                 => TRAP_cc,
             TRAP_V                  => TRAP_V,
+            TRAP_MMUCFG             => TRAP_MMUCFG,
             EX_TRACE_IN             => EX_TRACE,
             VBR_WR                  => VBR_WR,
             VBR                     => VBR,

@@ -342,6 +342,8 @@ type FETCH_STATES is (START_OP, CALC_AEFF, FETCH_DISPL, FETCH_EXWORD_1, FETCH_D_
                       FETCH_ABS_LO, FETCH_IDATA_B2, FETCH_IDATA_B1, FETCH_MEMADR, FETCH_OPERAND, INIT_EXEC_WB, SLEEP, SWITCH_STATE);
 type EXEC_WB_STATES is (IDLE, EXECUTE, ADR_PIPELINE, WRITEBACK, WRITE_DEST);
 signal MV_RW, MV_AN, MV_RW_WB : std_logic; -- [PMMU1]
+signal PM_INFL : std_logic := '0'; -- [PMMU2]
+signal PMMU_WR_D : std_logic := '0'; -- [PMMU2] PMMU_WR one clock later (START_OP hold).
 signal PM_QUAD : std_logic; -- [PMMU1] PMOVE of the 64-bit CRP or SRP: two long bus transfers (EA, EA+4).
 signal FETCH_STATE          : FETCH_STATES := START_OP;  -- [F49] was
     -- uninitialised while its partner NEXT_FETCH_STATE had an init (F44a).
@@ -453,6 +455,7 @@ begin
 
     OW_REQ <= '0' when BUSY_EXH = '1' else
               '0' when EXH_REQ = '1' and LOOP_BSY = '0' else -- Non interrupt exception requests, loop has priority.
+              '0' when PM_INFL = '1' or PMMU_WR_D = '1' else -- [PMMU2] PMOVE to the MMU: no next opcode before its writeback (8.1.10).
               '0' when OPD_ACK = '1' or OW_RDY = '1' else
               '1' when NO_PIPELINE = true and FETCH_STATE = START_OP and ALU_BSY = '0' else
               '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else '0';
@@ -1150,6 +1153,23 @@ begin
     PMMU_LD_HI <= '1' when PM_QUAD = '1' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and PHASE2 = false else '0';
     PMMU_LO <= '1' when PHASE2 = true else '0'; -- Quad write: the lower long is the second ALU load.
     PMMU_WR <= '1' when OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK else '0';
+    -- [PMMU2] PM_INFL: a PMOVE to an MMU register is between INIT_EXEC_WB and one clock after its writeback.
+    -- START_OP waits on it, so the configuration exception (8.1.10) is pending before the next instruction.
+    P_PMMU_WR_D: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            if OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK then
+                PMMU_WR_D <= '1';
+            else
+                PMMU_WR_D <= '0';
+            end if;
+            if RESET_CPU = '1' or PMMU_WR_D = '1' then
+                PM_INFL <= '0';
+            elsif FETCH_STATE = INIT_EXEC_WB and OP = PMOVE and BIW_1(9) = '0' then
+                PM_INFL <= '1';
+            end if;
+        end if;
+    end process P_PMMU_WR_D;
     PMMU_WR_SEL <= BIW_1_WB(15 downto 10);
 
     CACR_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"002" else '0';
@@ -1807,7 +1827,7 @@ begin
 
     FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
-                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD) -- MOVEM_FIRST_RD: sensitivity audit
+                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
     -- ASH: avoid structural hazard.
     -- ASH: avoid control hazard.
@@ -1815,6 +1835,10 @@ begin
         case FETCH_STATE is
             when START_OP =>
                 if OPD_ACK = '0' and OW_RDY = '0' then
+                    NEXT_FETCH_STATE <= START_OP;
+                elsif PM_INFL = '1' or PMMU_WR_D = '1' then
+                    -- [PMMU2] A PMOVE to an MMU register finishes its writeback before the next instruction
+                    -- starts, so the post-instruction MMU configuration exception (8.1.10) is taken before it.
                     NEXT_FETCH_STATE <= START_OP;
                 -- Debugging:
                 --elsif OP_TEST = '1' and ALU_BSY = '1' then

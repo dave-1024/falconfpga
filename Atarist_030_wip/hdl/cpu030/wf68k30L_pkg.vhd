@@ -594,6 +594,7 @@ component WF68K30L_EXCEPTION_HANDLER
         TRAP_VECTOR         : in std_logic_vector(3 downto 0);
         TRAP_cc             : in bit;
         TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
         EX_TRACE_IN         : in bit;
         VBR_WR              : in bit;
         VBR                 : out std_logic_vector(31 downto 0);
