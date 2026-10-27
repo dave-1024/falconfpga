@@ -29,3 +29,21 @@
   TOS 2.06 boots on its own (memory test 4096 KB, docs/img/pmmu/pmmu1_flash_boot.png).
 - Cold boot ('c' + 'key space') with blitfix.st in A and tts.st in B: desktop OK (pmmu1_blitfix_desktop.png).
 - tools/pmmutest/: PMMUTEST.PRG (WIP) for stage-1 checks, build.sh. Hatari 2.5 runs to be sorted out.
+
+## 2026-10-27 09:45-10:25 board: PMMUTEST.PRG on pmmu1 (3ad4633)
+- tools/pmmutest/PMMUTEST.PRG, run from AUTO on pmt720d.st (TTRAM.PRG first): FAILS=0, DEVS=1
+  (results_board_pmmu1.txt, read back from the image; screenshot docs/img/pmmu/pmmutest_stage1_board.png).
+  All register masks, the invalid TC (E cleared), and the user-mode privilege violation pass. DEV: no vector 56 yet.
+- TT CI timing, with the loop in TT-RAM (Mxalloc mode 1): cached 178 ticks, TT0 CI 661, TT1 CI 661, TT0 with an
+  FC that never matches 177. Note: ST-RAM is never cached on this core (bridge CIIN), so the test must use TT-RAM.
+  The first runs looked like TT CI was not working; that was the manual's rule (6.1 p6-3) that a cache hit
+  ignores the MMU. The test now clears the caches before each run.
+- Found while reading 6.1.2 p6-8: with CIOUT asserted the data cache must also ignore writes (even
+  write-allocate). Fixed in wf68k30L_top.vhd (DC_WR_GO gated by a TT CI match on the write address),
+  with a prog_pmmu case: a stale hit gives $1111 after a TT CI write of $2222, and $2222 after CD (e68e21f).
+  Not on the board yet (needs a rebuild).
+- Benchmarks: per David, run only at the end of a stage. FrontBench was started once and then skipped into
+  the game by an extra click (my mistake, not a core fault). GEMBENCH not run.
+- EmuTOS PMOVE check not done: it needs an EmuTOS ROM flashed at 0x500000, which this test did not include.
+- prog_tt 2-ST-cycle netlist difference: can't be seen on the board (125 ns at a BERR); the board behaves
+  normally. Still listed as open.
