@@ -107,3 +107,19 @@
 - Board left on pmmu4, EmuTOS 1.4 in flash, pmt3.st in drive A (not saved to atarist.ini).
 - Not done yet: GEMBENCH/FrontBench (at the end of stage 2), long-format/indirect/S/SRE/limit sim programs, PTEST An,
   Dn FC form, RTE write rerun, 11.7 clocks (stage 3).
+
+## Stage 2c (27 Oct 2026, GMT)
+- 71472d5 + 6560e85: full run_rtl.sh PASS (prog_xlate2: long tables, limits, long indirect, S page, SRE). cmp_full 62 SAME,
+  only PMMU programs differ.
+- **pmmu5** (71472d5): TNS 0 on every clock. clk_cpu030 21.60 MHz, clk32_core 35.79 MHz. Logic 52076/138240 (38%):
+  44827 LUT + 5329 ALU; 18174 regs; CLS 49%; BSRAM 171/340; DSP 10.5/298. sha 01aa01e4, linserver
+  `~/fpga_bitstreams/st_helper_hdn_pmmu5.fs`.
+- Flashed pmmu5 (LOC 4817, rc 0), serial OK before/after. PMMUTEST stage 2 (pmt4.st, EmuTOS 1.4): **FAILS=0 DEVS=0**
+  incl. long+indirect A->B, PTEST user FC on S page ($2002), PTEST limit ($4401), indirect N=3, limit -> bus error
+  (`docs/img/pmmu/pmmu5_pmmutest.png`).
+- FrontBench flags 7 (tts.st, EmuTOS 1.4, TT-RAM, caches on, 920 s): **1382 lastcount, 213 frames** (baseline 1375)
+  (`docs/img/pmmu/pmmu5_frontbench.png`).
+- GEMBENCH: flashed TOS 2.06 (tos206_backup.bin) + pmmu5 core (LOC 4817, rc 0). Booted to the 2.06 desktop; GB608 refused low
+  res. While switching to medium in Options > Set Preferences the desktop stopped taking clicks (pointer still moves, OK/Cancel
+  and the buttons ignored; `pmmu5_tos206_prefs_hang.png`). Not yet known if this is the core or the helper's click
+  injection. Per the board rules no cold boot: fell back to pmmu2 at once.
