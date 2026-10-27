@@ -98,7 +98,7 @@ start:	move.l	4(%sp),%a0		| basepage
 tests:	.word	T_tc-tests, T_tt0-tests, T_tt1-tests, T_mmusr-tests
 	.word	T_crp-tests, T_srp-tests, T_tcinv-tests, T_tcreset-tests, T_crpdt0-tests
 	.word	T_priv-tests, T_ttci-tests
-	.word	T_xlate-tests, T_xlong-tests
+	.word	T_xlate-tests, T_xlong-tests, T_s3-tests
 	.word	0
 
 | d6 = expected, d7 = got, a0 = name -> PASS/FAIL line
@@ -532,6 +532,143 @@ T_xlate: move.w	#0,-(%sp)		| Mxalloc(40960, ST-RAM)
 	addq.l	#6,%sp
 	rts
 
+| ---- stage 3: Dn FC, PTEST A = 1, short indirect, RTE write rerun (9.8, 9.5.1.4, 8.2.3) ----
+T_s3:	move.w	#0,-(%sp)		| Mxalloc(40960, ST-RAM)
+	move.l	#40960,-(%sp)
+	move.w	#0x44,-(%sp)
+	trap	#1
+	addq.l	#8,%sp
+	tst.l	%d0
+	bgt	1f
+	lea	ndev(%pc),%a0
+	addq.w	#1,(%a0)
+	lea	s_skip2(%pc),%a0
+	bra	puts
+1:	lea	xbuf(%pc),%a0
+	move.l	%d0,(%a0)
+	add.l	#4095,%d0
+	and.w	#0xf000,%d0
+	move.l	%d0,%a5			| a5 = TIA table (1 KB), a5+$400 = TIB (16 KB)
+	move.l	%a5,%a0			| TIA: i<<24 | 1
+	moveq	#0,%d1
+	move.w	#255,%d0
+2:	move.l	%d1,%d2
+	or.w	#1,%d2
+	move.l	%d2,(%a0)+
+	add.l	#0x01000000,%d1
+	dbra	%d0,2b
+	move.l	%a5,%d1			| TIB: identity inside the buffer's 16 MB block
+	and.l	#0xff000000,%d1
+	lea	0x400(%a5),%a0
+	move.w	#4095,%d0
+3:	move.l	%d1,%d2
+	or.w	#1,%d2
+	move.l	%d2,(%a0)+
+	add.l	#0x1000,%d1
+	dbra	%d0,3b
+	move.l	%a5,%d0			| TIA[buffer >> 24] -> TIB (DT 2)
+	rol.l	#8,%d0
+	and.w	#0xff,%d0
+	lsl.w	#2,%d0
+	lea	0x400(%a5),%a0
+	move.l	%a0,%d1
+	or.w	#2,%d1
+	move.l	%d1,0(%a5,%d0.w)
+	lea	0x5000(%a5),%a1		| page A
+	lea	0x6000(%a5),%a2		| page B
+	lea	0x7000(%a5),%a3		| page C
+	move.l	%a1,%d0			| TIB[A] = B | 1
+	lsr.l	#8,%d0
+	lsr.l	#2,%d0
+	and.w	#0x3ffc,%d0
+	lea	0x400(%a5,%d0.w),%a6	| a6 = descriptor of page A
+	move.l	%a2,%d1
+	or.w	#1,%d1
+	move.l	%d1,(%a6)
+	move.l	%a3,%d0			| TIB[C] = invalid
+	lsr.l	#8,%d0
+	lsr.l	#2,%d0
+	and.w	#0x3ffc,%d0
+	clr.l	0x400(%a5,%d0.w)
+	move.l	#0xcafef00d,(%a2)
+	move.l	#0x11111111,(%a1)
+	clr.l	4(%a2)
+	clr.l	(%a3)
+	lea	crpx(%pc),%a0
+	move.l	#0x7fff0002,(%a0)
+	move.l	%a5,4(%a0)
+	lea	exv(%pc),%a0
+	clr.w	(%a0)
+	move.l	0x08,-(%sp)
+	lea	h_berr(%pc),%a0
+	move.l	%a0,0x08
+	move.w	%sr,-(%sp)
+	ori.w	#0x0700,%sr
+	movec	%cacr,%d0
+	or.w	#0x0808,%d0
+	movec	%d0,%cacr
+	lea	crpx(%pc),%a0
+	pmove	(%a0),%crp
+	lea	tcx(%pc),%a0
+	move.l	#0x80c08c00,(%a0)
+	pmove	(%a0),%tc
+	moveq	#5,%d2			| [PMMU3] FC operand in d2 (01RRR, p. 9-64)
+	pflusha
+	ploadr	%d2,(%a1)
+	ptestr	#5,(%a1),#0
+	lea	tmp(%pc),%a0
+	pmove	%psr,(%a0)
+	moveq	#0,%d5
+	move.w	(%a0),%d5		| -> $0000 (hit)
+	ptestr	#5,(%a1),#7,%a4		| [PMMU3] A = 1: a4 = descriptor address (p. 9-63)
+	move.l	%a3,%d0			| [PMMU3] TIB[C] = short indirect -> descriptor of A, pointer bit 2 set
+	lsr.l	#8,%d0
+	lsr.l	#2,%d0
+	and.w	#0x3ffc,%d0
+	move.l	%a6,%d1
+	or.w	#6,%d1
+	move.l	%d1,0x400(%a5,%d0.w)
+	pflusha
+	move.l	(%a3),%d4		| logical C -> indirect -> page A's descriptor -> physical B
+	ptestw	#5,(%a3),#7
+	pmove	%psr,(%a0)
+	moveq	#0,%d3
+	move.w	(%a0),%d3		| -> $0003 (N = 3, no W from the pointer's bit 2)
+	clr.l	8(%a1)			| [PMMU3] DF rerun: WP on page A, the handler turns TC off,
+	clr.l	8(%a2)			| RTE reruns the write untranslated -> lands in physical A
+	or.l	#4,(%a6)
+	pflusha
+	move.l	#0x5a5aa5a5,8(%a1)
+	clr.l	(%a0)
+	pmove	(%a0),%tc
+	move.w	(%sp)+,%sr
+	move.l	(%sp)+,0x08
+	move.l	%d5,%d7
+	moveq	#0,%d6
+	lea	n_s1(%pc),%a0
+	bsr	check
+	move.l	%a4,%d7
+	move.l	%a6,%d6
+	lea	n_s2(%pc),%a0
+	bsr	check
+	move.l	%d4,%d7
+	move.l	#0xcafef00d,%d6
+	lea	n_s3(%pc),%a0
+	bsr	check
+	move.l	%d3,%d7
+	moveq	#3,%d6
+	lea	n_s4(%pc),%a0
+	bsr	check
+	move.l	8(%a1),%d7
+	move.l	#0x5a5aa5a5,%d6
+	lea	n_s5(%pc),%a0
+	bsr	check
+	move.l	xbuf(%pc),-(%sp)
+	move.w	#0x49,-(%sp)		| Mfree
+	trap	#1
+	addq.l	#6,%sp
+	rts
+
 | ---- stage 2c: long descriptors, limit, indirect, S page (9.5.1 pp9-20..28, 9.5.5) ----
 | TC $80F08900: PS 32K, IS 0, TIA 8, TIB 9. CRP DT 3: TIA = 256 long early-termination pages (identity);
 | the buffer's 16 MB block -> long TIB (512 long pages, identity) with upper LIMIT = index of page B.
@@ -767,7 +904,7 @@ savefile: lea	outbuf(%pc),%a0
 	addq.l	#4,%sp
 1:	rts
 
-s_title: .asciz	"\33EPMMUTEST stage 2 (MC68030UM)\r\n"
+s_title: .asciz	"\33EPMMUTEST stage 3 (MC68030UM)\r\n"
 s_pass:	.asciz	"PASS "
 s_fail:	.asciz	"FAIL "
 s_dev:	.asciz	"DEV  "
@@ -807,6 +944,11 @@ n_l2:	.asciz	"PTEST user FC on S page p9-44"
 n_l3:	.asciz	"PTEST limit L,I,N=1 p9-23"
 n_l4:	.asciz	"PTEST indirect N=3 p9-27"
 n_l5:	.asciz	"limit -> bus error p9-23"
+n_s1:	.asciz	"PLOAD/PTEST FC in Dn p9-64"
+n_s2:	.asciz	"PTEST A=1 desc addr p9-63"
+n_s3:	.asciz	"short indirect C->A->B p9-27"
+n_s4:	.asciz	"indirect no WP, N=3 p9-27"
+n_s5:	.asciz	"RTE reruns write DF p8-12"
 s_skip2: .asciz	"SKIP xlate: no ST-RAM buffer\r\n"
 fname:	.asciz	"PMMUTEST.TXT"
 	.even
