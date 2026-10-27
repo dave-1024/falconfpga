@@ -371,6 +371,7 @@ signal FILL_WADR            : std_logic_vector(31 downto 1); -- [DC] Its word ad
 signal DC_PORT              : std_logic_vector(31 downto 0); -- [DC] The data bus, sampled with IN_MUX.
 signal DC_TRK               : bit := '0'; -- [DC] The running read is tracked for the fill.
 signal DC_OA                : std_logic_vector(31 downto 0) := (others => '0'); -- [DC] Its address, FC, size, RMC.
+signal DC_OA1               : std_logic_vector(31 downto 2) := (others => '0'); -- [F65] DC_OA(31 downto 2) + 1, registered with DC_OA.
 signal DC_OFC               : std_logic_vector(2 downto 0) := "000";
 signal DC_OSZ               : std_logic_vector(2 downto 0) := "000";
 signal DC_ORMC              : bit := '0';
@@ -1190,8 +1191,8 @@ begin
                          RESET_CPU_I = '0' else '0';
     FILL_WADR <= DC_OA(31 downto 2) & '0' when DC_MISS(3) = '1' else
                  DC_OA(31 downto 2) & '1' when DC_MISS(2) = '1' else
-                 (DC_OA(31 downto 2) + '1') & '0' when DC_MISS(1) = '1' else
-                 (DC_OA(31 downto 2) + '1') & '1';
+                 DC_OA1 & '0' when DC_MISS(1) = '1' else
+                 DC_OA1 & '1'; -- [F65] incrementer moved before the register (bus address -> MMU -> AS -> bridge path)
     DC_FIN <= '1' when (DC_DECIDE = '1' and (DC_NEED = '0' or DC_MISS = "0000")) or
                        (FILL_PEND = '1' and DC_MISS = "0000" and FILL_ACC = '0') else '0';
     -- Only when the cache can change: something was read cachable, or a bus error hit an entry.
@@ -1226,9 +1227,9 @@ begin
            (OP_CHAIN_GO = '1' and CH_WR = '0') then
             DC_TRK <= '1'; -- A new read.
             if OP_CHAIN_GO = '1' then
-                DC_OA <= ADR_NXT; DC_OFC <= FC_NXT;
+                DC_OA <= ADR_NXT; DC_OFC <= FC_NXT; DC_OA1 <= ADR_NXT(31 downto 2) + '1';
             else
-                DC_OA <= ADR_LAT; DC_OFC <= FC_LAT;
+                DC_OA <= ADR_LAT; DC_OFC <= FC_LAT; DC_OA1 <= ADR_LAT(31 downto 2) + '1';
             end if;
             case OP_SIZE is
                 when LONG => DC_OSZ <= "100";

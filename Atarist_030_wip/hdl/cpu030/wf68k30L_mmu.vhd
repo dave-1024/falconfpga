@@ -98,6 +98,14 @@ signal H_B, H_CI, H_WP, H_M : std_logic;
 signal H_PA     : std_logic_vector(23 downto 0);
 signal C_WR     : std_logic;
 signal FAULT_NOW, HIT_OK : std_logic;
+-- [F66] Kept nets: the bridge (cpu030_st_bridge.v) samples the pins one clk_cpu after AS while TC.E = 1,
+-- and atarist_st_helper.sdc gives the paths through these nets (ATC lookup / TT match -> AS, address) two
+-- clk32 cycles. With TC.E = 0 they are constant (XLATE = 0) and the pins are a wire, as before.
+-- Separate kept copies for the pin side only, so the core-side paths (BLK -> C_DSACKn/C_BERRn) are optimised
+-- as before and stay single-cycle.
+signal BLK_PIN, XLATE_PIN : std_logic;
+attribute syn_keep : integer;
+attribute syn_keep of BLK_PIN, XLATE_PIN, H_PA : signal is 1;
 
 type WSTATES is (W_IDLE, W_ROOT, W_LEVEL, W_FETCH, W_FETCH2, W_EVAL, W_UPD, W_UPDW, W_NEXT, W_DONE);
 signal WS : WSTATES := W_IDLE;
@@ -227,7 +235,9 @@ begin
     HIT_OK <= '1' when XLATE = '1' and HIT = '1' and H_B = '0' and FAULT_NOW = '0' and not (C_WR = '1' and H_M = '0') else '0';
 
     -- Pin multiplexer.
-    P_PINS: process(WS, XLATE, HIT_OK, C_ADR, C_FC, C_SIZE, C_ASn, C_DSn, C_RWn, C_RMCn, C_ECSn, C_OCSn, C_DBENn,
+    BLK_PIN <= '1' when WS /= W_IDLE or (XLATE = '1' and HIT_OK = '0') else '0'; -- [F66] pin-side copy of BLK
+    XLATE_PIN <= XLATE; -- [F66]
+    P_PINS: process(WS, XLATE, HIT_OK, BLK_PIN, XLATE_PIN, C_ADR, C_FC, C_SIZE, C_ASn, C_DSn, C_RWn, C_RMCn, C_ECSn, C_OCSn, C_DBENn,
                     C_DATA_OUT, C_DATA_EN, C_BUS_EN, H_PA, PMASK, BM_A, BM_D, BM_SZ, BM_AS, BM_DS, BM_WR, BS, RMC_W,
                     P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI, CYC_ON, CYC_X, CYC_PA, CYC_MASK)
         variable BLK : boolean;
@@ -245,7 +255,7 @@ begin
                     if CYC_MASK(i) = '1' then P_ADR(i + 8) <= CYC_PA(i); else P_ADR(i + 8) <= C_ADR(i + 8); end if;
                 end loop;
                 P_ADR(7 downto 0) <= C_ADR(7 downto 0);
-            elsif XLATE = '1' then
+            elsif XLATE_PIN = '1' then
                 for i in 0 to 23 loop
                     if PMASK(i) = '1' then P_ADR(i + 8) <= H_PA(i); else P_ADR(i + 8) <= C_ADR(i + 8); end if;
                 end loop;
@@ -255,7 +265,7 @@ begin
             end if;
             P_FC <= C_FC; P_SIZE <= C_SIZE; P_RWn <= C_RWn; P_RMCn <= C_RMCn;
             P_DATA_OUT <= C_DATA_OUT; P_DATA_EN <= C_DATA_EN; P_BUS_EN <= C_BUS_EN;
-            if BLK then
+            if BLK_PIN = '1' then
                 P_ASn <= '1'; P_DSn <= '1'; P_ECSn <= '1'; P_OCSn <= '1'; P_DBENn <= '1';
             else
                 P_ASn <= C_ASn; P_DSn <= C_DSn; P_ECSn <= C_ECSn; P_OCSn <= C_OCSn; P_DBENn <= C_DBENn;

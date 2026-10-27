@@ -238,6 +238,7 @@ entity WF68K30L_TOP is
         CBACKn          : in std_logic := '1'; -- Cache burst acknowledge (no burst yet: unused).
         CBREQn          : out std_logic; -- Cache burst request (no burst yet: always negated).
         CIOUTn          : out std_logic; -- Cache inhibit out (no PMMU: always negated).
+        MMU_ON          : out std_logic; -- [F66] TC.E (registered): the pins are translated; see cpu030_st_bridge.v.
 
         -- Status controls:
         STATUSn         : out std_logic;
@@ -895,6 +896,7 @@ begin
     -- 9.4 p9-17 / 9.7.5.1 p9-61: a PMOVE to CRP, SRP, TC, TT0 or TT1 with FD = 0 flushes the ATC.
     MMU_FLUSH <= '1' when PMMU_WR = '1' and PMMU_FD = '0' and (PMMU_WR_SEL = "010000" or PMMU_WR_SEL = "010010"
                      or PMMU_WR_SEL = "010011" or PMMU_WR_SEL = "000010" or PMMU_WR_SEL = "000011") else '0';
+    MMU_ON <= MMU_TC(31); -- [F66]
     I_MMU: entity work.WF68K30L_MMU
         port map(CLK => CLK, RESET => MMU_RESET, TC => MMU_TC, CRP => MMU_CRP, SRP => MMU_SRP,
             TT_HIT => TT_HIT_ANY, FLUSH_ALL => MMU_FLUSH,

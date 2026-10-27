@@ -410,3 +410,31 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   entry through the FC/mask path (mask 000), so only its 11.7.2 timing was wrong. Fix: mode 001.
 - Lesson: check every encoding against the PRM's field tables, not against what the assembler happens to emit, and test
   the forms that must trap as well as the ones that work.
+
+## Bridge sampled translated 030 pins half a clk_cpu after AS: FreeMiNT halted after `pmove tc` (branch pmmu, F65/F66)
+- Symptom (board, pmmu8): FreeMiNT 1.19 with memory protection stops after the FAT/VFAT banner. The diagnostic overlay
+  showed the CPU halted (double fault). The last fetch was just after `pmove 12(sp),tc; rts` in MiNT's set_mmu, and the
+  last cycle was a table-search read. An RTL replay of the same moment (Hatari RAM snapshot, wait states 0/1/3/random,
+  interrupts) and MTREE.PRG (MiNT's exact TC and tree under TOS) on the board both passed.
+- Cause (most likely; not yet confirmed on the board, which waits for a replug): the MMU sits between the bus interface and the pins, and with TC.E = 1 it gates AS and
+  drives A31:8 from its ATC lookup in the same clk_cpu as AS:
+  C_ADR -> HITV -> HIT_OK/XLATE -> BLK -> ASn and H_PA -> A31:8.
+  The ST bridge takes a request on the first clk_32 edge with AS low, which is half a clk_cpu (31.25 ns) after AS.
+  That path is a whole clk_cpu deep. On pmmu8, clk_cpu030 -> clk32_core failed by -7.0 ns (DC_OA -> FILL_WADR -> MMU ->
+  AS -> bridge r_adr CE); on the diagnostic builds it failed by -13 ns. So the bridge could take a half-settled AS or
+  address (a logical page, or an AS glitch while the lookup settles) and run an ST cycle with it. That only happens with
+  translation on, depends on placement and data, and cannot be seen in RTL simulation.
+- Why it was missed: the Gowin "Total Negative Slack" table showed 0 for every clock on these builds. Only the explicit
+  F58 `report_timing` clock-pair tables showed the negative slack, and the check only looked at TNS.
+- Fix:
+  - F65: DC_OA + 4 is registered with DC_OA, which takes a 30-bit incrementer out of the bus address path. It is
+    cycle-identical.
+  - F66: while TC.E = 1 (the new MMU_ON output), the bridge takes a new 030 request (ST and TT front ends) only on clk_32
+    edges that are also clk_cpu rising edges, at least 62.5 ns after AS, and the live same-edge path is off.
+  - The SDC gives the paths through the MMU's kept pin-side nets (BLK_PIN, XLATE_PIN, H_PA) two clk_32 cycles. With
+    TC.E = 0 those nets are constant and the bridge timing is the old one.
+  - Translated ST cycles start up to 31.25 ns later.
+- Lesson 1: a combinational output of a lookup (ATC, cache tags) must never reach a sampler of another clock domain on a
+  half-cycle path. Either register it or make the sampler wait for a full cycle, and say so in the SDC.
+- Lesson 2: check every explicit clock-pair report (tools/timing/timing_pairs.py), not just TNS. No build with negative
+  pair slack goes on the board.

@@ -44,6 +44,12 @@ create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock 
 // Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
 create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
 set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+// F66: while TC.E = 1 the bridge samples the 030 pins only on clk_32 edges that are clk_cpu rising edges
+// (cpu030_st_bridge.v, slow_ok), >= 62.5 ns after AS. The paths through the MMU's ATC lookup / TT match
+// (kept nets XLATE_PIN, BLK_PIN, H_PA in wf68k30L_mmu.vhd) get two clk_32 cycles; with TC.E = 0 those nets
+// are constant. Hold stays the single-cycle check.
+set_multicycle_path -setup -end 2 -from [get_clocks {clk_cpu030}] -through [get_nets {misterynano/atarist/cpu030/i_wf68k30l/I_MMU/XLATE_PIN misterynano/atarist/cpu030/i_wf68k30l/I_MMU/BLK_PIN misterynano/atarist/cpu030/i_wf68k30l/I_MMU/H_PA*}] -to [get_clocks {clk32_core}]
+set_multicycle_path -hold -end 1 -from [get_clocks {clk_cpu030}] -through [get_nets {misterynano/atarist/cpu030/i_wf68k30l/I_MMU/XLATE_PIN misterynano/atarist/cpu030/i_wf68k30l/I_MMU/BLK_PIN misterynano/atarist/cpu030/i_wf68k30l/I_MMU/H_PA*}] -to [get_clocks {clk32_core}]
 // F58: explicit reports for the 68030 clock pairs (half-cycle paths between
 // clk_cpu030 and clk_cpu030_n, and the bridge's direct clk32 <-> CPU paths)
 report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_cpu030_n}]

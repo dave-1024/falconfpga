@@ -7,6 +7,31 @@ start:  move.w  #0x2700,%sr
         move.b  #0x0a,0xffff8001.w      | MMU bank config (2+2 MB), as TOS does
         lea     berr(%pc),%a0
         move.l  %a0,0x8.w
+| [F66] ASFLAGS="--defsym MMU=1": the same test with address translation on (identity map,
+| TC $80C84800 as prog_xlate.s: PS 4K, IS 8, TIA 4, TIB 8). A[0] -> table B (256 x 4K pages, the first
+| MB, so the walker runs often), A[1..$F] early-termination 1 MB pages ($E ROM, $F I/O). Tables at $3000.
+.ifdef MMU
+        lea     0x3000,%a0
+        move.l  #0x00003102,(%a0)+      | A[0] -> table B, DT 2 (short)
+        move.l  #0x00100001,%d0
+        moveq   #14,%d7
+10:     move.l  %d0,(%a0)+              | A[n]: page n << 20, early termination
+        add.l   #0x00100000,%d0
+        dbra    %d7,10b
+        lea     0x3100,%a0
+        moveq   #1,%d0
+        move.w  #255,%d7
+11:     move.l  %d0,(%a0)+              | B[n]: page n << 12, identity
+        add.l   #0x1000,%d0
+        dbra    %d7,11b
+        lea     0x3800,%a0
+        move.l  #0x7fff0002,(%a0)
+        move.l  #0x00003000,4(%a0)
+        move.l  #0x80c84800,8(%a0)
+        pmove   (%a0),%crp
+        lea     8(%a0),%a0
+        pmove   (%a0),%tc               | translation on
+.endif
         clr.l   0x1200.w
 | fill 1 KB at $10000
         lea     0x10000,%a0

@@ -118,3 +118,14 @@ DC_OA → FILL_WADR (+1 incrementer) → ADR_OUT_I → MMU ATC lookup (XLATE/HIT
 The MMU gates AS combinationally with the ATC result, so this path exists only while **translation is on**. It is the bridge's half-cycle (31.25 ns) path. When it is too slow, the bridge can see AS low with a still-settling (logical, untranslated) address and start an ST cycle with it. That matches a failure right after `pmove tc` that RTL simulation cannot reproduce.
 
 The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns).
+
+## Overnight status (27 Oct 2026, 23:35 GMT, sim only, board untouched)
+- **Likely cause found (timing):** on pmmu8, clk_cpu030 -> clk32_core fails by −7.0 ns on the MMU's AS/address path. With TC.E = 1 the ATC lookup gates AS in the same clock, and the ST bridge samples it 31.25 ns later. See FALCON_LESSONS "Bridge sampled translated 030 pins…".
+- **Fix (pushed, not flashed):**
+  - F65: DC_OA+4 is now registered.
+  - F66: with MMU_ON, the bridge takes requests only on clk_32 edges aligned to clk_cpu rising edges. The SDC gives the paths through BLK_PIN/XLATE_PIN/H_PA two clk_32 cycles.
+- **Checks so far:**
+  - CPU bench cmp_full old vs new: SAME on every program tried. prog_df differs only in report-line numbers.
+  - Whole-ST bench prog_bus with MMU off: results and traces are byte-identical to the old bridge.
+  - MMU-on bench run (`ASFLAGS="--defsym MMU=1"`): in progress.
+- **Build f66 (first version):** cpu030->clk32 now passes (+4.25 ns), but clk_cpu030_n -> clk_cpu030 fails by −9.5 ns. syn_keep on HIT_OK/XLATE deepened the BLK -> DSACK core path. I moved the keeps to pin-side copies; build f66b is running.

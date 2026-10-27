@@ -181,6 +181,7 @@ module cpu030_st_bridge #(
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;
+    wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
     wire [104:0] cpu_dbg_exc;          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
     // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
     // on a bus-cycle-by-bus-cycle basis"; the core latches it at the start of S4, or with STERM).
@@ -254,6 +255,7 @@ module cpu030_st_bridge #(
         // constant: ST-side cycles inhibited (TF536 rule, CACHE_PLAN.md §4), the reserved fast-RAM
         // range cachable. The cache is always built and enabled by CACR EI.
         .CIINn     ( cpu_cii_n     ),
+        .MMU_ON    ( cpu_mmu_on    ),   // [F66] TC.E: pins sampled one clk_cpu after AS
         .CDISn     ( 1'b1          ),   // no hard cache-off (CIIN keeps ST-side code out of the cache)
         .CBACKn    ( 1'b1          ),   // no burst-capable memory
         .CBREQn    (               ),
@@ -413,7 +415,7 @@ module cpu030_st_bridge #(
                 t_rd    <= tt_rdata;   // tt_dout loaded on the previous edge: stable now
                 t_dsack <= 1'b1;
             end
-            if (!t_open & cpu_tt_any) begin
+            if (!t_open & cpu_tt_any & slow_ok) begin   // [F66]
                 t_open   <= 1'b1;
                 tt_we    <= ~cpu_rwn;
                 tt_la    <= cpu_adr[23:2];
@@ -449,6 +451,27 @@ module cpu030_st_bridge #(
     end
 `endif
 
+    // ---- [F66] translated pins: sample them one clk_cpu after AS ------------------
+    // With TC.E = 1 the core's MMU gates AS and drives the address from its ATC lookup in the same clk_cpu
+    // as AS (C_ADR -> HITV -> HIT_OK/XLATE -> BLK -> ASn, H_PA -> A31:8). That path is a clk_cpu clock long
+    // and did not fit the half clk_cpu (31.25 ns) to the first clk_32 edge with AS low (pmmu8: -7.0 ns,
+    // diag builds -13 ns): the bridge could take a half-settled AS/address (logical page, AS glitch) and run
+    // an ST cycle with it -> the walker/core got the wrong data (FreeMiNT halted right after pmove tc).
+    // While mmu_on, AS/address are sampled only on clk_32 edges that are also clk_cpu rising edges
+    // (aligned), i.e. >= 62.5 ns after AS; the live (same-edge) path is off. The SDC gives the paths
+    // through the MMU's kept nets (XLATE, HIT_OK, H_PA) two clk_32 cycles. With TC.E = 0 those nets are
+    // constant and the bridge timing is exactly the old one.
+    reg  ph_cpu = 1'b0;                 // toggles on every clk_cpu rising edge
+    always @(posedge clk_cpu) ph_cpu <= ~ph_cpu;
+    reg  ph_32 = 1'b0;                  // ph_cpu as seen by the previous clk_32 edge
+    always @(posedge clk) ph_32 <= ph_cpu;
+    // On a clk_32 edge that is also a clk_cpu rising edge, ph_cpu still has the value it got one clk_cpu
+    // earlier, which the clk_32 edge in between already copied: equal. On the edge in between: different.
+    wire aligned = (ph_32 == ph_cpu);
+    reg  mmu_on = 1'b0;
+    always @(posedge clk) mmu_on <= cpu_mmu_on;
+    wire slow_ok = ~mmu_on | aligned;   // this clk_32 edge may take a new 030 request
+
     // ---- front end: request capture (clk_32) -------------------------------
     // clk_cpu is phase-locked to clk_32 (same PLL VCO, every clk_cpu edge is a
     // clk_32 rising edge), so the 030 outputs are sampled directly by clk_32
@@ -466,7 +489,7 @@ module cpu030_st_bridge #(
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             c_open <= 1'b0;
-        end else if (!c_open
+        end else if (!c_open & slow_ok   // [F66]
 `ifdef TTRAM
                      & ~t_cycle
 `endif
@@ -557,9 +580,9 @@ module cpu030_st_bridge #(
     // later, so the 030 can follow a cycle that ends at S6 with the next S0.
     // q_* are the request fields: live on that edge, captured (c_*) after it.
 `ifdef TTRAM
-    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle;
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle & ~mmu_on;   // [F66] no live path while translating
 `else
-    wire live    = cpu_rst_n & ~cpu_asn & ~c_open;
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~mmu_on;
 `endif
     wire pending = live | (req_now != s_seen);
     wire        q_tag  = live ? ~c_req_t        : c_req_t;
