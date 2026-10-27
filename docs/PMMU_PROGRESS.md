@@ -130,8 +130,14 @@
 
 ## Stage 3 (pmmu6, 456ef73 + pmmutest 7f215ac)
 
-- Done: FC operand in Dn (p. 9-64), PTEST A=1 (p. 9-63), short indirect DT 2 sim (prog_xlate3; fixed indirect address bit 2 being read as WP), RTE rerun of a faulted write from a format $A frame (DF, p. 8-12; prog_df). Format $B frames still restart.
+- Done: FC operand in Dn (p. 9-64), PTEST A=1 (p. 9-63), short indirect DT 2 sim (prog_xlate3; fixed indirect address bit 2 being read as WP), RTE rerun of a faulted write from a format $A frame (DF, 8.2.1 pp. 8-28/8-29; prog_df). Format $B frames still restart.
 - run_rtl.sh: PASS (all steps incl. short indirect and write rerun). cmpall: non-PMMU programs cycle-identical except prog_frame (3538 -> 3547 clk at WS0) — deliberate: RTE of a $A frame now reads the SSW.
 - Timing: TNS 0, clk_cpu030 20.84 MHz, clk32_core 32.08 MHz (thin). Logic 52199 (38%): 44958 LUT + 5321 ALU, 18275 regs, BSRAM 171/340.
 - Board (TOS 2.06 in flash): PMMUTEST stage 3 FAILS=0 DEVS=0, all T_s3 cases PASS (img/pmmu/pmmu6_pmmutest.png).
 - Pending: 11.7 clock padding for MMU instructions / table search (table-search formula not yet sourced).
+- Page references re-checked against David's copy of the manual (3rd ed. scan, pdftotext; not in the repo):
+  Table 9-2 is on p. 9-30 (was 9-29); PMMUTEST labels fixed: invalid descriptor 9.5.1.9 p. 9-26 (was 9-21),
+  long indirect 9.5.1.12 p. 9-28 (was 9-25), S bit 9.5.5.3 p. 9-48 (was 9-44), LIMIT field p. 9-22 (was 9-23),
+  limit check flowchart Figure 9-28 p. 9-43 (was 9-23), DF rerun 8.2.1 p. 8-29 (was 8-12); MMU comment for
+  indirect descriptors now cites 9.5.1.11/12, Figures 9-17/9-18 (was 9.5.1.4, Figures 9-14/9-15).
+  All other PMMU_DESIGN.md references matched.

@@ -73,7 +73,7 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
   invalid and indirect descriptors; U set on every descriptor visited; M set in the page descriptor for writes
   unless WP or a supervisor violation was met; S and limit fields only in long format.
 - **Table search** (9.5.2 / 9.5.4, pp. 9-28 to 9-43, Figures 9-19, 9-25 to 9-29): root pointer by FC2 and SRE
-  (Table 9-2, p. 9-29); optional FC level (FCL); levels A-D by TIA-TID; physical addresses; RMC asserted for the
+  (Table 9-2, p. 9-30); optional FC level (FCL); levels A-D by TIA-TID; physical addresses; RMC asserted for the
   whole search so U/M updates are locked read-modify-write; ends with page, invalid, limit violation or bus error.
   Failed searches create an ATC entry with B=1; the bus error is taken on the retry (8.1.2, p. 8-7).
 - **Instructions** (9.8, pp. 9-63 to 9-65): PMOVE, PFLUSH(A), PLOAD(R/W), PTEST(R/W) levels 0-7 with optional An;
