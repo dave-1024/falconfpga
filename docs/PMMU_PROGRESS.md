@@ -226,3 +226,6 @@
   as in MiNT): still no halt, VBL taken 9-10 times under translation. Not reproduced in the core-alone bench.
 - New board probe MTREE.PRG (tools/minttest/mtree.s, image mtree.st): MiNT's exact TC and table layout built
   under TOS, ~2 s translated with interrupts, then TC off and A:\MTREE.TXT. Hatari: passes. Board: pending.
+
+### MTREE board result (27 Oct 2026, 21:50 GMT)
+MTREE.PRG (MiNT's exact TC $80D04447 and long-descriptor tree, about 2 s translated with IRQs, run under TOS) PASSES on pmmu8: MT_1, MT_3 and MTREE.TXT were written. So the tree format and TC are not what stops MiNT. Next: DIAG_OVERLAY + DIAG_EXCWATCH build to capture the last exceptions and fetches before the halt.
