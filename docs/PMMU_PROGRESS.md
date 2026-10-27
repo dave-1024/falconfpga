@@ -101,3 +101,9 @@
   sha 8ff8f360, linserver `~/fpga_bitstreams/st_helper_hdn_pmmu4.fs`. (One Gowin run failed on "License verification
   failed, server not responding"; the rerun was fine.)
 - pmmu4 flashed (LOC 4817, rc 0), serial OK before/after, desktop (pmmu4_boot.png).
+- PMMUTEST stage 2b on pmmu4 (EmuTOS 1.4, AUTO): **FAILS=0 DEVS=0**, all stage 1 and stage 2b tests pass:
+  page A -> B translation, write to physical B, U+M set, PTEST #7 = $0202, PFLUSHA + PTEST #0 = I, invalid -> bus error
+  (`docs/img/pmmu/pmmu4_pmmutest.png`). Loop ticks: cached 178, TT0/TT1 CI 661, FC no-match 178.
+- Board left on pmmu4, EmuTOS 1.4 in flash, pmt3.st in drive A (not saved to atarist.ini).
+- Not done yet: GEMBENCH/FrontBench (at the end of stage 2), long-format/indirect/S/SRE/limit sim programs, PTEST An,
+  Dn FC form, RTE write rerun, 11.7 clocks (stage 3).
