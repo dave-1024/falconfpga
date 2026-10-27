@@ -141,3 +141,19 @@
   limit check flowchart Figure 9-28 p. 9-43 (was 9-23), DF rerun 8.2.1 p. 8-29 (was 8-12); MMU comment for
   indirect descriptors now cites 9.5.1.11/12, Figures 9-17/9-18 (was 9.5.1.4, Figures 9-14/9-15).
   All other PMMU_DESIGN.md references matched.
+
+## Stage 3: 11.7 timing and the M68000PRM check
+
+- 11.7 table search held to the manual's shell-script clocks (pp. 11-51..11-57; bus = measured clocks per access);
+  11.7.2 PFLUSH/PLOAD/PTEST padding (p. 11-60) calibrated with prog_mmut at WS 0 (I-cache loops): PFLUSH 15.6/16,
+  PFLUSH SFC 19.6/20, PFLUSH <ea> 20.5/20, PTEST #0 26.5/26, PLOAD 57/57, PTEST #7 70.5/71 (search 45). PFLUSHA (18.3 vs 12)
+  and PMOVE to TC (63 vs 42) are slower here because of the ATC refill afterwards; not shortened.
+- pmmu7 (4d382da): TNS 0, clk_cpu030 18.95 MHz, clk32_core 34.69 MHz, 52466 logic (45164 LUT + 5382 ALU), 18321 regs.
+  Board (TOS 2.06): the first boot after the flash showed a striped screen (no cold boot was done on it; pmmu5 was put
+  back); a second flash came up on the desktop, and PMMUTEST gave FAILS=0 DEVS=0 (img/pmmu/pmmu7_pmmutest.png).
+- PRM review (M68000PRM ch. 6): fixes - PMOVE with (An)+/-(An) now takes the F-line trap (control alterable only,
+  pp. 6-48..6-50); the MMU now recognises PFLUSHA as mode 001 (p. 6-34; it used to be tested as 010, and the flush was
+  right anyway); PTEST An = $0 for a root-pointer page (p. 6-64). Checklist rows added. PMMUTEST T_prm (four F-line forms) is on pmt6.st (SD, CRC bb0ded6a).
+- pmmu8 (a47dc61): run_rtl PASS (incl. MMU instruction clocks); TNS 0, clk_cpu030 21.87 MHz, clk32_core 33.21 MHz,
+  52527 logic (45221 LUT + 5386 ALU), 18326 regs, BSRAM 171/340, fs sha 42efc7e6. Not flashed yet: linserver was
+  unreachable (SOCKS failure) at the end of the session.
