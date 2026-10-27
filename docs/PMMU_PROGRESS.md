@@ -96,3 +96,7 @@
   the board (write through page A lands in page B, U+M set, PFLUSHA + PTEST #0 gives I, invalid page -> bus error),
   but 2 FAILs: d5/d4 overwritten by the PTEST EA ($00029000), a core bug (see FALCON_LESSONS). Fixed in 2951ec9;
   pmmu4 build running. Screenshots `pmmu3_pmmutest.png`, `pmmu3_pmmutest2.png` (in /workspace/pmmu_out/shots).
+- 2951ec9: full run_rtl.sh PASS; cmp_full 62 SAME (only PMMU programs differ). **pmmu4** build: TNS 0, clk_cpu030 21.99 MHz,
+  clk32_core 33.11 MHz, 44823 LUT + 5328 ALU (logic 52071, 38%), 18174 regs, CLS 50%, BSRAM 171/340, DSP 10.5/298.
+  sha 8ff8f360, linserver `~/fpga_bitstreams/st_helper_hdn_pmmu4.fs`. (One Gowin run failed on "License verification
+  failed, server not responding"; the rerun was fine.)
