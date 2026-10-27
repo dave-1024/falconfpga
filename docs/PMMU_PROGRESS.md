@@ -127,3 +127,11 @@
   and HDMI showed no picture, even after a usbreset of the capture. So **pmmu2 is not a safe fallback with TOS 2.06 in flash**.
 - Reflashed pmmu5 (LOC 4817, rc 0): serial OK, TOS 2.06 desktop (`pmmu5_tos206_desktop.png`). Board left there.
 - GEMBENCH not run: the Set Preferences stall on pmmu5 is still open (it may be the core, or the helper's click injection).
+
+## Stage 3 (pmmu6, 456ef73 + pmmutest 7f215ac)
+
+- Done: FC operand in Dn (p. 9-64), PTEST A=1 (p. 9-63), short indirect DT 2 sim (prog_xlate3; fixed indirect address bit 2 being read as WP), RTE rerun of a faulted write from a format $A frame (DF, p. 8-12; prog_df). Format $B frames still restart.
+- run_rtl.sh: PASS (all steps incl. short indirect and write rerun). cmpall: non-PMMU programs cycle-identical except prog_frame (3538 -> 3547 clk at WS0) — deliberate: RTE of a $A frame now reads the SSW.
+- Timing: TNS 0, clk_cpu030 20.84 MHz, clk32_core 32.08 MHz (thin). Logic 52199 (38%): 44958 LUT + 5321 ALU, 18275 regs, BSRAM 171/340.
+- Board (TOS 2.06 in flash): PMMUTEST stage 3 FAILS=0 DEVS=0, all T_s3 cases PASS (img/pmmu/pmmu6_pmmutest.png).
+- Pending: 11.7 clock padding for MMU instructions / table search (table-search formula not yet sourced).
