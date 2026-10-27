@@ -66,3 +66,28 @@
 - Stage 2b: `hdl/cpu030/wf68k30L_mmu.vhd` (22-entry ATC, NRU replacement, table walker FC=5 / RMC locked,
   U/M updates p9-26.., limits, early termination, indirect, WP/S checks, BERR on B-hit) compiles in GHDL;
   not wired into top yet. Next: integration + sim tests, then PFLUSH/PLOAD/PTEST.
+
+## 2026-10-27 11:00-: stage 2b integration (box)
+- 3b05d0e: `wf68k30L_mmu.vhd` wired between the bus interface and the pins (top). With TC.E = 0 it is a wire.
+  Fixes found in sim: a cycle already on the pins keeps its translation until AS negates (TC enable in the middle of a
+  prefetch broke WS >= 3 runs); an ATC entry made by a write's search is marked modified (root-pointer page loop).
+- New sim `prog_xlate.s` (WS 0/1/3/7/random, CIMODE 0/1): two-level short tree with early termination, remapped page,
+  U/M written back, ATC hit after a table change, PMOVE flush vs PMOVEFD, invalid and WP bus errors with fault
+  addresses, 40-page ATC replacement. Stage-1 programs load an identity CRP before their short TC E=1 window.
+- 10e493e: PFLUSHA / PFLUSH FC,#MASK[,<ea>] / PLOADR/W / PTEST levels 0-7 (A = 0), MMUSR per Table 9-3. Decoded as an
+  F-line LEA (EA computed, no operand access), EA + extension word go to the MMU at writeback; the next instruction
+  waits until the MMU is done. New sim `prog_pmop.s`.
+- Known deviations: RTE does not rerun a faulted write (DF); PTEST A bit and the Dn FC form take F-line; no 11.7
+  clock padding for the MMU instructions or the table search yet (stage 3).
+- PMMUTEST.PRG: new T_xlate (identity map of 4 GB with early-termination pages, page A -> B, U/M, PTEST #7, PFLUSHA,
+  invalid -> bus error). Hatari 2.5 on the box still double-faults at boot with EmuTOS 256k in STE + 030 MMU mode, so
+  the new tests are checked on the board only.
+- Regression on 10e493e: full `run_rtl.sh` PASS (incl. prog_xlate, prog_pmop). cmp_full old (cbc2dd6) vs new, all prog_*.s,
+  WS 0 and 3, CIMODE 1: 62 runs SAME; only the PMMU programs differ (prog_pmmu, prog_mmucfg, prog_xlate, prog_pmop:
+  they turn translation on or use the new instructions). prog_fpbr skipped (needs ASFLAGS).
+- **pmmu3** (10e493e, box Gowin, debug_builds/build_st_helper_hdn.tcl): TNS 0 on every clock. clk_cpu030 21.41 MHz,
+  clk32_core 32.24 MHz (32 req., little margin). Logic 52074/138240 (38%): 44822 LUT + 5332 ALU; 18174 regs (14%);
+  CLS 50%; BSRAM 171/340; DSP 10.5/298; PLL 4/12. vs pmmu2: about +3.8k LUT, +1.8k regs, cpu030 -2.9 MHz.
+  Bitstream sha db91c2ff, linserver `~/fpga_bitstreams/st_helper_hdn_pmmu3.fs`.
+- Board: flashed pmmu3 (cable LOC 4817), serial OK before and after, boots to the EmuTOS 1.4 desktop
+  (pmmu3_boot.png). PMMUTEST stage 2b image pmt3.st uploading.
