@@ -222,3 +222,7 @@
   TOS ROM at $E021B0) and the screen gets past `Installing BIOS keyboard table ... AKP 0`
   (img/pmmu/mint_mpoff_overlay_running.png); after that MiNT writes to BOOT.LOG (WRITE_BOOT=YES), which never
   reached the disk. Not yet looked at.
+- RTL replay with interrupts (IPL_MODE 3, level 4 every 4000 clocks, 12 phases around the TC enable, IPL mask 3
+  as in MiNT): still no halt, VBL taken 9-10 times under translation. Not reproduced in the core-alone bench.
+- New board probe MTREE.PRG (tools/minttest/mtree.s, image mtree.st): MiNT's exact TC and table layout built
+  under TOS, ~2 s translated with interrupts, then TC off and A:\MTREE.TXT. Hatari: passes. Board: pending.

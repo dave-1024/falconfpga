@@ -25,4 +25,8 @@ ${P}as -mcpu=68030 -o probe2.o probe2.s && ${P}ld -Ttext=0 -o probe2.elf probe2.
 python3 -c "
 import struct;b=open('probe2.bin','rb').read();b+=b'\\0'*(len(b)&1)
 open('PROBE2.PRG','wb').write(struct.pack('>HIIIIIIH',0x601a,len(b),0,0,0,0,0,1)+b)"
-ls -l MPTEST.PRG STAGE0.PRG PROBE.PRG PROBE2.PRG
+${P}as -mcpu=68030 -o mtree.o mtree.s && ${P}ld -Ttext=0 -o mtree.elf mtree.o && ${P}objcopy -O binary mtree.elf mtree.bin
+python3 -c "
+import struct;b=open('mtree.bin','rb').read();b+=b'\\0'*(len(b)&1)
+open('MTREE.PRG','wb').write(struct.pack('>HIIIIIIH',0x601a,len(b),0,0,0,0,0,1)+b)"
+ls -l MPTEST.PRG STAGE0.PRG PROBE.PRG PROBE2.PRG MTREE.PRG
