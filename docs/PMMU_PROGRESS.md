@@ -100,3 +100,4 @@
   clk32_core 33.11 MHz, 44823 LUT + 5328 ALU (logic 52071, 38%), 18174 regs, CLS 50%, BSRAM 171/340, DSP 10.5/298.
   sha 8ff8f360, linserver `~/fpga_bitstreams/st_helper_hdn_pmmu4.fs`. (One Gowin run failed on "License verification
   failed, server not responding"; the rerun was fine.)
+- pmmu4 flashed (LOC 4817, rc 0), serial OK before/after, desktop (pmmu4_boot.png).
