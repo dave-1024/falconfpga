@@ -37,6 +37,7 @@ entity WF68K30L_MMU is
         C_DSn       : in std_logic;
         C_RWn       : in std_logic;
         C_RMCn      : in std_logic;
+        C_RMCLn     : in std_logic; -- [F67] RMC for the WP check (no T_SLICE term).
         C_ECSn      : in std_logic;
         C_OCSn      : in std_logic;
         C_DBENn     : in std_logic;
@@ -231,7 +232,7 @@ begin
         H_B <= B; H_CI <= CI; H_WP <= WP; H_M <= M; H_PA <= PA;
     end process P_HITMUX;
 
-    FAULT_NOW <= '1' when XLATE = '1' and HIT = '1' and (H_B = '1' or (H_WP = '1' and (C_WR = '1' or C_RMCn = '0'))) else '0';
+    FAULT_NOW <= '1' when XLATE = '1' and HIT = '1' and (H_B = '1' or (H_WP = '1' and (C_WR = '1' or C_RMCLn = '0'))) else '0';
     HIT_OK <= '1' when XLATE = '1' and HIT = '1' and H_B = '0' and FAULT_NOW = '0' and not (C_WR = '1' and H_M = '0') else '0';
 
     -- Pin multiplexer.

@@ -348,6 +348,7 @@ component WF68K30L_BUS_INTERFACE
         DSn                 : out std_logic;
         RWn                 : out std_logic;
         RMCn                : out std_logic;
+        RMC_LKn             : out std_logic; -- [F67]
         ECSn                : out std_logic;
         OCSn                : out std_logic;
         DBENn               : out std_logic;

@@ -218,6 +218,7 @@ entity WF68K30L_BUS_INTERFACE is
         DSn                 : out std_logic; -- Data select (top level entity).
         RWn                 : out std_logic; -- Hi is read, low = write (top level entity).
         RMCn                : out std_logic; -- Read modify write indicator (top level entity).
+        RMC_LKn             : out std_logic; -- [F67] RMCn without the T_SLICE term (equal while AS is low), for the MMU/TT match.
         ECSn                : out std_logic; -- External cycle start (top level entity).
         OCSn                : out std_logic; -- Operand cycle start (top level entity).
         DBENn               : out std_logic; -- Data buffer enable (top level entity).
@@ -1790,6 +1791,9 @@ begin
         end if;
     end process P_RMC_LK;
     RMCn <= '0' when RMC_PIN = '1' else '1';
+    -- [F67] For the ATC WP check and the TT RWM match only: while AS is low T_SLICE /= IDLE, so this equals RMCn.
+    -- Without the falling-edge T_SLICE term the clk_cpu_n -> MMU -> core half-cycle path is gone (f66b: -5.2 ns).
+    RMC_LKn <= '0' when RMC = '1' and RMC_DONE = '0' and (RMC_LK = '1' or READ_ACCESS = '1') else '1';
     ECSn <= '0' when T_SLICE = S0 else '1';
     OCSn <= '0' when T_SLICE = S0 and OCS_INH = '0' else '1';
     ASn <= '0' when T_SLICE = S0 or T_SLICE = S1 or T_SLICE = S2 or T_SLICE = S3 or T_SLICE = S4 else '1';

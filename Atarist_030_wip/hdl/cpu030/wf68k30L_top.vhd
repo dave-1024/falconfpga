@@ -586,6 +586,7 @@ signal ADR_OUT_I                : std_logic_vector(31 downto 0);
 signal FC_OUT_I                 : std_logic_vector(2 downto 0);
 signal RWn_I                    : std_logic;
 signal RMCn_I                   : std_logic;
+signal RMC_LKn_I                : std_logic; -- [F67]
 signal TT0_HIT, TT1_HIT         : std_logic;
 signal TT_CI                    : std_logic;
 -- [PMMU2b] MMU (ATC + table walker) between the bus interface and the pins.
@@ -871,10 +872,10 @@ begin
     -- Both match: the CI bits are ORed. CIOUT inhibits the on-chip caches (9.3) exactly like CIIN.
     TT0_HIT <= '1' when MMU_TT0(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
                         and ((FC_OUT_I xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
-                        and (MMU_TT0(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT0(9))) else '0';
+                        and (MMU_TT0(8) = '1' or (RMC_LKn_I = '1' and RWn_I = MMU_TT0(9))) else '0';
     TT1_HIT <= '1' when MMU_TT1(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
                         and ((FC_OUT_I xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
-                        and (MMU_TT1(8) = '1' or (RMCn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
+                        and (MMU_TT1(8) = '1' or (RMC_LKn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
     TT_CI <= (TT0_HIT and MMU_TT0(10)) or (TT1_HIT and MMU_TT1(10));
     CIINn_EFF <= CIINn and not TT_CI and not ATC_CI; -- [PMMU2b] page CI (9.5.1) like TT CI.
     -- [PMMU1] MC68030UM 6.1.2 p6-8: with CIOUT asserted the data cache is completely ignored, even on
@@ -901,7 +902,7 @@ begin
         port map(CLK => CLK, RESET => MMU_RESET, TC => MMU_TC, CRP => MMU_CRP, SRP => MMU_SRP,
             TT_HIT => TT_HIT_ANY, FLUSH_ALL => MMU_FLUSH,
             C_ADR => ADR_OUT_I, C_FC => FC_OUT_I, C_SIZE => C_SIZE_O, C_ASn => C_ASn, C_DSn => C_DSn,
-            C_RWn => RWn_I, C_RMCn => RMCn_I, C_ECSn => C_ECSn, C_OCSn => C_OCSn, C_DBENn => C_DBENn,
+            C_RWn => RWn_I, C_RMCn => RMCn_I, C_RMCLn => RMC_LKn_I, C_ECSn => C_ECSn, C_OCSn => C_OCSn, C_DBENn => C_DBENn,
             C_DATA_OUT => C_DOUT, C_DATA_EN => C_DEN, C_BUS_EN => C_BEN,
             C_DSACKn => C_DSACKn, C_STERMn => C_STERMn, C_BERRn => C_BERRn,
             P_ADR => ADR_OUT, P_FC => FC_OUT, P_SIZE => SIZE, P_ASn => ASn, P_DSn => DSn, P_RWn => RWn,
@@ -1537,6 +1538,7 @@ begin
             DSn                 => C_DSn,
             RWn                 => RWn_I,
             RMCn                => RMCn_I,
+            RMC_LKn             => RMC_LKn_I,
             ECSn                => C_ECSn,
             OCSn                => C_OCSn,
             DBENn               => C_DBENn,
