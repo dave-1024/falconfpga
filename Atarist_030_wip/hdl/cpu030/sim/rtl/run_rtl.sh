@@ -157,6 +157,15 @@ for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=7" "-gWS=1 -gWSRND=3"; do
   $G -r $O tb030 -gROMFILE=prog_df.hex $g -gMAXCLK=150000 2>/dev/null > r.log || true
   [ "$(bwres)" = "$(cat $H/expect_df.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_df $g: $(bwres)"; fail=1; }
 done
+# [PMMU3] PRM ch. 6 forms that must take the F-line (prog_prm.s, expect_prm.txt): PMOVE (An)+ / -(An), PTEST #0,An,
+# PFLUSH mode 010 (M68000PRM pp. 6-34, 6-48, 6-66); A0 and TC unchanged.
+m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_prm.s -o p.o
+m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
+python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_prm.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
+for g in "-gWS=0" "-gWS=1" "-gWS=3" "-gWS=1 -gWSRND=3" "-gWS=0 -gCIMODE=1"; do
+  $G -r $O tb030 -gROMFILE=prog_prm.hex $g -gMAXCLK=100000 2>/dev/null > r.log || true
+  [ "$(bwres)" = "$(cat $H/expect_prm.txt)" ] && grep -q DONE r.log || { echo "FAIL prog_prm $g: $(bwres)"; fail=1; }
+done
 # [PMMU3] 11.7.2 MMU instruction clocks (prog_mmut.s, expect_mmut.txt): loops of 8 from the I-cache, clocks per
 # block / 8 between marker writes; PFLUSH 16, PFLUSH SFC 20, PTEST #0 22 (+ EA 4), PLOAD 8 + EA 4 + 11.7 search.
 m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_mmut.s -o p.o
@@ -165,4 +174,4 @@ python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_mmut
 $G -r $O tb030 -gROMFILE=prog_mmut.hex -gWS=0 -gCIMODE=1 -gSTOPDONE=1 -gMAXCLK=100000 2>/dev/null > r.log || true
 mt=$(grep "WR   A=00003400 " r.log | awk '{print $1}' | awk 'NR>1{printf "blk%d %.2f ", NR-1, ($1-p)/8} {p=$1}' | sed 's/ $//')
 [ "$mt" = "$(cat $H/expect_mmut.txt)" ] || { echo "FAIL prog_mmut: $mt"; fail=1; }
-[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok, PMMU translation ok, PFLUSH/PLOAD/PTEST ok, long/limit/indirect/S ok, short indirect ok, write rerun ok, MMU instruction clocks ok"
+[ $fail = 0 ] && echo "PASS: no interrupt taken above the SR mask, all runs finished, chk/branch results match, SP writeback/push ok, BERR no-writeback ok, loop timing ok, instruction cache ok, data cache ok, PMMU stage 1 ok, MMU configuration exception ok, PMMU translation ok, PFLUSH/PLOAD/PTEST ok, long/limit/indirect/S ok, short indirect ok, write rerun ok, MMU instruction clocks ok, PRM F-line forms ok"

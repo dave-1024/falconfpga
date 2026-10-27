@@ -109,16 +109,16 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 | 9.7.1 p. 9-52 | CRP/SRP 64-bit, masks | Done | |
 | 9.7.1 p. 9-53 | DT = 0 root pointer: config exception | Done | Register loads, then vector 56 (prog_mmucfg, PMMUTEST T_crpdt0) |
 | 9.7.3 p. 9-57 | TT0/TT1 fields, E, CI, R/W, RWM, FC base/mask | Done | |
-| 9.3 p. 9-16 | TT match rules incl. RMW needs RWM | Done (CI only) | No translation exists yet, so "transparent" only affects CI; MMUSR T bit with PTEST in stage 3 |
+| 9.3 p. 9-16 | TT match rules incl. RMW needs RWM | Done | A TT match bypasses translation (no ATC lookup or table search) and sets CI as programmed; PTEST reports it in MMUSR T (Table 9-3) |
 | 9.3 p. 9-17 | CIOUT, inhibits on-chip caches | Done | CIOUT is computed from the address the bus unit drives; the bridge does not use the pin |
-| 9.7.4 p. 9-59 | MMUSR, PMOVE to/from | Done | Set by PTEST in stage 3 |
+| 9.7.4 p. 9-59 | MMUSR, PMOVE to/from | Done | Set by PTEST (Table 9-3 p. 9-60), see the PTEST row |
 | 9.2.2 p. 9-15 | Reset clears E bits only, ATC not flushed | Done | |
 | 9.7.5.1 p. 9-61 | FD bit | Done (stage 2b) | PMOVE with FD = 0 to CRP/SRP/TC/TT0/TT1 flushes the ATC, PMOVEFD does not (prog_xlate) |
 | 9.8 p. 9-65 | User mode CpID 0 F-line -> privilege violation | Done | Was F-line before (correctness fix, no switch) |
 | 9.8 | PMOVE privileged | Done | |
 | 9.4 pp. 9-17-9-20 | ATC, 22 entries, pseudo-LRU, B/CI/WP/M | Done (stage 2b) | Replacement: invalid entry first, else not-recently-used (one used bit per entry). prog_xlate: 40-page replacement pass |
 | 9.5.1 pp. 9-20-9-28 | Short/long table, page, early termination, invalid, indirect descriptors | Done (stage 2c) | Sims: short tables, early termination, invalid (prog_xlate); long tables, long indirect (DT 3 at the last level) and long-to-short mixes (prog_xlate2). Short-format indirect (DT 2) is in the walker, no sim yet. Board: PMMUTEST T_xlong |
-| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2c) | Upper and lower limits checked on long descriptors, including when the next table is short (prog_xlate2, PMMUTEST). Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks are this FPGA's, not yet the 11.7 table |
+| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2c) | Upper and lower limits checked on long descriptors, including when the next table is short (prog_xlate2, PMMUTEST). Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks held to 11.7, see the 11.7 row |
 | 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Done (stage 2c) | WP write -> bus error (prog_xlate); S page from user FC -> MMUSR S and bus error, SRE supervisor tree (prog_xlate2); PTEST user FC on an S page on the board |
 | 9.2.3 p. 9-15 | MMUDIS pin | Tie off | No MMUDIS on our board; treated as negated |
 | 9.8, PFLUSH/PFLUSHA | PFLUSHA, PFLUSH FC,#MASK, PFLUSH FC,#MASK,<ea> | Done (stage 3) | FC as immediate, SFC, DFC or Dn |
@@ -164,7 +164,7 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 ### Staged plan
 
 1. **Stage 1 (this branch):** registers, PMOVE (all six registers), TT0/TT1 CI, user-mode privilege.
-   Remaining small items: quad PMOVE with (An)+/-(An); MMUDIS tie-off note.
+   Small items closed: PMOVE (An)+/-(An) is not a legal 68030 form (PRM pp. 6-48..6-50) and takes the F-line; MMUDIS tied off (row above).
 2. **Stage 2:** ATC (22 entries, pseudo-LRU, FD flushes), table walker (short/long, early termination, indirect,
    limits, FCL, SRE, U/M locked updates), translated physical address to the bus, page CI to CIOUT, WP/S checks with
    bus error on retry. Sim: identity, offset and multi-level trees; EmuTOS tree; ATC replacement order.

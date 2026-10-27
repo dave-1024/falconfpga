@@ -162,3 +162,13 @@
   (no picture at about 150 s and 175 s). Not cold booted again; pmmu7 put back (desktop OK). pmt6.st on pmmu7 runs the old tests
   (PASS up to T_ttci) and then ends on the desktop without the summary; on pmmu7, T_prm's PMOVE (An)+ is still legal
   and loads TC from the test buffer, so that run says nothing about pmmu8. Open: why pmmu8 + pmt6 goes black.
+- Black screens explained: the HDMI capture device on linserver had lost its signal (it still reports 1920x1080 but
+  grabs are all zero). David checked on a monitor: the board boots to the desktop and passes the TOS boot tests. The
+  "pmmu8 black screen" was not a core bug; pmmu5 and pmmu7 grabbed black the same way. The pmmu7 striped first boot
+  is still unexplained (seen once). Off-board checks done before that: TOS 2.06, TTRAM.PRG and the PMMUTEST startup use
+  no PMOVE (An)+/-(An) and no PFLUSHA; T_prm traps correctly in sim (prog_prm.s).
+- pmmu8 retest (after the linserver restart, cable at LOC 4161; results read from A:\PMMUTEST.TXT on the SD image via
+  the helper's `get`, health via serial `s`): pmt5.st FAILS=0 DEVS=0; pmt6.st FAILS=0 DEVS=0 including the four T_prm
+  cases (PMOVE (An)+, PMOVE -(An), PTEST #0,An, PFLUSH mode 010 all take the F-line). pmt6's T_prm cases can only pass
+  on pmmu8 (on pmmu7 PMOVE (An)+ is legal), so that file is from this run.
+- prog_prm added to run_rtl.sh (expect_prm.txt).
