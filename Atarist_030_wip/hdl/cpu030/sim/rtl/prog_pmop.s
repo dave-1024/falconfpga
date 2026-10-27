@@ -35,9 +35,20 @@ start:
         pmove   0x4000,crp
         move.l  #0x80c84800,0x4008
         pmove   0x4008,tc
+        move.l  #0x11111111,d4
+        move.l  #0x22222222,d5
+        move.l  #0x33333333,d3
         move.w  0xa002,d0               | ATC entry for $A000 (FC 5, read: M = 0)
         ptestr  #5,0xa000,#0
         pmove   psr,(a4)+               | -> $0000 (hit, not WP, not modified)
+        move.l  d5,0x5080               | [PMMU2b] board bug: PTEST must not write a data register
+        move.l  d4,0x5084
+        lea     0xa000,a1
+        move.l  (a1),d5
+        ptestr  #5,(a1),#7
+        move.l  d5,0x5088
+        move.l  d4,0x508c
+        move.l  d3,0x5090
         ptestr  #5,0xb000,#0
         pmove   psr,(a4)+               | -> $0400 (I: no entry)
         ptestr  #5,0xb000,#7
@@ -71,5 +82,6 @@ start:
         pmove   0x400c,tc
         move.l  0x6128,(a4)+            | B[$A] -> $0000C019 (U + M by PLOADW; reads before set U)
         move.l  0x6134,(a4)+            | B[$D] -> $0000D005 (PTEST does not set U)
+        move.l  0x5088,(a4)+            | d5 after "move.l (a1),d5; ptestr (a1)": $0000CAFE
         move.l  #0x600dc0de,0x3300
 5:      bra.s   5b

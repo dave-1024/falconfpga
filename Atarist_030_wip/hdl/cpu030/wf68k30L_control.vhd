@@ -905,6 +905,8 @@ begin
                '0' when OP_WB_I = MOVE_USP else -- USP is written.
                '0' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' else -- To control register.
                '0' when OP_WB_I = PMOVE else -- [PMMU1] MMU registers only, never a data register.
+               '0' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' else -- [PMMU2b] PFLUSH/PLOAD/PTEST: no register at all
+                                                                  -- (without this the AR lock is gone and Dn was written).
                '0' when OP_WB_I = STOP else -- SR is written but not DR.
                '1' when EXEC_WB_STATE = WRITEBACK else '0';
 
