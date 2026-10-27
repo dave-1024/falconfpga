@@ -7,3 +7,11 @@ stage.o
 stage.elf
 stage.bin
 STAGE0.PRG
+probe.o
+probe.elf
+probe.bin
+PROBE.PRG
+probe2.o
+probe2.elf
+probe2.bin
+PROBE2.PRG

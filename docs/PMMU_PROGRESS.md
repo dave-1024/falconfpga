@@ -188,3 +188,18 @@
   stub, so MiNT's DEBUG_DEVNO=1 output is dropped today). Board left on pmmu8, pmt5.st cold boot
   rewrote PMMUTEST.TXT with FAILS=0 DEVS=0 (core writes seen in sdwlog), serial link OK.
 - Capture device still not used.
+
+### Where MiNT stops on the board (capture with `-input_format yuyv422 -video_size 1920x1080`, last frame of 2 s clips)
+- mint_mp2.st and mint_scr.st (WRITE_BOOT=NO, so all text stays on screen): the last screen is the FAT/VFAT
+  banner `(c) 2000-2010 by Frank Naumann.` (img/pmmu/mint_board_stop.png), static for minutes. Everything above
+  it matches Hatari exactly (STE 68030 CPU/MMU, Memory protection enabled, Saving MMU setup, TOS 2.06,
+  Core: 3533474 B, no alternative RAM, no XHDI, ramfs 0.72, FAT 1.27).
+- In Hatari the next line is `Installing BIOS keyboard table ... AKP 0, ISO 0.` (init_keybd). The window in
+  between is init_proc, init_bios, init_xbios and the start of init_keybd; the Hatari trace shows only
+  Cconws/Bconstat, Logbase, Iorec(1), Rsconf(-2,..), Rsconf(1,..), Keytbl, Kbrate and MFP USART register access.
+- PROBE2.PRG (AUTO, before MiNT) runs those same TOS calls plus TOS's MOVEP.L read of the MFP on the board:
+  all seven steps complete. PROBE.PRG: Bcostat(AUX), 64 AUX bytes, CACR $0808/$3111 writes, VBR read all fine.
+  So the TOS calls themselves don't hang; the stop is in MiNT's own code in that window (MP on and off).
+- Next: DIAG_OVERLAY build of pmmu (live program-fetch address, first BERR, bus state on screen) to get the
+  PC where MiNT is stuck, then map it with Hatari (same image, same load address). Build started on
+  linserver 20:26 UTC (~/ovl_build.sh, st_helper_hdn_pmmu8ovl_3b42b52.fs).
