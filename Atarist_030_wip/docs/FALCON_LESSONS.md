@@ -346,3 +346,16 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   logs at WS 0/1/3: all prog_* identical except prog_cas2 (the failing-CAS write is gone, 4 cycles fewer).
 - **Lesson.** Check a condition flag against the flag register it is meant to agree with: here Z and ALU_COND
   disagreed and nothing compared them.
+
+### Gowin V1.9.12.04 build stopped: flash clock wire renamed [GW1204]
+
+- **What happened.** A friend's build with Gowin V1.9.12.04 stopped in place-and-route with TA2003/TA2004
+  ("Cannot get clock with name 'ae350_flash_clk'", `atarist_st_helper.sdc` lines 91-127). Reproduced exactly here.
+- **Cause.** The timing file finds the AE350 flash clock by the wire name `ae350_flash_clk`. V1.9.12.04's synthesis
+  merges that wire away and calls it `n250_3`, so the timing file finds nothing and every line using that clock fails.
+- **Fix.** `top.sv` marks the wire `(* syn_keep = 1 *)` so synthesis keeps its name. The timing file is unchanged.
+- **Checks.** Main build (`build_st_helper.tcl`), no errors and no negative slack on any clock in both versions:
+  V1.9.12.03: clk32 35.35 MHz, clk_cpu030 22.88 MHz, 40240 LUTs. V1.9.12.04: clk32 33.55 MHz, clk_cpu030 21.79 MHz,
+  40408 LUTs.
+- **Lesson.** If a timing constraint names an internal wire, mark that wire keep, or a different tool version may
+  rename it.

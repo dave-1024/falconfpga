@@ -1,6 +1,6 @@
 # Building and flashing Atarist_030_wip (Tang Console 138K)
 
-Short version: run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/` (Gowin V1.9.12.03, Windows or Linux), check
+Short version: run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/` (Gowin V1.9.12.03 or V1.9.12.04, Windows or Linux), check
 timing, and flash `impl/pnr/st_helper.fs` with `programmer_cli` op 53. Build the AE350 helper with
 `helper_fw/companion/build_companion.sh` (Linux) or `.bat` (Windows), and flash it with op 56 at 0x600000.
 Details, reasons and the rules are below. What went wrong before and why is in
@@ -8,13 +8,15 @@ Details, reasons and the rules are below. What went wrong before and why is in
 [SD_WRITE_DEBUG.md](SD_WRITE_DEBUG.md).
 
 ## 1. What you need
-- **Gowin EDA V1.9.12.03**: every build here was made and timed with it. Windows (`gw_sh.exe`) or Linux headless
-  (`/opt/gowin/IDE/bin/gw_sh`, run with `QT_QPA_PLATFORM=offscreen`); both give the same results. Other versions
-  place differently, and this design is placement sensitive (section 5).
-- **Use exactly V1.9.12.03.** The AE350 SoC (`hdl/helper/riscv_ae350_soc/riscv_ae350_soc.v`) is a netlist
-  pre-synthesised by V1.9.12.03. Other Gowin versions can name its flash clock net differently, and then
-  `run all` stops with TA2003/TA2004 "Cannot get clock with name 'ae350_flash_clk'" from
-  `atarist_st_helper.sdc` lines 91-127. Install V1.9.12.03 and rebuild.
+- **Gowin EDA V1.9.12.03 or V1.9.12.04**: both are known to work. Most builds here were made and timed with
+  V1.9.12.03. Windows (`gw_sh.exe`) or Linux headless (`/opt/gowin/IDE/bin/gw_sh`, run with
+  `QT_QPA_PLATFORM=offscreen`); both give the same results. Other versions place differently, and this design is
+  placement sensitive (section 5).
+- **About V1.9.12.04.** It renames the AE350 flash clock wire unless it is told to keep it, and then `run all`
+  stopped with TA2003/TA2004 "Cannot get clock with name 'ae350_flash_clk'" from `atarist_st_helper.sdc`
+  lines 91-127. `top.sv` now marks that wire `(* syn_keep = 1 *)`, so both versions build. V1.9.12.04 gives a
+  little less speed (main build: clk32 33.55 vs 35.35 MHz, clk_cpu030 21.79 vs 22.88 MHz), still within timing.
+  Versions other than these two are untested.
 - **Board:** Sipeed Tang Console 138K (GW5AST-LV138PG484AC1/I0, **device version C**) with the **Tang SDRAM module in
   J9**. Don't flash with J9 empty.
 - **TOS:** TOS 2.06 (256 KB) for all tests; EmuTOS 256K also boots. It lives in the board flash at 0x500000, not in

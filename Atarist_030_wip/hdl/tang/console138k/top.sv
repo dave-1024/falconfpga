@@ -395,7 +395,10 @@ wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
 wire        ae350_uart_tx;
-wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
+wire        ae350_flash_holdn, ae350_flash_wpn;
+// syn_keep: the ae350_flash_clk SDC clock is attached to this net. Gowin
+// V1.9.12.04 synthesis otherwise renames it (n250_3) and PnR stops (TA2003).
+(* syn_keep = 1 *) wire ae350_flash_clk;
 `ifdef AE350_SERIAL
 `elsif ST_HELPER
 // ST_HELPER: the SoC drives ae350_flash_csn/clk/mosi; they reach the MSPI
