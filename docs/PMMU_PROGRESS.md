@@ -123,3 +123,7 @@
   res. While switching to medium in Options > Set Preferences the desktop stopped taking clicks (pointer still moves, OK/Cancel
   and the buttons ignored; `pmmu5_tos206_prefs_hang.png`). Not yet known if this is the core or the helper's click
   injection. Per the board rules no cold boot: fell back to pmmu2 at once.
+- Fallback to pmmu2 (sha 62c90a56, LOC 4817, rc 0, ALLDONE) with TOS 2.06 in flash: the helper serial never answered (echo only)
+  and HDMI showed no picture, even after a usbreset of the capture. So **pmmu2 is not a safe fallback with TOS 2.06 in flash**.
+- Reflashed pmmu5 (LOC 4817, rc 0): serial OK, TOS 2.06 desktop (`pmmu5_tos206_desktop.png`). Board left there.
+- GEMBENCH not run: the Set Preferences stall on pmmu5 is still open (it may be the core, or the helper's click injection).
