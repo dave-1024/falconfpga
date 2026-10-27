@@ -47,3 +47,5 @@
 - EmuTOS PMOVE check not done: it needs an EmuTOS ROM flashed at 0x500000, which this test did not include.
 - prog_tt 2-ST-cycle netlist difference: can't be seen on the board (125 ns at a BERR); the board behaves
   normally. Still listed as open.
+- Full run_rtl.sh on e68e21f (data cache write fix): PASS, including PMMU stage 1 and the new p6-8 case.
+  Next: rebuild (pmmu2), check old-vs-new bus logs, board test, then stage 2 (ATC and table walker).
