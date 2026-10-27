@@ -257,19 +257,35 @@ priv_i:	pmove	%tc,(%a0)		| handler returns to supervisor mode after it
 	bra	check
 | 9.7.3 p9-57 + 11.x: TT0/TT1 match with CI=1 -> cache inhibited. Measured with the 200 Hz timer:
 | a loop with caches on, then with TT0 (CI, all FC) over the loop, then TT1, then TT0 not matching (FC mask 0).
-T_ttci:	lea	ttloop(%pc),%a0		| only TT-RAM ($01xxxxxx) is cachable on falconfpga (bridge CIIN)
-	move.l	%a0,%d0
+T_ttci:	move.w	#1,-(%sp)		| Mxalloc(256, TT-RAM only); only $01xxxxxx is cachable here (bridge CIIN)
+	move.l	#256,-(%sp)
+	move.w	#0x44,-(%sp)
+	trap	#1
+	addq.l	#8,%sp
+	move.l	%d0,%a3
 	rol.l	#8,%d0
 	cmp.b	#1,%d0
-	beq	1f
+	beq	3f
 	lea	ndev(%pc),%a0
 	addq.w	#1,(%a0)
 	lea	s_skip(%pc),%a0
 	bra	puts
-1:	move.l	#0x3111,%d0		| ICache+DCache on, burst bits as TOS would
+3:	lea	ttloop(%pc),%a0		| copy the loop into TT-RAM
+	move.l	%a3,%a1
+	move.w	#(ttloop_end-ttloop)/2-1,%d0
+4:	move.w	(%a0)+,(%a1)+
+	dbra	%d0,4b
+	bsr	ttci_run
+	move.l	%a3,-(%sp)
+	move.w	#0x49,-(%sp)		| Mfree
+	trap	#1
+	addq.l	#6,%sp
+	rts
+ttci_run:
+	move.l	#0x3919,%d0		| ICache+DCache on, clear both (CI/CD), burst bits
 	movec	%d0,%cacr
 	moveq	#0,%d0
-	bsr	ttloop
+	jsr	(%a3)
 	move.l	%d0,%d5			| cached ticks
 	lea	n_tm0(%pc),%a0
 	bsr	puts
@@ -277,14 +293,13 @@ T_ttci:	lea	ttloop(%pc),%a0		| only TT-RAM ($01xxxxxx) is cachable on falconfpga
 	bsr	putdec
 	lea	s_nl(%pc),%a0
 	bsr	puts
-	lea	ttloop(%pc),%a0
-	move.l	%a0,%d1
+	move.l	%a3,%d1
 	and.l	#0xff000000,%d1
 	or.l	#0x00008507,%d1		| E, CI, RWM, FC mask 7
 	lea	tmp(%pc),%a0
 	move.l	%d1,(%a0)
 	pmove	(%a0),%tt0
-	bsr	ttloop
+	jsr	(%a3)
 	move.l	%d0,%d4
 	clr.l	(%a0)
 	lea	tmp(%pc),%a0
@@ -295,7 +310,7 @@ T_ttci:	lea	ttloop(%pc),%a0		| only TT-RAM ($01xxxxxx) is cachable on falconfpga
 	lea	tmp(%pc),%a0
 	move.l	%d1,(%a0)
 	pmove	(%a0),%tt1
-	bsr	ttloop
+	jsr	(%a3)
 	move.l	%d0,%d4
 	lea	tmp(%pc),%a0
 	clr.l	(%a0)
@@ -306,7 +321,7 @@ T_ttci:	lea	ttloop(%pc),%a0		| only TT-RAM ($01xxxxxx) is cachable on falconfpga
 	lea	tmp(%pc),%a0
 	move.l	%d1,(%a0)
 	pmove	(%a0),%tt0
-	bsr	ttloop
+	jsr	(%a3)
 	move.l	%d0,%d4
 	lea	tmp(%pc),%a0
 	clr.l	(%a0)
@@ -355,6 +370,7 @@ ttloop:	move.l	0x4ba,%d2
 	move.l	0x4ba,%d0
 	sub.l	%d2,%d0
 	rts
+ttloop_end:
 
 | exception handlers: record vector offset, skip the 4-byte instruction if the stacked PC = expc,
 | return in supervisor mode
@@ -455,7 +471,7 @@ s_got:	.asciz	" got="
 s_nl:	.asciz	"\r\n"
 s_sum1:	.asciz	"FAILS="
 s_sum2:	.asciz	" DEVS="
-s_skip:	.asciz	"SKIP TT CI timing: not in TT-RAM\r\n     (load TTRAM.PRG first)\r\n"
+s_skip:	.asciz	"SKIP TT CI timing: no TT-RAM\r\n     (Mxalloc mode 1 failed)\r\n"
 s_key:	.asciz	"press a key\r\n"
 n_tc:	.asciz	"TC mask p9-52"
 n_tt0:	.asciz	"TT0 mask p9-57"
