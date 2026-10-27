@@ -75,19 +75,26 @@ start:
         pmove   0x4008,tc
 | PTEST from supervisor mode with user FCs
         ptestr  #1,0x4000,#7
-        pmove   psr,(a4)+               | indirect: N = 3 -> $0003
+        pmove   psr,(a4)               | indirect: N = 3 -> $0003
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #1,0x8000,#7
-        pmove   psr,(a4)+               | S page, user FC: S, N = 2 -> $2002
+        pmove   psr,(a4)               | S page, user FC: S, N = 2 -> $2002
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0x10000,#7
-        pmove   psr,(a4)+               | limit: L, I, N = 1 -> $4401
+        pmove   psr,(a4)               | limit: L, I, N = 1 -> $4401
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0x8000,#7
-        pmove   psr,(a4)+               | supervisor tree, no S: N = 2 -> $0002
+        pmove   psr,(a4)               | supervisor tree, no S: N = 2 -> $0002
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0x17f000,#7
-        pmove   psr,(a4)+               | lower limit: index $7F < $80: L, I, N = 1 -> $4401
+        pmove   psr,(a4)               | lower limit: index $7F < $80: L, I, N = 1 -> $4401
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0x180000,#7
-        pmove   psr,(a4)+               | index $80 passes the limit, B[$80] invalid: I, N = 2 -> $0402
+        pmove   psr,(a4)               | index $80 passes the limit, B[$80] invalid: I, N = 2 -> $0402
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0x21f000,#7
-        pmove   psr,(a4)+               | long descriptor's limit on a short table: L, I, N = 1 -> $4401
+        pmove   psr,(a4)               | long descriptor's limit on a short table: L, I, N = 1 -> $4401
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
 | user mode: CRP tree
         lea     0x7800,a2
         move.l  a2,usp

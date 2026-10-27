@@ -361,16 +361,17 @@ begin
                         if C_PEND = '1' and C_ASn = '1' and CYC_ON = '0' then
                             C_PEND <= '0';
                             if C_EXT(15 downto 13) = "001" and C_EXT(12 downto 10) /= "000" then
-                                -- PFLUSHA (010), PFLUSH FC,#MASK (100), PFLUSH FC,#MASK,<ea> (110): 9.8, p. 9-17.
+                                -- PFLUSHA (mode 001), PFLUSH FC,#MASK (100), PFLUSH FC,#MASK,<ea> (110): M68000PRM p. 6-34.
                                 -- 11.7.2: PFLUSHA 12; PFLUSH 16, FC from SFC/DFC 20; the <ea> form + 4 (An).
-                                if C_EXT(12 downto 10) = "010" then null; -- PFLUSHA (12) already takes longer here: not padded.
+                                if C_EXT(12 downto 10) = "001" then I_PAD <= 12 - K_FL; -- PFLUSHA 12.
                                 else
                                     if C_EXT(4 downto 3) = "00" then TG := 20; else TG := 16; end if;
                                     if C_EXT(11) = '1' then TG := TG + 4; end if;
                                     I_PAD <= TG - K_FL;
                                 end if;
                                 for i in 0 to NE - 1 loop
-                                    if C_EXT(12 downto 10) = "010" or
+                                    if C_EXT(12 downto 10) = "001" or -- [PMMU3] PFLUSHA is mode 001 (was tested as 010; PFLUSHA
+                                       -- still flushed all through the FC/mask path with mask 000).
                                        (((E_FC(i) xor C_CFC) and C_EXT(7 downto 5)) = "000" and
                                         (C_EXT(11) = '0' or ((E_LA(i) xor C_EA(31 downto 8)) and PMASK) = x"000000")) then
                                         E_V(i) <= '0'; E_USED(i) <= '0';
@@ -418,6 +419,7 @@ begin
                         if DT = "01" or DT = "00" then W_TGT <= 0; end if; -- No descriptor access: no script time.
                         if DT = "01" then -- Root page descriptor: early termination at the root, PA = address + LA.
                             D0 <= x"00000001"; D1 <= RP(31 downto 8) & x"00"; TLONG <= '1'; LAST_PAGE <= '1';
+                            DADR <= (others => '0'); -- [PMMU3] PTEST An: $0 when the root pointer is a page (PRM p. 6-64).
                             WS <= W_DONE; -- No descriptor in memory: no U/M update.
                         elsif DT = "00" then
                             BAD <= '1'; WS <= W_DONE;

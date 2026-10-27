@@ -98,7 +98,7 @@ start:	move.l	4(%sp),%a0		| basepage
 tests:	.word	T_tc-tests, T_tt0-tests, T_tt1-tests, T_mmusr-tests
 	.word	T_crp-tests, T_srp-tests, T_tcinv-tests, T_tcreset-tests, T_crpdt0-tests
 	.word	T_priv-tests, T_ttci-tests
-	.word	T_xlate-tests, T_xlong-tests, T_s3-tests
+	.word	T_xlate-tests, T_xlong-tests, T_s3-tests, T_prm-tests
 	.word	0
 
 | d6 = expected, d7 = got, a0 = name -> PASS/FAIL line
@@ -814,6 +814,43 @@ h_berr:	move.l	%a0,-(%sp)
 	move.l	(%sp)+,%a0
 	rte
 
+| [PMMU3] M68000PRM ch. 6: forms the 68030 does not have take the F-line trap (vector 11, $2C) in supervisor mode:
+| PMOVE with (An)+ / -(An) (control alterable only, p. 6-48), PTEST level 0 with A = 1 (p. 6-66), PFLUSH mode 010 (p. 6-34).
+T_prm:	lea	fl_tab(%pc),%a3
+1:	move.w	(%a3)+,%d0		| name offset, 0 = end
+	beq	9f
+	lea	exv(%pc),%a0
+	clr.w	(%a0)
+	lea	expc(%pc),%a2
+	move.l	%a3,(%a2)		| the instruction's two words follow the name offset
+	lea	tmp(%pc),%a0
+	move.l	%a0,%a1
+	jmp	(%a3)			| runs the 4-byte instruction; the handler skips it and returns to 2f
+2:	moveq	#0,%d7
+	move.w	exv(%pc),%d7
+	moveq	#0x2c,%d6
+	lea	tests(%pc),%a0		| name = tests + offset
+	add.w	-2(%a3),%a0
+	movem.l	%a3,-(%sp)
+	bsr	check
+	movem.l	(%sp)+,%a3
+	addq.l	#4+2,%a3		| instruction + bra
+	bra	1b
+9:	rts
+fl_tab:	.word	n_fl1-tests
+	.word	0xf018,0x4000		| pmove (a0)+,tc
+	bra.s	2b
+	.word	n_fl2-tests
+	.word	0xf020,0x4200		| pmove tc,-(a0)
+	bra.s	2b
+	.word	n_fl3-tests
+	.word	0xf010,0x8331		| ptestr #1,(a0),#0,a1
+	bra.s	2b
+	.word	n_fl4-tests
+	.word	0xf000,0x2811		| pflush mode 010
+	bra.s	2b
+	.word	0
+
 | exception handlers: record vector offset, skip the 4-byte instruction if the stacked PC = expc,
 | return in supervisor mode
 h_exc8:	move.w	#0x20,-(%sp)
@@ -927,6 +964,10 @@ n_tcinvE: .asciz "TC invalid E=0 p9-53"
 n_tcinvX: .asciz "TC invalid->vec56 p9-64\r\n     got vector off="
 n_crpdt0: .asciz "CRP DT=0 -> vec56 p9-53"
 n_priv:	.asciz	"user PMOVE -> priv viol p9-65"
+n_fl1:	.asciz	"PMOVE (An)+ -> F-line PRM6-48"
+n_fl2:	.asciz	"PMOVE -(An) -> F-line PRM6-48"
+n_fl3:	.asciz	"PTEST #0,An -> F-line PRM6-66"
+n_fl4:	.asciz	"PFLUSH mode 010 -> F-line PRM6-34"
 n_tm0:	.asciz	"     ticks cached     "
 n_tm1:	.asciz	"     ticks TT0 CI     "
 n_tm2:	.asciz	"     ticks TT1 CI     "

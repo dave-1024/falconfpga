@@ -105,9 +105,9 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 | Manual | Feature | Status | Deviation / reason |
 |---|---|---|---|
 | 9.7.2 p. 9-54 | TC register, field masks | Done (stage 1) | |
-| 9.7.2 / 9.7.5.3 p. 9-62 | TC consistency check, E cleared | Done | Exception itself in stage 3 (vector 56 not yet raised) |
-| 9.7.1 p. 9-52 | CRP/SRP 64-bit, masks | Done | Quad PMOVE with (An)+ / -(An) still takes the F-line trap (stage 1c: the 8-byte post-inc/pre-dec step) |
-| 9.7.1 p. 9-53 | DT = 0 root pointer: config exception | Register loads; no exception yet | Stage 3 |
+| 9.7.2 / 9.7.5.3 p. 9-62 | TC consistency check, E cleared | Done | Vector 56 raised after the instruction (prog_mmucfg, PMMUTEST) |
+| 9.7.1 p. 9-52 | CRP/SRP 64-bit, masks | Done | |
+| 9.7.1 p. 9-53 | DT = 0 root pointer: config exception | Done | Register loads, then vector 56 (prog_mmucfg, PMMUTEST T_crpdt0) |
 | 9.7.3 p. 9-57 | TT0/TT1 fields, E, CI, R/W, RWM, FC base/mask | Done | |
 | 9.3 p. 9-16 | TT match rules incl. RMW needs RWM | Done (CI only) | No translation exists yet, so "transparent" only affects CI; MMUSR T bit with PTEST in stage 3 |
 | 9.3 p. 9-17 | CIOUT, inhibits on-chip caches | Done | CIOUT is computed from the address the bus unit drives; the bridge does not use the pin |
@@ -121,15 +121,22 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 | 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2c) | Upper and lower limits checked on long descriptors, including when the next table is short (prog_xlate2, PMMUTEST). Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks are this FPGA's, not yet the 11.7 table |
 | 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Done (stage 2c) | WP write -> bus error (prog_xlate); S page from user FC -> MMUSR S and bus error, SRE supervisor tree (prog_xlate2); PTEST user FC on an S page on the board |
 | 9.2.3 p. 9-15 | MMUDIS pin | Tie off | No MMUDIS on our board; treated as negated |
-| 9.8, PFLUSH/PFLUSHA | PFLUSHA, PFLUSH FC,#MASK, PFLUSH FC,#MASK,<ea> | Done (stage 2b) | FC as immediate, SFC or DFC; the Dn form still takes F-line |
+| 9.8, PFLUSH/PFLUSHA | PFLUSHA, PFLUSH FC,#MASK, PFLUSH FC,#MASK,<ea> | Done (stage 3) | FC as immediate, SFC, DFC or Dn |
 | 9.8, PLOAD R/W | PLOADR/PLOADW | Done (stage 2b) | PLOADW sets M (prog_pmop) |
-| 9.8, 9.7.5.2 | PTEST levels 0-7, An, MMUSR results (Table 9-3 p. 9-60) | Done except An (stage 2b) | B, L, S, W, I, M, T, N per Table 9-3; PTEST does not change U/M. The A bit (descriptor address to An) still takes F-line |
-| 8.1.2 p. 8-7, 8.2 | Bus error from the ATC/table search, short/long frames, RTE retry | Stage 3 | The existing bus fault frames ($A/$B, FLT1/FLT2, FRM) are reused |
-| 8.1.10 p. 8-21 | MMU configuration exception (post-instruction, vector 56) | Stage 3 | |
-| 11.7.2 p. 11-60 | PMOVE/PFLUSH/PLOAD/PTEST clocks | Stage 3 | Stage 1 PMOVE runs at the core's MOVES speed; the [T6] padding table gets the 11.7.2 figures in stage 3 |
-| 11.7 p. 11-51 | Table search clocks | Stage 3 | Walk runs at FPGA speed now |
-| 8.2.1 | RTE reruns a faulted write (SSW DF) | Stage 3 | Core reruns faulted reads only (prog_xlate shows it) |
-| 9.8 PFLUSH/PLOAD/PTEST clocks | 11.7.2 | Stage 3 | Decoded as an F-line LEA; runs at LEA speed + search |
+| 9.8, 9.7.5.2 | PTEST levels 0-7, An, MMUSR results (Table 9-3 p. 9-60) | Done (stage 3) | B, L, S, W, I, M, T, N per Table 9-3; PTEST does not change U/M; A = 1 writes the last descriptor address ($0 for a root-pointer page) |
+| 8.1.2 p. 8-7, 8.2 | Bus error from the ATC/table search, short/long frames, RTE retry | Done | The existing bus fault frames ($A/$B) are reused |
+| 8.1.10 p. 8-21 | MMU configuration exception (post-instruction, vector 56) | Done | |
+| 11.7.2 p. 11-60 | PMOVE/PFLUSH/PLOAD/PTEST clocks | Done (stage 3) | MMU holds CMD_BUSY to the I-cache figures + (An) EA 4: PFLUSH 16 (SFC/DFC 20, <ea> +4), PTEST #0 26, PLOAD 12/16 + search, PTEST #1-7 26 + search (prog_mmut, within 0.5 clock at WS 0). PFLUSHA (12) and PMOVE to TC (38+4, translation on) already take longer here (the ATC refill after the flush), not shortened |
+| 11.7 pp. 11-51-11-57 | Table search clocks | Done (stage 3) | Held to the manual's shell-script clocks: overhead 23 (21 with FCL), long 6 + bus + max(bus-4,0) (long page 2 less), short 3 + bus, pointer U 4 + max(bus-3,0), page U/M 2 + max(bus-3,0), indirect 3 + bus / 2 + 2 bus, early termination 3; bus = measured clocks of each access (both halves on a 16-bit port). Searches already slower than the script stay as they are |
+| 8.2.1 pp. 8-28/8-29 | RTE reruns a faulted write (SSW DF) | Done (stage 3) | Format $A frames; $B frames restart (prog_df, PMMUTEST) |
+| 9.8 PFLUSH/PLOAD/PTEST clocks | 11.7.2 | Done (stage 3) | See the 11.7.2 row |
+| PRM pp. 6-47-6-50 | PMOVE encodings: TT0/TT1 (000 PPP R/W FD), TC/SRP/CRP (010 PPP R/W FD), MMUSR (011 000 R/W 0), low byte 0 | Done | Other P-register values and PMOVEFD to MMUSR take F-line |
+| PRM pp. 6-48-6-50 | PMOVE <ea>: control alterable only ((An), (d16,An), (d8,An,Xn), full, (xxx).W/L) | Done (stage 3, fix) | (An)+ and -(An) were accepted for TC/TT/MMUSR; now F-line as on a 68030 (sims use (An) + ADDQ; prog_pmmu, PMMUTEST T_prm) |
+| PRM pp. 6-32-6-34 | PFLUSH modes 001 (PFLUSHA, mask and FC 0), 100, 110; FC 10XXX, 01DDD, 00000, 00001 | Done (stage 3, fix) | The MMU tested PFLUSHA as mode 010; PFLUSHA still flushed everything through the FC/mask path (mask 000), only its 11.7.2 clocks were wrong. Other modes / FC values F-line (prog_pmmu, PMMUTEST T_prm) |
+| PRM pp. 6-44-6-46 | PLOAD 001000 R/W 0000 FC, control alterable <ea>, MMUSR not affected | Done | Runs with E = 0 too (PRM p. 6-45) |
+| PRM pp. 6-63-6-67 | PTEST 100 LEVEL R/W A REG FC; level 0 with A = 1 -> F-line; A = 0 needs REG = 0 | Done | |
+| PRM ch. 6 | Condition codes not affected by PMOVE/PFLUSH/PLOAD/PTEST | Done | LEA path and PMOVE do not write the CCR |
+| PRM ch. 6 / MC68030UM 9.8 | 68851-only forms (PVALID, PFLUSHS, PFLUSHR, PMOVE to CAL/VAL/SCC/AC/BADx/BACx/PCSR, PBcc, PDBcc, PScc, PTRAPcc, PSAVE, PRESTORE, 4-bit FC) | Done | F-line in supervisor mode, privilege violation in user mode |
 
 ### Plan for cycle-correctness
 

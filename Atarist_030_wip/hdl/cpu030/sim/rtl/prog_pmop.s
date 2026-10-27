@@ -40,7 +40,8 @@ start:
         move.l  #0x33333333,d3
         move.w  0xa002,d0               | ATC entry for $A000 (FC 5, read: M = 0)
         ptestr  #5,0xa000,#0
-        pmove   psr,(a4)+               | -> $0000 (hit, not WP, not modified)
+        pmove   psr,(a4)               | -> $0000 (hit, not WP, not modified)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  d5,0x5080               | [PMMU2b] board bug: PTEST must not write a data register
         move.l  d4,0x5084
         lea     0xa000,a1
@@ -50,42 +51,54 @@ start:
         move.l  d4,0x508c
         move.l  d3,0x5090
         ptestr  #5,0xb000,#0
-        pmove   psr,(a4)+               | -> $0400 (I: no entry)
+        pmove   psr,(a4)               | -> $0400 (I: no entry)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0xb000,#7
-        pmove   psr,(a4)+               | -> $0402 (I, N = 2: A[0], B[$B] invalid)
+        pmove   psr,(a4)               | -> $0402 (I, N = 2: A[0], B[$B] invalid)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestw  #5,0xd000,#7
-        pmove   psr,(a4)+               | -> $0802 (W, N = 2)
+        pmove   psr,(a4)               | -> $0802 (W, N = 2)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ptestr  #5,0xd000,#1
-        pmove   psr,(a4)+               | -> $0001 (level 1 only: A[0])
+        pmove   psr,(a4)               | -> $0001 (level 1 only: A[0])
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pflusha
         ptestr  #5,0xa000,#0
-        pmove   psr,(a4)+               | -> $0400 (flushed)
+        pmove   psr,(a4)               | -> $0400 (flushed)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ploadw  #5,0xa000
         ptestr  #5,0xa000,#0
-        pmove   psr,(a4)+               | -> $0200 (M, from PLOADW)
+        pmove   psr,(a4)               | -> $0200 (M, from PLOADW)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pflush  #5,#7,0xa000
         ptestr  #5,0xa000,#0
-        pmove   psr,(a4)+               | -> $0400
+        pmove   psr,(a4)               | -> $0400
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         ploadr  #1,0xa000               | user data FC
         pflush  #5,#7                   | FC 5 only: the FC 1 entry stays
         ptestr  #1,0xa000,#0
-        pmove   psr,(a4)+               | -> $0200 (hit; M as in the descriptor, set by the PLOADW)
+        pmove   psr,(a4)               | -> $0200 (hit; M as in the descriptor, set by the PLOADW)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pflush  #1,#7
         ptestr  #1,0xa000,#0
-        pmove   psr,(a4)+               | -> $0400
+        pmove   psr,(a4)               | -> $0400
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pflusha                         | [PMMU3] FC operand in a data register (01RRR, p. 9-64)
         moveq   #1,d2
         ploadr  d2,0xa000               | FC 1 from d2
         ptestr  #1,0xa000,#0
-        pmove   psr,(a4)+               | -> $0200 (the FC 1 entry is there)
+        pmove   psr,(a4)               | -> $0200 (the FC 1 entry is there)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         moveq   #5,d2
         ptestr  d2,0xa000,#0
-        pmove   psr,(a4)+               | -> $0400 (no FC 5 entry)
+        pmove   psr,(a4)               | -> $0400 (no FC 5 entry)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pflush  d2,#7                   | FC 5 only
         moveq   #1,d2
         pflush  d2,#7
         ptestr  #1,0xa000,#0
-        pmove   psr,(a4)+               | -> $0400 (flushed through d2)
+        pmove   psr,(a4)               | -> $0400 (flushed through d2)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0x55555555,a2          | [PMMU3] PTEST A = 1: An = address of the last descriptor fetched (p. 9-63)
         ptestr  #5,0xb000,#7,a2
         move.l  a2,(a4)+                | -> $0000612C (B[$B])
@@ -97,7 +110,8 @@ start:
         move.l  #0x00ff8507,0x4010      | TT0: everything, CI
         pmove   0x4010,tt0
         ptestr  #5,0xa000,#0
-        pmove   psr,(a4)+               | -> $0040 (T)
+        pmove   psr,(a4)               | -> $0040 (T)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         clr.l   0x4010
         pmove   0x4010,tt0
         pmove   0x400c,tc

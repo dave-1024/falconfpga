@@ -1528,11 +1528,14 @@ begin
                       (IPIPE.C(15 downto 13) = "100" and (IPIPE.C(8 downto 5) = "0000" or -- PTEST, A = 0
                        (IPIPE.C(8) = '1' and IPIPE.C(12 downto 10) /= "000")))))) then -- [PMMU3] A = 1 (not with level 0)
                     OP_I <= LEA;
-                elsif IPIPE.D(11 downto 6) = "000000" and ((IPIPE.D(5 downto 3) >= "010" and IPIPE.D(5 downto 3) < "111") or
-                   (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and
+                -- [PMMU3] PMOVE <ea>: control alterable modes only (M68000PRM pp. 6-48..6-50; MC68030UM 11.7.1 lists
+                -- no (An)+ / -(An) form): (An), (d16,An), (d8,An,Xn)/full, (xxx).W, (xxx).L. (An)+ and -(An) take the F-line
+                -- trap (a privilege violation in user mode), as every other unsupported CpID 0 form.
+                elsif IPIPE.D(11 downto 6) = "000000" and (IPIPE.D(5 downto 3) = "010" or IPIPE.D(5 downto 3) = "101" or
+                   IPIPE.D(5 downto 3) = "110" or (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and
                    ((IPIPE.C(15 downto 13) = "000" and IPIPE.C(12 downto 11) = "01") or
                     (IPIPE.C(15 downto 10) = "010000") or
-                    (IPIPE.C(15 downto 11) = "01001" and IPIPE.D(5 downto 3) /= "011" and IPIPE.D(5 downto 3) /= "100") or
+                    (IPIPE.C(15 downto 11) = "01001") or
                     (IPIPE.C(15 downto 10) = "011000" and IPIPE.C(8) = '0')) then
                     OP_I <= PMOVE;
                 else

@@ -15,7 +15,8 @@ start:
         move.l  #0x80c0a000,(a0)        | E=1, 12+10 /= 32: invalid
 pm1:    pmove   (a0),tc
 nx1:    moveq   #1,d3
-        pmove   tc,(a4)+                | E cleared: $00C0A000
+        pmove   tc,(a4)                | E cleared: $00C0A000
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         moveq   #0,d3
         clr.l   0x4010
         clr.l   0x4014

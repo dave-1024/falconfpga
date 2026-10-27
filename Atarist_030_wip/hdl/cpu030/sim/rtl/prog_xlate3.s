@@ -39,14 +39,16 @@ start:
         move.w  0x4002,(a4)+            | -> $CAFE (logical $4000 through the indirect -> $C000)
         move.w  #0xbeef,0x4002          | write: M on the page descriptor at $6900
         ptestr  #5,0x4000,#7
-        pmove   psr,(a4)+               | -> $0203 (M from the page descriptor, N = 3: A, B, indirect)
+        pmove   psr,(a4)               | -> $0203 (M from the page descriptor, N = 3: A, B, indirect)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
 | invalid descriptor behind an indirect: bus error, the handler turns TC off and the read reruns
         moveq   #0,d3
         move.w  0x6000,d3               | logical $6000 = B[6] -> indirect -> invalid -> bus error; rerun TC off
         move.w  d3,(a4)+                | -> $0000 (A[0] high word, physical $6000)
         pmove   0x7008,tc
         ptestr  #5,0x6000,#7
-        pmove   psr,(a4)+               | -> $0403 (I, N = 3; no W: bit 2 of the indirect $6906 is address, not WP)
+        pmove   psr,(a4)               | -> $0403 (I, N = 3; no W: bit 2 of the indirect $6906 is address, not WP)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         pmove   0x700c,tc
         move.l  0x6900,(a4)+            | page descriptor -> $0000C019 (U + M set on the target, 9.5.1.4)
         move.l  0x6110,(a4)+            | B[4] indirect -> $00006902 (unchanged: no U on an indirect)

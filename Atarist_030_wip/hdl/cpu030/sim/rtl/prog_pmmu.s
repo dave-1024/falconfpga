@@ -21,33 +21,43 @@ start:
         lea     0x4000,a0
         move.l  #0x12345678,(a0)
         pmove   (a0),tt0                | E=0: stored with the mask $FFFF8777
-        pmove   tt0,(a4)+               | -> $12340670
+        pmove   tt0,(a4)               | -> $12340670
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0xffff7fff,(a0)
         pmove   (a0),tt1                | E=0
-        pmove   tt1,(a4)+               | -> $FFFF0777
+        pmove   tt1,(a4)               | -> $FFFF0777
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0x80c0aa00,(a0)        | E, PS=4K, IS=0, TIA=TIB=10: 12+20 = 32, valid
         pmove   (a0),tc
-        pmove   tc,(a4)+                | -> $80C0AA00
+        pmove   tc,(a4)                | -> $80C0AA00
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0x80c0a000,(a0)        | 12+10 = 22: invalid, E cleared
         pmove   (a0),tc
-        pmove   tc,(a4)+                | -> $00C0A000
+        pmove   tc,(a4)                | -> $00C0A000
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0x8070ffff,(a0)        | PS=7 reserved: invalid, E cleared
         pmove   (a0),tc
-        pmove   tc,(a4)+                | -> $0070FFFF
+        pmove   tc,(a4)                | -> $0070FFFF
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  #0xffffffff,(a0)        | TC unimplemented bits read as 0
         pmove   (a0),tc
-        pmove   tc,(a4)+                | -> $03FFFFFF (E cleared: 15+15+... /= 32)
+        pmove   tc,(a4)                | -> $03FFFFFF (E cleared: 15+15+... /= 32)
+        addq.l  #4,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.w  #0xffff,(a0)
         pmove   (a0),psr
-        pmove   psr,(a4)+               | -> $EE47 (word)
-| addressing modes: (An)+, -(An), (d16,An), (xxx).L
+        pmove   psr,(a4)               | -> $EE47 (word)
+        addq.l  #2,a4                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
+| addressing modes: (An), (d16,An), (xxx).L (control alterable only, M68000PRM p. 6-48)
         lea     0x4010,a1
         move.l  #0x00ff0000,(a1)
         move.l  #0x11228007,4(a1)
-        pmove   (a1)+,tt0
-        pmove   (a1)+,tt1
+        pmove   (a1),tt0
+        addq.l  #4,a1                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
+        pmove   (a1),tt1
+        addq.l  #4,a1                | [PMMU3] no (An)+ PMOVE (PRM p. 6-48)
         move.l  a1,(a4)+                | -> $00004018
-        pmove   tt1,-(a1)
+        subq.l  #4,a1                   | [PMMU3] no -(An) PMOVE (PRM p. 6-48)
+        pmove   tt1,(a1)
         move.l  a1,(a4)+                | -> $00004014
         move.l  (a1),(a4)+              | -> $11228007
         pmove   tt0,8(a1)
@@ -71,7 +81,9 @@ start:
         pmove   crp,4(a5)               | CRP unchanged by the SRP load
         move.l  4(a5),(a4)+             | -> $FFFF0003
         move.l  8(a5),(a4)+             | -> $FFFFFFF0
-        .word   0xf018,0x4c00           | pmove (a0)+,crp: not yet (stage 1 deviation): F-line -> $002C
+        .word   0xf018,0x4c00           | pmove (a0)+,crp: not a 68030 form (PRM p. 6-48): F-line -> $002C
+        .word   0xf021,0x0e00           | [PMMU3] pmove tt1,-(a1): F-line -> $002C
+        .word   0xf019,0x0800           | [PMMU3] pmove (a1)+,tt0: F-line -> $002C
         clr.l   (a0)
         pmove   (a0),tt0
         pmove   (a0),tt1

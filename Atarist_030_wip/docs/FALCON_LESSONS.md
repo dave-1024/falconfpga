@@ -393,8 +393,8 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   table descriptor with DT = 2 (short next table) ignored its limit. Fix: the check depends only on the limit coming from a
   long descriptor / root pointer (LIM_ON).
 - Bug (sim, prog_xlate3, stage 3): the walker ORed bit 2 (WP) of *every* valid descriptor into the walk's WP, including an
-  indirect descriptor. In an indirect descriptor bits 31-2 are the address of the page descriptor (MC68030UM 9.5.1.4,
-  Figures 9-14 and 9-15), so a pointer such as $6906 made the page look write protected (PTEST gave W). Fix: only table and
+  indirect descriptor. In an indirect descriptor bits 31-2 are the address of the page descriptor (MC68030UM 9.5.1.11/12,
+  Figures 9-17 and 9-18), so a pointer such as $6906 made the page look write protected (PTEST gave W). Fix: only table and
   page descriptors add to WP (and S on long ones); prog_xlate3 has an indirect pointer with bit 2 set.
 - Lesson: a descriptor field is only that field for the descriptor types that have it; check the DT before reading flags.
 - Stage 3: RTE of a format $A frame now reads the SSW ($0A); with DF = 1 and RW = 0 it reads the fault address ($10)
@@ -402,3 +402,11 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   (MC68030UM 8.1.2, 8.2.1). Before this a demand-paging handler that fixed a page saw the faulted write lost.
   prog_df covers word, odd byte and long writes with the handler fixing WP and TC left on; prog_xlate's WP case now
   expects the rerun. Limits: format $B frames still restart (no rerun); a rerun that faults again takes a new bus error.
+- Bug (review against the M68000PRM, stage 3): the decoder accepted PMOVE with (An)+ and -(An) for TC, TT0/TT1 and
+  MMUSR. The 68030 PMOVE takes control alterable modes only (PRM pp. 6-48..6-50; MC68030UM 11.7.1 has no such form), so
+  those encodings must take the F-line trap. Fix: decoder; sims rewritten to (An) + ADDQ; prog_pmmu and PMMUTEST T_prm
+  check the F-line.
+- Bug (same review): the MMU took PFLUSHA as mode 010; it is mode 001 ($2400, PRM p. 6-34). PFLUSHA still flushed every
+  entry through the FC/mask path (mask 000), so only its 11.7.2 timing was wrong. Fix: mode 001.
+- Lesson: check every encoding against the PRM's field tables, not against what the assembler happens to emit, and test
+  the forms that must trap as well as the ones that work.
