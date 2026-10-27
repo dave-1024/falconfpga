@@ -86,7 +86,7 @@ start:	move.l	4(%sp),%a0		| basepage (unused)
 
 | ---- test table: offsets from "tests" (add stage 2+ tests here) ----
 tests:	.word	T_tc-tests, T_tt0-tests, T_tt1-tests, T_mmusr-tests
-	.word	T_crp-tests, T_srp-tests, T_tcinv-tests, T_tcreset-tests
+	.word	T_crp-tests, T_srp-tests, T_tcinv-tests, T_tcreset-tests, T_crpdt0-tests
 	.word	T_priv-tests, T_ttci-tests
 	.word	0
 
@@ -237,6 +237,18 @@ tcinv_i: pmove	(%a0),%tc
 	bra	puts
 1:	move.l	%d7,%d6
 	lea	n_tcinvX(%pc),%a0
+	bra	check
+| 9.7.1 p9-53 + 8.1.10 p8-21: CRP with DT=0 is loaded and takes the configuration exception (vector 56)
+T_crpdt0: lea	exv(%pc),%a0
+	clr.w	(%a0)
+	lea	tmp(%pc),%a0
+	clr.l	(%a0)
+	clr.l	4(%a0)
+	pmove	(%a0),%crp
+	moveq	#0,%d7
+	move.w	exv(%pc),%d7
+	move.l	#0xe0,%d6
+	lea	n_crpdt0(%pc),%a0
 	bra	check
 T_tcreset: rts				| reserved: reset behaviour needs a reboot, see PMMU_TESTING.md
 | 9.8 p9-65: MMU instructions are privileged: user mode -> privilege violation (vector 8, $20)
@@ -487,6 +499,7 @@ n_srph:	.asciz	"SRP hi p9-54"
 n_srpl:	.asciz	"SRP lo p9-54"
 n_tcinvE: .asciz "TC invalid E=0 p9-53"
 n_tcinvX: .asciz "TC invalid->vec56 p9-64\r\n     got vector off="
+n_crpdt0: .asciz "CRP DT=0 -> vec56 p9-53"
 n_priv:	.asciz	"user PMOVE -> priv viol p9-65"
 n_tm0:	.asciz	"     ticks cached     "
 n_tm1:	.asciz	"     ticks TT0 CI     "
