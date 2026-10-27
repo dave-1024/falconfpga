@@ -600,6 +600,7 @@ signal P_RWn, P_RMCn            : std_logic;
 signal PMMU_OP, MMU_CMD_BUSY, MMU_SR_WR, MMU_CMD_TT : std_logic;
 signal PMMU_EXT, MMU_SR_NEW     : std_logic_vector(15 downto 0);
 signal MMU_CMD_FC               : std_logic_vector(2 downto 0);
+signal MMU_DN_FC                : std_logic_vector(2 downto 0); -- [PMMU3]
 signal CIINn_EFF                : std_logic;
 signal DC_WR_TTCI               : std_logic;
 signal DC_WR_GO_EFF             : std_logic;
@@ -901,7 +902,7 @@ begin
             CMD => PMMU_OP, CMD_EXT => PMMU_EXT, CMD_EA => DATA_IN_EXH, CMD_FC => MMU_CMD_FC, CMD_TT => MMU_CMD_TT,
             CMD_BUSY => MMU_CMD_BUSY, SR_WR => MMU_SR_WR, SR_OUT => MMU_SR_NEW);
     -- [PMMU2b] FC operand of PFLUSH/PLOAD/PTEST (9.8): 10XXX immediate, 00000 SFC, 00001 DFC.
-    MMU_CMD_FC <= PMMU_EXT(2 downto 0) when PMMU_EXT(4 downto 3) = "10" else SFC when PMMU_EXT(0) = '0' else DFC;
+    MMU_CMD_FC <= PMMU_EXT(2 downto 0) when PMMU_EXT(4 downto 3) = "10" else MMU_DN_FC when PMMU_EXT(4 downto 3) = "01" else SFC when PMMU_EXT(0) = '0' else DFC;
     -- PTEST level 0 sets T when TT0/TT1 match the tested address, FC and R/W (Table 9-3).
     MMU_CMD_TT <= '1' when (MMU_TT0(15) = '1' and ((DATA_IN_EXH(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
                             and ((MMU_CMD_FC xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
@@ -1704,6 +1705,8 @@ begin
             DR_SEL_RD_2             => DR_SEL_RD_2,
             DR_SEL_ADH_2            => DR_SEL_ADH_2,
             DR_SEL_ADH_3            => DR_SEL_ADH_3,
+            DR_FC_SEL               => PMMU_EXT(2 downto 0),
+            DR_FC_OUT               => MMU_DN_FC,
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
             DR_MARK_USED            => DR_MARK_USED,

@@ -76,8 +76,8 @@ start:
         pmove   (a0),tt0
         pmove   (a0),tt1
         pmove   (a0),tc
-| CpID 0 F-line the core does not implement (PFLUSH Dn form $F000 $3008): F-line trap in supervisor mode
-        .word   0xf000,0x3008           | -> $002C (PFLUSH with the FC in D0: not yet, F-line; PFLUSHA itself is stage 2b)
+| CpID 0 F-line the core does not implement (PFLUSH with the reserved FC field 11000, $F000 $3018): F-line trap in supervisor mode
+        .word   0xf000,0x3018           | -> $002C (FC field 11XXX is not a valid FC operand: F-line)
         .word   0xf000,0x4c00           | PMOVE Dn,CRP (Dn is not a PMOVE EA): -> $002C
 | user mode: PMOVE and the other CpID 0 F-line take the privilege violation
         lea     0x7000,a2

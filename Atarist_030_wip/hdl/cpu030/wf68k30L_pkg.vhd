@@ -526,6 +526,8 @@ component WF68K30L_DATA_REGISTERS
         DR_SEL_RD_2         : in std_logic_vector(2 downto 0);
         DR_SEL_ADH_2        : in std_logic_vector(2 downto 0); -- F56: data hazard check selects
         DR_SEL_ADH_3        : in std_logic_vector(2 downto 0);
+        DR_FC_SEL           : in std_logic_vector(2 downto 0) := "000";
+        DR_FC_OUT           : out std_logic_vector(2 downto 0);
         DR_WR_1             : in bit;
         DR_WR_2             : in bit;
         DR_MARK_USED        : in bit;

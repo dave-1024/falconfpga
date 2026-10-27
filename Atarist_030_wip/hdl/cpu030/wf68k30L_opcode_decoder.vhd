@@ -1516,9 +1516,9 @@ begin
                 -- [PMMU2b] PFLUSHA, PFLUSH, PLOAD, PTEST (MC68030UM 9.8, pp. A-? / 9-64): decoded as an LEA that computes
                 -- the control EA (no operand access) and hands EA + extension word to the MMU at writeback instead of
                 -- writing An. Forms with no EA (PFLUSHA, PFLUSH FC,#MASK) use (A0) as a dummy EA.
-                -- FC field: 10XXX immediate, 00000 SFC, 00001 DFC (01RRR = Dn: not yet, F-line). PTEST with A = 1: not yet.
+                -- FC field: 10XXX immediate, 00000 SFC, 00001 DFC 01RRR Dn [PMMU3]. PTEST with A = 1: not yet.
                 if IPIPE.D(11 downto 6) = "000000" and
-                   (IPIPE.C(4 downto 3) = "10" or IPIPE.C(4 downto 1) = "0000" or IPIPE.C(12 downto 10) = "001") and
+                   (IPIPE.C(4 downto 3) = "10" or IPIPE.C(4 downto 3) = "01" or IPIPE.C(4 downto 1) = "0000" or IPIPE.C(12 downto 10) = "001") and
                    ((IPIPE.D(5 downto 0) = "000000" and IPIPE.C = x"2400") or -- PFLUSHA
                     (IPIPE.D(5 downto 0) = "000000" and IPIPE.C(15 downto 8) = x"30") or -- PFLUSH FC,#MASK
                     (((IPIPE.D(5 downto 3) = "010" or IPIPE.D(5 downto 3) = "101" or IPIPE.D(5 downto 3) = "110") or

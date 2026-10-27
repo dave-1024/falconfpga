@@ -73,6 +73,19 @@ start:
         pflush  #1,#7
         ptestr  #1,0xa000,#0
         pmove   psr,(a4)+               | -> $0400
+        pflusha                         | [PMMU3] FC operand in a data register (01RRR, p. 9-64)
+        moveq   #1,d2
+        ploadr  d2,0xa000               | FC 1 from d2
+        ptestr  #1,0xa000,#0
+        pmove   psr,(a4)+               | -> $0200 (the FC 1 entry is there)
+        moveq   #5,d2
+        ptestr  d2,0xa000,#0
+        pmove   psr,(a4)+               | -> $0400 (no FC 5 entry)
+        pflush  d2,#7                   | FC 5 only
+        moveq   #1,d2
+        pflush  d2,#7
+        ptestr  #1,0xa000,#0
+        pmove   psr,(a4)+               | -> $0400 (flushed through d2)
         move.l  #0x00ff8507,0x4010      | TT0: everything, CI
         pmove   0x4010,tt0
         ptestr  #5,0xa000,#0
