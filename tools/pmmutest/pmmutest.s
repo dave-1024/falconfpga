@@ -5,8 +5,18 @@
 	.text
 	.globl _start
 _start:
-start:	move.l	4(%sp),%a0		| basepage (unused)
+start:	move.l	4(%sp),%a0		| basepage
 	lea	ustk_end(%pc),%sp
+	move.l	0xc(%a0),%d0		| Mshrink to text+data+bss+$100, so Mxalloc(ST-RAM) has memory
+	add.l	0x14(%a0),%d0
+	add.l	0x1c(%a0),%d0
+	add.l	#0x100,%d0
+	move.l	%d0,-(%sp)
+	move.l	%a0,-(%sp)
+	clr.w	-(%sp)
+	move.w	#0x4a,-(%sp)
+	trap	#1
+	lea	12(%sp),%sp
 	clr.l	-(%sp)
 	move.w	#0x20,-(%sp)		| Super(0)
 	trap	#1
