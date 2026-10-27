@@ -85,3 +85,20 @@ Findings so far (27 Oct 2026):
 - Theory: a PMMU/table-search fault seen only on the board (bridge/bus side): the same state replayed on the
   RTL core (tools/minttest/sim) translates correctly. Next: whole-ST bench or DIAG_EXCWATCH.
 - MP off (mint_nomp.st) is separate: CPU keeps running past `Installing BIOS keyboard table`, no BOOT.LOG yet.
+
+## Morning summary (27 Oct 2026, written ~23:00 GMT)
+
+**Where FreeMiNT stops (MP on, pmmu8):** the last on-screen text is the FAT/VFAT 1.27 banner (docs/img/pmmu/mint_board_stop.png). The DIAG_OVERLAY build shows the CPU **halted** (double fault). The last fetch was $5CE9A, just after `pmove 12(sp),tc; rts` in MiNT's set_mmu. The last cycle was an FC5 table-search read at $BC186 (docs/img/pmmu/mint_mpon_overlay_halt.png). With MP off the CPU does not halt (a separate, open issue).
+
+**Ruled out:**
+- RTL replay of the Hatari snapshot at that exact PC (TOS ROM, wait states 0/1/3/random, IRQ sweep): no failure.
+- MTREE.PRG (MiNT's exact TC and long-descriptor tree, translated with IRQs, under TOS) PASSES on the board.
+- PROBE/PROBE2: every TOS call MiNT makes before this point completes on the board.
+
+So the tree format and TC are not the cause. The failure depends on MiNT's real RAM/stack state or timing through the bridge and caches.
+
+**Tonight's attempt:** I built pmmu (d7663f8) with DIAG_OVERLAY + DIAG_EXCWATCH as `st_helper_hdn_pmmu8exc_d7663f8.fs` (clk_cpu030 20.15 MHz, clk32_core 32.49 MHz, 45678 LUT + 5308 ALU, 19335 regs). With it flashed, the helper serial stopped answering (no `s` reply), and after a cold boot of mint_scr.st the screen showed only orange/blue stripes. Reflashing pmmu8 brought serial back once; after a second excwatch try it did not.
+
+**Board state now — needs attention:** pmmu8 is flashed (programmer rc=0). The helper on /dev/ttyUSB1 prints its boot lines and then stops answering commands, even after waiting more than a minute. Per the rules I stopped board work: pmt5.st was **not** remounted or re-verified. Please power-cycle/replug the board, then `mount a pmt5.st`, `c`, and check PMMUTEST.TXT FAILS=0.
+
+**Next:** find out why the DIAG_EXCWATCH build kills the helper link (likely the debug mux on the companion link, or timing; 43 endpoints failing, worst -13.7 ns, against 44 / -12.9 ns for the overlay-only build). Then capture the exception trail before the halt.
