@@ -102,3 +102,19 @@ So the tree format and TC are not the cause. The failure depends on MiNT's real 
 **Board state now — needs attention:** pmmu8 is flashed (programmer rc=0). The helper on /dev/ttyUSB1 prints its boot lines and then stops answering commands, even after waiting more than a minute. Per the rules I stopped board work: pmt5.st was **not** remounted or re-verified. Please power-cycle/replug the board, then `mount a pmt5.st`, `c`, and check PMMUTEST.TXT FAILS=0.
 
 **Next:** find out why the DIAG_EXCWATCH build kills the helper link (likely the debug mux on the companion link, or timing; 43 endpoints failing, worst -13.7 ns, against 44 / -12.9 ns for the overlay-only build). Then capture the exception trail before the halt.
+
+## Flash rule: no negative slack on any clock pair (27 Oct 2026, 22:50 GMT)
+
+**Do not flash a build with negative setup or hold slack in any explicit `report_timing` clock-pair table.** That includes pmmu8exc (worst −13.7 ns) and pmmu8ovl (worst −12.9 ns).
+
+Check with `python3 tools/timing/timing_pairs.py <impl/pnr>` (exit 1 means do not flash). The Gowin "Total Negative Slack" table showed **0** for every clock on these builds and on pmmu8, so TNS alone is not enough.
+
+Correction: in my previous note, "43" and "44" were the logic depth of the worst path (number of nodes), not a count of failing endpoints.
+
+**Finding:** pmmu8 itself (the build where MiNT stops, bitstream md5 ced52e19) fails `clk_cpu030 -> clk32_core` by **−7.0 ns**. The path is:
+
+DC_OA → FILL_WADR (+1 incrementer) → ADR_OUT_I → MMU ATC lookup (XLATE/HIT_OK → BLK) → P_ASn → bridge live request → r_adr/r_dout CE.
+
+The MMU gates AS combinationally with the ATC result, so this path exists only while **translation is on**. It is the bridge's half-cycle (31.25 ns) path. When it is too slow, the bridge can see AS low with a still-settling (logical, untranslated) address and start an ST cycle with it. That matches a failure right after `pmove tc` that RTL simulation cannot reproduce.
+
+The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns).
