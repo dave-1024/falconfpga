@@ -157,3 +157,8 @@
 - pmmu8 (a47dc61): run_rtl PASS (incl. MMU instruction clocks); TNS 0, clk_cpu030 21.87 MHz, clk32_core 33.21 MHz,
   52527 logic (45221 LUT + 5386 ALU), 18326 regs, BSRAM 171/340, fs sha 42efc7e6. Not flashed yet: linserver was
   unreachable (SOCKS failure) at the end of the session.
+- pmmu8 on the board (TOS 2.06 in flash): the first boot after the flash came up on the desktop
+  (img/pmmu/pmmu8_firstboot.png), no stripes this time. Mounting pmt6.st and cold booting gave a black screen
+  (no picture at about 150 s and 175 s). Not cold booted again; pmmu7 put back (desktop OK). pmt6.st on pmmu7 runs the old tests
+  (PASS up to T_ttci) and then ends on the desktop without the summary; on pmmu7, T_prm's PMOVE (An)+ is still legal
+  and loads TC from the test buffer, so that run says nothing about pmmu8. Open: why pmmu8 + pmt6 goes black.
