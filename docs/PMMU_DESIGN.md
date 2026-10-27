@@ -117,9 +117,9 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 | 9.8 p. 9-65 | User mode CpID 0 F-line -> privilege violation | Done | Was F-line before (correctness fix, no switch) |
 | 9.8 | PMOVE privileged | Done | |
 | 9.4 pp. 9-17-9-20 | ATC, 22 entries, pseudo-LRU, B/CI/WP/M | Done (stage 2b) | Replacement: invalid entry first, else not-recently-used (one used bit per entry). prog_xlate: 40-page replacement pass |
-| 9.5.1 pp. 9-20-9-28 | Short/long table, page, early termination, invalid, indirect descriptors | Done (stage 2b) | Sim covers short tables, early termination (root and level A), invalid; long and indirect are in the walker but not yet in a sim program |
-| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2b) | Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks are this FPGA's, not yet the 11.7 table |
-| 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Done (stage 2b) | WP write -> bus error tested in sim; S and SRE in the walker, not yet in a sim program |
+| 9.5.1 pp. 9-20-9-28 | Short/long table, page, early termination, invalid, indirect descriptors | Done (stage 2c) | Sims: short tables, early termination, invalid (prog_xlate); long tables, long indirect (DT 3 at the last level) and long-to-short mixes (prog_xlate2). Short-format indirect (DT 2) is in the walker, no sim yet. Board: PMMUTEST T_xlong |
+| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2c) | Upper and lower limits checked on long descriptors, including when the next table is short (prog_xlate2, PMMUTEST). Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks are this FPGA's, not yet the 11.7 table |
+| 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Done (stage 2c) | WP write -> bus error (prog_xlate); S page from user FC -> MMUSR S and bus error, SRE supervisor tree (prog_xlate2); PTEST user FC on an S page on the board |
 | 9.2.3 p. 9-15 | MMUDIS pin | Tie off | No MMUDIS on our board; treated as negated |
 | 9.8, PFLUSH/PFLUSHA | PFLUSHA, PFLUSH FC,#MASK, PFLUSH FC,#MASK,<ea> | Done (stage 2b) | FC as immediate, SFC or DFC; the Dn form still takes F-line |
 | 9.8, PLOAD R/W | PLOADR/PLOADW | Done (stage 2b) | PLOADW sets M (prog_pmop) |
