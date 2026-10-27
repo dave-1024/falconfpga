@@ -172,3 +172,19 @@
   cases (PMOVE (An)+, PMOVE -(An), PTEST #0,An, PFLUSH mode 010 all take the F-line). pmt6's T_prm cases can only pass
   on pmmu8 (on pmmu7 PMOVE (An)+ is legal), so that file is from this run.
 - prog_prm added to run_rtl.sh (expect_prm.txt).
+
+## FreeMiNT with memory protection (27 Oct 2026)
+- Image recipe: tools/minttest (mkimg.sh, MPTEST.PRG, STAGE0.PRG marker, rdst2.py reads files back from an
+  image on the SD card through the helper's `get`). FreeMiNT 1.19 snapshot 4a6b3e82, mint030.prg, MEM_PROT=YES,
+  KERN_MPFLAGS=1 (strict), INIT=MPTEST (no GEM/XaAES).
+- Hatari 2.5 STE/030+MMU/TOS 2.06/4 MB: MPTEST FAILS=0 (memory violation caught as SIGBUS, parent untouched,
+  side-by-side children fine). Non-strict MiNT lets a Pexec child write its parent's memory (MiNT design).
+- Board pmmu8 (mint_mp2.st CRC dfceb964, mint_nomp.st CRC 244c6269): STAGE0.TXT written, no BOOT.LOG, no
+  MPTEST.TXT after 5+ minutes, both with MEM_PROT=YES and MEM_PROT=NO. MiNT stops before its file system
+  init on the board whether or not it builds page tables, so this is not (yet) a PMMU translation fault.
+  Candidates: something MiNT does at startup on an STE+030 (hardware probes through bus errors, timer
+  calibration, cookie/VBR/cache setup) that the core handles differently from Hatari. Needs visibility:
+  the boot text on a monitor, or the ST RS232 port forwarded by the AE350 helper (`mcu_hw_port_byte` is a
+  stub, so MiNT's DEBUG_DEVNO=1 output is dropped today). Board left on pmmu8, pmt5.st cold boot
+  rewrote PMMUTEST.TXT with FAILS=0 DEVS=0 (core writes seen in sdwlog), serial link OK.
+- Capture device still not used.

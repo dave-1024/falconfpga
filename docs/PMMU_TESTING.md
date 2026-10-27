@@ -56,3 +56,23 @@ Every PMMU feature gets three kinds of test:
 
 ## 3. Where results go
 `docs/PMMU_PROGRESS.md`, plus screenshots in `docs/img/pmmu/`.
+
+## 4. FreeMiNT with memory protection (tools/minttest)
+Recipe and test: `tools/minttest/README.md` (`mkimg.sh` downloads the pinned FreeMiNT 1.19 snapshot, builds
+MPTEST.PRG and a 720 KB floppy; no hard disk needed).
+
+Hard disks on this setup (for later): the helper mounts ACSI images with `mount h0|h1 <file>` (targets 0 and 1
+only, `hdl/atarist/acsi.v`), raw `.hd`/`.img` files anywhere on the FAT32 SD card (`sdc.c` accepts `.ST`/`.HD`;
+contiguous files are direct-mapped). TOS 2.06 has no ACSI driver of its own, so an HD image needs a boot
+driver (AHDI/HDDRIVER/...) in its root sector; that is why the MiNT test uses a floppy.
+
+Findings so far (27 Oct 2026):
+- MiNT's default memory protection is not strict: a `Pexec(100)` child is forked from its parent and keeps
+  the parent's regions mapped (`k_exec.c`, `exec_region`: they are only marked invalid with MPF_STRICT). With
+  `KERN_MPFLAGS=1` (MPF_STRICT, a normal mint.cnf option) the child's write gets "memory violation".
+- Hatari 2.5 (STE, TOS 2.06 UK, 030 + MMU, 4 MB): MPTEST FAILS=0 (MP on, child V killed by SIGBUS, parent
+  memory unchanged, three W children exit 0). Without strict mode the child's write goes through (FAILS=2).
+  Hatari with 1 MB does not get to MPTEST (no BOOT.LOG), with 14 MB it does.
+- Board (pmmu8, TOS 2.06, 4 MB): AUTO is reached (STAGE0.TXT), but MiNT never opens BOOT.LOG and MPTEST never
+  runs, with memory protection on **and off**. So the stop is before MiNT's file system init and is not caused
+  by MiNT's page tables (with MEM_PROT=NO MiNT does not set TC.E). Cause not found yet; see PMMU_PROGRESS.
