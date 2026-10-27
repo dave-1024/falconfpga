@@ -446,8 +446,12 @@ begin
                         elsif DT = "00" then
                             BAD <= '1'; WS <= W_DONE; -- Invalid descriptor.
                         else
-                            if TLONG = '1' then ACC_S <= ACC_S or D0(8); end if;
-                            ACC_WP <= ACC_WP or D0(2);
+                            -- [PMMU3] An indirect descriptor has no WP or S bit (9.5.1.4, Figures 9-14/9-15: bits 31-2
+                            -- are the address), so only a table or page descriptor adds to WP/S.
+                            if not (DT(1) = '1' and NEXTW = 0 and LVL /= 0) then
+                                if TLONG = '1' then ACC_S <= ACC_S or D0(8); end if;
+                                ACC_WP <= ACC_WP or D0(2);
+                            end if;
                             if DT = "01" then
                                 LAST_PAGE <= '1'; WS <= W_UPD; -- Page (early termination if levels remain).
                             elsif NEXTW = 0 and LVL /= 0 then

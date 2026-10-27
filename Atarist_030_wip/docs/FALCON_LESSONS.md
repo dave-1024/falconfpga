@@ -392,3 +392,8 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   limit belongs to the long descriptor (or root pointer) that points to the table, whatever that table's format. A long
   table descriptor with DT = 2 (short next table) ignored its limit. Fix: the check depends only on the limit coming from a
   long descriptor / root pointer (LIM_ON).
+- Bug (sim, prog_xlate3, stage 3): the walker ORed bit 2 (WP) of *every* valid descriptor into the walk's WP, including an
+  indirect descriptor. In an indirect descriptor bits 31-2 are the address of the page descriptor (MC68030UM 9.5.1.4,
+  Figures 9-14 and 9-15), so a pointer such as $6906 made the page look write protected (PTEST gave W). Fix: only table and
+  page descriptors add to WP (and S on long ones); prog_xlate3 has an indirect pointer with bit 2 set.
+- Lesson: a descriptor field is only that field for the descriptor types that have it; check the DT before reading flags.
