@@ -366,3 +366,19 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   $1111, TT CI write $2222, the hit then reads stale $1111 (as the manual says), and $2222 after CD.
 - Lesson for tests: after changing TTx/TC, clear the caches (CACR CI/CD) before timing a cache-inhibited region,
   or the old lines keep hitting (the first PMMUTEST board run "failed" this way).
+
+## WF68K30L: MMU between the bus interface and the pins; a running cycle keeps its translation (branch pmmu, stage 2b)
+- Design: `wf68k30L_mmu.vhd` (22-entry ATC, table walker) sits between the bus interface and the CPU pins. With TC.E = 0
+  it is a plain wire, so every old sim program gives a byte-identical bus log (cmp_full.sh, all prog_*.s, WS 0 and 3).
+- Bug found in sim (WS >= 3 only): the PMOVE to TC writes back while the next prefetch is already on the bus. TC.E going
+  to 1 in the middle of that cycle switched the address mux and blocked the cycle half way, and the table walker then
+  took the old cycle's DSACK as its own and read garbage descriptors. Fix: a cycle the pins already run keeps the
+  translation (pass-through / physical page / CI) it started with until AS negates; only new cycles see the new TC,
+  TTx or a flush. Same rule protects against PFLUSH/PMOVE flushes in the middle of a cycle.
+- Bug: a write through a root-pointer page (CRP DT = 1, no descriptor in memory) stored an ATC entry with M = 0, so the
+  retried write missed again (write + M = 0 must search) and the walker looped forever. Fix: the entry made by a write's
+  search is marked modified. (The manual: the M bit in the ATC records that the page descriptor's M is already set.)
+- Lesson for sims: a test that briefly enables TC (stage-1 prog_pmmu/prog_mmucfg) needs a valid root pointer once
+  translation is real; they now load an identity CRP (DT = 1) first.
+- Known deviation (core, not MMU): RTE does not rerun a faulted *write* (SSW DF); a faulted read is rerun. Demand paging
+  of writes needs that; listed for stage 3.

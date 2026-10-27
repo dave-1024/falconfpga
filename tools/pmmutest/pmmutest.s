@@ -88,6 +88,7 @@ start:	move.l	4(%sp),%a0		| basepage (unused)
 tests:	.word	T_tc-tests, T_tt0-tests, T_tt1-tests, T_mmusr-tests
 	.word	T_crp-tests, T_srp-tests, T_tcinv-tests, T_tcreset-tests, T_crpdt0-tests
 	.word	T_priv-tests, T_ttci-tests
+	.word	T_xlate-tests
 	.word	0
 
 | d6 = expected, d7 = got, a0 = name -> PASS/FAIL line
@@ -388,6 +389,147 @@ ttloop:	movec	%cacr,%d2
 	rts
 ttloop_end:
 
+
+| ---- stage 2b: address translation, U/M, PTEST, PFLUSHA, invalid -> bus error (9.4, 9.5, 9.8) ----
+| Identity map of all 4 GB: TC $80C08C00 (PS 4K, IS 0, TIA 8, TIB 12), TIA = 256 early-termination
+| pages of 16 MB (9.5.3.3); the 16 MB block of the buffer goes through a TIB table (4096 x 4K identity)
+| where page A -> page B and page C is invalid. Buffers in ST-RAM (never cached on this core).
+T_xlate: move.w	#0,-(%sp)		| Mxalloc(40960, ST-RAM)
+	move.l	#40960,-(%sp)
+	move.w	#0x44,-(%sp)
+	trap	#1
+	addq.l	#8,%sp
+	tst.l	%d0
+	bgt	1f
+	lea	ndev(%pc),%a0
+	addq.w	#1,(%a0)
+	lea	s_skip2(%pc),%a0
+	bra	puts
+1:	lea	xbuf(%pc),%a0
+	move.l	%d0,(%a0)
+	add.l	#4095,%d0
+	and.w	#0xf000,%d0
+	move.l	%d0,%a5			| a5 = TIA table (1 KB), a5+$400 = TIB (16 KB)
+	move.l	%a5,%a0			| TIA: i<<24 | 1
+	moveq	#0,%d1
+	move.w	#255,%d0
+2:	move.l	%d1,%d2
+	or.w	#1,%d2
+	move.l	%d2,(%a0)+
+	add.l	#0x01000000,%d1
+	dbra	%d0,2b
+	move.l	%a5,%d1			| TIB: identity inside the buffer's 16 MB block
+	and.l	#0xff000000,%d1
+	lea	0x400(%a5),%a0
+	move.w	#4095,%d0
+3:	move.l	%d1,%d2
+	or.w	#1,%d2
+	move.l	%d2,(%a0)+
+	add.l	#0x1000,%d1
+	dbra	%d0,3b
+	move.l	%a5,%d0			| TIA[buffer >> 24] -> TIB (DT 2)
+	rol.l	#8,%d0
+	and.w	#0xff,%d0
+	lsl.w	#2,%d0
+	lea	0x400(%a5),%a0
+	move.l	%a0,%d1
+	or.w	#2,%d1
+	move.l	%d1,0(%a5,%d0.w)
+	lea	0x5000(%a5),%a1		| page A
+	lea	0x6000(%a5),%a2		| page B
+	lea	0x7000(%a5),%a3		| page C
+	move.l	%a1,%d0			| TIB[A] = B | 1
+	lsr.l	#8,%d0
+	lsr.l	#2,%d0
+	and.w	#0x3ffc,%d0
+	lea	0x400(%a5,%d0.w),%a6	| a6 = descriptor of page A
+	move.l	%a2,%d1
+	or.w	#1,%d1
+	move.l	%d1,(%a6)
+	move.l	%a3,%d0			| TIB[C] = invalid
+	lsr.l	#8,%d0
+	lsr.l	#2,%d0
+	and.w	#0x3ffc,%d0
+	clr.l	0x400(%a5,%d0.w)
+	move.l	#0xcafef00d,(%a2)
+	move.l	#0x11111111,(%a1)
+	clr.l	4(%a2)
+	clr.l	(%a3)
+	lea	crpx(%pc),%a0
+	move.l	#0x7fff0002,(%a0)
+	move.l	%a5,4(%a0)
+	lea	exv(%pc),%a0
+	clr.w	(%a0)
+	move.l	0x08,-(%sp)
+	lea	h_berr(%pc),%a0
+	move.l	%a0,0x08
+	move.w	%sr,-(%sp)
+	ori.w	#0x0700,%sr
+	movec	%cacr,%d0
+	or.w	#0x0808,%d0
+	movec	%d0,%cacr
+	lea	crpx(%pc),%a0
+	pmove	(%a0),%crp
+	lea	tcx(%pc),%a0
+	move.l	#0x80c08c00,(%a0)
+	pmove	(%a0),%tc
+	move.l	(%a1),%d5		| logical A -> physical B
+	move.l	#0x12345678,4(%a1)	| write: M on TIB[A]
+	ptestr	#5,(%a1),#7
+	lea	tmp(%pc),%a0
+	pmove	%psr,(%a0)
+	moveq	#0,%d4
+	move.w	(%a0),%d4
+	pflusha
+	ptestr	#5,(%a1),#0
+	pmove	%psr,(%a0)
+	moveq	#0,%d3
+	move.w	(%a0),%d3
+	move.l	(%a3),%d2		| page C invalid -> bus error, handler turns TC off, read rerun
+	clr.l	(%a0)
+	pmove	(%a0),%tc
+	move.w	(%sp)+,%sr
+	move.l	(%sp)+,0x08
+	move.l	%d5,%d7
+	move.l	#0xcafef00d,%d6
+	lea	n_x1(%pc),%a0
+	bsr	check
+	move.l	4(%a2),%d7
+	move.l	#0x12345678,%d6
+	lea	n_x2(%pc),%a0
+	bsr	check
+	move.l	(%a6),%d7
+	and.l	#0x18,%d7
+	moveq	#0x18,%d6
+	lea	n_x3(%pc),%a0
+	bsr	check
+	move.l	%d4,%d7
+	move.l	#0x0202,%d6
+	lea	n_x4(%pc),%a0
+	bsr	check
+	move.l	%d3,%d7
+	move.l	#0x0400,%d6
+	lea	n_x5(%pc),%a0
+	bsr	check
+	moveq	#0,%d7
+	move.w	exv(%pc),%d7
+	moveq	#8,%d6
+	lea	n_x6(%pc),%a0
+	bsr	check
+	move.l	xbuf(%pc),-(%sp)
+	move.w	#0x49,-(%sp)		| Mfree
+	trap	#1
+	addq.l	#6,%sp
+	rts
+| bus error during T_xlate: note it, translation off, rerun the cycle (RTE)
+h_berr:	move.l	%a0,-(%sp)
+	lea	exv(%pc),%a0
+	move.w	#8,(%a0)
+	lea	tcoff(%pc),%a0
+	pmove	(%a0),%tc
+	move.l	(%sp)+,%a0
+	rte
+
 | exception handlers: record vector offset, skip the 4-byte instruction if the stacked PC = expc,
 | return in supervisor mode
 h_exc8:	move.w	#0x20,-(%sp)
@@ -478,7 +620,7 @@ savefile: lea	outbuf(%pc),%a0
 	addq.l	#4,%sp
 1:	rts
 
-s_title: .asciz	"\33EPMMUTEST stage 1 (MC68030UM)\r\n"
+s_title: .asciz	"\33EPMMUTEST stage 2b (MC68030UM)\r\n"
 s_pass:	.asciz	"PASS "
 s_fail:	.asciz	"FAIL "
 s_dev:	.asciz	"DEV  "
@@ -507,6 +649,13 @@ n_tm2:	.asciz	"     ticks TT1 CI     "
 n_tm3:	.asciz	"     ticks TT0 nomatch "
 n_tmr:	.asciz	"TT CI slows loop >=2x p9-57"
 n_tm4:	.asciz	"TT FC no-match stays cached"
+n_x1:	.asciz	"xlate page A->B p9-17"
+n_x2:	.asciz	"xlate write -> phys B"
+n_x3:	.asciz	"U+M set by write p9-26"
+n_x4:	.asciz	"PTEST #7: M, N=2 p9-60"
+n_x5:	.asciz	"PFLUSHA, PTEST #0: I p9-60"
+n_x6:	.asciz	"invalid desc -> berr p9-21"
+s_skip2: .asciz	"SKIP xlate: no ST-RAM buffer\r\n"
 fname:	.asciz	"PMMUTEST.TXT"
 	.even
 nfail:	.word	0
@@ -517,6 +666,10 @@ expc:	.long	0
 oldssp:	.long	0
 outp:	.long	0
 tmp:	.long	0,0
+xbuf:	.long	0
+tcx:	.long	0
+tcoff:	.long	0
+crpx:	.long	0,0
 sv:	.space	48
 numbuf:	.space	16
 outbuf:	.space	4096

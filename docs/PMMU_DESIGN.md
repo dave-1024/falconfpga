@@ -113,21 +113,23 @@ encodings EmuTOS 1.4 hard-codes (`include/asmdefs.h`).
 | 9.3 p. 9-17 | CIOUT, inhibits on-chip caches | Done | CIOUT is computed from the address the bus unit drives; the bridge does not use the pin |
 | 9.7.4 p. 9-59 | MMUSR, PMOVE to/from | Done | Set by PTEST in stage 3 |
 | 9.2.2 p. 9-15 | Reset clears E bits only, ATC not flushed | Done | |
-| 9.7.5.1 p. 9-61 | FD bit | Decoded | No ATC yet; flush in stage 2 |
+| 9.7.5.1 p. 9-61 | FD bit | Done (stage 2b) | PMOVE with FD = 0 to CRP/SRP/TC/TT0/TT1 flushes the ATC, PMOVEFD does not (prog_xlate) |
 | 9.8 p. 9-65 | User mode CpID 0 F-line -> privilege violation | Done | Was F-line before (correctness fix, no switch) |
 | 9.8 | PMOVE privileged | Done | |
-| 9.4 pp. 9-17-9-20 | ATC, 22 entries, pseudo-LRU, B/CI/WP/M | Stage 2 | |
-| 9.5.1 pp. 9-20-9-28 | Short/long table, page, early termination, invalid, indirect descriptors | Stage 2 | |
-| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Stage 2 | |
-| 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Stage 2 | |
+| 9.4 pp. 9-17-9-20 | ATC, 22 entries, pseudo-LRU, B/CI/WP/M | Done (stage 2b) | Replacement: invalid entry first, else not-recently-used (one used bit per entry). prog_xlate: 40-page replacement pass |
+| 9.5.1 pp. 9-20-9-28 | Short/long table, page, early termination, invalid, indirect descriptors | Done (stage 2b) | Sim covers short tables, early termination (root and level A), invalid; long and indirect are in the walker but not yet in a sim program |
+| 9.5.2, 9.5.4 pp. 9-28-9-43 | Table search, FCL, IS, TIA-TID, limits, U/M with locked RMC | Done (stage 2b) | Search cycles are FC 5 long reads (word pairs on a 16-bit port), RMC held for the whole search. Search clocks are this FPGA's, not yet the 11.7 table |
+| 9.5.5 pp. 9-43-9-50 | Protection: S, WP, supervisor tree (SRE) | Done (stage 2b) | WP write -> bus error tested in sim; S and SRE in the walker, not yet in a sim program |
 | 9.2.3 p. 9-15 | MMUDIS pin | Tie off | No MMUDIS on our board; treated as negated |
-| 9.8, PFLUSH/PFLUSHA | | Stage 3 | Still F-line in supervisor mode |
-| 9.8, PLOAD R/W | | Stage 3 | |
-| 9.8, 9.7.5.2 | PTEST levels 0-7, An, MMUSR results (Table 9-3 p. 9-60) | Stage 3 | |
+| 9.8, PFLUSH/PFLUSHA | PFLUSHA, PFLUSH FC,#MASK, PFLUSH FC,#MASK,<ea> | Done (stage 2b) | FC as immediate, SFC or DFC; the Dn form still takes F-line |
+| 9.8, PLOAD R/W | PLOADR/PLOADW | Done (stage 2b) | PLOADW sets M (prog_pmop) |
+| 9.8, 9.7.5.2 | PTEST levels 0-7, An, MMUSR results (Table 9-3 p. 9-60) | Done except An (stage 2b) | B, L, S, W, I, M, T, N per Table 9-3; PTEST does not change U/M. The A bit (descriptor address to An) still takes F-line |
 | 8.1.2 p. 8-7, 8.2 | Bus error from the ATC/table search, short/long frames, RTE retry | Stage 3 | The existing bus fault frames ($A/$B, FLT1/FLT2, FRM) are reused |
 | 8.1.10 p. 8-21 | MMU configuration exception (post-instruction, vector 56) | Stage 3 | |
 | 11.7.2 p. 11-60 | PMOVE/PFLUSH/PLOAD/PTEST clocks | Stage 3 | Stage 1 PMOVE runs at the core's MOVES speed; the [T6] padding table gets the 11.7.2 figures in stage 3 |
-| 11.7 p. 11-51 | Table search clocks | Stage 2/3 | |
+| 11.7 p. 11-51 | Table search clocks | Stage 3 | Walk runs at FPGA speed now |
+| 8.2.1 | RTE reruns a faulted write (SSW DF) | Stage 3 | Core reruns faulted reads only (prog_xlate shows it) |
+| 9.8 PFLUSH/PLOAD/PTEST clocks | 11.7.2 | Stage 3 | Decoded as an F-line LEA; runs at LEA speed + search |
 
 ### Plan for cycle-correctness
 
