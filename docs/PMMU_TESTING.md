@@ -199,3 +199,16 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   **"pid 0 (MiNT): unable to open CONSOLE device / FATAL ERROR"**. Frame: `~/cap_f68nomp/f9.png`. That is an image/setup problem
   (u:\dev\console not available), not an MMU one. MP stops one step earlier (before the keyboard-table line), so it is worth comparing in Hatari next.
 - Next: fix the CONSOLE fatal in the image (Hatari first), then recheck MP. Board flash untouched since the replug (pmmu8). f68 is loaded in SRAM.
+
+## Correction + MiNT on f68 follow-up (28 Oct 2026, ~08:20 GMT)
+- **Correction:** the MP-on result on f68 (last line = FAT/VFAT 1.27 banner) is the **same last screen as on pmmu8** (see the pmmu8 note above).
+  The screen alone does not show whether f68 still halts after `pmove tc`. An f68 + DIAG_OVERLAY build (`~/f68ovl_build.sh`, no EXCWATCH) is running;
+  it is SRAM-loaded only if `timing_pairs.py` passes.
+- **Hatari, same config as the board** (`--machine st` and `ste`, 030, MMU, 4 MB, TOS 2.06): the board's own images mint_mp2.st (sha 44e31e55…)
+  and mint_nomp.st (sha 58fefaba…) both boot to MPTEST (mp2: FAILS=0; nomp: FAILS=3, as expected with MP off). **The images are fine.**
+  So the CONSOLE fatal on the board is a board/core problem, not a setup one.
+- In init.c, "unable to open CONSOLE device" is `do_open("u:/dev/console")` failing after init_keybd, init_cookies and `ccw_set(CACHE_ON)`.
+- **Cache ruled out:** mint_nompnc.st = mint_nomp with the kernel's `ccw_set(CACHE_ON, CCW_MASK)` immediate patched to 0 (mint030.prg file
+  offset 0x21204: C567 -> 0000; the earlier `ccw_set(0, mask)` leaves caches off). Hatari OK. On the board: **the same CONSOLE fatal.**
+- DEBUG_LEVEL=4 in MINT.INI prints nothing extra on the board (release kernel without debug output).
+- Flash-silence problem (op 53 + op 1 leave the helper silent until a replug; an SRAM load does not): parked for later.
