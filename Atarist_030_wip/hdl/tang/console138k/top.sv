@@ -987,9 +987,15 @@ localparam DIAG_ST = `DIAG_FB_SELFTEST;
 //   d: last-start FC/RW/SIZE, in-progress/hung, termination, IACK, CPU pins
 //   e: bridge 68000-side state
 //   f: {bus cycles started mod 256, live last program fetch A23:0}
+`ifdef DIAG_PMMU
+// [F76] PMMU overlay (cpu030_st_bridge.v DIAG_PMMU): rows a-e = PMMU page (TC/CRP/SRP or TT0/TT1/FAULT/PC/MMUSR+SSW),
+// row f top byte = last exception vector.
+assign diag_rows = { diag_trace, 24'd0 };
+`else
 assign diag_rows = { diag_trace[159:128],
                      diag_trace[167:160], diag_vbase[15:0], diag_vbase[23:16],
                      diag_trace[127:0] };
+`endif
 `else
 assign diag_rows = 192'd0;
 assign diag_now = 20'd0;  assign diag_ever = 20'd0;  assign diag_word = 16'd0;

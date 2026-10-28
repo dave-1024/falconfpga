@@ -182,7 +182,8 @@ module cpu030_st_bridge #(
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;
     wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
-    wire [104:0] cpu_dbg_exc;          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
+    wire [104:0] cpu_dbg_exc;
+    wire [287:0] cpu_dbg_pmmu;         // [F76] DIAG_PMMU {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, SSW}          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
     // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
     // on a bus-cycle-by-bus-cycle basis"; the core latches it at the start of S4, or with STERM).
     // Decoded from the cycle the 030 is running (AS asserted, its own A31:0 and FC2:0):
@@ -266,6 +267,9 @@ module cpu030_st_bridge #(
         .DBG_STR   ( cpu_dbg_str   ),   // FalconFPGA DIAG STR
 `endif
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
+`ifdef DIAG_PMMU
+        .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F76]
+`endif
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
@@ -1153,6 +1157,32 @@ module cpu030_st_bridge #(
     end
     wire [3:0] h_pg = h_tmr[24:21];
     assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], h_vec, h_vcnt, 6'd0};
+`elsif DIAG_PMMU
+    // [F76] PMMU overlay: live PMMU registers + last exception (vector, PC) until the 030 first asserts HALT,
+    // then frozen. Two pages of five 32-bit rows (a-e), switched every ~2 s; row f top byte = last exception vector.
+    //   page 0: {TC31, frozen, 0, TC28:0} | CRP hi | CRP lo | SRP hi | SRP lo   (TC30:29 are always 0)
+    //   page 1: TT0 | TT1 | FAULT_ADR | last exception PC | {MMUSR, 1, frozen, 5'b0, SSW8:0}
+    reg [287:0] pm_s   = 288'd0;
+    reg [7:0]   pm_vec = 8'd0;
+    reg [31:0]  pm_pc  = 32'd0;
+    reg         pm_frz = 1'b0, pm_hlt_d = 1'b1, pm_stb_d = 1'b0;
+    reg [7:0]   pm_halts = 8'd0;
+    reg [26:0]  pm_t = 27'd0;
+    always @(posedge clk) begin
+        pm_t <= pm_t + 27'd1;
+        pm_hlt_d <= hlt_sync[1];
+        pm_stb_d <= cpu_dbg_exc[104];
+        if (pm_hlt_d & ~hlt_sync[1] & (pm_halts != 8'hFF)) pm_halts <= pm_halts + 8'd1;
+        if (!pm_frz) begin
+            pm_s <= cpu_dbg_pmmu;
+            if (cpu_dbg_exc[104] & ~pm_stb_d) begin pm_vec <= cpu_dbg_exc[103:96]; pm_pc <= cpu_dbg_exc[79:48]; end
+            if (pm_hlt_d & ~hlt_sync[1]) pm_frz <= 1'b1;
+        end
+    end
+    wire pm_pg = pm_t[26];
+    wire [159:0] pm_rows = pm_pg ? {pm_s[127:96], pm_s[95:64], pm_s[47:16], pm_pc, pm_s[63:48], 1'b1, pm_frz, 5'b0, pm_s[8:0]}
+                                 : {pm_s[287], pm_frz, 1'b0, pm_s[284:256], pm_s[255:224], pm_s[223:192], pm_s[191:160], pm_s[159:128]};
+    assign dbg_trace = {pm_rows, pm_vec};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
 `endif

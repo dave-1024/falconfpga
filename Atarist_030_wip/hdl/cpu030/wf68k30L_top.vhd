@@ -197,6 +197,7 @@ entity WF68K30L_TOP is
         DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DBG_STR         : out std_logic_vector(127 downto 0); -- FalconFPGA DIAG STR: decoder word stream + ISP
+        DBG_PMMU        : out std_logic_vector(287 downto 0); -- [F76] DIAG_PMMU: {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, 7'0 & SSW_80_F}
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
         DATA_EN         : out std_logic; -- Enables the data port.
@@ -1194,6 +1195,7 @@ begin
     -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
     -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
+    DBG_PMMU <= MMU_TC & MMU_CRP & MMU_SRP & MMU_TT0 & MMU_TT1 & MMU_SR & FAULT_ADR & "0000000" & SSW_80_F; -- [F76]
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_QC <= x"0" when Q_COUNT = 0 else x"1" when Q_COUNT = 1 else x"2" when Q_COUNT = 2 else x"3" when Q_COUNT = 3 else x"4";
     DBG_STR <= Q_HEAD & '0' & Q_STREAM(63 downto 48) & DBG_QF_I & DBG_QC & x"00" & DBG_SP_I & BIW_0 & DBG_IC_I; -- FalconFPGA DIAG STR
