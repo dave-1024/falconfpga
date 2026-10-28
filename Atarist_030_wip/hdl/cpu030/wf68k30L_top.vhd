@@ -186,7 +186,8 @@ entity WF68K30L_TOP is
         -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
         -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
         -- unchanged either way.
-        FAST_HANDOFF    : integer := 0);
+        FAST_HANDOFF    : integer := 0;
+        NOCACHE         : integer := 0); -- [F90] debug: bit 0 forces the I-cache off, bit 1 the D-cache (as CDISn for that cache)
 
     port (
         CLK             : in std_logic;
@@ -453,6 +454,7 @@ signal DC_FL_OK1                : std_logic_vector(1 downto 0);
 signal DC_FL_BE0                : std_logic;
 signal DC_FL_BE1                : std_logic;
 signal CDIS_R                   : std_logic := '0'; -- [IC] Registered CDIS (asserted = '1').
+signal CDIS_I, CDIS_D           : std_logic; -- [F90] per cache, with NOCACHE
 signal IC_LK_ADR                : std_logic_vector(31 downto 2); -- [IC]
 signal IC_LK_FC2                : std_logic;
 signal IC_HIT                   : std_logic;
@@ -1254,13 +1256,16 @@ begin
         end if;
     end process P_CDIS;
 
+    CDIS_I <= '1' when (NOCACHE mod 2) = 1 else CDIS_R;
+    CDIS_D <= '1' when (NOCACHE / 2) mod 2 = 1 else CDIS_R;
+
     I_ICACHE: WF68K30L_ICACHE
         port map(
             CLK       => CLK,
             RESET     => RESET_CPU,
             EI        => CACR(0),
             FI        => CACR(1),
-            CDIS      => CDIS_R,
+            CDIS      => CDIS_I,
             CLR_ALL   => IC_CI,
             CLR_ENT   => IC_CEI,
             CLR_IDX   => CAAR(7 downto 2),
@@ -1282,8 +1287,8 @@ begin
     -- write strobes, read as zero). DBE (12) is stored but has no effect (no burst). CDIS disables both caches.
     DC_CD <= '1' when CACR_WR = '1' and DATA_IN_EXH(11) = '1' else '0';
     DC_CED <= '1' when CACR_WR = '1' and DATA_IN_EXH(10) = '1' else '0';
-    DC_FILL_EN <= CACR(8) and not CACR(9) and not CDIS_R;
-    DC_ON <= CACR(8) and not CDIS_R;
+    DC_FILL_EN <= CACR(8) and not CACR(9) and not CDIS_D;
+    DC_ON <= CACR(8) and not CDIS_D;
 
     I_DCACHE: WF68K30L_DCACHE
         port map(
@@ -1292,7 +1297,7 @@ begin
             ED        => CACR(8),
             FD        => CACR(9),
             WA        => CACR(13),
-            CDIS      => CDIS_R,
+            CDIS      => CDIS_D,
             CLR_ALL   => DC_CD,
             CLR_ENT   => DC_CED,
             CLR_IDX   => CAAR(7 downto 2),
