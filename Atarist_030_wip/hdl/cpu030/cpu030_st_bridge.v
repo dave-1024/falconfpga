@@ -1199,8 +1199,22 @@ module cpu030_st_bridge #(
 
 // [F77] register dump on U15 while halted
 `ifdef DIAG_DUMP
+`ifdef DIAG_TRACE
+    // [F78] per-clk_cpu pin trace (cpu_trace.v); shares U15 with the dump, trace first
+    wire tr_want, tr_own, tr_tx, du_own, du_tx;
+    cpu_trace u_cpu_trace ( .clk_cpu(clk_cpu), .rst_n(cpu_rst_n), .halt_n(cpu_halt_outn),
+        .ent({ipl_r, cpu_avecn, cpu_rmcn, 3'b000, 16'h0000,
+              cpu_asn, cpu_dsn, cpu_dsackn, cpu_berrn, cpu_halt_outn, cpu_rst_n, cpu_rwn, cpu_fc, cpu_size,
+              cpu_statusn, cpu_ipendn, cpu_dbg_exc[104], cpu_dbg_exc[103:96],
+              cpu_adr, (cpu_rwn ? cpu_din : cpu_dout), cpu_dbg_regs[63:32]}),
+        .clk(clk), .go(dbg_go & ~du_own), .want(tr_want), .own(tr_own), .tx(tr_tx) );
+    cpu_dump u_cpu_dump ( .clk(clk), .halt_n(hlt_sync[1]), .regs(cpu_dbg_regs), .sr(cpu_dbg_sr), .pmmu(cpu_dbg_pmmu),
+        .berr_adr(d_badr), .berr_info({d_got, d_info}), .go(dbg_go & ~tr_own & ~tr_want), .own(du_own), .tx(du_tx) );
+    assign dbg_dump = {tr_own | du_own, tr_own ? tr_tx : du_tx};
+`else
     cpu_dump u_cpu_dump ( .clk(clk), .halt_n(hlt_sync[1]), .regs(cpu_dbg_regs), .sr(cpu_dbg_sr), .pmmu(cpu_dbg_pmmu),
         .berr_adr(d_badr), .berr_info({d_got, d_info}), .go(dbg_go), .own(dbg_dump[1]), .tx(dbg_dump[0]) );
+`endif
 `else
     assign dbg_dump = 2'b01;
 `endif
