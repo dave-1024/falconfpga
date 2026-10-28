@@ -44,3 +44,11 @@ A:\MPTEST.PRG", OSFEATURES=5 (MP on), child write to parent memory -> SIGBUS/SIG
 unchanged, 3 side-by-side children intact, MPTEST FAILS=00000000 (f93sc_mptest.txt, f93sc_screen.png). Same on the
 2nd run. Root cause = the SCALE race above. F91 flash_cal (pre-F93): first words $4000/$0000 at all 8 points, no
 header, fallback S=0, black; timing_pairs FAIL -0.120 (blitter) -> invalid build, flash_cal still open.
+
+# F93 normal build f93n (4cd9385, build_st_helper.tcl), 28 Oct 21:00-22:00 UTC
+timing_pairs: no FAIL. Fmax clk_cpu030 19.376 MHz (16), clk32_core 32.145 (32), st_flash_clk 140.6 (100). Logic 51532/138240 (38%),
+registers 18207. MPTEST MP on, SRAM loads: runs 1-3 FAILS=0 with the screen; run 4 invalid (pop.sh rc=17, load failed);
+run 5 FAILS line but no HDMI picture in the capture (10.9 KB no-signal file, same as all earlier "black" frames). So 3 clean.
+TOS 2.06 desktop OK (memory test 4096 KB, desktop, drive windows open, menus work). GEMBENCH NOT RUN: in TOS alert boxes a
+click (single or double) on a button is ignored (Drive B: not responding -> Cancel ignored); same symptom as the open pmmu5
+"Set Preferences" stall. Not merged to main (David's condition: stop and report if anything fails).
