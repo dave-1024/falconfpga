@@ -176,3 +176,26 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
   a physical replug, so a fallback cannot be put back remotely. With David away, the steering was to stay conservative.
 - Next, with David present: rewrite the helper (op 56 `--mcuFile --spiaddr 0x600000`), flash f68, then pmt5 / mint_mp2 / mint_nomp.
   If the helper goes silent again, look into whether op 53 erases or disturbs blocks past the bitstream, or whether the AE350 boot handshake fails when the FPGA is configured over JTAG/SPI without a power cycle.
+
+## Correction 07:20: board work continues, low-risk route (28 Oct 2026, 07:20–07:50 GMT)
+**Note on 07:17:** one helper rewrite (op 56) was started before the stop order. It was interrupted after ~3 s, and nothing showed it reached the flash. The helper answered normally afterwards. An earlier attempt never wrote anything (a script error made it run op 66 verify instead).
+
+**Is op 66 verify trustworthy?** Yes for .fs files. `pop.sh 66 --fsFile st_helper_hdn_pmmu8.fs` passed ("Verify Flash successfully", 38 s).
+`--fsFile f68.fs` failed at address 12, as expected. So **flash at 0 still holds pmmu8.**
+op 66 `--mcuFile helper.bin --spiaddr 0x600000` fails. That is probably not real damage: it does not look like op 66 takes the C-bin
+layout or offset. Meanwhile the helper boots from 0x600000 on every power-up and answers, so I judged the region **not damaged and did not rewrite it**.
+TOS at 0x500000 was not verified (no trustworthy raw-bin verify).
+
+**SRAM load (op 2) of f68 (sha 3f2daf3a…): helper survives.** Link OK 10 s after the load. So the silence comes from the
+flash path (op 53 erase/program and/or op 1 reprogram), not from the bitstream contents. With f68 in SRAM only, a power-cycle brings back pmmu8.
+New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable location and refuses the bulk-erase ops).
+
+**Results on f68 (SRAM):**
+- pmt5.st cold boot: `PMMUTEST.TXT` **FAILS=0 DEVS=0**.
+- mint_mp2.st (MP on): **gets past `pmove tc` now** (the old halt). The screen shows "Initializing system components", Core 3533474 B,
+  "No alternative RAM", "no XHDI", the crypto warning, the dynamic RAM fs 0.72 and FAT/VFAT/FAT32 1.27 lines, then nothing more for >3 min.
+  No MPTEST.TXT, no BOOT.LOG. Frames: linserver `~/cap_f68mp2b/f3.png`, `~/cap_f68mp2c/f4.png`.
+- mint_nomp.st (MP off): same lines, then "Installing BIOS keyboard table ... AKP 0, ISO 0", then
+  **"pid 0 (MiNT): unable to open CONSOLE device / FATAL ERROR"**. Frame: `~/cap_f68nomp/f9.png`. That is an image/setup problem
+  (u:\dev\console not available), not an MMU one. MP stops one step earlier (before the keyboard-table line), so it is worth comparing in Hatari next.
+- Next: fix the CONSOLE fatal in the image (Hatari first), then recheck MP. Board flash untouched since the replug (pmmu8). f68 is loaded in SRAM.
