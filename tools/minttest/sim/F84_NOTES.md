@@ -37,3 +37,10 @@ board pattern (clr.l/clr.w swap). RTL passes because there the EA is consumed a 
 variable/register mapping lets the stale product through. Fix: use EXT_WORD(10:9) at the store edge.
 Not a tt19-style RAM issue: st_helper.vg has no BSRAM/SSRAM in the core except I-cache DATA_RAM (forwarded, C10)
 and TAG_RAM. RTL regression (run_rtl.sh, MAXD=30) with F93: 0 FAIL. Board build f93sc (trace tcl) queued.
+
+# F93 ON THE BOARD: MiNT MP-on PASSES (28 Oct, 20:41 and 20:46 UTC, two SRAM loads)
+f93sc_60f8689 (trace_pc2 tcl + F93 SCALE fix), timing_pairs: no FAIL. mint_mp2.st MP on: "Launching init:
+A:\MPTEST.PRG", OSFEATURES=5 (MP on), child write to parent memory -> SIGBUS/SIGSEGV (exit $5A), parent memory
+unchanged, 3 side-by-side children intact, MPTEST FAILS=00000000 (f93sc_mptest.txt, f93sc_screen.png). Same on the
+2nd run. Root cause = the SCALE race above. F91 flash_cal (pre-F93): first words $4000/$0000 at all 8 points, no
+header, fallback S=0, black; timing_pairs FAIL -0.120 (blitter) -> invalid build, flash_cal still open.
