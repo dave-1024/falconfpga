@@ -149,6 +149,12 @@ begin
         elsif ST = 1 and (a(23 downto 3) = "111111111111101000100" or a(23 downto 1) = "11111111111110100001111") then
           -- MFP timer A/B/C/D data ($FFFA1F-$FFFA25) count down ([MINT] TOS/MiNT poll timer B data for a change)
           w := std_logic_vector(to_unsigned((255 - (n / 64) mod 256) * 257, 16));
+        elsif ST = 1 and (a(23 downto 1) = "11111111111111000000000" or a(23 downto 1) = "11111111111111000000010") then
+          w := x"0202"; -- [MINT] (see below)
+        elsif ST = 1 and a(23 downto 1) = "11111111100000100110000" then
+          w := x"0000"; -- [MINT] shifter mode $FF8260 = low res (FFFF = res 3: the VBL handler saw a monitor change and reset)
+        elsif false then
+          w := x"0202"; -- [MINT] ACIA $FFFC00/$FFFC04 status: transmit empty, nothing received (FFFF looked like a key stream)
         else w := x"FFFF"; end if;
         if WSRND > 0 then
           lfsr := (lfsr * 75 + 74) mod 65537; wr := (lfsr / 7) mod (WSRND + 1);
