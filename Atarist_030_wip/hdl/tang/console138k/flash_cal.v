@@ -96,7 +96,7 @@ module flash_cal #(
         end
     end
     // ---- calibration scan ----
-    reg [31:0] crc [0:7];
+    (* syn_ramstyle = "registers" *) reg [31:0] crc [0:7];   // plain flops (F85b: extracted as RAM)
     reg [31:0] c = 32'hFFFFFFFF;
     reg [16:0] w = 0;
     reg [15:0] sh = 0; reg [4:0] nb = 0;
@@ -149,16 +149,24 @@ module flash_cal #(
     reg [2:0] seg = 0;    // 0 "FCAL ", 1 crc digits, 2 "S=p", 3 CRLF
     reg [2:0] j = 0; reg [3:0] n = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch = 8'h46; reg [31:0] cj;
     reg last = 1'b0;
+    // [F86] status line while not calibrated, about once a second: "FCS  <cs_st pp init busy state w[15:8]>"
+    reg stat = 1'b0; reg [31:0] sw = 0; reg [26:0] tk = 0;
+    wire [31:0] stw = {cs_st, 1'b0, pp, 3'b0, init, busy, 1'b0, state, w[15:8]};
     always @(posedge clk) begin
-        cj <= crc[j];
+        cj <= stat ? sw : crc[j];
+        tk <= (tk == CLK_HZ - 1) ? 27'd0 : tk + 1'b1;
         case (seg)
-            0: ch <= (n==0)?"F":(n==1)?"C":(n==2)?"A":(n==3)?"L":" ";
+            0: ch <= (n==0)?"F":(n==1)?"C":(n==2)?(stat?"S":"A"):(n==3)?(stat?" ":"L"):" ";
             1: ch <= (n == 4'd8) ? (ok[j] ? "+" : " ") : hx(cj[31 - 4*n[2:0] -: 4]);
             2: ch <= (n==0)?"S":(n==1)?"=":(8'h30 + p);
             default: ch <= (n==0) ? 8'h0D : 8'h0A;
         endcase
         last <= (seg == 3'd3) && (n == 4'd1);
-        if (!rown) begin rtx <= 1'b1; if (rep_go) begin rown <= 1'b1; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end end
+        if (!rown) begin
+            rtx <= 1'b1;
+            if (rep_go) begin rown <= 1'b1; stat <= 1'b0; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end
+            else if (REPORT != 0 && !cal_done && resetn && tk == 0) begin rown <= 1'b1; stat <= 1'b1; sw <= stw; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end
+        end
         else begin
             if (bd == DIV - 1) begin
                 bd <= 0;
@@ -167,7 +175,7 @@ module flash_cal #(
                     if (last) rown <= 1'b0;
                     else case (seg)
                         0: if (n == 4'd4) begin seg <= 1; n <= 0; end else n <= n + 1'b1;
-                        1: if (n == 4'd8) begin n <= 0; if (j == 3'd7) seg <= 2; else j <= j + 1'b1; end else n <= n + 1'b1;
+                        1: if (n == 4'd8) begin n <= 0; if (stat) seg <= 3; else if (j == 3'd7) seg <= 2; else j <= j + 1'b1; end else n <= n + 1'b1;
                         2: if (n == 4'd2) begin seg <= 3; n <= 0; end else n <= n + 1'b1;
                         default: n <= n + 1'b1;
                     endcase
