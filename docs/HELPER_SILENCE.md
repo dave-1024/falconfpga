@@ -48,3 +48,9 @@ E. **Fabric status over U15 after boot**: a mailbox command or a fixed status by
 F. **Process**: use only SRAM loads for tests; flash only known-good images. Use the logger from the diagnostics list on every load.
 
 Recommended order: diagnostics first (zero risk), then A + E (fabric only, small), then C, then D (firmware).
+
+## Result (a), 28 Oct 08:25 GMT: USB reset does not bring it back
+`usbreset 0403:6010` on linserver: "ok". Both FT2232 channels rebound (the UART is now /dev/ttyUSB0 = by-id if01).
+Raw logger on the UART before and after: **0 bytes**. `hc.py s`: no answer (3 tries). HDMI frame still black (all 0).
+So hypothesis 3 (host/FTDI state) is **ruled out**: the board side is dead (fabric or ST not running), which fits hypothesis 1.
+Note: hc.py/up2.py pick the port by-id, so the tty renumbering does not matter.
