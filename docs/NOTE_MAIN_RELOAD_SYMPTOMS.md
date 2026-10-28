@@ -16,9 +16,7 @@ and the helper never comes up. Since the helper also owns the OSD and the compan
 It goes to main only after David's review.
 
 **Other notes from the comparison (main vs pmmu, no change made):**
-- `jtagseln = !(!pll_lock || spi_ext || bl616_jtagsel)` and `bl616_rx = 0` are the same on both. `por` no longer includes bl616_jtagsel (earlier fix).
-  With `use_jtag_as_gpio 1`, the JTAG pins are GPIO once the PLL locks, unless the BL616 pulls `bl616_jtagsel` low. If the USB device keeps
-  deregistering, the BL616 is re-enumerating. Unplugging the USB is the reliable reset for that; the FPGA design does not drive the BL616's USB.
+- The USB serial deregistering seen on the friend's Linux box is a host driver problem there (Windows is fine), not the design.
 - **PR1014 "generic routing for clock clk_d":** there is no `clk_d` net in main's HDL. It is very likely the known PR1014 for the 50 MHz pad -> DCE
   hop (`clk_g`, documented in ST_HELPER.md / TODO.md item 7), so it is benign. Worth confirming in the friend's log which net it names.
 - **TOS 256K error:** main's flash layout expects TOS at 0x500000. A 256K image is fine for TOS 2.06; an error right after a reload is consistent
