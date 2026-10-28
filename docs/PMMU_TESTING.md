@@ -159,3 +159,9 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
 - This is the same pattern as last night with pmmu8exc → pmmu8. Since even the known-good pmmu8 leaves the helper silent, the problem is **probably not the f68 bitstream**. More likely, the helper (or its link) does not survive a JTAG reflash. Not tested: pmt5/mint (no serial, so no mount).
 - Stopped board work per the rules. **Needs another physical replug.** pmmu8 is currently flashed.
 - Suggestion for the next try: after the replug, check the serial first, then flash f68, then wait about 2 min before the first command. If it is silent again, the helper side should be looked at (not touched by me: BL616 is off limits).
+
+## Helper firmware check (28 Oct 2026, from 07:04 GMT)
+- Known-good helper (AE350) firmware: `~/fpga_bitstreams/helper_companion_sdwlog_3ec6e20.bin`, sha256 eada916a85401b3a…acd0af (handoff/CONTEXT.md; flash_both.sh writes it at 0x600000 with op 56).
+- programmer_cli has no raw flash read. Op 66 (exFlash Verify Arora V) can compare a file with flash without writing, so I'll use that for the 0x600000 check.
+- Core sizes: the f68 binary is 0x4E46CA bytes (pmmu8ovl 0x4D8CCA, pmmu8exc 0x4BDA4A). All are below TOS at 0x500000, so the core image does not reach 0x600000 by size alone. Whether op 53 erases beyond the image is still open.
+- 07:05–07:11: serial silent, and the USB device number is unchanged (no replug seen yet). Screen black.
