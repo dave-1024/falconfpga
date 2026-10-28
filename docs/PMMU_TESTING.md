@@ -257,3 +257,7 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
 - mint_mp2.st: same last screen as before (FAT/VFAT 1.27 banner, no MPTEST.TXT). Frame linserver `~/cap_f69mp/f1.png`.
 - run_rtl.sh after the tb030 MFP/ACIA/shifter model changes: **PASS** (all checks).
 - MiNT-from-entry RTL run: still going (0.65 s emulated so far: 131 timer C ticks, 558 BIOS traps, no fault).
+- MiNT-from-entry RTL run **stopped** at ~0.72 s emulated: TOS sits in its floppy wait loop ($E03F32: polls MFP GPIP bit 5 with an _hz_200 timeout),
+  because tb030 has no FDC/DMA model, so every disk read MiNT does (MINT.CNF, the sysdir) times out. Up to there: no fault, 145 timer C ticks, 558 BIOS traps.
+  To go further, tb030 needs a disk hook: for example, point hdv_rw ($476) at a stub that passes the request through a magic I/O port to the
+  testbench, which serves sectors from the .st file. Or snapshot later, after the last disk access before init_filesys. Not done yet.
