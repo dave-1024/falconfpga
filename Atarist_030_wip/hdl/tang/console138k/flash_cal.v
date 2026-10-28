@@ -62,12 +62,13 @@ module flash_cal #(
     assign mspi_io_oe = { dspi_mode?(state<=6'd22):1'b0, dspi_mode?(state<=6'd22):1'b1 };
     assign mspi_io_o  = { dspi_mode?dspi_out[1]:1'b0, dspi_mode?dspi_out[0]:spi_di };
     // latch states: base 27 (= F79's 26 + 1 for the IDDR's extra stage), + o
-    wire [5:0] l0 = 6'd27 + {4'd0, o};
+    reg  [5:0] l0r = 6'd27; reg [2:0] dc = 3'd0;
+    always @(posedge clk) l0r <= 6'd27 + {4'd0, o};   // p only changes between reads
     reg csD, csD2;
     reg done_stb;
     always @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            dspi_mode <= 1'b0; mspi_cs <= 1'b1; busy <= 1'b0; init <= 5'd20; csD <= 1'b0; csD2 <= 1'b0;
+            dspi_mode <= 1'b0; mspi_cs <= 1'b1; dc <= 3'd0; busy <= 1'b0; init <= 5'd20; csD <= 1'b0; csD2 <= 1'b0;
             state <= 6'd0; done_stb <= 1'b0;
         end else begin
             done_stb <= 1'b0;
@@ -84,16 +85,13 @@ module flash_cal #(
             if (busy) begin
                 state <= state + 6'd1;
                 if (state == 6'd7) dspi_mode <= 1'b1;
-                if (state == l0)          dout[15:14] <= din;
-                if (state == l0 + 6'd1)   dout[13:12] <= din;
-                if (state == l0 + 6'd2)   dout[11:10] <= din;
-                if (state == l0 + 6'd3)   dout[9:8]   <= din;
-                if (state == l0 + 6'd4)   dout[7:6]   <= din;
-                if (state == l0 + 6'd5)   dout[5:4]   <= din;
-                if (state == l0 + 6'd6)   dout[3:2]   <= din;
-                if (state == l0 + 6'd7)   dout[1:0]   <= din;
+                // 8 bit pairs from state l0r on, shifted in MSB first (no per-pair compares against a variable state)
+                if (state == l0r) begin dc <= 3'd7; dout <= {dout[13:0], din}; end
+                else if (dc != 3'd0) begin
+                    dc <= dc - 3'd1; dout <= {dout[13:0], din};
+                    if (dc == 3'd1) begin state <= 6'd0; busy <= 1'b0; done_stb <= 1'b1; end
+                end
                 if (state == 6'd33) mspi_cs <= 1'b1;   // one SCK after the last data bit (flash_dspi: 32)
-                if (state == l0 + 6'd7) begin state <= 6'd0; busy <= 1'b0; done_stb <= 1'b1; end
             end
         end
     end
@@ -107,9 +105,8 @@ module flash_cal #(
     reg [7:0]  ok = 0;
     reg [3:0]  k = 0; reg [1:0] best_sc = 0; reg [2:0] best_p = 0;
     wire [2:0] kp = k[2:0];
-    wire eq_lo = (kp != 3'd0) && ok[kp - 1'b1] && crc[kp] == crc[kp - 1'b1];
-    wire eq_hi = (kp != 3'd7) && ok[kp + 1'b1] && crc[kp] == crc[kp + 1'b1];
-    wire [1:0] sc = ok[kp] ? 2'd1 + eq_lo + eq_hi : 2'd0;
+    reg [31:0] cm, cl, ch_; reg okm, okl, okh; reg eql, eqh; reg [1:0] ph = 0;
+    wire [1:0] sc = okm ? 2'd1 + eql + eqh : 2'd0;
     reg        rep_go = 1'b0;
     always @(posedge clk or negedge resetn) begin
         if (!resetn) begin cal_done <= 1'b0; cs_st <= 0; s_req <= 1'b0; pp <= 0; p <= 3'd0; rep_go <= 1'b0; end
@@ -125,12 +122,21 @@ module flash_cal #(
                    sh <= {sh[14:0], 1'b0}; nb <= nb - 1'b1;
                end else if (w == SCAN_WORDS - 1) begin
                    crc[pp] <= c; c <= 32'hFFFFFFFF; w <= 0;
-                   if (pp == 3'd7) begin k <= 0; best_sc <= 0; best_p <= DEF_P; cs_st <= 5; end
+                   if (pp == 3'd7) begin k <= 0; ph <= 0; best_sc <= 0; best_p <= DEF_P; cs_st <= 5; end
                    else begin pp <= pp + 1'b1; p <= pp + 1'b1; cs_st <= 1; end
                end else begin w <= w + 1'b1; cs_st <= 1; end
-            5: begin   // k = 0..7: score each point, keep the first best
-                   if (sc > best_sc) begin best_sc <= sc; best_p <= kp; end
-                   if (k == 4'd7) cs_st <= 6; else k <= k + 1'b1;
+            5: begin   // k = 0..7, 3 clocks each: fetch, compare, score (pipelined for 100 MHz)
+                   ph <= ph + 1'b1;
+                   if (ph == 2'd0) begin
+                       cm <= crc[kp]; cl <= crc[kp - 1'b1]; ch_ <= crc[kp + 1'b1];
+                       okm <= ok[kp]; okl <= (kp != 3'd0) && ok[kp - 1'b1]; okh <= (kp != 3'd7) && ok[kp + 1'b1];
+                   end else if (ph == 2'd1) begin
+                       eql <= okl && (cm == cl); eqh <= okh && (cm == ch_);
+                   end else begin
+                       ph <= 2'd0;
+                       if (sc > best_sc) begin best_sc <= sc; best_p <= kp; end
+                       if (k == 4'd7) cs_st <= 6; else k <= k + 1'b1;
+                   end
                end
             6: begin p <= best_p; rep_go <= (REPORT != 0); cal_done <= 1'b1; cs_st <= 7; end
             default: rep_go <= 1'b0;
@@ -139,24 +145,33 @@ module flash_cal #(
     // ---- report ----
     localparam integer DIV = CLK_HZ / BAUD;
     function [7:0] hx(input [3:0] v); hx = (v < 10) ? 8'h30 + v : 8'h37 + v; endfunction
-    reg [6:0] ci = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch;
-    // "FCAL " (5) + 8 x (8 hex + space) (72) + "S=" p (3) + CRLF (2) = 82
-    always @(*) begin
-        if (ci < 5) ch = (ci==0)?"F":(ci==1)?"C":(ci==2)?"A":(ci==3)?"L":" ";
-        else if (ci < 77) begin
-            if ((ci - 5) % 9 == 8) ch = ok[(ci-5)/9] ? "+" : " ";   // + = TOS header seen
-            else ch = hx(crc[(ci-5)/9][31 - 4*((ci-5)%9) -: 4]);
-        end
-        else if (ci == 77) ch = "S"; else if (ci == 78) ch = "="; else if (ci == 79) ch = 8'h30 + p;
-        else if (ci == 80) ch = 8'h0D; else ch = 8'h0A;
-    end
+    // character sequence: "FCAL " , 8 x (8 hex + ' '/'+'), "S=" p, CRLF; seg/j/n counters, char registered
+    reg [2:0] seg = 0;    // 0 "FCAL ", 1 crc digits, 2 "S=p", 3 CRLF
+    reg [2:0] j = 0; reg [3:0] n = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch = 8'h46; reg [31:0] cj;
+    reg last = 1'b0;
     always @(posedge clk) begin
-        if (!rown) begin rtx <= 1'b1; if (rep_go) begin rown <= 1'b1; ci <= 0; bd <= 0; bi <= 0; end end
+        cj <= crc[j];
+        case (seg)
+            0: ch <= (n==0)?"F":(n==1)?"C":(n==2)?"A":(n==3)?"L":" ";
+            1: ch <= (n == 4'd8) ? (ok[j] ? "+" : " ") : hx(cj[31 - 4*n[2:0] -: 4]);
+            2: ch <= (n==0)?"S":(n==1)?"=":(8'h30 + p);
+            default: ch <= (n==0) ? 8'h0D : 8'h0A;
+        endcase
+        last <= (seg == 3'd3) && (n == 4'd1);
+        if (!rown) begin rtx <= 1'b1; if (rep_go) begin rown <= 1'b1; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end end
         else begin
             if (bd == DIV - 1) begin
                 bd <= 0;
-                if (bi == 4'd9) begin bi <= 0; if (ci == 7'd81) rown <= 1'b0; else ci <= ci + 1'b1; end
-                else bi <= bi + 1'b1;
+                if (bi == 4'd9) begin
+                    bi <= 0;
+                    if (last) rown <= 1'b0;
+                    else case (seg)
+                        0: if (n == 4'd4) begin seg <= 1; n <= 0; end else n <= n + 1'b1;
+                        1: if (n == 4'd8) begin n <= 0; if (j == 3'd7) seg <= 2; else j <= j + 1'b1; end else n <= n + 1'b1;
+                        2: if (n == 4'd2) begin seg <= 3; n <= 0; end else n <= n + 1'b1;
+                        default: n <= n + 1'b1;
+                    endcase
+                end else bi <= bi + 1'b1;
             end else bd <= bd + 1'b1;
             if (bd == 0) rtx <= (bi == 0) ? 1'b0 : (bi == 9) ? 1'b1 : ch[bi - 1];
         end

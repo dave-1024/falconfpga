@@ -28,6 +28,9 @@ module tb; reg clk=0; always #5 clk=~clk; wire sck; assign #2.5 sck = clk; // 22
  reg rn=0; wire [15:0] d; wire mcs, rdy, rown, rtx; wire [1:0] o, oe, i;
  flash_cal #(.SCAN_WORDS(64),.REPORT(1),.CLK_HZ(1152000)) u(.clk(clk),.resetn(rn),.ready(rdy),.scan_base(22'h0),.address(22'h0),.cs(1'b0),.dout(d),.mspi_cs(mcs),.mspi_io_o(o),.mspi_io_oe(oe),.mspi_io_i(i),.busy(),.rown(rown),.rtx(rtx));
  fm #(.TCO(`TCO)) f(.sck_i(sck),.csn(mcs),.io_o(o),.oe(oe),.io_i(i));
- initial begin #50 rn=1; wait(rdy); #10; $display("TCO=%0d ok=%b p=%0d crcs %h %h %h %h %h %h %h %h",`TCO,u.ok,u.p,u.crc[0],u.crc[1],u.crc[2],u.crc[3],u.crc[4],u.crc[5],u.crc[6],u.crc[7]); $finish; end
+ initial begin #50 rn=1; wait(rdy); #10; $display("TCO=%0d ok=%b p=%0d crcs %h %h %h %h %h %h %h %h",`TCO,u.ok,u.p,u.crc[0],u.crc[1],u.crc[2],u.crc[3],u.crc[4],u.crc[5],u.crc[6],u.crc[7]); wait(u.rown); wait(!u.rown); #1000; $write("\n"); $finish; end
  initial #50000000 begin $display("timeout"); $finish; end
+ // UART decoder: DIV = 10 clocks/bit
+ integer b; reg [7:0] c8;
+ always @(negedge rtx) if (u.rown) begin #(50); for (b=0;b<8;b=b+1) begin #100; c8[b]=rtx; end $write("%c",c8); end
 endmodule
