@@ -233,3 +233,4 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   WS 1, WS 3 and WS 1 + CIMODE 1, with no exceptions. **The core runs this path correctly from Hatari's state.**
   So on the board the state reaching do_open must already differ (some earlier step in MiNT init diverges), or the problem depends on the board
   (interrupt timing, SDRAM). Next: snapshot earlier (MiNT entry / init_filesys) and compare bus writes against Hatari.
+- Helper silence analysis and options: see docs/HELPER_SILENCE.md (the leading theory, a PLL not locking after a warm reconfigure, fits the black HDMI + no UART byte).
