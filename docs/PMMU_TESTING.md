@@ -265,3 +265,15 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
 ### f70 (88a46f4), 28 Oct 2026
 Three SRAM reloads in a row with no op 66 verify, each after the previous build had TOS running: AE350 banner and helper answers every time. Same result for main b4a9766.
 **Correction (11:05):** that test only showed the helper comes back. With a cold reset, pmmu f70 gives **no picture** and pmt5 writes no PMMUTEST.TXT (two runs); pmmu8 under the same steps shows a picture and FAILS=0. Main f70 is fine (TOS desktop, folder written to A:). pmmu f70 is not proven; under investigation.
+
+## Heartbeat results (28 Oct 2026, 12:00–13:20 GMT)
+DIAG_HEARTBEAT (F72–F74, off by default, U15 line once a second while the AE350 UART is idle; timing_pairs pass on all).
+- **pmmu f70 black screen = placement-sensitive CPU halt.** f72hb (fails like f70): 68030 does 36 ST bus cycles after release, then
+  halted_n = 0 with BERR set and no further AS. f73 (plain) also black; f73hb and f74hb (same logic + heartbeat) boot TOS.
+  The flash-pad change is not the cause by itself (f71 premux and f73 syn_keep made no difference). Root path not found yet.
+- Every build (incl. working ones) is halted right after an SRAM load until the first cold reset (`c`): the ST runs before the
+  flash is handed over. Main f70's black capture at 10:22 was this.
+- **FreeMiNT MP on (mint_mp2.st) on f74hb:** stops after the FAT/VFAT banner as before. The CPU first spends time in TOS's floppy
+  wait loops ($E03830/$E03942), then **halts** (flags 7E, no AS) with the last program fetch at **$5CE9A = `pmove (a0),tc`**
+  (TC := 0) in MiNT's MMU-restore routine at $5CE96. First BERR latched was TOS's memory probe ($0041FFFE write), so the
+  BERR that sends MiNT there is not captured yet. Next: heartbeat with the last (not first) BERR + the overlay.
