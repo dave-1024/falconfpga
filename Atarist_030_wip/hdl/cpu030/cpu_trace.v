@@ -14,7 +14,9 @@ module cpu_trace #(
     parameter integer AW     = 10,           // 1024 entries
     parameter integer POST   = 64,
     parameter integer CLK_HZ = 32_000_000,
-    parameter integer BAUD   = 115_200
+    parameter integer BAUD   = 115_200,
+    parameter [31:0]  TRIG_ADR = 32'hFFFFFFFF,  // [F80] also freeze POST clocks after the first 030 write (AS, !RW) to
+    parameter [31:0]  TRIG_MSK = 32'hFFFFFFF8   //       (A & TRIG_MSK) == TRIG_ADR; all-ones = HALT only
 )(
     input  wire         clk_cpu,
     input  wire         rst_n,          // cpu_rst_n (clk_cpu)
@@ -30,8 +32,10 @@ module cpu_trace #(
     localparam integer N = 1 << AW;
     (* syn_ramstyle = "block_ram" *) reg [143:0] mem [0:N-1];
     // ---- capture (clk_cpu) ----
-    reg [AW-1:0] wp = 0; reg [15:0] cnt = 0; reg [7:0] post = 0;
+    reg [AW-1:0] wp = 0; reg [15:0] cnt = 0; reg [9:0] post = 0;
     reg run = 1'b0, frz = 1'b0, wrapped = 1'b0, rst_d = 1'b0;
+    // ent: [119] asn, [112] rwn, [95:64] adr
+    wire trig = (TRIG_ADR != 32'hFFFFFFFF) & ~ent[119] & ~ent[112] & ((ent[95:64] & TRIG_MSK) == TRIG_ADR) & (ent[23:20] != 4'hE);  // not from ROM (TOS memory test)
     always @(posedge clk_cpu) begin
         rst_d <= rst_n;
         if (!rst_n) begin run <= 1'b0; frz <= 1'b0; end
@@ -40,7 +44,7 @@ module cpu_trace #(
             mem[wp] <= {ent[143:136], cnt, ent[119:0]};
             wp <= wp + 1'b1; if (&wp) wrapped <= 1'b1;
             if (cnt != 16'hFFFF) cnt <= cnt + 1'b1;
-            if (!halt_n || post != 0) begin
+            if (!halt_n || post != 0 || trig) begin
                 post <= post + 1'b1;
                 if (post == POST - 1) begin run <= 1'b0; frz <= 1'b1; end
             end
