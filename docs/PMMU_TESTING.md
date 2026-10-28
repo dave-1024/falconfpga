@@ -261,3 +261,6 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   because tb030 has no FDC/DMA model, so every disk read MiNT does (MINT.CNF, the sysdir) times out. Up to there: no fault, 145 timer C ticks, 558 BIOS traps.
   To go further, tb030 needs a disk hook: for example, point hdv_rw ($476) at a stub that passes the request through a magic I/O port to the
   testbench, which serves sectors from the .st file. Or snapshot later, after the last disk access before init_filesys. Not done yet.
+
+### f70 (88a46f4), 28 Oct 2026
+Three SRAM reloads in a row with no op 66 verify, each after the previous build had TOS running: AE350 banner and helper answers every time. Same result for main b4a9766. Flash continuous-read bug fixed.
