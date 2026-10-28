@@ -724,8 +724,9 @@ flash_unstick u_flash_unstick ( .clk(clk32), .rst(por32), .busy(fu_busy), .done(
     .csn(fu_csn), .sck(fu_sck), .io0(fu_io0), .io1_oe(fu_io1_oe) );
 wire fu_own = fu_busy & ~sth_flash_to_st;
 // [F71] AE350-side signals are premuxed so mspi_clk keeps f69's single 2:1 mux after the PLL clock.
-wire ae_side_csn = fu_own ? fu_csn : ae350_flash_csn;
-wire ae_side_clk = fu_own ? fu_sck : ae350_flash_clk;
+// [F73] syn_keep: the SCK pad LUT stays a 3-input mux of the PLL clock as in f69 (pmmu f70: TOS read as garbage).
+wire ae_side_csn /* synthesis syn_keep=1 */ = fu_own ? fu_csn : ae350_flash_csn;
+wire ae_side_clk /* synthesis syn_keep=1 */ = fu_own ? fu_sck : ae350_flash_clk;
 assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : ae_side_csn;
 assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : ae_side_clk;
 assign mspi_di   = sth_flash_to_st ? (st_mspi_io_oe[0] ? st_mspi_io_o[0] : 1'bz)
@@ -1063,7 +1064,7 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
 `ifdef DIAG_HEARTBEAT
 // [F72] instance here, after diag_flags/por32/sth_ae_run are declared
 cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
-    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .own(hb_own), .tx(hb_tx) );
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule
