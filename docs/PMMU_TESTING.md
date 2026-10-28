@@ -212,3 +212,15 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   offset 0x21204: C567 -> 0000; the earlier `ccw_set(0, mask)` leaves caches off). Hatari OK. On the board: **the same CONSOLE fatal.**
 - DEBUG_LEVEL=4 in MINT.INI prints nothing extra on the board (release kernel without debug output).
 - Flash-silence problem (op 53 + op 1 leave the helper silent until a replug; an SRAM load does not): parked for later.
+
+## Board stopped: helper silent after SRAM-loading f68ovl (28 Oct 2026, 08:00–08:12 GMT)
+- f68 + DIAG_OVERLAY (`st_helper_hdn_f68ovl_64d2b49.fs`, sha 5c9f428a…) passed `timing_pairs.py` (all pairs ok, worst setup 0.867 ns clk32).
+- SRAM load (op 2) rc=0. After it **the helper did not answer** (`hc.py s` empty; nothing at all on ttyUSB1, even after a CR). HDMI was black.
+  No overlay data.
+- Restore attempts (no flash writes): SRAM-load f68 (which had worked at 07:22) → still silent for 2 min. Then op 1 (reconfigure from flash = pmmu8)
+  → still silent, HDMI black. The FTDI and ttyUSB1 are present.
+- **Board work stopped.** Flash is untouched since the replug (pmmu8 at 0, verified by op 66; helper fw and TOS as at 07:12). A power-cycle/replug
+  should bring back pmmu8 + helper.
+- So the helper going silent is **not specific to the flash path** (op 53 + op 1). It also happened after an SRAM load. One SRAM load (f68, 07:22)
+  kept it alive and the next (f68ovl) did not. Parked, as asked; one theory to check later is the AE350/helper handshake on any FPGA reconfiguration
+  (for example a reset or boot-mode pin state while the fabric is reloaded).
