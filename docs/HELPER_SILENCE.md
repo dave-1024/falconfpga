@@ -66,3 +66,35 @@ Note: hc.py/up2.py pick the port by-id, so the tty renumbering does not matter.
 - Build `st_helper_hdn_f69_be0ae8f.fs` (sha256 14f22cad569b7152…): `timing_pairs.py` **all ok** (worst setup 1.224 ns clk32, clk_g hold 0.248 ns).
   pll_wdog is in the netlist. Gowin warns that the reg initialiser on `init_rst` is ignored (GSR clears it to 0 anyway).
 - Test plan after the replug: SRAM-load f69 (op 2) with a serial logger running, check "STH" / boot, then repeat op 2 loads a few times.
+
+## Board tests 28 Oct 09:11–09:35 GMT (SRAM loads only, flash never written)
+1. `debug_builds/alive` (no PLL, raw 50 MHz, `ALIVE n` on U15, LEDs) SRAM-loaded onto the "dead" board: **talks** (`ALIVE 0001…`).
+   The FPGA, U15 and the BL616 USB serial are fine.
+2. alive + one PLL (gowin_pll_hdmi + PLL_INIT): `ALIVE nnnn 1` = **the PLL locks** after a warm reconfigure.
+3. f69 SRAM load: fabric letters `DR`, **TOS boots to the desktop** (HDMI ok), no `P` lines (main PLL locked first try), but **the AE350 prints nothing**
+   and `hc.py` gets no answer. So hypothesis 1 (PLL) is **wrong** for this case.
+4. `op 66` (exFlash verify of pmmu8.fs, read-only), then f69 SRAM load again: `STH`, `R`, then the **full AE350 banner**
+   ("AE350 FPGA-Companion … running from DDR3", "0xA5 sent, flash handed to the ST", MiSTeryNano logo), and `hc.py s` answers.
+
+## Cause (confirmed by 3/4): the SPI flash is left in the ST controller's continuous-read mode
+The ST flash controller (flash_dspi.v) reads TOS with dual-I/O 0xBB **in continuous-read (mode-bit) mode**. A JTAG reconfigure resets the FPGA
+but not the flash chip, so the flash still expects "address + mode bits" with no command byte. The AE350 boot loader then sends a normal read
+command, gets garbage from 0x600000, and the helper never comes up. The ST side still boots, because the ST controller re-inits the flash itself
+(16 ones on IO0) after the switch. The programmer's flash ops (verify, program) reset the flash to normal mode, which is why after a replug or
+after an op 53/66/56 sequence the next load worked (07:22), and why the next reconfigure after TOS had run failed (f68ovl 08:01, op 1 08:09).
+A power cycle resets the flash, so a replug always recovered. The black HDMI seen at 08:0x with f68ovl is not explained yet
+(f69 showed the desktop under the same flash condition). Most likely the ST did not get the flash because the 0xA5 handshake/CS# idle path
+went differently (see boot_code); to recheck.
+
+**Recovery procedure (no replug):** `pop.sh 66 --fsFile <the .fs that is in flash at 0>` (read-only verify, puts the flash back in normal mode),
+then `pop.sh 2 --fsFile <build>` (SRAM). Proven 09:30 with f69. (`op 1` alone does not help: it reconfigures from flash without resetting it.)
+
+**Fix (proposed, for pmmu first, main after David's review):** before releasing the AE350 (st_helper_ctrl / top.sv, while the fabric owns
+the flash pads at power-up), the fabric sends the flash a mode-bit exit (CS# low, 16 clocks with IO0 = IO1 = 1, CS# high), then
+0x66 + 0x99 (reset enable/reset), and waits 30 µs. That is the same as what the ST controller does for itself, and what the programmer's ops do implicitly.
+
+## Main has the same symptom (David's friend, 28 Oct)
+MAIN built on Linux and flashed with the Linux programmer: black screen, LEDs yellow and purple, serial ports do not come up
+(the FTDI-style device deregisters after modprobe), and a 256K TOS gave an error. PnR warning PR1014 for `clk_d`. To check: main uses the
+same flash_dspi continuous read, so a reconfigure without a power cycle would also leave the flash in mode-bit state (same cause).
+The deregistering USB device is the BL616 (Sipeed "USB Debugger" FT2232 emulation): see the pin notes below.
