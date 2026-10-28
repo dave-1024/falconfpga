@@ -153,6 +153,12 @@ begin
           w := x"0202"; -- [MINT] (see below)
         elsif ST = 1 and a(23 downto 1) = "11111111100000100110000" then
           w := x"0000"; -- [MINT] shifter mode $FF8260 = low res (FFFF = res 3: the VBL handler saw a monitor change and reset)
+        elsif ST = 1 and a(23 downto 1) = "11111111111110100000000" then
+          w := x"FFDF"; -- [MINT] MFP GPIP: bit 5 low = FDC/HDC done at once (no FDC model; TOS would wait for its timeout)
+        elsif ST = 1 and a(23 downto 1) = "11111111100001100000010" then
+          w := x"0000"; -- [MINT] FDC/DMA data $FF8604: FDC status 0 (no error)
+        elsif ST = 1 and a(23 downto 1) = "11111111100001100000011" then
+          w := x"0001"; -- [MINT] DMA status $FF8606: bit 0 = no DMA error
         elsif false then
           w := x"0202"; -- [MINT] ACIA $FFFC00/$FFFC04 status: transmit empty, nothing received (FFFF looked like a key stream)
         else w := x"FFFF"; end if;
