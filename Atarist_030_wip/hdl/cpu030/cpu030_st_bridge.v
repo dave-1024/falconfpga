@@ -1203,7 +1203,9 @@ module cpu030_st_bridge #(
     // [F78] per-clk_cpu pin trace (cpu_trace.v); shares U15 with the dump, trace first
     wire tr_want, tr_own, tr_tx, du_own, du_tx;
 `ifdef DIAG_TRACE_TRIG
-`ifdef DIAG_TRACE_ARM
+`ifdef DIAG_TRACE_POST
+    cpu_trace #(.POST(`DIAG_TRACE_POST), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC), .TRIG_ARM(1)) u_cpu_trace (
+`elsif DIAG_TRACE_ARM
     cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC), .TRIG_ARM(1)) u_cpu_trace (
 `elsif DIAG_TRACE_TRIG_PC
     cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC)) u_cpu_trace (
