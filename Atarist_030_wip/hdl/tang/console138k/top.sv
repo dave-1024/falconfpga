@@ -1064,7 +1064,7 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
 `ifdef DIAG_HEARTBEAT
 // [F72] instance here, after diag_flags/por32/sth_ae_run are declared
 cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
-    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .own(hb_own), .tx(hb_tx) );
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule
