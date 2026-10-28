@@ -853,17 +853,22 @@ module cpu030_st_bridge #(
     reg        d_got   = 1'b0;
     reg [6:0]  d_info  = 7'd0;    // FC2:0, RW, SIZE1:0, bad_space
     reg [31:0] d_badr  = 32'd0;
+`ifdef DIAG_HEARTBEAT
+    wire d_arm = 1'b1;   // [F75] heartbeat builds keep the LAST BERR (the first is TOS's memory probe)
+`else
+    wire d_arm = ~d_got;
+`endif
     always @(posedge clk) begin
         if (extReset | pwrUp) begin
             d_got  <= 1'b0;
             d_info <= 7'd0;
             d_badr <= 32'd0;
-        end else if (d_berr_now & ~d_got) begin
+        end else if (d_berr_now & d_arm) begin
             d_got  <= 1'b1;
             d_info <= {c_fc, c_rwn, c_size, req_bad_space};
             d_badr <= {c_adr_hi, c_adr};
 `ifdef TTRAM
-        end else if (t_berr & ~d_got) begin
+        end else if (t_berr & d_arm) begin
             // TT front-end BERR (A31:24 not $00/$01/$FF, or beyond TT_BYTES): 030 pins, bad_space bit = 1
             d_got  <= 1'b1;
             d_info <= {cpu_fc, cpu_rwn, cpu_size, 1'b1};
