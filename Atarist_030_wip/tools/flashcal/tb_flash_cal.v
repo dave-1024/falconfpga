@@ -8,7 +8,7 @@ endmodule
 module fm #(parameter real TCO=7.0, parameter real SKD=3.0)(input sck_i, input csn, input [1:0] io_o, input [1:0] oe, output [1:0] io_i);
  wire sck; assign #(SKD) sck = sck_i;
  integer n; reg [21:0] a; reg [1:0] q = 0; reg [15:0] dat;
- function [15:0] f(input [21:0] x); f = (x==0) ? 16'h602E : x[15:0]*16'h9E37 ^ (x[15:0]>>3) ^ 16'h5A5A; endfunction
+ function [15:0] f(input [21:0] x); f = (x==0) ? `W0 : (x==1) ? `W1 : (x==2) ? `W2 : x[15:0]*16'h9E37 ^ (x[15:0]>>3) ^ 16'h5A5A; endfunction
  always @(negedge csn) n = 0;
  // 8 cmd clocks first time only handled by host; host in dspi mode sends from state 8: 12 addr clocks + 4 M clocks, then 8 data clocks
  reg dsp=0; integer base;
@@ -20,7 +20,7 @@ module fm #(parameter real TCO=7.0, parameter real SKD=3.0)(input sck_i, input c
    end
  end
  always @(negedge sck) if (!csn && dsp && n>=16 && n<24) begin
-   dat = f({a[20:0],1'b0}>>1); q <= #(TCO) dat[15-2*(n-16) -: 2];
+   dat = f(a >> 1); q <= #(TCO) dat[15-2*(n-16) -: 2];
  end
  assign #(1.5) io_i = q;
 endmodule

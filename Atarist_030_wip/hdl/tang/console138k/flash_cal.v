@@ -6,14 +6,13 @@
 // edge sample, Q1 = the falling edge 5 ns later. Sample point p = 0..7: latch offset o = p[2:1] clocks, edge p[0];
 // p+1 is 5 ns later than p. After init (the ST is held in reset until `ready`), every p reads the TOS slot
 // (SCAN_WORDS words from scan_base) and gets a CRC32 plus the first word. A one-clock shift still reads stable data
-// (the neighbouring bit pair), so a CRC match alone cannot pick the alignment: a point is valid only if its first
-// word is SIG, and among valid points the one whose neighbours give the same CRC (centre of the eye) wins (none: DEF_P). With REPORT, one line on `rtx` (U15):
+// (the neighbouring bit pair), so a CRC match alone cannot pick the alignment: a point is valid only if words 0..2
+// look like a TOS/EmuTOS header (BRA $60xx, version word <= $04xx, reset PC high word $00E0 or $00FC), and among valid points the one whose neighbours give the same CRC (centre of the eye) wins (none: DEF_P). With REPORT, one line on `rtx` (U15):
 //   "FCAL c0 c1 c2 c3 c4 c5 c6 c7 S=p" + CRLF   (c = CRC32 per sample point, hex)
 // ===========================================================================
 module flash_cal #(
     parameter integer SCAN_WORDS = 131072,       // 256 KB
-    parameter [2:0]   DEF_P      = 3'd4,
-    parameter [15:0]  SIG        = 16'h602E,     // first ROM word (bra.s): TOS 1.x/2.x and EmuTOS
+    parameter [2:0]   DEF_P      = 3'd0,          // = F79's fixed point (pad sample at state 25)
     parameter integer REPORT     = 0,
     parameter integer CLK_HZ     = 100_000_000,
     parameter integer BAUD       = 115_200
@@ -117,7 +116,10 @@ module flash_cal #(
         else case (cs_st)
             0: if (init_done) begin pp <= 0; p <= 3'd0; w <= 0; c <= 32'hFFFFFFFF; cs_st <= 1; end
             1: begin s_adr <= scan_base + {5'd0, w}; s_req <= 1'b1; cs_st <= 2; end
-            2: if (done_stb) begin s_req <= 1'b0; sh <= dout; nb <= 5'd16; cs_st <= 3; if (w == 0) ok[pp] <= (dout == SIG); end
+            2: if (done_stb) begin s_req <= 1'b0; sh <= dout; nb <= 5'd16; cs_st <= 3; 
+                   if (w == 0) ok[pp] <= (dout[15:8] == 8'h60);
+                   if (w == 1 && dout[15:8] > 8'h04) ok[pp] <= 1'b0;
+                   if (w == 2 && dout != 16'h00E0 && dout != 16'h00FC) ok[pp] <= 1'b0; end
             3: if (nb != 0) begin
                    c <= (c[31] ^ sh[15]) ? {c[30:0], 1'b0} ^ 32'h04C11DB7 : {c[30:0], 1'b0};
                    sh <= {sh[14:0], 1'b0}; nb <= nb - 1'b1;
@@ -142,7 +144,7 @@ module flash_cal #(
     always @(*) begin
         if (ci < 5) ch = (ci==0)?"F":(ci==1)?"C":(ci==2)?"A":(ci==3)?"L":" ";
         else if (ci < 77) begin
-            if ((ci - 5) % 9 == 8) ch = ok[(ci-5)/9] ? "+" : " ";   // + = first word is SIG
+            if ((ci - 5) % 9 == 8) ch = ok[(ci-5)/9] ? "+" : " ";   // + = TOS header seen
             else ch = hx(crc[(ci-5)/9][31 - 4*((ci-5)%9) -: 4]);
         end
         else if (ci == 77) ch = "S"; else if (ci == 78) ch = "="; else if (ci == 79) ch = 8'h30 + p;
