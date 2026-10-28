@@ -39,8 +39,19 @@ module flash_cal #(
     wire [7:0] M = 8'b0010_0000;
     // ---- sample point ----
     wire [1:0] q0, q1;
+`ifdef FLASH_CAL_NOIDDR
+    // [F95] debug: no IDDR. Pad -> posedge / negedge flop, then two stages each to match the IDDR model's latency
+    // (tb_flash_cal IDDR: Q0 = 3 posedge stages, Q1 = negedge + 2 posedge). Separates an IDDR problem (F91: every
+    // point read ~0) from the read state machine.
+    (* syn_useioff = 1 *) reg [1:0] pr = 2'b11; reg [1:0] nr = 2'b11; reg [1:0] pa = 0, pb = 0, na = 0, nb2 = 0;
+    always @(posedge clk) pr <= mspi_io_i;
+    always @(negedge clk) nr <= mspi_io_i;
+    always @(posedge clk) begin pa <= pr; pb <= pa; na <= nr; nb2 <= na; end
+    assign q0 = pb; assign q1 = nb2;
+`else
     IDDR u_iddr0 ( .D(mspi_io_i[0]), .CLK(clk), .Q0(q0[0]), .Q1(q1[0]) );
     IDDR u_iddr1 ( .D(mspi_io_i[1]), .CLK(clk), .Q0(q0[1]), .Q1(q1[1]) );
+`endif
     reg [2:0] p = DEF_P;
     wire [1:0] o = p[2:1];
     wire [1:0] din = p[0] ? q1 : q0;
