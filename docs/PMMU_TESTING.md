@@ -134,7 +134,7 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
 - 00:25: f67 timing: the core half-cycle path is fixed (+11.4 ns), but clk_cpu030 -> clk32_core is −3.6 ns on the *untranslated* path (FILL_WADR + ADR_OFFSET adder -> A31:24 -> TT/fast-RAM decode -> bridge live start). Not flashable. Trying place_option 1 (f67p1); if that doesn't close it, the next step is shortening that decode. CPU bench cmp_full old vs F65–F67: SAME on all 38 runs checked.
 - 00:50: f67 with place_option 1 (f67p1): the MMU/bridge pair passes (+7.8 ns), but it misses by a hair elsewhere (clk_cpu030 -> clk_cpu030_n −0.36 ns, clk32 −0.2 ns / 31.6 MHz). Not flashable; trying place_options 2 and 0.
 - 01:15: full run_rtl.sh PASSES on F65–F67. Timing of f67 with place_options 2/0 also fails (−3.0/−4.4 and −2.1/−5.6 ns), so placement alone won't close it. Next: shorten the untranslated bus-address path by dropping the ADR_OFFSET adder on fill cycles, if sim shows ADR_OFFSET is always 0 during a fill (sim check running).
-- 01:45: **f68 (9d8e37f) meets timing on every pair** (timing_pairs.py rc=0; recovery +8.2, removal +0.26, TNS 0). Slack is thin: cpu030->clk32 +0.18 ns, clk32 +0.08 ns. clk_cpu030 20.37 MHz, clk32_core 32.17 MHz. 45012 LUT + 5191 ALU, 17989 regs. Bitstream `~/fpga_bitstreams/st_helper_hdn_9d8e37f-f68.fs` (sha256 3f2daf3a28ba0959…). **Ready, NOT flashed.** cmp_full for F68: SAME on all 80 runs (40 programs × WS 0/3); run_rtl.sh for F68 running.
+- 01:45: **f68 (9d8e37f) meets timing on every pair** (timing_pairs.py rc=0; recovery +8.2, removal +0.26, TNS 0). Slack is thin: cpu030->clk32 +0.18 ns, clk32 +0.08 ns. clk_cpu030 20.37 MHz, clk32_core 32.17 MHz. 45012 LUT + 5191 ALU, 17989 regs. Bitstream `~/fpga_bitstreams/st_helper_hdn_9d8e37f-f68.fs` (sha256 3f2daf3a28ba0959…). **Ready, NOT flashed.** cmp_full for F68: SAME on all 80 runs (40 programs × WS 0/3); run_rtl.sh PASS on F68.
 
 ### Morning summary (updated 01:45 GMT)
 1. **Board:** untouched since about 22:35 GMT. The helper serial was silent after the excwatch build; needs a replug. pmmu8 is flashed. pmt5.st was not re-verified.
@@ -145,7 +145,7 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
    - F67: the MMU WP check and TT RWM use RMC without the falling-edge T_SLICE term.
    - F68: no ADR_OFFSET adder on fill cycles.
 
-   All are cycle-identical in the CPU bench: cmp_full SAME, run_rtl PASS (F65–F67). The whole-ST bench with MMU off is byte-identical. MMU on: same results, about 16% slower ST access while translating.
+   All are cycle-identical in the CPU bench: cmp_full SAME (80/80), run_rtl PASS (F65–F68). The whole-ST bench with MMU off is byte-identical. MMU on: same results, about 16% slower ST access while translating.
 4. **To test after the replug (David):**
    - Serial check, flash f68, serial check.
    - Run pmt5.st (expect FAILS=0).

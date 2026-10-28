@@ -229,3 +229,10 @@
 
 ### MTREE board result (27 Oct 2026, 21:50 GMT)
 MTREE.PRG (MiNT's exact TC $80D04447 and long-descriptor tree, about 2 s translated with IRQs, run under TOS) PASSES on pmmu8: MT_1, MT_3 and MTREE.TXT were written. So the tree format and TC are not what stops MiNT. Next: DIAG_OVERLAY + DIAG_EXCWATCH build to capture the last exceptions and fetches before the halt.
+
+### F65–F68: bridge/MMU timing fix for the FreeMiNT halt (28 Oct 2026, 02:30 GMT, sim only)
+See PMMU_TESTING.md (morning summary) and FALCON_LESSONS "Bridge sampled translated 030 pins…".
+- f68 (9d8e37f) meets timing on every clock pair. It is not flashed yet (waiting for the board replug).
+- cmp_full: 80/80 SAME. run_rtl.sh: PASS.
+- Whole-ST bench prog_bus, MMU off: identical to the old bridge.
+- Whole-ST bench prog_bus, MMU on (`ASFLAGS="--defsym MMU=1"`): same results, about 16% slower ST access.
