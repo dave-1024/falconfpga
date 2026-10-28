@@ -151,3 +151,11 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
    - Run pmt5.st (expect FAILS=0).
    - Run mint_mp2.st (expect MPTEST FAILS=0).
    - Fallback: pmmu8.
+
+## Board run after replug (28 Oct 2026, 06:50–07:05 GMT)
+- Before: helper serial OK (`link OK`), f68 sha256 3f2daf3a28ba0959 verified, no stray programmer_cli, cable found.
+- Flashed f68: programmer rc=0. Afterwards the helper printed its help/boot text once, then **stopped answering** (no `s` reply after more than 1 min, raw read empty).
+- Fallback: reflashed pmmu8, rc=0. **Same result:** one burst of help text, then silent.
+- This is the same pattern as last night with pmmu8exc → pmmu8. Since even the known-good pmmu8 leaves the helper silent, the problem is **probably not the f68 bitstream**. More likely, the helper (or its link) does not survive a JTAG reflash. Not tested: pmt5/mint (no serial, so no mount).
+- Stopped board work per the rules. **Needs another physical replug.** pmmu8 is currently flashed.
+- Suggestion for the next try: after the replug, check the serial first, then flash f68, then wait about 2 min before the first command. If it is silent again, the helper side should be looked at (not touched by me: BL616 is off limits).
