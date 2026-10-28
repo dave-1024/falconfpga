@@ -165,3 +165,14 @@ The plain builds before the data cache work passed this pair (pmmu_b2: +3.76 ns)
 - programmer_cli has no raw flash read. Op 66 (exFlash Verify Arora V) can compare a file with flash without writing, so I'll use that for the 0x600000 check.
 - Core sizes: the f68 binary is 0x4E46CA bytes (pmmu8ovl 0x4D8CCA, pmmu8exc 0x4BDA4A). All are below TOS at 0x500000, so the core image does not reach 0x600000 by size alone. Whether op 53 erases beyond the image is still open.
 - 07:05–07:11: serial silent, and the USB device number is unchanged (no replug seen yet). Screen black.
+
+## Board after 07:12 replug (28 Oct 2026, 07:13–07:25 GMT): left on pmmu8, no flash
+- Serial link OK after the replug (`core status: 5C 42 ... link OK`); board is running pmmu8 (the last image flashed).
+- `programmer_cli --run 66` (exFlash verify) of helper_companion_sdwlog_3ec6e20.bin (sha256 eada916a…0af) with `--spiaddr 0x600000`
+  reported "Verify Flash Failed" twice. It is not clear that op 66 honours `--spiaddr` for a raw .bin, so this does **not** prove
+  the helper region is corrupt; it needs a check against a known-good region first (e.g. verify pmmu8.fs at 0).
+- Verify ops are read-only; the link was OK again afterwards (first poll after the ftdi_sio reload was empty).
+- No helper rewrite and no f68 flash were done. Every earlier flash (pmmu8exc, f66, f68, and even pmmu8) left the helper silent until
+  a physical replug, so a fallback cannot be put back remotely. With David away, the steering was to stay conservative.
+- Next, with David present: rewrite the helper (op 56 `--mcuFile --spiaddr 0x600000`), flash f68, then pmt5 / mint_mp2 / mint_nomp.
+  If the helper goes silent again, look into whether op 53 erases or disturbs blocks past the bitstream, or whether the AE350 boot handshake fails when the FPGA is configured over JTAG/SPI without a power cycle.
