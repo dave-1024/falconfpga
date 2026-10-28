@@ -150,7 +150,7 @@ module flash_cal #(
     reg [2:0] j = 0; reg [3:0] n = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch = 8'h46; reg [31:0] cj;
     reg last = 1'b0;
     // [F86] status line while not calibrated, about once a second: "FCS  <cs_st pp init busy state w[15:8]>"
-    reg stat = 1'b0; reg [31:0] sw = 0; reg [26:0] tk = 0;
+    reg stat = 1'b0; reg [31:0] sw = 0; reg [26:0] tk = 0; reg [1:0] rc = 0;
     wire [31:0] stw = {cs_st, 1'b0, pp, 3'b0, init, busy, 1'b0, state, w[15:8]};
     always @(posedge clk) begin
         cj <= stat ? sw : crc[j];
@@ -164,7 +164,8 @@ module flash_cal #(
         last <= (seg == 3'd3) && (n == 4'd1);
         if (!rown) begin
             rtx <= 1'b1;
-            if (rep_go) begin rown <= 1'b1; stat <= 1'b0; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end
+            if (tk == 0) rc <= rc + 1'b1;
+            if (rep_go || (REPORT != 0 && cal_done && tk == 0 && rc == 2'd3)) begin rown <= 1'b1; stat <= 1'b0; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end
             else if (REPORT != 0 && !cal_done && resetn && tk == 0) begin rown <= 1'b1; stat <= 1'b1; sw <= stw; seg <= 0; j <= 0; n <= 0; bd <= 0; bi <= 0; end
         end
         else begin
