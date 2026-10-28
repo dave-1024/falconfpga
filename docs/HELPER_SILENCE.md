@@ -54,3 +54,15 @@ Recommended order: diagnostics first (zero risk), then A + E (fabric only, small
 Raw logger on the UART before and after: **0 bytes**. `hc.py s`: no answer (3 tries). HDMI frame still black (all 0).
 So hypothesis 3 (host/FTDI state) is **ruled out**: the board side is dead (fabric or ST not running), which fits hypothesis 1.
 Note: hc.py/up2.py pick the port by-id, so the tty renumbering does not matter.
+## F69: fixes 1 + 2 built (28 Oct 2026, 08:41 GMT) - NOT loaded (waits for David's replug)
+- `hdl/tang/console138k/pll_wdog.v`, wired in top.sv:
+  - runs on clk_g (raw 50 MHz). For each PLL (main pll_160m, ae350, ddr3), if its O_LOCK is low for 50 ms it pulses that PLL_INIT's
+    `I_RST` (new `init_rst` port on the three PLL wrappers) and the ICP/LPF search restarts; it retries for ever and counts the retries.
+  - while `por` (main PLL not locked) it owns U15 and sends `P<retries hex><ae350 lock><ddr3 lock><main lock>` CR LF every 0.5 s
+    at 115200. Seeing nothing at all means the board/clock is dead; `P0000` repeating means no PLL locks.
+- Sim: `hdl/tang/console138k/sim/tb_pll_wdog.v` (iverilog). PLL 0 locks after 2 restarts, PLL 1 at once, PLL 2 never. Result: exactly 2 restarts,
+  continuous restarts of PLL 2, status line `P1100` decoded, status byte ok. **PASS.**
+- Fix 3: `timing_pairs.py` now fails any hold pair on clk_g/clk_osc below 0.1 ns.
+- Build `st_helper_hdn_f69_be0ae8f.fs` (sha256 14f22cad569b7152…): `timing_pairs.py` **all ok** (worst setup 1.224 ns clk32, clk_g hold 0.248 ns).
+  pll_wdog is in the netlist. Gowin warns that the reg initialiser on `init_rst` is ignored (GSR clears it to 0 anyway).
+- Test plan after the replug: SRAM-load f69 (op 2) with a serial logger running, check "STH" / boot, then repeat op 2 loads a few times.
