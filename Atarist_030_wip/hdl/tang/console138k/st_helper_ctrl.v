@@ -89,6 +89,7 @@ module st_helper_ctrl #(
     input  wire [7:0] ae_gpio_a,    // AE350 GPIO[7:0] (APB domain, async)
     input  wire       ae_csn_a,     // AE350 FLASH_SPI_CSN (async)
     input  wire       s1_n_a,       // S1 button, low = pressed (async)
+    input  wire       fu_done,      // flash_unstick.v finished (clk32 domain)
 
     output reg        ae_run,       // AE350 POR_RSTN/HW_RSTN
     output reg        flash_to_st,  // 1 = flash pads belong to the ST (sticky)
@@ -200,7 +201,7 @@ module st_helper_ctrl #(
                     boot_code <= 8'd3; fail_letter <= 8'h4B; st <= S_FAIL; t <= 32'd0;
                 end else if (!ddr_ok) begin
                     t <= 32'd0;                                  // restart the 20 ms
-                end else if (t >= T_DEB && !u_busy) begin
+                end else if (t >= T_DEB && !u_busy && fu_done) begin   // flash back in plain SPI mode
                     begin u_char <= 8'h52; u_go <= 1'b1; end                                 // R
                     st <= S_RLET; t <= 32'd0;
                 end

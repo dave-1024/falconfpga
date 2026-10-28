@@ -553,6 +553,7 @@ st_helper_ctrl u_sth_ctrl (
     .ae_gpio_a   ( ae350_gpio[7:0]     ),
     .ae_csn_a    ( ae350_flash_csn     ),
     .s1_n_a      ( user_n              ),
+    .fu_done     ( fu_done             ),   // flash out of continuous read
     .ae_run      ( sth_ae_run          ),
     .flash_to_st ( sth_flash_to_st     ),
     .st_release  ( sth_st_release      ),
@@ -706,11 +707,17 @@ wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, nano_mspi_
 // ---------------------------------------------------------------------------
 wire        st_mspi_cs, mspi_clk_pll;
 wire [1:0]  st_mspi_io_o, st_mspi_io_oe;
-assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : ae350_flash_csn;
-assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : ae350_flash_clk;
+// Before the AE350 is released, flash_unstick.v takes the flash out of the ST reader's continuous-read mode
+// (left over from before a JTAG reconfigure) and resets it (0x66/0x99). It owns the pads only while fu_busy (AE350 in reset).
+wire fu_busy, fu_done, fu_csn, fu_sck, fu_io0, fu_io1_oe;
+flash_unstick u_flash_unstick ( .clk(clk32), .rst(por32), .busy(fu_busy), .done(fu_done),
+    .csn(fu_csn), .sck(fu_sck), .io0(fu_io0), .io1_oe(fu_io1_oe) );
+wire fu_own = fu_busy & ~sth_flash_to_st;
+assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : fu_own ? fu_csn : ae350_flash_csn;
+assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : fu_own ? fu_sck : ae350_flash_clk;
 assign mspi_di   = sth_flash_to_st ? (st_mspi_io_oe[0] ? st_mspi_io_o[0] : 1'bz)
-                                   : ae350_flash_mosi;
-assign mspi_do   = (sth_flash_to_st && st_mspi_io_oe[1]) ? st_mspi_io_o[1] : 1'bz;
+                                   : fu_own ? fu_io0 : ae350_flash_mosi;
+assign mspi_do   = (sth_flash_to_st && st_mspi_io_oe[1]) ? st_mspi_io_o[1] : (fu_own && fu_io1_oe) ? 1'b1 : 1'bz;
 assign mspi_hold = 1'b1;                   // both masters keep HOLD# high
 assign mspi_wp   = ~sth_flash_to_st;       // AE350: 1 (as its IP), ST: 0 (as flash_dspi.v)
 // After the switch the AE350's (now idle) flash SPI controller becomes the
