@@ -263,4 +263,5 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   testbench, which serves sectors from the .st file. Or snapshot later, after the last disk access before init_filesys. Not done yet.
 
 ### f70 (88a46f4), 28 Oct 2026
-Three SRAM reloads in a row with no op 66 verify, each after the previous build had TOS running: AE350 banner and helper answers every time. Same result for main b4a9766. Flash continuous-read bug fixed.
+Three SRAM reloads in a row with no op 66 verify, each after the previous build had TOS running: AE350 banner and helper answers every time. Same result for main b4a9766.
+**Correction (11:05):** that test only showed the helper comes back. With a cold reset, pmmu f70 gives **no picture** and pmt5 writes no PMMUTEST.TXT (two runs); pmmu8 under the same steps shows a picture and FAILS=0. Main f70 is fine (TOS desktop, folder written to A:). pmmu f70 is not proven; under investigation.
