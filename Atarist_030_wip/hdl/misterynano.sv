@@ -35,6 +35,7 @@ module misterynano #(
   output [3:0]  diag_030,     // 030 bridge {berr, dsack, req, run}
   output [167:0] diag_trace,  // diag030c: bridge first-BERR / bus-cycle watch
   output [1:0]  diag_dump,    // [F77] DIAG_DUMP {own, tx}
+  output [1:0]  fcal_rpt,     // [F85] FLASH_CAL report line {own, tx}
   input         diag_go,      // [F77]
   output [23:0] diag_vbase,   // diag030w: {boot-path flags, cmdload word}
   output		ws2812,
@@ -203,6 +204,26 @@ wire [15:0] rom_dout;
 
 wire flash_ready;
 
+`ifdef FLASH_CAL
+// [F85] flash_cal.v: IDDR pads, sample point measured at power-up on this TOS slot (per-point CRC, TOS header check)
+flash_cal #(.REPORT(1)) flash (
+    .clk(flash_clk),
+    .resetn(!por_flash && !flash_reinit),
+    .ready(flash_ready),
+    .busy(),
+    .scan_base( { 3'b001, system_tos_slot, rom_ste_bit, 17'd0 } ),
+    .address( { 3'b001, system_tos_slot, rom_ste_bit, rom_addr[17:1] } ),
+    .cs( !rom_n ),
+    .dout(rom_dout),
+    .mspi_cs(mspi_cs),
+    .mspi_io_o(mspi_io_o),
+    .mspi_io_oe(mspi_io_oe),
+    .mspi_io_i(mspi_io_i),
+    .rown(fcal_rpt[1]),
+    .rtx(fcal_rpt[0])
+);
+`else
+assign fcal_rpt = 2'b01;
 flash flash (
     .clk(flash_clk),
     .resetn(!por_flash && !flash_reinit),
@@ -229,6 +250,7 @@ flash flash (
     .mspi_hold(mspi_hold)
 `endif
 );
+`endif
 
 /* -------------------- RAM -------------------- */
 

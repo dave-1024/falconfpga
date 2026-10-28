@@ -161,6 +161,7 @@ module top(
 
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
+wire [1:0]   fcal_rpt;    // [F85] flash_cal report {own, tx} (misterynano)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
 `ifdef AE350_SERIAL
 assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then AE350.
@@ -171,9 +172,9 @@ assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then 
 `ifdef DIAG_HEARTBEAT
 // [F72] debug: once a second the 68030/ST heartbeat line borrows U15 while the AE350 UART is idle (cpu_heartbeat.v).
 wire hb_own, hb_tx;
-assign uart_ext_tx = por ? wd_tx : diag_dump[1] ? diag_dump[0] : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+assign uart_ext_tx = por ? wd_tx : fcal_rpt[1] ? fcal_rpt[0] : diag_dump[1] ? diag_dump[0] : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `else
-assign uart_ext_tx = por ? wd_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+assign uart_ext_tx = por ? wd_tx : fcal_rpt[1] ? fcal_rpt[0] : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `endif
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
@@ -888,6 +889,7 @@ misterynano misterynano (
   .diag_030      ( diag_030      ),
   .diag_trace    ( diag_trace    ),
   .diag_dump     ( diag_dump     ),
+  .fcal_rpt      ( fcal_rpt      ),
   .diag_go       ( diag_go       ),
   .diag_vbase    ( diag_vbase    ),
 
