@@ -1,6 +1,7 @@
 module gowin_pll_ddr3(
     clkin,
     init_clk,
+    init_rst,
     enclk0,
     enclk1,
     enclk2,
@@ -13,6 +14,7 @@ module gowin_pll_ddr3(
 
 input clkin;
 input init_clk;
+input init_rst;   // [F69] PLL_INIT restart from pll_wdog.v
 input enclk0;
 input enclk1;
 input enclk2;
@@ -44,7 +46,7 @@ wire pll_rst;
 
     PLL_INIT u_pll_init(
         .CLKIN(init_clk),
-        .I_RST(1'b0),
+        .I_RST(init_rst),
         .O_RST(pll_rst),
         .PLLLOCK(pll_lock),
         .O_LOCK(lock),

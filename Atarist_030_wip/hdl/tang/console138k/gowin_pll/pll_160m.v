@@ -1,6 +1,7 @@
 module pll_160m(
     clkin,
     init_clk,
+    init_rst,
     clkout0,
     clkout1,
     clkout2,
@@ -14,6 +15,7 @@ module pll_160m(
 
 input clkin;
 input init_clk;
+input init_rst;   // [F69] PLL_INIT restart from pll_wdog.v
 output clkout0;
 output clkout1;
 output clkout2;
@@ -47,7 +49,7 @@ wire pll_rst;
 
     PLL_INIT u_pll_init(
         .CLKIN(init_clk),
-        .I_RST(1'b0),
+        .I_RST(init_rst),
         .O_RST(pll_rst),
         .PLLLOCK(pll_lock),
         .O_LOCK(lock),

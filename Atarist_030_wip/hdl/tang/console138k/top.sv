@@ -167,7 +167,8 @@ assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then 
 `elsif ST_HELPER
 // U15 (BL616 USB serial, 115200 8N1): fabric letters while the AE350 is in
 // reset, the AE350's UART2 while it runs (st_helper_ctrl.v).
-assign uart_ext_tx = sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+// [F69] while the main PLL is not locked (por) pll_wdog.v owns U15 and sends its status line.
+assign uart_ext_tx = por ? wd_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
 `endif
@@ -182,6 +183,11 @@ wire pll_lock;
 // placements). The PLL CLKIN inputs still take the pad directly.
 wire clk_g;
 DCE u_clk_g ( .CLKIN(clk), .CE(1'b1), .CLKOUT(clk_g) );
+// [F69] PLL lock watchdog on the raw 50 MHz clock: restarts a PLL_INIT whose PLL has not locked in 50 ms,
+// and reports retries/lock bits on U15 while the fabric is still in por (docs/HELPER_SILENCE.md).
+wire [2:0] wd_init_rst; wire wd_tx; wire [7:0] wd_status; wire ae350_pll_lock;
+pll_wdog #(.N(3)) u_pll_wdog ( .clk(clk_g), .lock_a({DDR3_LOCK, ae350_pll_lock, pll_lock}),
+    .init_rst(wd_init_rst), .tx(wd_tx), .status(wd_status) );
 wire flash_clk;
 
 // S0 is AA13, port reset_n, pull-up. A press after lock reloads the ST reset
@@ -419,10 +425,11 @@ wire [1:0]  extm_hresp;
 gowin_pll_ae350 u_gowin_pll_ae350 (
     .clkin(clk), .init_clk(clk_g),
     .clkout0(DDR_CLK), .clkout1(CORE_CLK), .clkout2(AHB_CLK),
-    .clkout3(APB_CLK), .clkout4(RTC_CLK)
+    .clkout3(APB_CLK), .clkout4(RTC_CLK),
+    .lock(ae350_pll_lock), .init_rst(wd_init_rst[1])
 );
 gowin_pll_ddr3 u_gowin_pll_ddr3 (
-    .clkin(clk), .init_clk(clk_g),
+    .clkin(clk), .init_clk(clk_g), .init_rst(wd_init_rst[2]),
     .enclk0(1'b1), .enclk1(1'b1), .enclk2(DDR3_STOP),
     .clkout0(DDR3_CLK_IN), .clkout1(DDR3_RW_CLK),
     .clkout2(DDR3_MEMORY_CLK), .lock(DDR3_LOCK)
@@ -911,7 +918,8 @@ pll_160m pll_hdmi (
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
                .clkin(clk),
-               .init_clk(clk_g)
+               .init_clk(clk_g),
+               .init_rst(wd_init_rst[0])   // [F69]
 	       );
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock

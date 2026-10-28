@@ -110,6 +110,7 @@ add_file hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m_mod.v
 add_file hdl/tang/console138k/pll_init.v
+add_file hdl/tang/console138k/pll_wdog.v
 add_file hdl/helper/key_debounce.v
 add_file hdl/helper/gowin_pll_ae350/gowin_pll_ae350.v
 add_file hdl/helper/gowin_pll_ae350/gowin_pll_ae350_mod.v

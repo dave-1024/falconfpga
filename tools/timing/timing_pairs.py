@@ -11,6 +11,9 @@ p = sys.argv[1]
 if os.path.isdir(p): p = os.path.join(p, "st_helper_tr_content.html")
 t = html.unescape(re.sub(r"<[^>]+>", " ", open(p, errors="replace").read())); t = re.sub(r"\s+", " ", t)
 bad = 0
+HOLD_MIN_G = 0.1
+PLLINIT_CLKS = ("clk_g", "clk_osc")
+seen_g = False
 pat = (r"Paths Table\[\d+\]: Report Command:report_timing -(setup|hold) -max_paths \d+ -max_common_paths 1 "
        r"-from_clock \[get_clocks \{(\S+)\}\] -to_clock \[get_clocks \{(\S+)\}\] Path Number Path Slack "
        r"From Node To Node From Clock To Clock Relation Clock Skew Data Delay 1 (-?[\d.]+) (\S+) (\S+)")
