@@ -869,7 +869,9 @@ begin
     -- they differ only in IDLE, where AS is negated and ADR_OUT_I is not used, so the
     -- control unit's address logic no longer reaches the address pins (and the ST bridge).
     ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else
-                 (FILL_WADR & '0') + ADR_OFFSET when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
+                 (FILL_WADR & '0') when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
+    -- [F68] A fill is one word cycle at FILL_WADR; ADR_OFFSET is 0 there (sim check over the run_rtl programs, CIMODE 0/1,
+    -- WS 0/3), so the adder is dropped from the fill address (bus address -> bridge live start path).
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
