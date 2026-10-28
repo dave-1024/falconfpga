@@ -22,3 +22,18 @@ Each instruction uses the other's scale (stale brief extension word, one instruc
 4x2 = twice its array, and in the last descriptor it walks into the page map at $9B7F4 -> map byte 0 -> invalid page -> halt.
 RTL (tb030, same loop, clrloop_scale.s): correct at WS 0..3, WSRND 0/3, caches off and CACR $0101. Board-only.
 Next: F90 NOCACHE builds (I/D off), then look at the EA/extension-word path for a board-only (timing/placement) cause.
+
+# F90 NOCACHE boards (28 Oct, 20:00-20:20 UTC)
+nc1/nc2/nc3 (plain build_st_helper.tcl + DIAG_NOCACHE): black screen 170 s after boot, also with no floppy (TOS never
+shows the desktop); f89pc (trace tcl) on the same script shows the MiNT halt text. So these builds fail earlier
+for an unrelated reason (the plain tcl family, not the cache mask); no result on the scale swap from them.
+F92 = trace tcl + NOCACHE 3 queued instead.
+
+# F93 candidate cause: SCALE race in wf68k30L_address_registers.vhd
+ADR_FORMAT latches SCALE <= EXT_WORD(10:9) on the STORE_ADR_FORMAT edge; ADDRESS_MODES computes INDEX_SCALED
+in its clocked branch on that SAME edge from the SCALE *signal* (still the previous brief word's scale) and
+INDEX (new). So for one clock the index is scaled by the previous indexed instruction's scale = exactly the
+board pattern (clr.l/clr.w swap). RTL passes because there the EA is consumed a clock later; on the board the
+variable/register mapping lets the stale product through. Fix: use EXT_WORD(10:9) at the store edge.
+Not a tt19-style RAM issue: st_helper.vg has no BSRAM/SSRAM in the core except I-cache DATA_RAM (forwarded, C10)
+and TAG_RAM. RTL regression (run_rtl.sh, MAXD=30) with F93: 0 FAIL. Board build f93sc (trace tcl) queued.
