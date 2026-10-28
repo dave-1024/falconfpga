@@ -8,7 +8,8 @@ endmodule
 module fm #(parameter real TCO=7.0, parameter real SKD=3.0)(input sck_i, input csn, input [1:0] io_o, input [1:0] oe, output [1:0] io_i);
  wire sck; assign #(SKD) sck = sck_i;
  integer n; reg [21:0] a; reg [1:0] q = 0; reg [15:0] dat;
- function [15:0] f(input [21:0] x); f = (x==0) ? `W0 : (x==1) ? `W1 : (x==2) ? `W2 : x[15:0]*16'h9E37 ^ (x[15:0]>>3) ^ 16'h5A5A; endfunction
+ reg [15:0] img [0:131071]; initial if (`IMGON) $readmemh("img.hex", img);
+ function [15:0] f(input [21:0] x); f = (`IMGON) ? img[x[16:0]] : (x==0) ? `W0 : (x==1) ? `W1 : (x==2) ? `W2 : x[15:0]*16'h9E37 ^ (x[15:0]>>3) ^ 16'h5A5A; endfunction
  always @(negedge csn) n = 0;
  // 8 cmd clocks first time only handled by host; host in dspi mode sends from state 8: 12 addr clocks + 4 M clocks, then 8 data clocks
  reg dsp=0; integer base;
