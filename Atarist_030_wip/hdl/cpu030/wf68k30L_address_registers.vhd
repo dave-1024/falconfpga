@@ -263,6 +263,7 @@ begin
     variable I_S_IS             : std_logic_vector(3 downto 0); 
     variable INDEX              : std_logic_vector(31 downto 0) := x"00000000";    
     variable INDEX_SCALED       : std_logic_vector(31 downto 0);
+    variable SCALE_V            : std_logic_vector(1 downto 0); -- [F93]
     variable MEM_ADR            : std_logic_vector(31 downto 0);
     variable OUTER_DISPL        : std_logic_vector(31 downto 0);
     variable PCVAR              : std_logic_vector(31 downto 0);
@@ -318,7 +319,11 @@ begin
                 end if;
             end if;
             --
-            case SCALE is
+            -- [F93] at the STORE_ADR_FORMAT edge the SCALE signal still holds the previous brief word's scale
+            -- (it is latched at this same edge in ADR_FORMAT), so take it from EXT_WORD here. Board: clr.l/clr.w
+            -- (0,An,Dn*4)/(0,An,Dn*2) pairs in MiNT used each other's scale -> page map overwritten.
+            if STORE_ADR_FORMAT = '1' then SCALE_V := EXT_WORD(10 downto 9); else SCALE_V := SCALE; end if;
+            case SCALE_V is
                 when "00" => INDEX_SCALED := INDEX; -- Multiple by 1.
                 when "01" => INDEX_SCALED := INDEX(30 downto 0) & '0'; -- Multiple by 2.
                 when "10" => INDEX_SCALED := INDEX(29 downto 0) & "00"; -- Multiple by 4.
