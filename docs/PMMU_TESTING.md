@@ -224,3 +224,12 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
 - So the helper going silent is **not specific to the flash path** (op 53 + op 1). It also happened after an SRAM load. One SRAM load (f68, 07:22)
   kept it alive and the next (f68ovl) did not. Parked, as asked; one theory to check later is the AE350/helper handshake on any FPGA reconfiguration
   (for example a reset or boot-mode pin state while the fabric is reloaded).
+
+## Sim: MiNT do_open("u:/dev/console") on the RTL core (28 Oct 2026, sim only)
+- Kernel TEXT base in Hatari (ST, 4 MB, TOS 2.06): **$CEBA**. The CONSOLE open is `jsr (a1)` at **$2E2E8** → do_open at $35EA4
+  (from init.c: FATAL at TEXT+$21B54).
+- Hatari (MP off): do_open returns **d0 = 0** (13.6k instructions, trace kept on the box at /workspace/mtr/h3.log).
+- RTL tb030 from Hatari's RAM snapshot at $2E2E8 (`tools/minttest/sim/doopen.sh`, stub `mint_doopen_stub.s`): returns **d0 = 0** at
+  WS 1, WS 3 and WS 1 + CIMODE 1, with no exceptions. **The core runs this path correctly from Hatari's state.**
+  So on the board the state reaching do_open must already differ (some earlier step in MiNT init diverges), or the problem depends on the board
+  (interrupt timing, SDRAM). Next: snapshot earlier (MiNT entry / init_filesys) and compare bus writes against Hatari.
