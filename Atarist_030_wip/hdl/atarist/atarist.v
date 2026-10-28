@@ -370,7 +370,12 @@ wire [15:0] cart4_din = (!cart4_n && mbus_a[15:10] == 6'h00) ? cart4_rom : 16'hf
 `else
 wire [15:0] cart4_din = 16'hffff;
 `endif
-wire [15:0] ext_io_din     = ((ext_io_cs & rw) ? ext_io_rdata : 16'hffff) & cart4_din;
+// [F94] select registered on clk_32: takes the address decode out of the clk32 path blitter_has_bus -> mbus_a ->
+// ext_io_cs -> cpu_din/mbus_dout LUTs -> GSTMCU registers (f91: -0.120 ns). rdata is already registered (rd_hold) and
+// the mailbox DTACK comes >= 2 clk_32 after the select, so the data is valid before DTACK as before.
+reg ext_io_rsel = 1'b0;
+always @(posedge clk_32) ext_io_rsel <= ext_io_cs & rw;
+wire [15:0] ext_io_din     = (ext_io_rsel ? ext_io_rdata : 16'hffff) & cart4_din;
 wire        ext_io_dtack_n = ~ext_io_dtack;
 `else
 wire [15:0] ext_io_din     = 16'hffff;   // desktop: constant, removed by synthesis
