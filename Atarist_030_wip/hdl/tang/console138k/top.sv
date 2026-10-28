@@ -168,7 +168,13 @@ assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then 
 // U15 (BL616 USB serial, 115200 8N1): fabric letters while the AE350 is in
 // reset, the AE350's UART2 while it runs (st_helper_ctrl.v).
 // [F69] while the main PLL is not locked (por) pll_wdog.v owns U15 and sends its status line.
+`ifdef DIAG_HEARTBEAT
+// [F72] debug: once a second the 68030/ST heartbeat line borrows U15 while the AE350 UART is idle (cpu_heartbeat.v).
+wire hb_own, hb_tx;
+assign uart_ext_tx = por ? wd_tx : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+`else
 assign uart_ext_tx = por ? wd_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+`endif
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
 `endif
@@ -1052,6 +1058,12 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
     .tmds_d_n   ( tmds_d_n   ),
     .tmds_d_p   ( tmds_d_p   )
 );
+`endif
+
+`ifdef DIAG_HEARTBEAT
+// [F72] instance here, after diag_flags/por32/sth_ae_run are declared
+cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule

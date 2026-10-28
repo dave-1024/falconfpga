@@ -164,6 +164,7 @@ add_file hdl/tang/console138k/gowin_pll/pll_160m_mod.v
 add_file hdl/tang/console138k/pll_init.v
 add_file hdl/tang/console138k/pll_wdog.v
 add_file hdl/tang/console138k/flash_unstick.v
+add_file hdl/tang/console138k/cpu_heartbeat.v
 add_file hdl/tang/console138k/reset_sync.v
 add_file hdl/helper/key_debounce.v
 add_file hdl/helper/gowin_pll_ae350/gowin_pll_ae350.v
