@@ -234,3 +234,13 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   So on the board the state reaching do_open must already differ (some earlier step in MiNT init diverges), or the problem depends on the board
   (interrupt timing, SDRAM). Next: snapshot earlier (MiNT entry / init_filesys) and compare bus writes against Hatari.
 - Helper silence analysis and options: see docs/HELPER_SILENCE.md (the leading theory, a PLL not locking after a warm reconfigure, fits the black HDMI + no UART byte).
+
+## Sim: MiNT from its entry on the RTL core (28 Oct 2026, running)
+- Hatari snapshot at the MiNT entry (2nd hit of PC $CEBA, user mode, after STAGE0): `tools/minttest/sim/stub_entry.s` + `run_entry.sh`.
+  tb030 with level 6 vector $45 (timer C) every 80000 clk (200 Hz) and level 4 (VBL) every 320000 clk; it logs only EXC/HALT and the
+  do_open call ($2E2E8), its return ($2E2EA) and the FATAL path ($2EA0E).
+- tb030 change: MFP timer A/B/C/D data registers count down (before this only timer C did); TOS polls timer B data ($FFFA21).
+- ~22M clocks (Hatari: 1.4 s from entry to do_open) is about 1 h of GHDL. Result to follow. Hatari has no bus-write log, so the
+  comparison is at the checkpoints (do_open result, exceptions) and a RAM diff if it gets there.
+- Box note: the box was reset around 08:29 (/tmp and installed packages lost). Hatari now runs from /workspace/hroot (dpkg -x of the trixie .deb
+  + libcapstone5) via ~/bin/hatari; ssh to linserver uses ~/bin/socks5nc.py instead of nc.

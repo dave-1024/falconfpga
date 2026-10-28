@@ -146,8 +146,9 @@ begin
           elsif a >= x"00FC0000" then w := rom(to_integer(a - x"00FC0000") / 2);
           else w := rom(to_integer(a(17 downto 1))); end if;
         elsif isram then w := std_logic_vector(to_unsigned(ram(wi), 16));
-        elsif ST = 1 and a(23 downto 1) = "11111111111110100010001" then
-          w := std_logic_vector(to_unsigned((255 - (n / 64) mod 256) * 257, 16)); -- MFP timer C data counts down
+        elsif ST = 1 and (a(23 downto 3) = "111111111111101000100" or a(23 downto 1) = "11111111111110100001111") then
+          -- MFP timer A/B/C/D data ($FFFA1F-$FFFA25) count down ([MINT] TOS/MiNT poll timer B data for a change)
+          w := std_logic_vector(to_unsigned((255 - (n / 64) mod 256) * 257, 16));
         else w := x"FFFF"; end if;
         if WSRND > 0 then
           lfsr := (lfsr * 75 + 74) mod 65537; wr := (lfsr / 7) mod (WSRND + 1);
