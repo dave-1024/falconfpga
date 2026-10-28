@@ -16,7 +16,8 @@ module cpu_trace #(
     parameter integer CLK_HZ = 32_000_000,
     parameter integer BAUD   = 115_200,
     parameter [31:0]  TRIG_ADR = 32'hFFFFFFFF,  // [F80] also freeze POST clocks after the first 030 write (AS, !RW) to
-    parameter [31:0]  TRIG_MSK = 32'hFFFFFFF8   //       (A & TRIG_MSK) == TRIG_ADR; all-ones = HALT only
+    parameter [31:0]  TRIG_MSK = 32'hFFFFFFF8,  //       (A & TRIG_MSK) == TRIG_ADR; all-ones = HALT only
+    parameter [31:0]  TRIG_PC  = 32'hFFFFFFFF   // [F82] and (PC & ~FF) == TRIG_PC, all-ones = any PC
 )(
     input  wire         clk_cpu,
     input  wire         rst_n,          // cpu_rst_n (clk_cpu)
@@ -35,7 +36,8 @@ module cpu_trace #(
     reg [AW-1:0] wp = 0; reg [15:0] cnt = 0; reg [9:0] post = 0;
     reg run = 1'b0, frz = 1'b0, wrapped = 1'b0, rst_d = 1'b0;
     // ent: [119] asn, [112] rwn, [95:64] adr
-    wire trig = (TRIG_ADR != 32'hFFFFFFFF) & ~ent[119] & ~ent[112] & ((ent[95:64] & TRIG_MSK) == TRIG_ADR) & (ent[23:20] != 4'hE);  // not from ROM (TOS memory test)
+    wire trig = (TRIG_ADR != 32'hFFFFFFFF) & ~ent[119] & ~ent[112] & ((ent[95:64] & TRIG_MSK) == TRIG_ADR) & (ent[23:20] != 4'hE)
+                & ((TRIG_PC == 32'hFFFFFFFF) | ((ent[31:0] & 32'hFFFFFF00) == TRIG_PC));  // not from ROM (TOS memory test)
     always @(posedge clk_cpu) begin
         rst_d <= rst_n;
         if (!rst_n) begin run <= 1'b0; frz <= 1'b0; end
