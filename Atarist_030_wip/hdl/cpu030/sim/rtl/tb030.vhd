@@ -40,7 +40,7 @@ architecture sim of tb030 is
   signal dbgx : std_logic_vector(104 downto 0);
   signal halto, reso, ipendn : std_logic;
   type mem_t is array (0 to 131071) of std_logic_vector(15 downto 0);  -- 256K ROM
-  type ram_t is array (0 to 2097151) of integer range 0 to 65535;      -- 4MB RAM
+  type ram_t is array (0 to 2621439) of integer range 0 to 65535;      -- 4MB RAM + [MINT] 1MB disk window at $C00000
   impure function load return mem_t is
     file f : text open read_mode is ROMFILE; variable l : line; variable m : mem_t := (others => x"FFFF");
     variable i : integer := 0; variable v : std_logic_vector(15 downto 0);
@@ -100,7 +100,7 @@ begin
   begin
     if RAMFILE /= "" then
       file_open(rf, RAMFILE, read_mode); wi := 0;
-      while not endfile(rf) and wi < 2097152 loop
+      while not endfile(rf) and wi < 2621440 loop
         readline(rf, l); hread(l, w); ram(wi) := to_integer(unsigned(w)); wi := wi + 1;
       end loop;
       file_close(rf);
@@ -120,6 +120,9 @@ begin
         isram := (a >= 8 and a < x"00010000") or (ST = 1 and a >= 8 and a < x"00400000");
         isio  := ST = 1 and ((a >= x"00FF8000" and a <= x"00FFFFFF" and a(23 downto 4) /= x"FF8C8") or (a >= x"00FA0000" and a < x"00FC0000"));
         wi := to_integer(a(21 downto 1));
+        if ST = 1 and a >= x"00C00000" and a < x"00D00000" then -- [MINT] disk window: RAMFILE words 2M.. (a floppy image)
+          isram := true; wi := 2097152 + to_integer(a(19 downto 1));
+        end if;
         istt := fc /= "111" and a(31 downto 16) = x"0100"; ti := to_integer(a(15 downto 2));
         if berrw /= 0 and rwn = '1' and isram and to_integer(a(15 downto 1)) = berrw / 2 and a(31 downto 16) = x"0000" then
           isram := false; -- [DC]
