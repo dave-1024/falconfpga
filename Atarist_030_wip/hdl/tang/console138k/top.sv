@@ -171,7 +171,7 @@ assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then 
 `ifdef DIAG_HEARTBEAT
 // [F72] debug: once a second the 68030/ST heartbeat line borrows U15 while the AE350 UART is idle (cpu_heartbeat.v).
 wire hb_own, hb_tx;
-assign uart_ext_tx = por ? wd_tx : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+assign uart_ext_tx = por ? wd_tx : diag_dump[1] ? diag_dump[0] : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `else
 assign uart_ext_tx = por ? wd_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
 `endif
@@ -397,6 +397,8 @@ wire [16:0] diag_rom_idx;
 wire [15:0] diag_rom_data;
 wire [3:0]  diag_030;
 wire [167:0] diag_trace;
+wire [1:0]   diag_dump;   // [F77] {own, tx} register dump while the 030 is halted (DIAG_DUMP)
+wire         diag_go;
 wire [23:0] diag_vbase;
 
 // Helper bring-up. DDR3 trains, then the AE350 is released and owns MSPI
@@ -885,6 +887,8 @@ misterynano misterynano (
   .diag_rom_data ( diag_rom_data ),
   .diag_030      ( diag_030      ),
   .diag_trace    ( diag_trace    ),
+  .diag_dump     ( diag_dump     ),
+  .diag_go       ( diag_go       ),
   .diag_vbase    ( diag_vbase    ),
 
   // digital 16 bit audio output
@@ -1067,10 +1071,13 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
 );
 `endif
 
+`ifndef DIAG_HEARTBEAT
+assign diag_go = 1'b0;   // [F77] no dump without the heartbeat's U15 arbitration
+`endif
 `ifdef DIAG_HEARTBEAT
 // [F72] instance here, after diag_flags/por32/sth_ae_run are declared
 cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
-    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .own(hb_own), .tx(hb_tx) );
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .ext_busy(diag_dump[1]), .go_ext(diag_go), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule

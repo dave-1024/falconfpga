@@ -125,6 +125,8 @@ module cpu030_st_bridge #(
     output wire        dbg_req,    // req_now: toggles once per 030 AS cycle (clk_32)
     output wire        dbg_dsack,  // s_dsack (clk_32)
     output wire        dbg_berr,   // s_berr (clk_32)
+    output wire [1:0]  dbg_dump,   // [F77] DIAG_DUMP {own, tx} register dump UART (clk_32), 2'b01 otherwise
+    input  wire        dbg_go,     // [F77] U15 free for the dump (from top.sv)
     // FalconFPGA DIAG diag030b/c, observation only (mixed clk_32/clk_cpu,
     // read through 2-FF syncs in the overlay; values are slow or frozen):
     // [167:128] {got, FC2:0, RW, SIZE1:0, bad_space, A31:0 at first BERR} (clk_32)
@@ -183,7 +185,9 @@ module cpu030_st_bridge #(
     wire        cpu_ipendn, cpu_statusn;
     wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
     wire [104:0] cpu_dbg_exc;
-    wire [287:0] cpu_dbg_pmmu;         // [F76] DIAG_PMMU {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, SSW}          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
+    wire [287:0] cpu_dbg_pmmu;
+    wire [639:0] cpu_dbg_regs;         // [F77] DIAG_DUMP
+    wire [15:0]  cpu_dbg_sr;         // [F76] DIAG_PMMU {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, SSW}          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
     // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
     // on a bus-cycle-by-bus-cycle basis"; the core latches it at the start of S4, or with STERM).
     // Decoded from the cycle the 030 is running (AS asserted, its own A31:0 and FC2:0):
@@ -269,6 +273,12 @@ module cpu030_st_bridge #(
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
 `ifdef DIAG_PMMU
         .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F76]
+`elsif DIAG_DUMP
+        .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F77]
+`endif
+`ifdef DIAG_DUMP
+        .DBG_REGS  ( cpu_dbg_regs  ),   // [F77]
+        .DBG_SR    ( cpu_dbg_sr    ),
 `endif
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
@@ -1185,6 +1195,14 @@ module cpu030_st_bridge #(
     assign dbg_trace = {pm_rows, pm_vec};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
+`endif
+
+// [F77] register dump on U15 while halted
+`ifdef DIAG_DUMP
+    cpu_dump u_cpu_dump ( .clk(clk), .halt_n(hlt_sync[1]), .regs(cpu_dbg_regs), .sr(cpu_dbg_sr), .pmmu(cpu_dbg_pmmu),
+        .berr_adr(d_badr), .berr_info({d_got, d_info}), .go(dbg_go), .own(dbg_dump[1]), .tx(dbg_dump[0]) );
+`else
+    assign dbg_dump = 2'b01;
 `endif
 
 endmodule

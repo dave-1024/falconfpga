@@ -34,6 +34,8 @@ module misterynano #(
   output [15:0] diag_rom_data,// ROM data from flash
   output [3:0]  diag_030,     // 030 bridge {berr, dsack, req, run}
   output [167:0] diag_trace,  // diag030c: bridge first-BERR / bus-cycle watch
+  output [1:0]  diag_dump,    // [F77] DIAG_DUMP {own, tx}
+  input         diag_go,      // [F77]
   output [23:0] diag_vbase,   // diag030w: {boot-path flags, cmdload word}
   output		ws2812,
   output		jtagsel,
@@ -824,6 +826,8 @@ atarist atarist (
     .dbg_cpu_halted_n(dbg_cpu_halted_n),
     .dbg_030(diag_030),
     .dbg_trace(diag_trace),
+    .dbg_dump(diag_dump),
+    .dbg_go(diag_go),
     .dbg_vbase(diag_vbase)
 `ifdef ST_HELPER
     ,

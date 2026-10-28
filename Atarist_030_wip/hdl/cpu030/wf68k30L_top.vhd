@@ -197,6 +197,8 @@ entity WF68K30L_TOP is
         DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DBG_STR         : out std_logic_vector(127 downto 0); -- FalconFPGA DIAG STR: decoder word stream + ISP
+        DBG_REGS        : out std_logic_vector(639 downto 0); -- [F77] DIAG_DUMP: {D7..D0, A0..A6, USP, ISP, MSP, PC, VBR}
+        DBG_SR          : out std_logic_vector(15 downto 0);  -- [F77]
         DBG_PMMU        : out std_logic_vector(287 downto 0); -- [F76] DIAG_PMMU: {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, 7'0 & SSW_80_F}
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
@@ -481,6 +483,8 @@ signal PC_LOAD_EXH              : bit;
 signal PC_LOAD_MAIN             : bit;
 signal PC_OFFSET                : std_logic_vector(7 downto 0);
 signal DBG_A5_I                 : std_logic_vector(31 downto 0);
+signal DBG_DR_I                 : std_logic_vector(255 downto 0); -- [F77]
+signal DBG_AR_I                 : std_logic_vector(319 downto 0); -- [F77]
 signal DBG_SP_I                 : std_logic_vector(31 downto 0);
 signal DBG_QF_I                 : std_logic_vector(3 downto 0);
 signal DBG_QC                   : std_logic_vector(3 downto 0);
@@ -1195,6 +1199,7 @@ begin
     -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
     -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
+    DBG_REGS <= DBG_DR_I & DBG_AR_I & PC & VBR; DBG_SR <= STATUS_REG; -- [F77]
     DBG_PMMU <= MMU_TC & MMU_CRP & MMU_SRP & MMU_TT0 & MMU_TT1 & MMU_SR & FAULT_ADR & "0000000" & SSW_80_F; -- [F76]
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_QC <= x"0" when Q_COUNT = 0 else x"1" when Q_COUNT = 1 else x"2" when Q_COUNT = 2 else x"3" when Q_COUNT = 3 else x"4";
@@ -1395,7 +1400,8 @@ begin
             PC_RESTORE              => PC_RESTORE_EXH,
             PC_OFFSET               => PC_OFFSET,
             DBG_A5                  => DBG_A5_I,
-            DBG_SP                  => DBG_SP_I
+            DBG_SP                  => DBG_SP_I,
+            DBG_AR                  => DBG_AR_I
         );
 
     I_ALU: WF68K30L_ALU
@@ -1730,7 +1736,8 @@ begin
             USE_DPAIR               => USE_DPAIR,
             DR_IN_USE               => DR_IN_USE,
             UNMARK                  => UNMARK,
-            OP_SIZE                 => OP_SIZE_WB
+            OP_SIZE                 => OP_SIZE_WB,
+            DBG_DR                  => DBG_DR_I
         );
 
     I_EXC_HANDLER: WF68K30L_EXCEPTION_HANDLER

@@ -18,6 +18,7 @@ puts $fh "`define ST_HELPER"
 puts $fh "`define DIAG_OVERLAY"
 puts $fh "`define DIAG_PMMU"
 puts $fh "`define DIAG_HEARTBEAT"
+puts $fh "`define DIAG_DUMP"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot): OFF by default
 # since 22 Oct 2026. Its ttdiag calls EmuTOS 1.4 internals ($E00308/$E00C2E),
 # which hang plain TOS 2.06. Debug opt-in only: uncomment the next line.
@@ -92,6 +93,7 @@ add_file hdl/cpu030/wf68k30L_icache.vhd
 add_file hdl/cpu030/wf68k30L_dcache.vhd
 add_file hdl/cpu030/wf68k30L_mmu.vhd
 add_file hdl/cpu030/wf68k30L_top.vhd
+add_file hdl/cpu030/cpu_dump.v
 add_file hdl/cpu030/cpu030_st_bridge.v
 add_file hdl/fdc1772/fdc1772.v
 add_file hdl/fdc1772/floppy.v

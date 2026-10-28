@@ -69,7 +69,8 @@ entity WF68K30L_DATA_REGISTERS is
         DR_IN_USE           : out bit;
         UNMARK              : in bit;
         
-        OP_SIZE             : in OP_SIZETYPE
+        OP_SIZE             : in OP_SIZETYPE;
+        DBG_DR              : out std_logic_vector(255 downto 0) -- [F77] DIAG_DUMP: D7..D0
     );
 end entity WF68K30L_DATA_REGISTERS;
     
@@ -85,6 +86,7 @@ signal DR_SEL_WR_I2     : std_logic_vector(2 downto 0);
 signal DR_USED_1        : std_logic_vector(3 downto 0);
 signal DR_USED_2        : std_logic_vector(3 downto 0);
 begin
+    DBG_DR <= DR(7) & DR(6) & DR(5) & DR(4) & DR(3) & DR(2) & DR(1) & DR(0); -- [F77]
     INBUFFER: process
     begin
         wait until CLK = '1' and CLK' event;

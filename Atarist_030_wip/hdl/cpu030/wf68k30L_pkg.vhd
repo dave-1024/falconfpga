@@ -207,7 +207,8 @@ component WF68K30L_ADDRESS_REGISTERS
         PC_RESTORE          : in bit;
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0);
-        DBG_SP              : out std_logic_vector(31 downto 0)
+        DBG_SP              : out std_logic_vector(31 downto 0);
+        DBG_AR              : out std_logic_vector(319 downto 0) -- [F77]
     );
 end component;
 
@@ -535,7 +536,8 @@ component WF68K30L_DATA_REGISTERS
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
         UNMARK              : in bit;
-        OP_SIZE             : in OP_SIZETYPE
+        OP_SIZE             : in OP_SIZETYPE;
+        DBG_DR              : out std_logic_vector(255 downto 0) -- [F77]
     );
 end component;
 

@@ -24,6 +24,8 @@ module cpu_heartbeat #(
     input  wire [16:0] rom_idx,
     input  wire [15:0] rom_data,
     input  wire [167:0] trace,
+    input  wire        ext_busy,     // [F77] the register dump (cpu_dump.v) has U15
+    output wire        go_ext,       // [F77] U15 free for the dump: AE350 idle 10 ms, heartbeat not sending
     output reg         own = 1'b0,   // 1 while this module drives U15
     output reg         tx  = 1'b1
 );
@@ -52,7 +54,8 @@ module cpu_heartbeat #(
     function [7:0] hx(input [3:0] v); hx = (v < 10) ? 8'h30 + v : 8'h37 + v; endfunction
     // line: 39 chars
     reg [5:0] ci = 0; reg [3:0] bi = 0; reg [15:0] bd = 0;
-    assign start = pend && !own && (idle >= IDLE) && !rst;
+    assign start = pend && !own && !ext_busy && (idle >= IDLE) && !rst;
+    assign go_ext = !own && (idle >= IDLE) && !rst;
     reg [7:0] ch;
     wire [143:0] nibs = {fl_l, c_l, as_last, 3'b0, r_l, w0_l, g_l, b_l, p_l, nline};   // 36 hex digits
     always @(*) begin

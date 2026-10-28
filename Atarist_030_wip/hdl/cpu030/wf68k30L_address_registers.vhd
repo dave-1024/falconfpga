@@ -140,7 +140,8 @@ entity WF68K30L_ADDRESS_REGISTERS is
         PC_RESTORE          : in bit;
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG (A5 for the exception probe)
-        DBG_SP              : out std_logic_vector(31 downto 0) -- FalconFPGA DIAG STR: ISP
+        DBG_SP              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG STR: ISP
+        DBG_AR              : out std_logic_vector(319 downto 0) -- [F77] DIAG_DUMP: A0..A6, USP, ISP, MSP
     );
 end entity WF68K30L_ADDRESS_REGISTERS;
     
@@ -174,6 +175,7 @@ signal USP_REG          : std_logic_vector(31 downto 0); -- User stack pointer (
 begin
     DBG_A5 <= AR(5); -- FalconFPGA DIAG
     DBG_SP <= ISP_REG; -- FalconFPGA DIAG STR
+    DBG_AR <= AR(0) & AR(1) & AR(2) & AR(3) & AR(4) & AR(5) & AR(6) & USP_REG & ISP_REG & MSP_REG; -- [F77]
     INBUFFER: process
     begin
         wait until CLK = '1' and CLK' event;
