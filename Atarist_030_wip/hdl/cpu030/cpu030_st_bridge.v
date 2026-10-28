@@ -1204,7 +1204,13 @@ module cpu030_st_bridge #(
     wire tr_want, tr_own, tr_tx, du_own, du_tx;
 `ifdef DIAG_TRACE_TRIG
 `ifdef DIAG_TRACE_POST
-    cpu_trace #(.POST(`DIAG_TRACE_POST), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC), .TRIG_ARM(1)) u_cpu_trace (
+    cpu_trace #(.POST(`DIAG_TRACE_POST), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC),
+`ifdef DIAG_TRACE_ARM
+                .TRIG_ARM(1)
+`else
+                .TRIG_ARM(0)
+`endif
+               ) u_cpu_trace (
 `elsif DIAG_TRACE_ARM
     cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC), .TRIG_ARM(1)) u_cpu_trace (
 `elsif DIAG_TRACE_TRIG_PC
