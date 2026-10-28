@@ -244,3 +244,16 @@ New helper script on linserver: `~/pop.sh <op> [args]` (rescans the cable locati
   comparison is at the checkpoints (do_open result, exceptions) and a RAM diff if it gets there.
 - Box note: the box was reset around 08:29 (/tmp and installed packages lost). Hatari now runs from /workspace/hroot (dpkg -x of the trixie .deb
   + libcapstone5) via ~/bin/hatari; ssh to linserver uses ~/bin/socks5nc.py instead of nc.
+
+## Board workflow (agreed with David, 28 Oct 2026)
+- Test builds go into **SRAM only** (`~/pop.sh 2 --fsFile <build>` on linserver, with `~/sramlog.sh <fs> <secs>` logging U15 across the load).
+- Flash at 0 holds a known-good build for recovery: pmmu8 now; f69 (PLL watchdog) once proven. **TOS at 0x500000 and the helper firmware at
+  0x600000 are never rewritten.** No bulk erase, never the BL616.
+- **Before every SRAM load** run a read-only flash op (`~/pop.sh 66 --fsFile <the .fs in flash at 0>`). It takes the flash out of the ST controller's
+  continuous-read mode, so the AE350 can boot (docs/HELPER_SILENCE.md). This is also the recovery for a silent helper: verify, then SRAM-load. No replug needed.
+
+## f69 on the board (SRAM, 28 Oct 09:25–09:35 GMT)
+- After op 66 + op 2: AE350 banner, helper link OK, TOS desktop. pmt5.st: **FAILS=0 DEVS=0**.
+- mint_mp2.st: same last screen as before (FAT/VFAT 1.27 banner, no MPTEST.TXT). Frame linserver `~/cap_f69mp/f1.png`.
+- run_rtl.sh after the tb030 MFP/ACIA/shifter model changes: **PASS** (all checks).
+- MiNT-from-entry RTL run: still going (0.65 s emulated so far: 131 timer C ticks, 558 BIOS traps, no fault).
