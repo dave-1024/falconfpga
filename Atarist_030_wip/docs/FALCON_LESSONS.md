@@ -456,3 +456,24 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   give it set_input/output_delay or an IOB register, and check that the path shows up in STA.
 - Lesson 2: "same logic, different placement, different behaviour" means look for untimed paths first (pads, async
   crossings, clocks through LUTs), not for logic bugs.
+
+## WF68K30L: indexed EA used the previous brief word's scale (FreeMiNT memory protection halt, branch pmmu, F93)
+
+- **Symptom.** FreeMiNT with memory protection on stopped on the board after the FAT/VFAT banner. Hatari and RTL
+  simulation ran on. A board trace of MiNT's clear loop showed `clr.l (0,a4,d1.l*4)` stepping by 2 and the next
+  `clr.w (0,a5,d1.l*2)` stepping by 4: each instruction used the other one's index scale. The word clear ran
+  twice as far as its buffer and zeroed a byte of MiNT's page-type map, so a page was marked invalid and MiNT halted.
+- **Root cause.** In `wf68k30L_address_registers.vhd` the scale is a separate register, latched from the brief
+  extension word on the `STORE_ADR_FORMAT` clock edge. The scaled index (index x scale) is computed in a clocked
+  process on that same edge, so it read the scale register before it had been updated, i.e. the previous indexed
+  instruction's scale. The index register itself was the new one.
+- **Fix (F93, 39ab2c4).** On the store edge the scaled index takes the scale straight from the extension word.
+  No switch. Board: MPTEST (child writes to parent memory get SIGBUS/SIGSEGV, parent unchanged, children run side
+  by side) passes with 0 failures.
+- How it was found: a BRAM bus trace on the board (cpu_trace, triggered by PC and address) of the loop's writes,
+  compared with the instruction encoding. The netlist had no RAM in this path, so it was not a tt19-style
+  block-RAM read; the caches were not involved.
+- *Lessons:* when a value is latched into a register on edge E, anything computed on edge E must use the source
+  (here the extension word), not the register. RTL simulation that passes does not clear such a race if the
+  result's use timing differs on the board. Look for "one instruction late" patterns (a field from the previous
+  instruction combined with the current operand) as a sign of it.
