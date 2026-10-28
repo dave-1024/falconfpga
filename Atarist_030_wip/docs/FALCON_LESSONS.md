@@ -438,3 +438,21 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   half-cycle path. Either register it or make the sampler wait for a full cycle, and say so in the SDC.
 - Lesson 2: check every explicit clock-pair report (tools/timing/timing_pairs.py), not just TNS. No build with negative
   pair slack goes on the board.
+
+## Untimed flash pads: TOS read errors that come and go with placement (pmmu f70-f77, F79)
+
+- Symptom: pmmu f70, f71, f73 and f77hb gave a black screen, or on f77hb "WARNING: BAD ROM CRC IN CHIP E: / O:" and
+  bombs; f69, f73hb, f74hb, f78tr and main f70 booted. The logic of the flash path was the same in all of them. The
+  F77 register dump showed TOS restoring registers from opcode bytes (ISP = $4E7340DD) and double-faulting at $E0FBBA.
+- Cause: flash_dspi.v latched the IO0/IO1 pads straight into eight dout flops per pin. Eight loads cannot go into the
+  IOB, and the SDC has no input/output delays on the flash pads, so STA never timed them (no mspi path in any
+  timing_pairs report). The routing delay from each pad to its flops changed with every placement; at 100 MHz with SCK
+  on a 22.5 degree PLL phase there is no margin for that.
+- Board (SRAM): f79hb, f79rel and f79ovl (three placements) 3/3 cold boots each, no ROM CRC warning, TOS desktop, pmt5 PMMUTEST running with PASS lines.
+- Fix (F79, ST_HELPER flash reader): one register per pad (ireg_in_iob), dout latched one clock later (states 26-33,
+  CS# still rises after state 32). The sample instant is the same clk edge as before (sim: bit-identical to the old
+  reader). main has the same unregistered latch and no pad constraints.
+- Lesson 1: a pad sampled at 100 MHz must go through one IOB register, and an unconstrained I/O is a placement lottery:
+  give it set_input/output_delay or an IOB register, and check that the path shows up in STA.
+- Lesson 2: "same logic, different placement, different behaviour" means look for untimed paths first (pads, async
+  crossings, clocks through LUTs), not for logic bugs.
