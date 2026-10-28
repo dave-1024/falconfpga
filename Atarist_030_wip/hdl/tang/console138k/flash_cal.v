@@ -96,7 +96,13 @@ module flash_cal #(
         end
     end
     // ---- calibration scan ----
-    (* syn_ramstyle = "registers" *) reg [31:0] crc [0:7];   // plain flops (F85b: extracted as RAM)
+    // [F91] eight explicit registers (the array version read back the same value for every point on the board)
+    reg [31:0] c0r=0, c1r=0, c2r=0, c3r=0, c4r=0, c5r=0, c6r=0, c7r=0;
+    reg [15:0] f0=0, f1=0, f2=0, f3=0, f4=0, f5=0, f6=0, f7=0;   // first word read at each point
+    function [31:0] crcsel(input [2:0] i); case (i) 0: crcsel=c0r; 1: crcsel=c1r; 2: crcsel=c2r; 3: crcsel=c3r;
+        4: crcsel=c4r; 5: crcsel=c5r; 6: crcsel=c6r; default: crcsel=c7r; endcase endfunction
+    function [15:0] fsel(input [2:0] i); case (i) 0: fsel=f0; 1: fsel=f1; 2: fsel=f2; 3: fsel=f3;
+        4: fsel=f4; 5: fsel=f5; 6: fsel=f6; default: fsel=f7; endcase endfunction
     reg [31:0] c = 32'hFFFFFFFF;
     reg [16:0] w = 0;
     reg [15:0] sh = 0; reg [4:0] nb = 0;
@@ -114,21 +120,22 @@ module flash_cal #(
             0: if (init_done) begin pp <= 0; p <= 3'd0; w <= 0; c <= 32'hFFFFFFFF; cs_st <= 1; end
             1: begin s_adr <= scan_base + {5'd0, w}; s_req <= 1'b1; cs_st <= 2; end
             2: if (done_stb) begin s_req <= 1'b0; sh <= dout; nb <= 5'd16; cs_st <= 3; 
-                   if (w == 0) ok[pp] <= (dout[15:8] == 8'h60);
+                   if (w == 0) begin ok[pp] <= (dout[15:8] == 8'h60);
+                       case (pp) 0: f0 <= dout; 1: f1 <= dout; 2: f2 <= dout; 3: f3 <= dout; 4: f4 <= dout; 5: f5 <= dout; 6: f6 <= dout; default: f7 <= dout; endcase end
                    if (w == 1 && dout[15:8] > 8'h04) ok[pp] <= 1'b0;
                    if (w == 2 && dout != 16'h00E0 && dout != 16'h00FC) ok[pp] <= 1'b0; end
             3: if (nb != 0) begin
                    c <= (c[31] ^ sh[15]) ? {c[30:0], 1'b0} ^ 32'h04C11DB7 : {c[30:0], 1'b0};
                    sh <= {sh[14:0], 1'b0}; nb <= nb - 1'b1;
                end else if (w == SCAN_WORDS - 1) begin
-                   crc[pp] <= c; c <= 32'hFFFFFFFF; w <= 0;
+                   case (pp) 0: c0r <= c; 1: c1r <= c; 2: c2r <= c; 3: c3r <= c; 4: c4r <= c; 5: c5r <= c; 6: c6r <= c; default: c7r <= c; endcase c <= 32'hFFFFFFFF; w <= 0;
                    if (pp == 3'd7) begin k <= 0; ph <= 0; best_sc <= 0; best_p <= DEF_P; cs_st <= 5; end
                    else begin pp <= pp + 1'b1; p <= pp + 1'b1; cs_st <= 1; end
                end else begin w <= w + 1'b1; cs_st <= 1; end
             5: begin   // k = 0..7, 3 clocks each: fetch, compare, score (pipelined for 100 MHz)
                    ph <= ph + 1'b1;
                    if (ph == 2'd0) begin
-                       cm <= crc[kp]; cl <= crc[kp - 1'b1]; ch_ <= crc[kp + 1'b1];
+                       cm <= crcsel(kp); cl <= crcsel(kp - 1'b1); ch_ <= crcsel(kp + 1'b1);
                        okm <= ok[kp]; okl <= (kp != 3'd0) && ok[kp - 1'b1]; okh <= (kp != 3'd7) && ok[kp + 1'b1];
                    end else if (ph == 2'd1) begin
                        eql <= okl && (cm == cl); eqh <= okh && (cm == ch_);
@@ -147,17 +154,17 @@ module flash_cal #(
     function [7:0] hx(input [3:0] v); hx = (v < 10) ? 8'h30 + v : 8'h37 + v; endfunction
     // character sequence: "FCAL " , 8 x (8 hex + ' '/'+'), "S=" p, CRLF; seg/j/n counters, char registered
     reg [2:0] seg = 0;    // 0 "FCAL ", 1 crc digits, 2 "S=p", 3 CRLF
-    reg [2:0] j = 0; reg [3:0] n = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch = 8'h46; reg [31:0] cj;
+    reg [2:0] j = 0; reg [3:0] n = 0; reg [15:0] bd = 0; reg [3:0] bi = 0; reg [7:0] ch = 8'h46; reg [31:0] cj; reg [15:0] fj;
     reg last = 1'b0;
     // [F86] status line while not calibrated, about once a second: "FCS  <cs_st pp init busy state w[15:8]>"
     reg stat = 1'b0; reg [31:0] sw = 0; reg [26:0] tk = 0; reg [1:0] rc = 0;
     wire [31:0] stw = {cs_st, 1'b0, pp, 3'b0, init, busy, 1'b0, state, w[15:8]};
     always @(posedge clk) begin
-        cj <= stat ? sw : crc[j];
+        cj <= stat ? sw : crcsel(j); fj <= fsel(j);
         tk <= (tk == CLK_HZ - 1) ? 27'd0 : tk + 1'b1;
         case (seg)
             0: ch <= (n==0)?"F":(n==1)?"C":(n==2)?(stat?"S":"A"):(n==3)?(stat?" ":"L"):" ";
-            1: ch <= (n == 4'd8) ? (ok[j] ? "+" : " ") : hx(cj[31 - 4*n[2:0] -: 4]);
+            1: ch <= (n == 4'd13) ? (ok[j] ? "+" : " ") : (n == 4'd8) ? "/" : (n > 4'd8) ? hx(fj[15 - 4*(n - 4'd9) -: 4]) : hx(cj[31 - 4*n[2:0] -: 4]);
             2: ch <= (n==0)?"S":(n==1)?"=":(8'h30 + p);
             default: ch <= (n==0) ? 8'h0D : 8'h0A;
         endcase
@@ -176,7 +183,7 @@ module flash_cal #(
                     if (last) rown <= 1'b0;
                     else case (seg)
                         0: if (n == 4'd4) begin seg <= 1; n <= 0; end else n <= n + 1'b1;
-                        1: if (n == 4'd8) begin n <= 0; if (stat) seg <= 3; else if (j == 3'd7) seg <= 2; else j <= j + 1'b1; end else n <= n + 1'b1;
+                        1: if (n == (stat ? 4'd8 : 4'd13)) begin n <= 0; if (stat) seg <= 3; else if (j == 3'd7) seg <= 2; else j <= j + 1'b1; end else n <= n + 1'b1;
                         2: if (n == 4'd2) begin seg <= 3; n <= 0; end else n <= n + 1'b1;
                         default: n <= n + 1'b1;
                     endcase
