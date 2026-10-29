@@ -2303,24 +2303,17 @@ begin
             when FETCH_EXWORD_1 =>
                 -- Be aware that the An registers which will be addressed by EXWORD_1 and are used for several addressing modes
                 -- are valid right after this state (because every address register manipulation requires no more than two clock cycles).
-                -- [F97] The full format left this state on EW_ACK without the ADH check of the brief format, and
-                -- STORE_ADR_FORMAT latches INDEX (DR_OUT_1/An) on that exit edge: an index register written by the
-                -- previous instruction (MiNT: lsl.l #3,d0; movea.l (bd.l,d0.l),a0) was used before its write-back.
-                -- Wait here (EW_RDY holds the word) until the index register is no longer in use.
-                if (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and
-                   ((EXT_WORD(15) = '0' and DR_IN_USE = '1') or (EXT_WORD(15) = '1' and AR_IN_USE = '1')) then
-                    NEXT_FETCH_STATE <= FETCH_EXWORD_1;
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "11" then -- 32 bit displacement.
+                if EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "11" then -- 32 bit displacement.
                     NEXT_FETCH_STATE <= FETCH_D_HI;
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "10" then -- 16 bit displacement.
+                elsif EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "10" then -- 16 bit displacement.
                     NEXT_FETCH_STATE <= FETCH_D_LO;
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "00" then -- Reserved.
+                elsif EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "00" then -- Reserved.
                     NEXT_FETCH_STATE <= START_OP;
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "11" then
+                elsif EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "11" then
                     NEXT_FETCH_STATE <= FETCH_OD_HI; -- Long outer displacement.
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "10" then
+                elsif EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "10" then
                     NEXT_FETCH_STATE <= FETCH_OD_LO; -- Word outer displacement.
-                elsif (EW_ACK = '1' or EW_RDY = '1') and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "01" then
+                elsif EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(1 downto 0) = "01" then
                     NEXT_FETCH_STATE <= FETCH_MEMADR; -- Null outer displacement, go to intermediate address.
                 elsif EW_ACK = '1' or EW_RDY = '1' then -- Null displacement, no outer displacement.
                     case OP is

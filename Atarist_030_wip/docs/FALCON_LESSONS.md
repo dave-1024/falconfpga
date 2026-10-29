@@ -530,3 +530,7 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   identical bus trace with and without F97 (EmuTOS does not use full-format EAs early). So F94 is not proven bad:
   two different changes giving the same black screen points at placement (see the untimed flash pads, F79) rather
   than logic. Lesson: do not stack an untested timing fix under a functional fix; test each bitstream on the board.
+- **F97 fix PENDING (29 Oct 2026).** The FETCH_EXWORD_1 interlock (all variants: f97n, f97p1, f97B Dn-only, f97fx
+  registered wait flag) passes every RTL sim test but gives a black screen on the board; the same tree with the
+  old wf68k30L_control.vhd boots. The control.vhd change is reverted on pmmu; prog_fidx stays in the suite and
+  fails until F97 is fixed another way (next try: forward the Dn write-back into INDEX in address_registers).
