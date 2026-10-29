@@ -477,3 +477,56 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   (here the extension word), not the register. RTL simulation that passes does not clear such a race if the
   result's use timing differs on the board. Look for "one instruction late" patterns (a field from the previous
   instruction combined with the current operand) as a sign of it.
+
+## WF68K30L: full-format indexed EA used the index Dn before the previous instruction wrote it (FreeMiNT GEM launch crash, branch pmmu, F97)
+
+- **Symptom.** FreeMiNT 1-19-4a6 (030 kernel, memory protection on) from a FAT16 ACSI disk: with EmuTOS from ROM
+  "MEMORY VIOLATION type=hardware RW=r AA=2E020613 PC=101B258" in pid 0 right after the keyboard table; with the
+  EmuTOS PRG over TOS 2.06 "RW=w AA=0" at "Launching GEM". Even a 60-byte GEM.PRG crashed the same way. Hatari ran
+  the same disk to XaAES/TeraDesk. The fault PC is kernel text+19c2c, after
+  `lsl.l #3,d0 ; movea.l (bd.l,d0.l),a0 ; movea.l (a0),a0` (full extension word, base suppressed, 32-bit bd).
+- **Proof.** EATEST.PRG (same sequence, table of known values) on the board: index 0 correct, 1..7 wrong. The
+  values read match d0 from *before* the lsl (idx*3 instead of idx*24: bytes +3..+21 of the table). Brief format
+  `(0,a1,d0.l)` and `(An)` read the right values. RTL sim (tb030, prog_fidx.s) reproduces it at all wait states.
+- **Root cause.** `wf68k30L_control.vhd` FETCH_EXWORD_1: the brief format waits there until the index register
+  is no longer in use (ADH: DR_IN_USE / AR_IN_USE), but the full format left the state on EW_ACK straight to
+  FETCH_D_HI / D_LO / OD / MEMADR without that check. `STORE_ADR_FORMAT` latches INDEX (DR_OUT_1) on that exit
+  edge, so an index written by the instruction right before was taken before its write-back. Memory indirect
+  `([bd,Dn.l])` was affected the same way.
+- **Fix (F97).** In FETCH_EXWORD_1 a full-format extension word stays in the state (EW_RDY keeps the word) while
+  the index register (Dn: DR_IN_USE, An: AR_IN_USE) is in use; the full-format exits also accept EW_RDY.
+  Regression: `sim/rtl/prog_fidx.s` + `expect_fidx.txt` in run_rtl.sh (full format bd.l/bd.w with and without
+  base, word index *8, brief, memory indirect; WS 0/1/3/7, CIMODE 0/1, FASTH 0/1).
+- *Lessons:* every path out of a state that latches an operand needs the same hazard interlock; when one
+  addressing form has a "wait while in use" check, check all its sibling forms. "Value from one instruction
+  earlier" again (as F93), this time the register value instead of the scale. A tiny board-side test program
+  copied from the crashing code (EATEST) found it in two runs where a full OS boot took 5 minutes per try.
+- **One pattern, three bugs (C10, F93, F97).** In plain words: something reads a value at the moment it is being
+  changed, and gets the old one. C10 (I-cache, "TT-RAM caches-on SP -2 slip"): the cache read the long a fill had
+  just written and got the old long, because the block RAM had no write-through. F93: the scaled index was computed
+  on the edge that loaded the new scale, so it used the previous instruction's scale. F97: the full-format EA
+  latched its index register before the previous instruction's write-back landed. Each time: the result looked
+  like it came from "one write earlier". When a board result is one step stale, look for a register that is
+  latched on the same edge (or before) the write that should feed it, and check every path into that latch has
+  the same wait/forwarding as the one that works.
+- **Method that found it fast.** Take the crash PC from the OS's report, disassemble that spot in the binary, copy
+  the exact instruction sequence (same registers, same addressing mode, same preceding instruction) into a tiny
+  test PRG with a table of known values, print expected vs got, and run it on the board and in Hatari. Hatari
+  passing and the board failing on 20 instructions points straight at the core; then the same sequence becomes
+  the RTL sim regression. This took two board runs (~5 min each) instead of many full OS boots.
+- **FreeMiNT note (software, not the core).** `sys/arch/mprot030.c` sizes its page-mode table from `_ramtop`
+  ($5a4; init_tables: mint_top_tt, tt_mbytes, global_mode_table_size), while `sys/memory.c` takes the alt-RAM
+  regions from TOS `Mxalloc(-1, F_ALTONLY)`. `mark_region()` then does an unchecked
+  `memset(&global_mode_table[start>>13], mode, len>>13)`. If `_ramtop` is changed (we cleared it to "hide"
+  TT-RAM) the table is too small and MiNT bus-errors at ramtop+$3b during boot (0200003b with 16 MB, 0180003b with
+  8 MB; same in Hatari). Do not touch `_ramtop`/`ramvalid`; EmuTOS 1.4 256K adds the full TT-RAM with xmaddalt and
+  that works with memory protection on.
+- **EmuTOS 192K on this core:** EmuTOS 1.4 192K UK (padded to 256K at flash $500000) panics with "Exception
+  number 33" (pc $00FCCFE4) before any disk boot. Use the 256K build.
+- **F94 reverted, black screens not explained yet.** F94 (ext_io read select registered on clk_32) was never
+  board-tested. On the board the F94 build (22b6c04), the first F97 build on top of it, AND the F97 build without
+  F94 (f97n) all gave no HDMI picture after a cold boot, while f93n on the same setup showed the EmuTOS desktop.
+  The f93n and f97n trees differ only in wf68k30L_control.vhd; a tb030 sim of the EmuTOS 256K ROM boot gives an
+  identical bus trace with and without F97 (EmuTOS does not use full-format EAs early). So F94 is not proven bad:
+  two different changes giving the same black screen points at placement (see the untimed flash pads, F79) rather
+  than logic. Lesson: do not stack an untested timing fix under a functional fix; test each bitstream on the board.
