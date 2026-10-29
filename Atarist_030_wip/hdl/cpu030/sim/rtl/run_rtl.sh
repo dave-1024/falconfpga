@@ -7,6 +7,8 @@
 # vblank-sync loop (prog_loop.s) is not slower than with the original core.
 # [F97] prog_fidx.s: indexed EA whose index Dn was written by the previous instruction (full format,
 # brief, memory indirect), expect_fidx.txt.
+# [SL1] prog_slmmu.s: MiNT xaaes env loop (jsr strlen; lea (1,a2,d0.l),a2), PMMU on, ATC/cache flush, empty string.
+# prog_irqwb.s (not in this loop, slow): same tail under periodic level-4 interrupts, run by hand.
 # Usage: run_rtl.sh [scratch dir, default /tmp/sim030rtl]. Needs GHDL >= 4 and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); S=${WF_SRC:-$H/../..}; W=${1:-/tmp/sim030rtl}; mkdir -p $W/work; cd $W
@@ -26,12 +28,12 @@ for p in a b; do
     [ "$sr" = "2700" ] && { echo "FAIL prog $p dly $d: level 4 taken with SR mask 7"; fail=1; }
   done
 done
-for p in chk branch cas2 memind shift fidx; do
+for p in chk branch cas2 memind shift fidx slmmu; do
   m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_$p.s -o p.o
   m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
   python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_$p.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
   for ws in 0 1 3 7; do
-    $G -r $O tb030 -gROMFILE=prog_$p.hex -gWS=$ws -gMAXCLK=$([ $p = shift -o $p = fidx ] && echo 120000 || echo 20000) 2>/dev/null > r.log || true
+    $G -r $O tb030 -gROMFILE=prog_$p.hex -gWS=$ws -gMAXCLK=$([ $p = shift -o $p = fidx -o $p = slmmu ] && echo 150000 || echo 20000) 2>/dev/null > r.log || true
     r=$(python3 -c "
 import re
 s=[]
