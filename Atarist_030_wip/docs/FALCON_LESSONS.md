@@ -534,3 +534,9 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   registered wait flag) passes every RTL sim test but gives a black screen on the board; the same tree with the
   old wf68k30L_control.vhd boots. The control.vhd change is reverted on pmmu; prog_fidx stays in the suite and
   fails until F97 is fixed another way (next try: forward the Dn write-back into INDEX in address_registers).
+- **F97 fixed by forwarding (29 Oct 2026, f97fw).** No fetch-logic change: the data register file reports whether
+  the index Dn still has a write-back pending (DR_USED) and gives its live value; the address unit keeps re-reading
+  INDEX from that Dn while it is pending, plus one clock to take the written value. prog_fidx 16/16, run_rtl,
+  icache, dcache PASS; timing_pairs pass; 44524 LUT + 5327 ALU, 18213 registers. Board: EmuTOS desktop after a cold
+  boot, EATEST PASS, MiNT (MP on) now gets past the old crash to XaAES start. Why every FETCH_EXWORD_1 interlock
+  variant blacked the board while RTL sim matched bit for bit is still not explained (sim/hardware mismatch).

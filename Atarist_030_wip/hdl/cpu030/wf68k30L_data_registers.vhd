@@ -67,6 +67,9 @@ entity WF68K30L_DATA_REGISTERS is
         DR_MARK_USED        : in bit;
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
+        DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
+        DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
+        DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
         UNMARK              : in bit;
         
         OP_SIZE             : in OP_SIZETYPE;
@@ -124,6 +127,11 @@ begin
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_2 else
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_3 else '0';
 
+    -- [F97] Forwarding for the index register: a full-format ext word latches INDEX before the previous
+    -- instruction's write-back of that Dn; the address unit re-reads it here until the write-back has landed.
+    DR_IDX_OUT <= DR(conv_integer(DR_IDX_SEL));
+    DR_IDX_PEND <= '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_IDX_SEL else
+                   '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_IDX_SEL else '0';
     DR_OUT_1 <= DR(DR_PNTR_RD_1);
     DR_OUT_2 <= DR(DR_PNTR_RD_2);
     DR_FC_OUT <= DR(conv_integer(DR_FC_SEL))(2 downto 0); -- [PMMU3] MC68030UM p. 9-64: FC = Dn bits 2-0

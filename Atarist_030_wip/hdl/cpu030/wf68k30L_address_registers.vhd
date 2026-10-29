@@ -69,6 +69,9 @@ entity WF68K30L_ADDRESS_REGISTERS is
         AR_OUT_1            : out std_logic_vector(31 downto 0);
         AR_OUT_2            : out std_logic_vector(31 downto 0);
         INDEX_IN            : in std_logic_vector(31 downto 0);
+        INDEX_LIVE          : in std_logic_vector(31 downto 0) := x"00000000"; -- [F97]
+        INDEX_PEND          : in bit := '0';                                   -- [F97]
+        IDX_SEL             : out std_logic_vector(2 downto 0);                -- [F97]
         PC                  : out std_logic_vector(31 downto 0); -- Program counter (or sPC) always word aligned.
         PC_EW_OFFSET        : in std_logic_vector(3 downto 0); -- Offset to the first address extension word.
         FETCH_MEM_ADR       : in bit;
@@ -146,6 +149,9 @@ entity WF68K30L_ADDRESS_REGISTERS is
 end entity WF68K30L_ADDRESS_REGISTERS;
     
 architecture BEHAVIOR of WF68K30L_ADDRESS_REGISTERS is
+signal IDX_TRK : bit := '0';                                   -- [F97] INDEX follows the live Dn
+signal IDX_N   : std_logic_vector(2 downto 0) := "000";
+signal IDX_L   : std_logic := '0';
 type AR_TYPE is array(0 to 6) of std_logic_vector(31 downto 0);
 signal ADR_EFF_I        : std_logic_vector(31 downto 0);
 signal AR               : AR_TYPE; -- Address registers A0 to A6.
@@ -173,6 +179,7 @@ signal SCALE            : std_logic_vector(1 downto 0); -- Scale information for
 signal SFC_REG          : std_logic_vector(2 downto 0); -- Special function code registers.
 signal USP_REG          : std_logic_vector(31 downto 0); -- User stack pointer (refers to A7 in the user mode.).
 begin
+    IDX_SEL <= EXT_WORD(14 downto 12) when STORE_ADR_FORMAT = '1' else IDX_N; -- [F97]
     DBG_A5 <= AR(5); -- FalconFPGA DIAG
     DBG_SP <= ISP_REG; -- FalconFPGA DIAG STR
     DBG_AR <= AR(0) & AR(1) & AR(2) & AR(3) & AR(4) & AR(5) & AR(6) & USP_REG & ISP_REG & MSP_REG; -- [F77]
@@ -317,6 +324,24 @@ begin
                     end loop;
                     INDEX(15 downto 0) := AR(conv_integer(EXT_WORD(14 downto 12)))(15 downto 0);
                 end if;
+            elsif IDX_TRK = '1' and IDX_L = '1' then -- [F97] forward the Dn write-back into INDEX.
+                INDEX := INDEX_LIVE;
+            elsif IDX_TRK = '1' then
+                for i in 31 downto 16 loop
+                    INDEX(i) := INDEX_LIVE(15);
+                end loop;
+                INDEX(15 downto 0) := INDEX_LIVE(15 downto 0);
+            end if;
+            -- [F97] Track while the previous instruction's write-back of the index Dn is pending, plus one
+            -- clock to take the written value.
+            if RESET = '1' then
+                IDX_TRK <= '0';
+            elsif STORE_ADR_FORMAT = '1' then
+                IDX_N <= EXT_WORD(14 downto 12);
+                IDX_L <= EXT_WORD(11);
+                if EXT_WORD(15) = '0' and INDEX_PEND = '1' then IDX_TRK <= '1'; else IDX_TRK <= '0'; end if;
+            elsif INDEX_PEND = '0' then
+                IDX_TRK <= '0';
             end if;
             --
             -- [F93] at the STORE_ADR_FORMAT edge the SCALE signal still holds the previous brief word's scale

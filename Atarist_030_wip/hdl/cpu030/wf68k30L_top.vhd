@@ -542,6 +542,9 @@ signal STATUS_REG               : std_logic_vector(15 downto 0);
 signal STATUSn_MAIN             : bit;
 signal STATUSn_EXH              : bit;
 signal STORE_ADR_FORMAT         : bit;
+signal IDX_SEL                  : std_logic_vector(2 downto 0); -- [F97]
+signal DR_IDX_OUT               : std_logic_vector(31 downto 0);
+signal DR_IDX_PEND              : bit;
 signal STORE_ABS_HI             : bit;
 signal STORE_ABS_LO             : bit;
 signal STORE_AEFF               : bit;
@@ -1345,6 +1348,9 @@ begin
             AR_OUT_1                => AR_OUT_1,
             AR_OUT_2                => AR_OUT_2,
             INDEX_IN                => DR_OUT_1, -- From data register section.
+            INDEX_LIVE              => DR_IDX_OUT,
+            INDEX_PEND              => DR_IDX_PEND,
+            IDX_SEL                 => IDX_SEL,
             PC                      => PC,
             FETCH_MEM_ADR           => FETCH_MEM_ADR,
             STORE_ADR_FORMAT        => STORE_ADR_FORMAT,
@@ -1740,6 +1746,9 @@ begin
             DR_MARK_USED            => DR_MARK_USED,
             USE_DPAIR               => USE_DPAIR,
             DR_IN_USE               => DR_IN_USE,
+            DR_IDX_SEL              => IDX_SEL,
+            DR_IDX_OUT              => DR_IDX_OUT,
+            DR_IDX_PEND             => DR_IDX_PEND,
             UNMARK                  => UNMARK,
             OP_SIZE                 => OP_SIZE_WB,
             DBG_DR                  => DBG_DR_I

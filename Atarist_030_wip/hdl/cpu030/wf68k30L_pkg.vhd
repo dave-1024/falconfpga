@@ -147,6 +147,9 @@ component WF68K30L_ADDRESS_REGISTERS
         AR_OUT_1            : out std_logic_vector(31 downto 0);
         AR_OUT_2            : out std_logic_vector(31 downto 0);
         INDEX_IN            : in std_logic_vector(31 downto 0);
+        INDEX_LIVE          : in std_logic_vector(31 downto 0) := x"00000000"; -- [F97]
+        INDEX_PEND          : in bit := '0';                                   -- [F97]
+        IDX_SEL             : out std_logic_vector(2 downto 0);                -- [F97]
         PC                  : out std_logic_vector(31 downto 0);
         PC_EW_OFFSET        : in std_logic_vector(3 downto 0);
         FETCH_MEM_ADR       : in bit;
@@ -535,6 +538,9 @@ component WF68K30L_DATA_REGISTERS
         DR_MARK_USED        : in bit;
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
+        DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
+        DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
+        DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
         UNMARK              : in bit;
         OP_SIZE             : in OP_SIZETYPE;
         DBG_DR              : out std_logic_vector(255 downto 0) -- [F77]
