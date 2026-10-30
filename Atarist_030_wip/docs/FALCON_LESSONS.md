@@ -540,3 +540,11 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   icache, dcache PASS; timing_pairs pass; 44524 LUT + 5327 ALU, 18213 registers. Board: EmuTOS desktop after a cold
   boot, EATEST PASS, MiNT (MP on) now gets past the old crash to XaAES start. Why every FETCH_EXWORD_1 interlock
   variant blacked the board while RTL sim matched bit for bit is still not explained (sim/hardware mismatch).
+
+- F99 (SD direct map, PENDING board proof): ACSI .hd images that start at card LBA >= ~2^18 (128 MB) fail
+  (TOS loader "Pexec() failed") while the MCU file path reads the same sectors correctly, on f97fw and f93n.
+  Working: card LBA 165688, 190264. Failing: 300184..361624. MCU math (clst2sect) and sd_card.v CMD6 decode are
+  correct in iverilog (base 361624 kept). Gowin synthesis "Extracting RAM for identifier 'direct_start'" and a
+  block-local `reg [24:0] ds` inside the CMD6 branch (33-bit concat truncation warning). Fix: direct_start forced
+  to registers (syn_ramstyle), ds made a module-level reg [23:0]. Lesson: an image that fails only on the board
+  and only for some files -> check where the file sits on the card (hc.py mount prints cl=/direct mapping @LBA).

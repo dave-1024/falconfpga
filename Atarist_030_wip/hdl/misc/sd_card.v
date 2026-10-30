@@ -166,7 +166,10 @@ wire [2:0] drive =
 // start sector has to be known and the core will read and
 // write from and to the sd card without and further interaction
 // with the Companion.
-reg [31:0] direct_start [8];   
+// [F99] keep the direct-map bases in flip-flops: Gowin extracted this as RAM and images that
+// start at card LBA >= ~2^18 failed through the direct path (MCU path fine).
+reg [31:0] direct_start [8] /* synthesis syn_ramstyle = "registers" */;
+reg [23:0] ds;   // [F99] CMD6 start-sector bytes 31:8 (module level, was a block-local reg [24:0])
 // SD_WRITE_DEBUG event strobe from the MCU command decoder (1 clock)
 reg [1:0]  dbg_ev;        // 2 = direct base set (cmd 6), 3 = image inserted (cmd 4/7)
 reg [2:0]  dbg_ev_drv;
@@ -490,7 +493,6 @@ always @(posedge clk) begin
 			
 			// SDC CMD 6: ENABLE DIRECT ACCESS
 			if(command == 8'd6) begin
-			   reg [24:0] ds;
 			   
 			   // MCU reports that the core may access the image
 			   // directy without sector translation
