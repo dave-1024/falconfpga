@@ -541,10 +541,18 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   boot, EATEST PASS, MiNT (MP on) now gets past the old crash to XaAES start. Why every FETCH_EXWORD_1 interlock
   variant blacked the board while RTL sim matched bit for bit is still not explained (sim/hardware mismatch).
 
-- F99 (SD direct map, PENDING board proof): ACSI .hd images that start at card LBA >= ~2^18 (128 MB) fail
-  (TOS loader "Pexec() failed") while the MCU file path reads the same sectors correctly, on f97fw and f93n.
-  Working: card LBA 165688, 190264. Failing: 300184..361624. MCU math (clst2sect) and sd_card.v CMD6 decode are
-  correct in iverilog (base 361624 kept). Gowin synthesis "Extracting RAM for identifier 'direct_start'" and a
-  block-local `reg [24:0] ds` inside the CMD6 branch (33-bit concat truncation warning). Fix: direct_start forced
-  to registers (syn_ramstyle), ds made a module-level reg [23:0]. Lesson: an image that fails only on the board
-  and only for some files -> check where the file sits on the card (hc.py mount prints cl=/direct mapping @LBA).
+- F99 SD card: hard-disk images placed past the first ~128 MB of the card would not boot.
+  Symptom: MiNT stopped at "FreeMiNT loader: Pexec() failed!" - the kernel could not be loaded. It looked like
+  bad or corrupt uploads: every freshly uploaded .hd failed, re-uploads failed, even a CRC-verified copy of a
+  known-good image failed. A day was lost re-uploading and building copier floppies.
+  How it was found: the images were fine (CRC right, contiguous on the card, the helper's own file read returned
+  correct kernel bytes) and an older core (f93n) failed the same way, so it was not the CPU. The failure followed
+  where the file sat on the card, not its name or contents: `hc.py mount` prints "enable direct mapping @<LBA>";
+  images starting at card sector 165688 and 190264 booted, every one at 300184..361624 failed (boundary between
+  ~202552 and 272163, consistent with 2^18 = 262144 sectors = 128 MB). New uploads always land in free space high
+  on the card, which is why only "new" images failed.
+  Cause/fix: for an unfragmented image the core reads the card directly from a stored start sector
+  (sd_card.v direct_start, set by SDC command 6). Synthesis turned that table into a RAM and the command-6 decode
+  used a block-local temporary register; simulation was correct. Fix: keep direct_start in flip-flops
+  (syn_ramstyle "registers") and make the temporary a normal module-level reg [23:0].
+  Lesson: when one file fails and another identical one works, check its position on the SD card.
