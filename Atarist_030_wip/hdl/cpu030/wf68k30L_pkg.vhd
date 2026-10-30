@@ -211,7 +211,8 @@ component WF68K30L_ADDRESS_REGISTERS
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0);
         DBG_SP              : out std_logic_vector(31 downto 0);
-        DBG_AR              : out std_logic_vector(319 downto 0) -- [F77]
+        DBG_AR              : out std_logic_vector(319 downto 0); -- [F77]
+        DBG_IDX             : out std_logic_vector(239 downto 0)  -- [F100]
     );
 end component;
 

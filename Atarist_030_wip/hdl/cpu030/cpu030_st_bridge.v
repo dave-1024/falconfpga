@@ -125,6 +125,7 @@ module cpu030_st_bridge #(
     output wire        dbg_req,    // req_now: toggles once per 030 AS cycle (clk_32)
     output wire        dbg_dsack,  // s_dsack (clk_32)
     output wire        dbg_berr,   // s_berr (clk_32)
+    output wire [239:0] dbg_idx,   // [F100] IDX_DEBUG latches (clk_cpu domain, frozen values)
     output wire [1:0]  dbg_dump,   // [F77] DIAG_DUMP {own, tx} register dump UART (clk_32), 2'b01 otherwise
     input  wire        dbg_go,     // [F77] U15 free for the dump (from top.sv)
     // FalconFPGA DIAG diag030b/c, observation only (mixed clk_32/clk_cpu,
@@ -186,6 +187,9 @@ module cpu030_st_bridge #(
     wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
     wire [104:0] cpu_dbg_exc;
     wire [287:0] cpu_dbg_pmmu;
+`ifndef IDX_DEBUG
+    assign dbg_idx = 240'd0;   // [F100]
+`endif
     wire [639:0] cpu_dbg_regs;         // [F77] DIAG_DUMP
     wire [15:0]  cpu_dbg_sr;         // [F76] DIAG_PMMU {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, SSW}          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
     // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
@@ -278,6 +282,9 @@ module cpu030_st_bridge #(
         .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F76]
 `elsif DIAG_DUMP
         .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F77]
+`endif
+`ifdef IDX_DEBUG
+        .DBG_IDX   ( dbg_idx       ),   // [F100]
 `endif
 `ifdef DIAG_DUMP
         .DBG_REGS  ( cpu_dbg_regs  ),   // [F77]

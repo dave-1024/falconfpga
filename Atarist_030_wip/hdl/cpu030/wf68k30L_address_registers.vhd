@@ -144,7 +144,8 @@ entity WF68K30L_ADDRESS_REGISTERS is
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG (A5 for the exception probe)
         DBG_SP              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG STR: ISP
-        DBG_AR              : out std_logic_vector(319 downto 0) -- [F77] DIAG_DUMP: A0..A6, USP, ISP, MSP
+        DBG_AR              : out std_logic_vector(319 downto 0); -- [F77] DIAG_DUMP: A0..A6, USP, ISP, MSP
+        DBG_IDX             : out std_logic_vector(239 downto 0)  -- [F100] IDX_DEBUG latches (read via SDC cmd 10/11)
     );
 end entity WF68K30L_ADDRESS_REGISTERS;
     
@@ -152,6 +153,15 @@ architecture BEHAVIOR of WF68K30L_ADDRESS_REGISTERS is
 signal IDX_TRK : bit := '0';                                   -- [F97] INDEX follows the live Dn
 signal IDX_N   : std_logic_vector(2 downto 0) := "000";
 signal IDX_L   : std_logic := '0';
+-- [F100] IDX_DEBUG: snapshot of an indexed EA at PC = DB_TARGET (xaaes env loop lea (1,a2,d0.l),a2).
+-- Not reset (survives the MiNT COLD reboot after the fault). Pruned by synthesis when DBG_IDX is unused.
+constant DB_TARGET : std_logic_vector(31 downto 0) := x"01FB114A";
+signal INDEX_S  : std_logic_vector(31 downto 0) := (others => '0');
+signal DB_ST    : integer range 0 to 7 := 0;
+signal DB_CNT   : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_FL    : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_TRK   : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_IN, DB_LIVE0, DB_IDX2, DB_IDX6, DB_LIVE6, DB_EA6, DB_PC : std_logic_vector(31 downto 0) := (others => '0');
 type AR_TYPE is array(0 to 6) of std_logic_vector(31 downto 0);
 signal ADR_EFF_I        : std_logic_vector(31 downto 0);
 signal AR               : AR_TYPE; -- Address registers A0 to A6.
@@ -332,6 +342,7 @@ begin
                 end loop;
                 INDEX(15 downto 0) := INDEX_LIVE(15 downto 0);
             end if;
+            INDEX_S <= INDEX; -- [F100]
             -- [F97] Track while the previous instruction's write-back of the index Dn is pending, plus one
             -- clock to take the written value.
             if RESET = '1' then
@@ -575,6 +586,25 @@ begin
     end process ADDRESS_MODES;
 
     ADR_EFF <= ADR_EFF_I;
+
+    IDX_DBG: process -- [F100]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if STORE_ADR_FORMAT = '1' and EXT_WORD(15) = '0' and PC_I = DB_TARGET then
+            DB_ST <= 1; DB_CNT <= DB_CNT + '1'; DB_PC <= PC_I;
+            DB_IN <= INDEX_IN; DB_LIVE0 <= INDEX_LIVE;
+            DB_FL <= "0000000" & to_stdulogic(INDEX_PEND);
+            DB_TRK <= x"00";
+        elsif DB_ST /= 0 then
+            DB_ST <= (DB_ST + 1) mod 8;
+            DB_FL(DB_ST) <= to_stdulogic(INDEX_PEND);
+            DB_TRK(DB_ST) <= to_stdulogic(IDX_TRK);
+            if DB_ST = 2 then DB_IDX2 <= INDEX_S; end if;
+            if DB_ST = 6 then DB_IDX6 <= INDEX_S; DB_LIVE6 <= INDEX_LIVE; DB_EA6 <= ADR_EFF_I; end if;
+        end if;
+    end process IDX_DBG;
+    -- cmd10 bytes 0..14: IN, LIVE0, FL, CNT, TRK, IDX2 ; cmd11 bytes 0..14: IDX6, LIVE6, EA6, PC(23:0)
+    DBG_IDX <= DB_IN & DB_LIVE0 & DB_FL & DB_CNT & DB_TRK & DB_IDX2 & DB_IDX6 & DB_LIVE6 & DB_EA6 & DB_PC(23 downto 0);
     ADR_EFF_WB <= ADR_WB(31 downto 0);
     
     -- Data outputs:

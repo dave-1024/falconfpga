@@ -133,6 +133,7 @@ module atarist (
 	output wire        dbg_cpu_halted_n,  // CPU not halted (double bus fault)
 	output wire [3:0]  dbg_030,           // bridge {berr, dsack, req, run}, 0 for fx68k
 	output wire [167:0] dbg_trace,        // bridge diag030c latches/state, 0 for fx68k
+	output wire [239:0] dbg_idx,          // [F100] IDX_DEBUG
 	output wire [1:0]  dbg_dump,          // [F77] DIAG_DUMP {own, tx}
 	input  wire        dbg_go,            // [F77]
 	output wire [23:0] dbg_vbase          // diag030w: {boot-path flags[7:0], last word read from cmdload $482}
@@ -667,6 +668,7 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_req    ( dbg_030[1] ),
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
+	.dbg_idx    ( dbg_idx    ),   // [F100]
 	.dbg_dump   ( dbg_dump   ),   // [F77]
 	.dbg_go     ( dbg_go     ),
 	.dbg_trace  ( dbg_trace_cpu )
@@ -716,6 +718,7 @@ assign cpu_ase_n = 1'b1;
 assign dbg_030   = 4'b0000;   // FalconFPGA DIAG
 assign dbg_trace = 168'd0;
 assign dbg_dump  = 2'b01;   // [F77]
+assign dbg_idx   = 240'd0;  // [F100]
 fx68k fx68k (
 	.clk        ( clk_32     ),
 	.extReset   ( reset      ),

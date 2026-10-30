@@ -697,6 +697,7 @@ reg         sd_ready;
 wire [1:0] 	acsi_rd_req;
 wire [1:0] 	acsi_wr_req;
 wire [31:0] acsi_lba;
+wire [239:0] idx_dbg;   // [F100] IDX_DEBUG latches from the 030 address unit
 wire acsi_sd_done = sd_done;
 wire acsi_sd_busy = sd_busy;
 wire acsi_sd_rd_byte_strobe = sd_rd_byte_strobe;
@@ -848,6 +849,7 @@ atarist atarist (
     .dbg_cpu_halted_n(dbg_cpu_halted_n),
     .dbg_030(diag_030),
     .dbg_trace(diag_trace),
+    .dbg_idx(idx_dbg),         // [F100]
     .dbg_dump(diag_dump),
     .dbg_go(diag_go),
     .dbg_vbase(diag_vbase)
@@ -1029,6 +1031,7 @@ sd_card #(
 `else
     // user read sector command interface (sync with clk32)
     .rsector( is_acsi?acsi_lba:fdc_lba),
+    .idx_dbg( idx_dbg ),       // [F100]
     .inbyte(is_acsi?acsi_sd_wr_byte:fdc_sd_wr_data),
 `endif
 
