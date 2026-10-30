@@ -1,0 +1,22 @@
+setup clk_cpu030    -> clk_cpu030_n     5.087 ok  ADR_LATCH_2_s1 -> DATA_INMUX_4_s0
+setup clk_cpu030_n  -> clk_cpu030       9.878 ok  WP_NEG_s0 -> PC_I_27_s1
+setup clk_cpu030_n  -> clk_cpu030_n    55.986 ok  SLICE_CNT_N_0_s1 -> DATA_INMUX_2_s0
+setup clk32_core    -> clk_cpu030_n    18.973 ok  t_open_s0 -> DATA_INMUX_4_s0
+setup clk32_core    -> clk_cpu030      21.526 ok  t_open_s0 -> BM_RDATA_22_s0
+setup clk_cpu030    -> clk32_core       2.817 ok  ADR_LATCH_2_s1 -> r_adr_6_s1
+setup clk_cpu030    -> clk_cpu030      17.381 ok  gowin_replicate_reg_BIW_0_Z[5]_2 -> EX_P_ILLEGAL_s9
+setup clk32_core    -> clk32_core       2.309 ok  bltState_1_s0 -> sd_cmd_2_s0
+hold  clk32_core    -> clk_cpu030_n     0.362 ok  ipl_r_1_s2 -> IRQ_FILTER.IRQ_TMP_1_1_s0
+hold  clk32_core    -> clk_cpu030       0.294 ok  s_tag_s0 -> s_berr_c_s0
+hold  clk_cpu030    -> clk32_core       0.532 ok  MMU_TC_31_s0 -> mmu_on_s0
+hold  clk_cpu030_n  -> clk_cpu030      31.516 ok  DC_PORT_30_s0 -> FB_D0_30_s0
+hold  clk_g         -> clk_g            0.248 ok  waitcnt_0_s0 -> waitcnt_0_s0
+exit=0
+clk_cpu030 Fmax 22.163 MHz levels 34
+clk32_core Fmax 34.553 MHz levels 22
+TNS<0: none
+Logic                       | 52810/138240                        |  39%
+--LUT,ALU,ROM16           | 51082(45763 LUT, 5319 ALU, 0 ROM16) | -
+Register                    | 18484/139095                        |  14%
+BSRAM                       | 165/340                             | 49%
+CLS                         | 34276/69120                         |  50%
