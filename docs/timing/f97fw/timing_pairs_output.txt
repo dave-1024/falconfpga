@@ -1,0 +1,13 @@
+setup clk_cpu030    -> clk_cpu030_n     6.537 ok  ADR_LATCH_3_s1 -> DATA_INMUX_19_s0
+setup clk_cpu030_n  -> clk_cpu030      11.365 ok  RETRY_s6 -> EX_P_BERR_s1
+setup clk_cpu030_n  -> clk_cpu030_n    55.508 ok  SLICE_CNT_N_0_s1 -> DATA_INMUX_16_s0
+setup clk32_core    -> clk_cpu030_n    19.561 ok  t_open_s0 -> DATA_INMUX_12_s0
+setup clk32_core    -> clk_cpu030      21.059 ok  t_open_s0 -> BM_RDATA_17_s0
+setup clk_cpu030    -> clk32_core       7.089 ok  ADR_LATCH_3_s1 -> s_tag_s0
+setup clk_cpu030    -> clk_cpu030      12.806 ok  OP_10_s0 -> EX_P_BERR_s1
+setup clk32_core    -> clk32_core       0.008 ok  gowin_replicate_reg_blitter_has_bus_14 -> val_reg_0_s0
+hold  clk32_core    -> clk_cpu030_n     0.348 ok  ipl_r_1_s2 -> IRQ_FILTER.IRQ_TMP_1_1_s0
+hold  clk32_core    -> clk_cpu030       0.259 ok  t_berr_s0 -> t_berr_c_s0
+hold  clk_cpu030    -> clk32_core       0.303 ok  ph_cpu_s0 -> ph_32_s0
+hold  clk_cpu030_n  -> clk_cpu030      31.520 ok  BUS_FLT_N_s0 -> BUS_FLT_s0
+hold  clk_g         -> clk_g            0.248 ok  waitcnt_0_s0 -> waitcnt_0_s0

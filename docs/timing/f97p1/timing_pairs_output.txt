@@ -1,0 +1,13 @@
+setup clk_cpu030    -> clk_cpu030_n     2.394 ok  ADR_LATCH_6_s1 -> DATA_INMUX_1_s0
+setup clk_cpu030_n  -> clk_cpu030       7.108 ok  WP_NEG_s0 -> EX_P_CHK_s10
+setup clk_cpu030_n  -> clk_cpu030_n    52.072 ok  SLICE_CNT_N_1_s1 -> RETRY_s6
+setup clk32_core    -> clk_cpu030_n    19.161 ok  s_rdata_4_s1 -> DATA_INMUX_4_s0
+setup clk32_core    -> clk_cpu030      25.631 ok  s_rdata_2_s1 -> BM_RDATA_18_s0
+setup clk_cpu030    -> clk32_core       7.227 ok  ADR_LATCH_6_s1 -> r_adr_6_s1
+setup clk_cpu030    -> clk_cpu030       6.866 ok  OP_96_s0 -> EX_P_CHK_s10
+setup clk32_core    -> clk32_core       0.878 ok  p_0_s0 -> mcode_17_s0
+hold  clk32_core    -> clk_cpu030_n     0.902 ok  ipl_r_2_s2 -> IRQ_FILTER.IRQ_TMP_1_2_s0
+hold  clk32_core    -> clk_cpu030       0.300 ok  t_dsack_s0 -> t_dsack_c_s0
+hold  clk_cpu030    -> clk32_core       0.276 ok  BM_D_15_s0 -> tt_wdata_15_s0
+hold  clk_cpu030_n  -> clk_cpu030      31.546 ok  IRQ_1_s0 -> IRQ_PEND_I_1_s0
+hold  clk_g         -> clk_g            0.248 ok  RomAddr_2_s1 -> RomAddr_2_s1

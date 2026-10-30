@@ -1,0 +1,6 @@
+Thu Oct 29 14:46:16 UTC 2026
+gw rc=0
+Thu Oct 29 14:59:54 UTC 2026
+-r-xr-xr-x 1 dave dave 41096871 Oct 29 14:59 impl/pnr/st_helper.fs
+cp: cannot create regular file '/home/dave/fpga_bitstreams/st_helper_hdn_f97_wip.fs': Permission denied
+ALLDONE
