@@ -552,3 +552,35 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   Lessons: (1) build_st_helper.tcl rewrites build_sel.vh - add SD_WRITE_DEBUG in the tcl or the sdstate/sdwlog
   readout is junk (0x8C); (2) before blaming hardware for "one file works, the other fails", diff the files'
   contents (config files, logs) and not only their location.
+- **F110: SD card FAT corruption was the SDRAM controller reading the wrong bank (FIXED, 30 Oct 2026).**
+  Symptom: every MiNT boot wrote 4 wrong bytes into FAT1 sector 2050 at offset 0x34 (clusters 0x1A/0x1B,
+  MINT030.PRG's chain), so the *next* boot failed with "Pexec() failed". The FAT2 copy had the same bytes.
+  Cause, in plain words: `sdram.v` sends the ST READ/WRITE command (CAS) with the column address but did not
+  set the bank, trusting the bank left by the ACTIVE one clock earlier. The TT-RAM engine sets the bank to 1 or 2
+  for its own commands, later in the same clocked block, so whenever one of its steps landed on the ST ACTIVE
+  clock it overwrote that command and its bank. The ST READ that followed went to the TT-RAM bank, at the ST
+  column, and returned TT-RAM data. A second bug in the same engine issued AUTO REFRESH while a TT bank was still
+  recovering from an auto-precharge write (tWR + tRP).
+  Fix (F110): every ST CAS drives bank 0; TT command steps wait on every ST ACTIVE / REFRESH / CAS clock (they
+  never override, and nothing is aborted); TT writes also wait while ST or TT read data is on DQ; an ST write is
+  held up to 3 clocks while TT read data is on DQ (its cycle end is kept); TT drives DQ/DQM only on its own
+  command clocks; REFRESH is deferred while a TT bank is open or recovering. +46 LUT, Fmax unchanged. Board: 5 MiNT
+  boots (MP on and off, 3 cold reloads), every FAT clean, second boots work.
+  How it was found (watchpoint chain, one stage per build, each on a fresh image):
+  F106 latched CPU writes to the FAT buffer in TT-RAM ($01FDE000): only EmuTOS memmove wrote it, with correct
+  data. F107 shadowed every TT write and compared every TT read: no mismatch, so the buffer was never read back
+  wrong. F108 latched the ACSI DMA side: the DMA already read the bad long out of ST-RAM, and the sector buffer and
+  SD write path passed it through unchanged; the last write into the EmuTOS bounce buffer ($01007C, from a Hatari
+  trace) was correct. F109 recorded the SDRAM pins: the write went to bank 0, the DMA's read of the same address
+  went out with bank = 1. That pointed straight at the missing `sd_ba` on the ST CAS.
+  Wrong turns: (1) MMU translation: ruled out because it happened the same with memory protection on and off;
+  (2) "stale TT-RAM read" when the CPU copies the buffer out: F107 disproved it, the TT path was clean; (3) a
+  wrong label: the board ROM had been written down as TOS 2.06 when it is EmuTOS 1.4 256K, so for a while the
+  Hatari reference looked like it did not match; (4) the TT bench had been "failing anyway" for days because
+  `zmask` was left unconnected (X on every ST read), so nobody trusted it and it could not show the bug.
+  General rule for the "fine in sim, wrong on hardware when timing coincides" class: every command must drive all
+  of its fields (command, address, bank, DQ/DQM ownership) on the clock it is issued, never rely on a value left
+  by an earlier command; and the bench must randomise the arbiter phase (tb_ttram `OFFGRID=1 ./run_ttram.sh`:
+  ST slot gaps of 8..15 clocks). On the fixed 8-clock grid both the old and new controllers pass; off-grid the
+  old one shows exactly the board bug ("RD on idle bank 1"), plus REFRESH with a busy bank, swallowed commands,
+  DQ contention and lost ST writes. A bench that keeps failing for a known reason is worse than none: fix it.
