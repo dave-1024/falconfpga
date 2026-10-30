@@ -27,3 +27,16 @@ PLLs were ruled out on the board: a no-PLL "alive" bitstream and a one-PLL varia
 then 0x66 and 0x99 (reset), and waits 40 µs. st_helper_ctrl releases the AE350 only after that (`fu_done`). Sim: `sim/tb_flash_unstick.v`.
 **Lesson:** a design that leaves an external chip in a sticky mode must put it back at its own start-up, not rely on power-up. JTAG reloads
 do not reset the board.
+
+## MFP serial transmit never interrupts: XaAES hangs writing to AUX (branch pmmu, F111-F112, 30 Oct 2026)
+**Symptom:** with the SDRAM fixed (F110), MiNT booted cleanly but XaAES stopped right after "Loading config ... xaaes.cnf". Hatari went on to load the moose ADI.
+**How we found it:** F111 sampled the CPU PC every 2^19 clocks and read it out over the helper SD debug commands. Every sample was inside EmuTOS ROM $E0AEEC-$E0AF14:
+the MFP RS-232 Bconout (BIOS device 1, AUX) waiting for room in its 256-byte output buffer. That buffer is only emptied by the MFP "transmit buffer empty" interrupt.
+**What was wrong:** the core's MFP modelled the transmitter as a 16-byte fifo read by the io controller (BL616). The TX interrupt was the level `!fifo_full`, and the
+interrupt pending bit is set on a rising edge, so it never fired per byte. TBE (TSR bit 7) also depended on the fifo, so it would stay low once the fifo filled.
+A second bug: io_fifo's `full` compared a 4-bit pointer with a 32-bit `writeP + 1`, so `full` never asserted at the pointer wrap and the fifo silently overwrote.
+EmuTOS writes the first byte straight to UDR; the next one is queued while the byte time runs, and with no interrupt the queue never drains. Hatari's MFP always shifts out.
+**Fix (F112, no switch):** like a real MFP, the byte-time timer alone drives TBE and the TX interrupt (set when the byte has been shifted out), whether or not anyone listens.
+The io-controller fifo is now only a tap: bytes are dropped when it is full. io_fifo `full` uses a 4-bit compare.
+**General rule:** a peripheral must keep its own timing even when the host side of a bridge is absent; never derive a CPU-visible status or interrupt from whether an
+external consumer happens to read. Check each interrupt source is an edge where the latch expects an edge. A small bench (write UDR 40 times, poll TSR, check IPR bit 10) shows both bugs.

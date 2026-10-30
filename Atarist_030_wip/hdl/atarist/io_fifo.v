@@ -50,7 +50,7 @@ localparam FIFO_DEPTH = (1 << FIFO_ADDR_BITS);
 reg [DATA_WIDTH-1:0] fifo [FIFO_DEPTH-1:0];
 reg [FIFO_ADDR_BITS-1:0] writeP, readP;
 
-assign full = (readP == (writeP + 1));
+assign full = (readP == writeP + 1'd1);  // F112: 4-bit compare (was 32-bit, so full never asserted at wrap)
 assign empty = (readP == writeP);
 assign used = writeP - readP;
 
