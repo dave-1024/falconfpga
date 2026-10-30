@@ -551,8 +551,11 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   images starting at card sector 165688 and 190264 booted, every one at 300184..361624 failed (boundary between
   ~202552 and 272163, consistent with 2^18 = 262144 sectors = 128 MB). New uploads always land in free space high
   on the card, which is why only "new" images failed.
-  Cause/fix: for an unfragmented image the core reads the card directly from a stored start sector
-  (sd_card.v direct_start, set by SDC command 6). Synthesis turned that table into a RAM and the command-6 decode
-  used a block-local temporary register; simulation was correct. Fix: keep direct_start in flip-flops
-  (syn_ramstyle "registers") and make the temporary a normal module-level reg [23:0].
+  Cause: NOT yet found. For an unfragmented image the core reads the card directly from a stored start sector
+  (sd_card.v direct_start, set by SDC command 6). First suspect: synthesis turned that table into a RAM and the
+  command-6 decode used a block-local temporary register (simulation correct). Build f99a keeps direct_start in
+  flip-flops (syn_ramstyle "registers") with a module-level reg [23:0] temporary: timing ok, but mint_orig.hd at
+  card sector 361624 STILL fails Pexec -> the limit is elsewhere (card region / read path), still open.
+  Workaround until fixed: keep .hd/.st images in the first ~100 MB of the card (copy them from a PC after
+  freeing low space), and check "direct mapping @<LBA>" when mounting.
   Lesson: when one file fails and another identical one works, check its position on the SD card.
