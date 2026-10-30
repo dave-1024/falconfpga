@@ -9,8 +9,7 @@
 // out the "stage 1" block at the end of this file.
 // create_clock -name clk_hdmi -period 6.25 -waveform {0 3.125} [get_nets {video2hdmi/clk_pixel_x5}] -add
 // create_clock -name clk_flash -period 10 -waveform {0 5} [get_nets {flash_clk}]
-create_clock -name clk_spi -period 10 -waveform {0 5} [get_ports {mspi_clk}] -add
-create_clock -name clk_32 -period 31.25 -waveform {0 15.625} [get_ports {O_sdram_clk}] -add
+// F102: clk_spi / clk_32 are now generated clocks on the pads (see the F102 block at the end).
 create_clock -name clk_osc -period 20 -waveform {0 10} [get_ports {clk}] -add
 
 // FalconFPGA stage 1 (HDMI_TESTPATTERN in top.sv): standalone 640x480@60 HDMI.
@@ -43,7 +42,7 @@ create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock 
 // core's inverted CLK was a fabric LUT and those paths were not analysed).
 // Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
 create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n}]
 // F66: while TC.E = 1 the bridge samples the 030 pins only on clk_32 edges that are clk_cpu rising edges
 // (cpu030_st_bridge.v, slow_ok), >= 62.5 ns after AS. The paths through the MMU's ATC lookup / TT match
 // (kept nets XLATE_PIN, BLK_PIN, H_PA in wf68k30L_mmu.vhd) get two clk_32 cycles; with TC.E = 0 those nets
@@ -82,7 +81,7 @@ create_clock -name ddr3_memory_clk -period 5  -waveform {0 2.5} [get_nets {DDR3_
 // flash CS#, UART2_TXD), UART2_RXD (sampled by the UART's own oversampler)
 // and the static, once-switched flash pad mux. Without this group STA would
 // time those crossings as if the 50 MHz and 32 MHz PLL outputs were related.
-set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n}]
 
 // ---------------------------------------------------------------------------
 // Clocks STA found but nobody created (TA1132, 9 Oct 2026). Before this, every
@@ -129,7 +128,7 @@ create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_i
 // mux described above and in the AE350 group line further up; the clk32
 // dividers only meet the HDMI 640 domain through the existing frame-buffer
 // crossing.
-set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
 set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
 set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
 
@@ -155,3 +154,41 @@ set_false_path -to [get_pins {u_porfl_sync/sync_*_s0/PRESET}]
 // gowin_pll_ddr3). Gowin's own reference SDC (ae350_shared_ddr3.sdc, also
 // Hybrid030 ae350_stage0.sdc) declares the two clocks exclusive for this.
 set_clock_groups -exclusive -group [get_clocks {ddr3_memory_clk}] -group [get_clocks {ddr3_clkin}]
+
+// ---------------------------------------------------------------------------
+// F102 (30 Oct 2026): I/O timing for the SDRAM and the ST flash reader. Before this, none of these pads had
+// input/output delays, so pad<->flop timing moved with every placement unchecked (build-dependent failures,
+// f101h read TOS word 0 as $80B8 = $602E << 2: the flash sample slipped one SCK).
+// SDRAM clock: pll_hdmi CLKOUT2, 32 MHz at 338.4 deg (-1.88 ns vs clk32_core), forwarded to O_sdram_clk.
+create_generated_clock -name sdram_pll_clk -source [get_ports {clk}] -master_clock clk_osc -multiply_by 16 -divide_by 25 -phase 338.4 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}]
+create_generated_clock -name clk_32 -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}] -master_clock sdram_pll_clk -divide_by 1 [get_ports {O_sdram_clk}] -add
+// SDRAM (W9825G6KH-6 class, CL2): tAC <= 6 ns, tOH >= 2.5 ns; tIS 1.5 ns, tIH 0.8 ns. Loose values (board + margin):
+// in max 8 / min 0.5, out max 6 / min 0 (also the starting values suggested by the Grok review).
+set_input_delay  -clock clk_32 -max 8.0 [get_ports {IO_sdram_dq[*]}]
+set_input_delay  -clock clk_32 -min 0.5 [get_ports {IO_sdram_dq[*]}]
+// Data for the READ issued at SDRAM edge n is captured by sdram.v on the clk32 edge after SDRAM edge n+CL (STATE_READ):
+// the first clk32 edge after an SDRAM edge is 1.88 ns later, the capture edge is the one after that.
+set_multicycle_path -setup -end 2 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk32_core}]
+set_multicycle_path -hold  -end 1 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk32_core}]
+set_output_delay -clock clk_32 -max 6.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*] O_sdram_cas_n O_sdram_ras_n O_sdram_wen_n}]
+set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*] O_sdram_cas_n O_sdram_ras_n O_sdram_wen_n}]
+// Flash SCK: pll_hdmi CLKOUT4, 100 MHz at 22.5 deg, through the AE350/ST pad mux to mspi_clk.
+create_generated_clock -name st_sck_pll -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 -phase 22.5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}]
+create_generated_clock -name clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}] -master_clock st_sck_pll -divide_by 1 [get_ports {mspi_clk}]
+set_clock_groups -exclusive -group [get_clocks {st_sck_pll clk_spi}] -group [get_clocks {ae350_flash_clk}]
+// Flash (W25Q128JV class) dual-I/O read: data changes after SCK falling, tCLQV <= 6 ns, tCLQX >= 1.5 ns (+0.5 ns board).
+// flash_dspi.v samples IO0/IO1 (dspi_in_r) on the st_flash_clk rising edge 2 edges after that SCK fall.
+set_input_delay -clock clk_spi -clock_fall -max 6.5 [get_ports {mspi_di mspi_do}]
+set_input_delay -clock clk_spi -clock_fall -min 1.5 [get_ports {mspi_di mspi_do}]
+set_multicycle_path -setup -end 2 -from [get_ports {mspi_di mspi_do}] -to [get_clocks {st_flash_clk}]
+set_multicycle_path -hold  -end 1 -from [get_ports {mspi_di mspi_do}] -to [get_clocks {st_flash_clk}]
+// SDRAM DQ/DQM outputs are NOT constrained: sdram.v drives them combinationally from the chipset (din, cs/we/ds; f102a
+// first build: 16 logic levels from the blitter through the shifter mbus, -11.4 ns against a 1-cycle relation). They are
+// set up cycles ahead of the WRITE edge in practice; registering them is the proper fix (F103).
+// Flash outputs (command/address phase) are not constrained yet: the sample edge relation needs checking first.
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk32_core}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk32_core}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_spi}] -to_clock [get_clocks {st_flash_clk}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_spi}] -to_clock [get_clocks {st_flash_clk}]

@@ -426,3 +426,6 @@ IO_LOC  "usb2_dp" M15;
 IO_PORT "usb2_dp" IO_TYPE=LVCMOS33;
 IO_LOC  "usb2_dn" M16;
 IO_PORT "usb2_dn" IO_TYPE=LVCMOS33;
+
+// [F103] pin the flash SCK pad mux LUT next to the CCLK pad (L12 = IOB175[B], no IOLOGIC there) so its route is the same in every build
+INS_LOC "mspi_clk_d_s" R101C175[0][A];

@@ -107,7 +107,7 @@ localparam CMD_PRECHARGE       = 3'b010;
 localparam CMD_AUTO_REFRESH    = 3'b001;
 localparam CMD_LOAD_MODE       = 3'b000;
 
-reg [2:0] sd_cmd;   // current command sent to sd ram
+(* syn_useioff = 1 *) reg [2:0] sd_cmd;   // current command sent to sd ram
 // drive control signals according to current command
 assign sd_cs  = 1'b0;   
 assign sd_ras = sd_cmd[2];
