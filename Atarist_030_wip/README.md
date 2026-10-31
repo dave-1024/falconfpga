@@ -15,33 +15,38 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (23 Oct 2026, main)
+## Status (31 Oct 2026, main)
 
-Board build: **tt26**, made with `debug_builds/build_st_helper_hdn.tcl` (main build + `SD_WRITE_DEBUG`) from d270586:
-worst slack +1.344 ns, clk32 33.44 MHz / clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU. The helper firmware file and the
-SHA256 for tt26 are not recorded in the repo docs yet.
+Board build: **f121a** (main code with the F121 fix, merged into main as 9fe250b): clk_cpu030 20.19 MHz, clk32 34.21 MHz,
+45636 LUT + 5317 ALU, timing_pairs passes (no failing clock pair).
 
+- **FreeMiNT with memory protection, XaAES 1.7.0 and TeraDesk 4.08** run on EmuTOS 1.4 from an ACSI hard disk image on
+  the SD card. The desktop menus work (F121). TeraDesk shows 3.76 MB ST-RAM and 13.9 MB TT-RAM free.
+- **The 68030 PMMU is done** (branch `pmmu`, merged 31 Oct 2026): PMOVE for all MMU registers, transparent translation
+  (TT0/TT1) with cache inhibit, the address translation cache and table walker (short and long descriptors, indirect
+  descriptors, limits, supervisor pages), the MMU configuration exception, PFLUSH/PLOAD/PTEST, write-fault reruns
+  from a format $A frame, and the MC68030UM table-search timing. Design and tests: [../docs/PMMU_DESIGN.md](../docs/PMMU_DESIGN.md),
+  [../docs/PMMU_TESTING.md](../docs/PMMU_TESTING.md), [../docs/PMMU_PROGRESS.md](../docs/PMMU_PROGRESS.md).
 - Main build: `build_st_helper.tcl` (`ST_HELPER_CART` off, no SD debug). Debug variants are in `debug_builds/` and
-  retired scripts in `build_legacy/`.
+  retired scripts in `build_legacy/`. Gowin V1.9.12.03 and V1.9.12.04 both build it ([docs/BUILD.md](docs/BUILD.md)).
 - TT-RAM (16 MB at `$01000000`, same single SDRAM module) and the I and D caches are on by default; always STE.
-  CPU phase 2 (S5 handoff) is merged; GEMBench ~132%.
-- TOS 2.06 + TT-RAM reaches the desktop on a warm boot ([T10]/[T10b] 24-bit wrap rules, [docs/TOS_COMPAT.md](../docs/TOS_COMPAT.md)).
-  The blitter is detected (`Blitmode(-1)` = `$0002`) but left off by default, as on a real 030. Test blits pass; a full
-  blitter-on test and GEMBENCH with the blitter are pending.
+- TOS 2.06 + TT-RAM reaches the desktop; with BLITON + BLITFIX the blitter works too (GEMBENCH 6.31: 131%).
+- The helper starts after a plain reload of the chip (F70 `flash_unstick.v`), and the TOS flash reader calibrates its
+  own sample point at power-up (F85 `flash_cal.v`).
 
 Known issues (order of work in [docs/TODO.md](docs/TODO.md)):
-- TOS 2.06 black screen on a cold power-up on tt26 (EmuTOS is fine); TODO item 8, not diagnosed.
-- EmuTOS still skips blitter detection when TT-RAM is present.
+- TOS 2.06 black screen on a cold power-up (seen on tt26; TODO item 8), not retested.
 - Serial AUX stall after a masked blit (TODO item 9).
-- Placement sensitivity: always check TNS and recovery/removal before flashing.
+- Placement sensitivity: always run timing_pairs before loading a build on the board.
 
-Next: PMMU work has begun on the `pmmu` branch (stage 1 passes on the board: MMU registers, PMOVE, transparent
-translation with cache inhibit, user-mode privilege check). Address translation, the table walker and the remaining MMU
-instructions follow, built to the MC68030 User's Manual. Faster memory (64 MHz SDRAM for faster TT-RAM and burst fills)
-is paused after a first try showed a clock-timing problem, and will be picked up next.
+Next: the **64 MHz SDRAM / TT-RAM speedup** on branch `sdram64` (started from d270586; it must be rebased onto main,
+which has the F110 `sdram.v` fix, before work goes on; see `docs/sdram64/` on that branch).
 
-No rollback list is kept here: the older `st_helper_hdn_*_p3.fs` builds predate TT-RAM and the T10 bridge rules.
-Full history: [docs/HISTORY.md](docs/HISTORY.md).
+Fixes since 24 Oct 2026, in plain English: [../docs/BUGS.md](../docs/BUGS.md). Full history: [docs/HISTORY.md](docs/HISTORY.md).
+
+### History: status as of 23 Oct 2026
+Board build tt26 (d270586): worst slack +1.344 ns, clk32 33.44 MHz / clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU.
+TOS 2.06 + TT-RAM reached the desktop on a warm boot; PMMU work then began on the `pmmu` branch.
 
 ### History: status as of 18 Oct 2026 (before TT-RAM)
 
@@ -320,9 +325,8 @@ names (`atarist_tc138k`) were left unchanged.
 
 ## Core limits
 
-No MMU on main (a 68030 PMMU is in progress on the `pmmu` branch), no FPU, no cache burst fills, and no address error on odd word accesses, so it
-is not yet a complete 68030. The I and D caches are built but have nothing cachable until 030-side fast RAM is fitted.
-TOS 3/4 won't boot (they need PMOVE). Use TOS 2.06, TOS 1.04 or EmuTOS. See `hdl/cpu030/README.md` for the bridge.
+The PMMU is in (see Status). Still missing: no FPU, no cache burst fills, and no address error on odd word accesses,
+so it is not yet a complete 68030. TOS 3/4 have not been tried since the PMMU went in. Use TOS 2.06, TOS 1.04 or EmuTOS 1.4. See `hdl/cpu030/README.md` for the bridge.
 
 ## Board
 

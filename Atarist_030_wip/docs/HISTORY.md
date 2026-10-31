@@ -168,3 +168,14 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     EmuTOS TT-RAM sizing. Build tt26: worst +1.344 ns, clk32 33.44 / clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU.
     TOS 2.06 + TT-RAM reached the desktop (warm boot), Blitmode $0002; EmuTOS TTM1 and FrontBench 1361 unchanged.
     **Open:** black screen with TOS 2.06 on cold power-up on tt26 (23 Oct), not diagnosed.
+
+25. **PMMU and FreeMiNT (`pmmu`, 27-31 Oct 2026, merged to main as 9fe250b).** Stage 1: PMOVE for all MMU registers,
+    TT0/TT1 cache inhibit, CpID 0 F-line privileged (5621114, 3ad4633). Stage 2: MMU configuration exception, ATC and
+    table walker between the bus interface and the pins, PFLUSH/PLOAD/PTEST (1bc6a0a, 3b05d0e, 10e493e, 2951ec9,
+    ed3b869). Stage 3: manual checks and MC68030UM 11.7 timing (eda502a..a47dc61). Board fixes on the way to FreeMiNT:
+    F70/F73 flash_unstick (2056748, 0f1fe53), F85/F86 flash_cal (02027ad, a8ea8ea), F99 SD images (dd4763d; cause was
+    image content), F110 SDRAM ST/TT arbitration (4f349d3), F112 MFP transmitter (c835ed3), F116 MULS -> full-format
+    EA index (085fa99), F121 index type from EXT_WORD, not the immediate (dd24508). Result: FreeMiNT with memory
+    protection + XaAES 1.7.0 + TeraDesk 4.08 on EmuTOS 1.4, desktop menus working. Board build f121a: clk_cpu030
+    20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU. 8972091 restored the `syn_keep` on `ae350_flash_clk` (f25c282)
+    that the merge had dropped, so Gowin V1.9.12.04 builds again. Details: docs/BUGS.md, FALCON_LESSONS.

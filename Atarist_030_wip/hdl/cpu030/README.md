@@ -2,7 +2,7 @@
 
 Current status (23 Oct 2026, main): board build tt26 (d270586; +1.344 ns, clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU)
 with TT-RAM and the I/D caches on by default; TOS 2.06 + TT-RAM reaches the desktop on a warm boot (cold power-up
-black screen open, docs/TODO.md item 8). PMMU work starts 26 Oct. Full status: Atarist_030_wip/README.md.
+black screen open, docs/TODO.md item 8). The PMMU is done (merged 31 Oct 2026). Full status: Atarist_030_wip/README.md.
 
 Earlier status (18 Oct 2026, history): runs on the board (TOS 2.06 desktop, GEMBench 4.03 135% of a stock STE,
 GEMBENCH 6.08 RAM 101% / ROM 104%, board build `st_helper_hdn_f3a_7919eb3_p3.fs`). Since this file was first written
@@ -113,12 +113,12 @@ the SDC line change. For a truly asynchronous CPU clock:
   68000 for bus-bound code. Raising clk_cpu reduces the CPU-side overhead.
 - Read-modify-write (TAS/CAS): grants are blocked while RMCn is low, but the
   ST-side AS is released between the read and the write.
-- The core has no MMU or FPU. All $Fxxx opcodes take a Line-F trap. It has the 68030 instruction and data caches
+- The core has the 68030 PMMU (`wf68k30L_mmu.vhd`, merged 31 Oct 2026; ../../../docs/PMMU_DESIGN.md) but no FPU:
+  FPU opcodes take a Line-F trap. It has the 68030 instruction and data caches
   (merged on main 17 Oct 2026, docs/ICACHE_DESIGN.md, docs/DCACHE_DESIGN.md). The bridge drives CIIN from a per-cycle
-  decode: every ST-side cycle is inhibited, only the reserved fast-RAM range $01000000-$01FFFFFF is cachable. A 68030
-  PMMU in HDL is a planned later step.
-  TOS 3.x/4.x (which use PMOVE) will not work; EmuTOS or TOS 1.04 are the
-  targets.
+  decode: every ST-side cycle is inhibited, only the reserved fast-RAM range $01000000-$01FFFFFF is cachable. PMMU TT0/TT1
+  and page-table CI bits also inhibit caching. TOS 3.x/4.x have not been tried since the PMMU went in; EmuTOS 1.4,
+  TOS 2.06 and TOS 1.04 are the targets.
 - There is no address error on odd word accesses: the 030 does misaligned
   accesses. ST software that relies on 68000 address errors, or on 68000
   stack frames, behaves differently.

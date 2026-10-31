@@ -1,6 +1,6 @@
 # Agent context: FalconFPGA (read this first; update at each milestone)
 
-Last update: 2026-10-23 (main 38870e4; tt26 last board build; board awaiting David's recovery/bulk erase). Owner: David Dunne (dave-1024).
+Last update: 2026-10-31 (main 8972091; board on f121a). Owner: David Dunne (dave-1024).
 
 ## Goal
 A 68030 Atari ST/STE on the Tang Console 138K (GW5AST-138), heading towards a Falcon-like machine.
@@ -33,7 +33,20 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Current state (2026-10-23, UK)
+## Current state (2026-10-31, UK)
+- `main` = 8972091: PMMU merged (9fe250b), syn_keep on `ae350_flash_clk` restored for Gowin V1.9.12.04 (8972091).
+- Board: flash 0 = **f121a** (F121 fix): clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU, timing_pairs pass.
+  EmuTOS 1.4 at 0x500000. FreeMiNT (memory protection on) + XaAES 1.7.0 + TeraDesk 4.08 from the ACSI image; desktop
+  menus work; TeraDesk shows 13.9 MB TT-RAM free.
+- Fixes since 24 Oct: PMMU stages 1-3, F70/F73 flash_unstick, F85/F86 flash_cal, F99 (SD images), F110 (SDRAM ST/TT
+  arbitration), F112 (MFP transmitter), F116 and F121 (indexed EA hazards). List: `docs/BUGS.md`.
+
+## Next steps
+1. Branch `sdram64` (64 MHz SDRAM / TT-RAM speedup, based on d270586): rebase onto main first (F110 changed
+   `sdram.v`; expect conflicts in `sdram.v`, `top.sv`, the SDC, `build_sel.vh`). Notes in `docs/sdram64/` there.
+2. Retest TOS 2.06 after a real power-cycle (TODO 8).
+
+## State on 2026-10-23 (history)
 - `main` = 38870e4. Main build `build_st_helper.tcl` (`ST_HELPER_CART` off, no SD debug); debug variants in
   `debug_builds/` (`build_st_helper_hdn.tcl` = main + `SD_WRITE_DEBUG`), retired scripts in `build_legacy/`.
   TT-RAM and the I/D caches on by default; always STE. CPU phase 2 (S5 handoff) merged.
@@ -43,7 +56,7 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
 - 24 Oct 2026: board back; tt26rmc2 flashed (PR #15 fixes). Blitter on works: BT12/16/17 pass, GEMBENCH 6.31 131%.
   Next: BLITFIX + boot floppy (TT-RAM driver, BLITON, BLITFIX).
 
-## Next steps (when David says the board is back on USB)
+## Next steps on 2026-10-23 (history)
 1. `pgrep programmer_cli`, `--scan-cables`; flash tt26 (op 53), TOS 2.06 at 0x500000 (op 56 `--mcuFile`), helper
    firmware at 0x600000.
 2. TOS 2.06 cold power-up test (TODO 8).

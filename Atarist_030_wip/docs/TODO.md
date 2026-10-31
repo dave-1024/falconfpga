@@ -1,6 +1,15 @@
 # TODO (in priority order)
 
-## Status 23 Oct 2026
+## Status 31 Oct 2026
+main 8972091. The 68030 PMMU is done and merged (FreeMiNT with memory protection + XaAES 1.7.0 + TeraDesk 4.08 on
+EmuTOS 1.4, desktop menus working after F121). Board: f121a (clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU).
+Item 4 (PMMU) below is done. Still open: item 8 (TOS 2.06 black screen on cold power-up, to retest), item 9 (AUX
+stall after a masked blit).
+**Next:** 64 MHz SDRAM / TT-RAM speedup on branch `sdram64` (rebase onto main first: F110 changed `sdram.v`; expect
+conflicts there and in `top.sv`, the SDC and `build_sel.vh`). Builds with Gowin V1.9.12.03 or V1.9.12.04 (the
+`syn_keep` on `ae350_flash_clk`, restored in 8972091, is needed for V1.9.12.04).
+
+## Status 23 Oct 2026 (history)
 main: build `build_st_helper.tcl` (cart off, no SD debug; variants in `debug_builds/`, retired in `build_legacy/`),
 TT-RAM and caches on by default, always STE. Last board build tt26 (d270586): +1.344 ns, clk_cpu030 24.09 MHz,
 40308 LUT + 5042 ALU. TOS 2.06 + TT-RAM reaches the desktop on a warm boot (Blitmode $0002). Open: item 8 (TOS 2.06
@@ -57,7 +66,7 @@ no fast RAM is fitted). Open from that work, in order:
    CBREQ/CBACK/STERM).
 3. **A3 request queue: deferred** (DCACHE_DESIGN.md §4, D-Q4): two requests in flight, per-request BERR, undo of
    the (An)+ step on a fault. A control-unit rework with no gain while the ST bus dominates.
-4. **68030 PMMU: planned later step, in HDL inside WF68K30L (not a table walk on the AE350).** Its tables mark I/O
+4. **(DONE 31 Oct 2026, merged from `pmmu`.)** **68030 PMMU: planned later step, in HDL inside WF68K30L (not a table walk on the AE350).** Its tables mark I/O
    and ST-RAM cache-inhibited as on the TT/Falcon (CI, CIOUT), which resolves D-Q2. Needed for TOS 3/4 (PMOVE).
 - **Fault-fixes one-off halt (noted 17 Oct 2026):** a single "System halted!" was seen once while testing the
   fault-fixes build and has not come back; the ic_47eba71 and dc_ff6af03 cold boots were clean. Treated as the
@@ -137,7 +146,7 @@ stays out until that plan is followed.
   (8-16 MB) so that something is cacheable. **Done** (17 Oct 2026,
   [`DCACHE_DESIGN.md`](DCACHE_DESIGN.md)), data/tags in RAM16 (D-Q8), merged on main, board build dc_ff6af03
   (GEMBENCH unchanged); A3 queue deferred (D-Q4). Fast RAM still to do.
-- **Later step, 68030 PMMU (in HDL, not on the AE350):** page tables mark I/O and ST-RAM cache-inhibited like TT/Falcon (CI/CIOUT), which
+- **(Done 31 Oct 2026.)** **Later step, 68030 PMMU (in HDL, not on the AE350):** page tables mark I/O and ST-RAM cache-inhibited like TT/Falcon (CI/CIOUT), which
   resolves D-Q2 (WA allocating D cache entries on ST-side writes). Until then CDIS is the fallback.
 
 ## Pinned: warm-reset halt (pinned 16 Oct 2026, no work on it for now)

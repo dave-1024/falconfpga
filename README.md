@@ -84,38 +84,52 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
-## What works now (24 Oct 2026)
-- Boots **TOS 2.06** and **EmuTOS** to the GEM desktop, low and medium resolution, 4 MB ST-RAM. A restart from the
-  helper's cold-boot command (a full reset of the machine) reaches the TOS 2.06 desktop every time.
+## What works now (31 Oct 2026)
+- **FreeMiNT with memory protection, XaAES 1.7.0 and TeraDesk 4.08**, started from EmuTOS 1.4 off an ACSI hard disk
+  image on the SD card. The desktop menus work (the menu freeze was bug F121, fixed 31 Oct 2026). TeraDesk's info box
+  shows about 14 MB of TT-RAM free.
+- **The 68030 PMMU (memory management unit) is done** and on main: address translation with the page-table walker,
+  the address translation cache, transparent translation, cache inhibit per memory area, and all the MMU instructions
+  (PMOVE, PFLUSH, PLOAD, PTEST). FreeMiNT uses it for memory protection: each program can only touch its own memory.
+  It was built to follow Motorola's MC68030 User's Manual, including its timing for the page-table search.
+- Boots **TOS 2.06** and **EmuTOS 1.4** to the GEM desktop, low and medium resolution, 4 MB ST-RAM. A restart from the
+  helper's cold-boot command (a full reset of the machine) reaches the desktop.
 - A 68030 CPU with its **instruction and data caches** (small fast memories inside the CPU), plus **16 MB of TT-RAM**
   (fast RAM only the 68030 sees), both on by default. GEMBENCH 6.31 (a speed test): about 132% of a stock STE with the
   blitter off.
 - **Blitter** (the STE's graphics copy chip): works with TOS 2.06 once switched on with BLITON. All our blitter tests
   and a full GEMBENCH 6.31 run pass on the board with no hangs: Display 97%, CPU 176%, average 131%.
-  A hang when TOS scrolled text was found and fixed: the CPU and the blitter could each end up waiting for the other
-  to give up the bus (the shared connection to memory) while the CPU held it locked for a special instruction.
-- The CPU now locks the bus for its "test-and-set" and "compare-and-swap" instructions (used to share memory safely)
-  exactly like a real 68030, and a compare-and-swap mistake (it could write to memory when it should not) was fixed.
-  Both were checked in simulation and on the board.
+- The CPU locks the bus for its "test-and-set" and "compare-and-swap" instructions (used to share memory safely)
+  exactly like a real 68030.
 - **TT-RAM under TOS 2.06** works with the small TTRAM.PRG driver (EmuTOS finds TT-RAM by itself). Blitter plus
   TT-RAM is safe with BLITFIX; use the ready-made floppy `tools/blitfix/blitfix.st`. See
   [The blitter, TT-RAM and BLITFIX](#the-blitter-tt-ram-and-blitfix-correct-behaviour-not-a-fault).
-- Floppy images from an **SD card**, including saving from the desktop; **USB keyboard and mouse**; an on-screen
-  menu (OSD), all run by a small helper processor (the AE350) on the same chip.
+- Floppy images and hard disk (ACSI) images from an **SD card**, including saving; **USB keyboard and mouse**; an
+  on-screen menu (OSD), all run by a small helper processor (the AE350) on the same chip. The helper now starts after a
+  plain reload of the chip, with no power cycle needed (F70).
 - HDMI/DVI video out.
+- The build on the board: **f121a** (main code with the F121 fix): clk_cpu030 20.19 MHz, clk32 34.21 MHz,
+  45636 LUT + 5317 ALU, no failing timing paths.
+- Recent fixes, in plain English: [`docs/BUGS.md`](docs/BUGS.md).
+
+![TeraDesk info box under FreeMiNT and XaAES, with memory protection on](docs/img/mint_xaaes_teradesk_about.png)
+
+*Real capture from the board's HDMI output, 31 Oct 2026: the TeraDesk info box under FreeMiNT/XaAES with memory
+protection. It reads Tera Desktop V4.08, a multitask OS, 3.76 MB ST-RAM and 13.9 MB TT-RAM free.*
+
+![Drive C open in a window on the TeraDesk desktop](docs/img/mint_xaaes_teradesk_drive_c.png)
+
+*Real capture from the board's HDMI output, 31 Oct 2026: drive C (the ACSI hard disk image on the SD card) open in a
+window on the TeraDesk desktop.*
 
 ## What doesn't work yet
 - TOS 2.06 after switching the board **off and on** (a real power-cycle): it gave a black screen on 23 Oct; resets
   now reach the desktop, but the power-cycle test still has to be repeated. EmuTOS is fine.
 - The serial port can stall after one kind of blitter operation.
-- The **PMMU** (the 68030's memory-mapping unit) is not on main yet. Work has begun on the `pmmu` branch: the first
-  stage (the MMU's settings registers, the instructions that read and write them, marking whole memory areas as
-  "don't cache", and blocking MMU instructions from normal programs) passes on the board. Next comes the address
-  translation itself, the part that reads the page tables, and the remaining MMU instructions, all built to follow
-  Motorola's MC68030 User's Manual as closely as possible.
-- **Faster memory is paused for now and will be worked on next.** The plan is to run the memory chips twice as fast
-  (64 MHz instead of 32 MHz) to speed up TT-RAM and let the 68030 fill its caches in quick bursts. A first try showed a
-  clock-timing problem that is still being tracked down.
+- **Faster memory is the next job.** The plan is to run the memory chips twice as fast (64 MHz instead of 32 MHz) to
+  speed up TT-RAM and let the 68030 fill its caches in quick bursts. The work so far is on the `sdram64` branch
+  (notes in `docs/sdram64/` there); it needs to be brought up to date with main before it goes on.
+- No FPU (maths co-processor) yet.
 - No Falcon hardware yet (VIDEL video, DSP, IDE).
 - Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);
   bugs in plain English: [`docs/BUGS.md`](docs/BUGS.md); TOS versions: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md).
@@ -125,7 +139,7 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 - **One Tang SDRAM module** in slot **J9** (ST-RAM and TT-RAM share it). Never flash with J9 empty.
 - A microSD card (FAT) with `.st` floppy images, an HDMI screen, a USB keyboard and mouse.
 - Your own **TOS** image (TOS 2.06 or EmuTOS). Atari TOS is not in this repository.
-- **Gowin EDA V1.9.12.03** (Windows or Linux) to build, and for the helper firmware the Andes AST v5.1.1 toolchain.
+- **Gowin EDA V1.9.12.03 or V1.9.12.04** (Windows or Linux) to build, and for the helper firmware the Andes AST v5.1.1 toolchain.
   No ready-made bitstreams are published: this repository is source only.
 
 ## How to try it
@@ -217,7 +231,7 @@ This bench is **one person**. An AI assistant is used for engineering help: HDL 
 It does not replace the board, the real 68030, or the decision of what is known-good. Silicon results and the instruction audit are David’s. Commit volume is not a team. The cores listed under Credits were written by the people named there, not by the assistant.
 
 ### Toolchain
-Gowin IDE / gw_sh **V1.9.12.03** on Windows or headless Linux (same results), device **Version C**. The AE350 helper
+Gowin IDE / gw_sh **V1.9.12.03** or **V1.9.12.04** on Windows or headless Linux (same results; V1.9.12.04 needs the `syn_keep` on `ae350_flash_clk` that `top.sv` has), device **Version C**. The AE350 helper
 firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**. This repository is
 **source only**: bitstreams, `impl/`, ROMs and disk images stay on the machine that built or flashed them.
 
@@ -286,7 +300,8 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 ### Where it is headed
 1. ~~Clone MiSTeryNano, splice the wf68k30L via a TF534-style bridge, 16 MHz+ CPU on the 8 MHz ST bus, AE350 helper~~ (done, October 2026); ~~caches~~, ~~TT-RAM~~ (done).
-2. **Now:** finish the 030 on the ST bus ([`TODO.md`](Atarist_030_wip/docs/TODO.md)); the 68030 PMMU (begun on the `pmmu` branch; stage 1 passes on the board); then faster memory (64 MHz SDRAM for faster TT-RAM and cache burst fills, paused for now).
+2. ~~The 68030 PMMU~~ (done, October 2026: FreeMiNT runs with memory protection). **Now:** faster memory (64 MHz SDRAM
+   for faster TT-RAM and cache burst fills, branch `sdram64`), then the rest of [`TODO.md`](Atarist_030_wip/docs/TODO.md).
 3. Then move the same core onto **Falcon** glue (VIDEL, IDE, DSP56001).
 
 ### Methods

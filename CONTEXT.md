@@ -21,7 +21,7 @@ with the DSP56001.
 
 ## Machines and access
 - **linserver** `dave@100.97.139.11` over Tailscale (from the box: SOCKS5 `localhost:1055`, ssh `ProxyCommand nc -X 5
-  -x localhost:1055 %h %p`). Gowin V1.9.12 in `/opt/gowin`; repo `~/falconfpga`; bitstreams `~/fpga_bitstreams`
+  -x localhost:1055 %h %p`). Gowin V1.9.12.03 in `/opt/gowin` (V1.9.12.04 also builds main); repo `~/falconfpga`; bitstreams `~/fpga_bitstreams`
   (SHA256SUMS); tools `~/fpga_tools` (`grab.sh` HDMI grab). sudo password in env `LINSERVER_PASSWORD`.
 - **Flashing:** `pgrep programmer_cli` first (a hung one holds the cable); `programmer_cli --scan-cables`, use the
   single reported location; wrap in `timeout -k 10`. Then `--run 1` to reload.
@@ -44,12 +44,13 @@ with the DSP56001.
 - Main tcl = board build; variants in `debug_builds/`, retired in `build_legacy/`.
 - Bulk erase, BL616, other flash areas: check with David first (writing the helper at 0x600000 to restore it is fine).
 
-## Current state (summary, 24 Oct 2026)
-PR #15 merged (blitter hang: bridge RMC/BR fix, cycle-correct RMC, failed CAS no write). Board runs tt26rmc2
-(d270586 + RMC1/RMC2): clk_cpu030 21.857 MHz, 40309 LUT, TNS 0. With the blitter on (BLITON, $0003) BT12/16/17 pass and
-GEMBENCH 6.31 gives 131% (Display 97, CPU 176). Cold boots via the helper work; a real power-cycle test of TODO 8 is
-still open. Next: BLITFIX (blitter cannot reach TT-RAM) and a boot floppy with TT-RAM driver + BLITON + BLITFIX.
-PMMU work starts 26 Oct. Details: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
+## Current state (summary, 31 Oct 2026)
+main = 8972091 (9fe250b merged `pmmu`; 8972091 restored the `syn_keep` on `ae350_flash_clk` for Gowin V1.9.12.04).
+The 68030 PMMU is done. FreeMiNT with memory protection + XaAES 1.7.0 + TeraDesk 4.08 run on EmuTOS 1.4 from the ACSI
+image; desktop menus work after F121. Flash 0 holds **f121a**: clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU.
+Rule: timing_pairs must pass before any board load. Next: 64 MHz SDRAM / TT-RAM speedup on branch `sdram64`
+(based on d270586; rebase onto main first, see `docs/sdram64/REBASE_NOTE.md` on that branch).
+Details: [`handoff/CONTEXT.md`](handoff/CONTEXT.md); fixes: [`docs/BUGS.md`](docs/BUGS.md).
 
 ## Still-true background (from the Sept 2026 file)
 - Locked SOM DDR3 faults: write lane 4 dead; 64-bit read upper half dead; extended AHB HWDATA upper 32 dead. Unmapped

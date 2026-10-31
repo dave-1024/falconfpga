@@ -23,7 +23,7 @@
 - A real TF536 uses **stock TOS 2.06** plus AUTO-folder tools from agranlund's `tftools` (GPL2): `fastram.prg` (TOS 2.x), `maprom.prg`, `blitfix.prg`, in that order.
 - **BLITFIX:** use it if icons are missing or menus hang **(symptom wording from the session; the readme is `blitfix.txt`)**.
 - **GAP (later, extensive testing):** the exact BLITFIX and MAPROM setup on this core.
-- **MAPROME / maprom:** leave out for now (copies the ROM into RAM; on a real 030 that needs the PMMU, which this core lacks) **(reason unsure)**.
+- **MAPROME / maprom:** leave out for now (copies the ROM into RAM; on a real 030 that needs the PMMU; the core has one since 31 Oct 2026, but MAPROM has not been tried).
 - Source downloads and checksums: `/workspace/tosimg/tf536/SOURCES.md` (not in git).
 
 ## Why some work and some don't (plain words)
@@ -33,7 +33,7 @@
 - **TOS 2.06** knows the 68030 caches and turns them on. It relies on 24-bit address wrap for tagged vectors and BIOS pointers, which the TT-RAM decode broke until [T10]/[T10b].
 - **ST536 TOS 2.06** images were made for exxos's ST536 board (other memory layout, ROM copied to fast RAM), so they
   probably need BLITFIX/MAPROM-style help, or changes, on this board. Untested here; a later target.
-- **TOS 3/4** need a PMMU (PMOVE), which this core does not have yet.
+- **TOS 3/4** need a PMMU (PMOVE). The core has one since 31 Oct 2026; TOS 3/4 have not been tried on it yet.
 
 ## Status
 The board stays on EmuTOS 256K for ongoing work (release build tt20). ST536 TOS 2.06 (with BLITFIX/MAPROM) is

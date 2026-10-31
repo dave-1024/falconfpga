@@ -12,6 +12,9 @@
 ## Work in progress
 - [../Atarist_030_wip/docs/TODO.md](../Atarist_030_wip/docs/TODO.md): open work, in order.
 - [../handoff/CONTEXT.md](../handoff/CONTEXT.md): current state and next steps.
+- Next job: the 64 MHz SDRAM / TT-RAM speedup, on branch `sdram64` (notes in `docs/sdram64/` on that branch).
+- PMMU (done 31 Oct 2026): [PMMU_DESIGN.md](PMMU_DESIGN.md), [PMMU_TESTING.md](PMMU_TESTING.md), [PMMU_PROGRESS.md](PMMU_PROGRESS.md).
+- [FALCON_LESSONS.md](FALCON_LESSONS.md): lessons from the PMMU/FreeMiNT work (F70, F102-F104, F112, F116, F121).
 - [../Atarist_030_wip/docs/HISTORY.md](../Atarist_030_wip/docs/HISTORY.md): change-by-change history of the 030 core.
 - [../Atarist_030_wip/docs/FALCON_LESSONS.md](../Atarist_030_wip/docs/FALCON_LESSONS.md): lessons learnt and every bug found.
 
