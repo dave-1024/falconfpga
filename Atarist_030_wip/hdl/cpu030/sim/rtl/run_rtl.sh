@@ -28,7 +28,7 @@ for p in a b; do
     [ "$sr" = "2700" ] && { echo "FAIL prog $p dly $d: level 4 taken with SR mask 7"; fail=1; }
   done
 done
-for p in chk branch cas2 memind shift fidx slmmu dw2 mdx; do
+for p in chk branch cas2 memind shift fidx slmmu dw2 mdx mrmw; do
   m68k-linux-gnu-as -m68030 --register-prefix-optional $H/prog_$p.s -o p.o
   m68k-linux-gnu-ld -Ttext=0xfc0000 -o p.elf p.o 2>/dev/null; m68k-linux-gnu-objcopy -O binary p.elf p.bin
   python3 -c "d=open('p.bin','rb').read(); d+=b'\\xff'*(len(d)%2); open('prog_$p.hex','w').write('\\n'.join('%04x'%(d[i]<<8|d[i+1]) for i in range(0,len(d),2))+'\\n')"
