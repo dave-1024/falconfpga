@@ -668,7 +668,11 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.dbg_req    ( dbg_030[1] ),
 	.dbg_dsack  ( dbg_030[2] ),
 	.dbg_berr   ( dbg_030[3] ),
+`ifdef AUX_CAP
+	.dbg_idx    (            ),   // [F113] replaced by AUX capture
+`else
 	.dbg_idx    ( dbg_idx    ),   // [F100]
+`endif
 	.dbg_dump   ( dbg_dump   ),   // [F77]
 	.dbg_go     ( dbg_go     ),
 	.dbg_trace  ( dbg_trace_cpu )
@@ -816,6 +820,26 @@ mfp mfp (
 	.t_i      ( mfp_timer_in  ),  // timer a/b inputs
 	.i        ( mfp_gpio_in   )   // gpio-in
 );
+
+`ifdef AUX_CAP
+// ---- [F113] AUX_CAP: last 27 bytes written to the MFP UDR, byte count and reset count.
+// Not reset by the core reset, so it survives the reboot loop. Readout via SDC cmd 10/11.
+reg        ac_wr_d = 1'b0, ac_rst_d = 1'b0;
+reg [15:0] ac_cnt = 16'd0;
+reg  [7:0] ac_rst = 8'd0;
+reg [215:0] ac_ring = 216'd0;
+wire ac_wr = ~mfpcs_n & ~rw & ~lds_n & (mbus_a[5:1] == 5'h17);
+always @(posedge clk_32) begin
+	ac_wr_d  <= ac_wr;
+	ac_rst_d <= peripheral_reset;
+	if(ac_wr & ~ac_wr_d) begin
+		ac_ring <= { ac_ring[207:0], mbus_dout[7:0] };
+		ac_cnt  <= ac_cnt + 16'd1;
+	end
+	if(peripheral_reset & ~ac_rst_d) ac_rst <= ac_rst + 8'd1;
+end
+assign dbg_idx = { ac_cnt, ac_rst, ac_ring };
+`endif
 
 /* ------------------------------------------------------------------------------ */
 /* ---------------------------------- IKBD -------------------------------------- */

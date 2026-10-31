@@ -187,7 +187,9 @@ module cpu030_st_bridge #(
     wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
     wire [104:0] cpu_dbg_exc;
     wire [287:0] cpu_dbg_pmmu;
-`ifndef IDX_DEBUG
+`ifdef REGS_TAP
+`elsif IDX_DEBUG
+`else
     assign dbg_idx = 240'd0;   // [F100]
 `endif
     wire [639:0] cpu_dbg_regs;         // [F77] DIAG_DUMP
@@ -282,12 +284,18 @@ module cpu030_st_bridge #(
         .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F76]
 `elsif DIAG_DUMP
         .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F77]
+`elsif FAULT_CAP
+        .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F115i] FAULT_ADR for the trigger
 `endif
-`ifdef IDX_DEBUG
+`ifdef REGS_TAP
+`elsif IDX_DEBUG
         .DBG_IDX   ( dbg_idx       ),   // [F100]
 `endif
 `ifdef DIAG_DUMP
         .DBG_REGS  ( cpu_dbg_regs  ),   // [F77]
+        .DBG_SR    ( cpu_dbg_sr    ),
+`elsif REGS_TAP
+        .DBG_REGS  ( cpu_dbg_regs  ),   // [F111] PC_SAMPLE
         .DBG_SR    ( cpu_dbg_sr    ),
 `endif
 `endif
@@ -1247,6 +1255,168 @@ module cpu030_st_bridge #(
     assign dbg_dump = 2'b01;
 `endif
 
+
+`ifdef PC_SAMPLE
+    // ---- [F111] PC_SAMPLE: snapshot of the 030 registers every 2^19 clk_cpu (~33 ms), readable via SDC cmd 10/11 ----
+    // cmd10 (239:120): {seq8, PC32, SR16, D0 32, D1 32}
+    // cmd11 (119:0):   {A0[31:16], pad8 (lost in readout), A0[15:0], A1 32, SP32 (ISP if S else USP), seq8, 6'b0, mmu_on, halt_n}
+    reg  [18:0]  ps_cnt = 19'd0;
+    reg  [7:0]   ps_seq = 8'd0;
+    reg  [31:0]  ps_pc, ps_d0, ps_d1, ps_a0, ps_a1, ps_sp;
+    reg  [15:0]  ps_sr;
+    reg  [1:0]   ps_fl;
+    always @(posedge clk_cpu) begin
+        ps_cnt <= ps_cnt + 19'd1;
+        if (ps_cnt == 19'd0) begin
+            ps_seq <= ps_seq + 8'd1;
+            ps_pc <= cpu_dbg_regs[63:32];   ps_sr <= cpu_dbg_sr;
+            ps_d0 <= cpu_dbg_regs[415:384]; ps_d1 <= cpu_dbg_regs[447:416];
+            ps_a0 <= cpu_dbg_regs[383:352]; ps_a1 <= cpu_dbg_regs[351:320];
+            ps_sp <= cpu_dbg_sr[13] ? cpu_dbg_regs[127:96] : cpu_dbg_regs[159:128];
+            ps_fl <= {cpu_mmu_on, cpu_halt_outn};
+        end
+    end
+    assign dbg_idx = { ps_seq, ps_pc, ps_sr, ps_d0, ps_d1,
+                       ps_a0[31:16], 8'h00, ps_a0[15:0], ps_a1, ps_sp, ps_seq, 6'd0, ps_fl };
+`endif
+
+`ifdef FAULT_CAP
+    // ---- [F115] FAULT_CAP (F115c: 32 entries, trigger = vector-2 exception with MiNT handler): last 32 030 data bus cycles (no program fetches, no CPU space) up to the first
+    // BERR at an address >= $02000000 that is not 1 MB aligned (TT-RAM sizing probes are), then 030 registers.
+    // Streamed once, one byte per 128 clk, into sd_card's STREAM_CAP ring (read with "sdwlog 64"):
+    // 16 x {adr32, data32, {fc3, rw, size2, berr, 0}, 8'h00} oldest first,
+    // then PC, A0, A1, D0, D1, USP, ISP, {SR16, BERR count16}  (192 bytes).
+    reg  [31:0] fc_adr [0:47];
+    reg  [31:0] fc_dat [0:47];
+    reg  [7:0]  fc_inf [0:47];
+    reg  [5:0]  fc_wp = 6'd0;
+    reg  [2:0]  fc_pend = 3'd0;
+    reg         fc_lg = 1'b0, fc_frz = 1'b0;
+    reg  [15:0] fc_nb = 16'd0;
+    reg  [255:0] fc_regs = 256'd0;
+    wire        fc_term = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn);
+    wire        fc_data = (cpu_fc[1:0] != 2'b10) & (cpu_fc != 3'b111);
+    reg         fx_d = 1'b0;
+    always @(posedge clk) fx_d <= cpu_dbg_exc[104];
+`ifdef BR_TRACE
+    // [F119] BR_TRACE: the FAULT_CAP ring holds {from PC, to PC} of every non-sequential PC change
+    // (delta outside 0..10) whose source or target is in XaAES ($01F40000-$01FCFFFF); frozen by the same trigger.
+    reg  [31:0] bt_pc = 32'd0;
+    wire [31:0] bt_now = cpu_dbg_regs[63:32];
+    wire [31:0] bt_d = bt_now - bt_pc;
+    // [F120b] TeraDesk range $000A0000-$000CFFFF
+    wire        bt_in0 = (bt_pc[31:16] >= 16'h01F4) & (bt_pc[31:16] <= 16'h01FC);
+    wire        bt_in1 = (bt_now[31:16] >= 16'h01F4) & (bt_now[31:16] <= 16'h01FC);
+    // [F120f] user-mode filter: record when the previous or current SR has S=0
+    reg         bt_s = 1'b1;
+    always @(posedge clk) bt_s <= cpu_dbg_sr[13];
+    // [F120g] XaAES range again (either end), plus a4-change records
+    wire        bt_x = (bt_d > 32'd10);   // [F120j] unfiltered
+    reg  [31:0] bt_a4 = 32'd0;
+    always @(posedge clk) bt_a4 <= cpu_dbg_regs[255:224];
+    wire        bt_a4w = (cpu_dbg_regs[255:224] != bt_a4) & bt_in1;   // a4 changes with PC in XaAES only
+`endif
+    // [F115c] trigger: bus-error exception (vector 2, BERR or MMU) whose handler is in TT-RAM (MiNT, not the EmuTOS probes)
+    // [F115d] trigger: a supervisor data write of a value in $02000000-$07FFFFFF while PC is in TT-RAM,
+    // i.e. the fault address being stacked in the bus-error frame; 4 more cycles are logged, then frozen.
+    wire        fc_hit2 = ~cpu_rwn & (cpu_fc == 3'd5) & (cpu_size == 2'b00) & (cpu_dout[31:26] == 6'd0) & cpu_dout[25] & (cpu_dout[23:16] != 8'd0) & (cpu_dout[15:9] != 7'd0) & (cpu_dout[1:0] != 2'd0)   /* [F115e] not a {PC_lo, format/vector} frame long */
+                          & (cpu_dbg_regs[63:56] == 8'h01);
+    // [F115i] trigger on the cause: the CPU takes the bus-error exception (vector 2; BERR or MMU access fault)
+    // with the CPU's latched fault address FAULT_ADR (DBG_PMMU[47:16]) >= $02000000 and below $80000000.
+    // The ring then holds the cycles before the fault and the start of the frame.
+    wire [31:0] fc_fadr = cpu_dbg_pmmu[47:16];
+    wire        fc_hit3 = cpu_dbg_exc[104] & ~fx_d & (cpu_dbg_exc[103:96] == 8'd2) & (fc_fadr[31:25] != 7'd0) & ~fc_fadr[31] & (cpu_dbg_exc[79:72] == 8'h01);
+    wire        fc_hit  = cpu_dbg_exc[104] & ~fx_d & (cpu_dbg_exc[103:96] == 8'd2) & (cpu_dbg_exc[79:72] == 8'h01);
+    always @(posedge clk) begin
+        if (cpu_asn) fc_lg <= 1'b0;
+`ifdef BR_TRACE
+        bt_pc <= bt_now;
+        if (bt_x & ~fc_frz) begin
+            fc_adr[fc_wp] <= bt_pc; fc_dat[fc_wp] <= bt_now; fc_inf[fc_wp] <= 8'hB0;
+            fc_wp <= (fc_wp == 6'd47) ? 6'd0 : fc_wp + 6'd1;
+        end
+        if (1'b0) begin
+`else
+        if (fc_term & ~fc_lg & fc_data) begin
+`endif
+            fc_lg <= 1'b1;
+            if (~cpu_berrn) fc_nb <= fc_nb + 16'd1;
+            if (~fc_frz) begin
+                fc_adr[fc_wp] <= cpu_adr;
+                fc_dat[fc_wp] <= cpu_rwn ? cpu_din : cpu_dout;
+                fc_inf[fc_wp] <= {cpu_fc, cpu_rwn, cpu_size, ~cpu_berrn, 1'b0};
+                fc_wp <= (fc_wp == 6'd47) ? 6'd0 : fc_wp + 6'd1;
+                
+            end
+        end
+        if (~fc_frz) begin
+                if (fc_hit3) begin
+                    fc_frz <= 1'b1;
+                    fc_regs <= { cpu_dbg_regs[63:32], cpu_dbg_regs[383:352], cpu_dbg_regs[351:320],
+                                 cpu_dbg_regs[415:384], fc_fadr, cpu_dbg_regs[159:128],
+                                 cpu_dbg_regs[127:96], cpu_dbg_sr, fc_nb };
+                end
+        end
+    end
+    reg  [6:0]  fs_div = 7'd0;
+    reg  [5:0]  fs_ci = 6'd0; reg [3:0] fs_cb = 4'd0;   // entry, byte in entry
+    reg  [4:0]  fs_rb = 5'd0;                 // register byte
+    reg         fs_reg = 1'b0, fs_end = 1'b0;
+    reg  [15:0] fs_cnt = 16'd0;
+    reg  [7:0]  fs_byte = 8'd0;
+    wire [6:0]  fs_ixs = fc_wp + fs_ci;
+    wire [5:0]  fs_ix  = (fs_ixs >= 7'd48) ? fs_ixs - 7'd48 : fs_ixs[5:0];       // fc_wp is the oldest entry once frozen
+    wire [79:0] fs_ent = { fc_adr[fs_ix], fc_dat[fs_ix], fc_inf[fs_ix], 8'h00 };
+    always @(posedge clk) begin
+        if (fc_frz & ~fs_end) begin
+            fs_div <= fs_div + 7'd1;
+            if (fs_div == 7'd0)
+                fs_byte <= fs_reg ? fc_regs[255 - 8*fs_rb -: 8] : fs_ent[79 - 8*fs_cb -: 8];
+            if (fs_div == 7'd64) begin
+                fs_cnt <= fs_cnt + 16'd1;
+                if (fs_reg) begin
+                    if (fs_rb == 5'd31) fs_end <= 1'b1; else fs_rb <= fs_rb + 5'd1;
+                end else if (fs_cb == 4'd9) begin
+                    fs_cb <= 4'd0;
+                    if (fs_ci == 6'd47) fs_reg <= 1'b1; else fs_ci <= fs_ci + 6'd1;
+                end else fs_cb <= fs_cb + 4'd1;
+            end
+        end
+    end
+`ifdef BR_TRACE2
+    // [F120] BR_TRACE2: 2048-entry BRAM ring of {from PC, to PC} (bt_x from BR_TRACE), frozen by fc_hit3.
+    // After the freeze it streams the ring oldest-first, one byte per 2^17 clk, endlessly; the STREAM_CAP
+    // word counter mod 2048 = entry index. Read it with repeated "sdwlog 64".
+    reg  [63:0] b2_mem [0:2047];
+    reg  [10:0] b2_wp = 11'd0, b2_e = 11'd0;
+    reg  [2:0]  b2_b = 3'd0;
+    reg  [16:0] b2_div = 17'd0;
+    reg         b2_frz = 1'b0;
+    reg         b2_arm = 1'b0;
+    reg  [63:0] b2_q = 64'd0;
+    reg  [15:0] b2_cnt = 16'd0;
+    reg  [7:0]  b2_byte = 8'd0;
+    always @(posedge clk) begin
+        if (~b2_frz & bt_x) begin b2_mem[b2_wp] <= {bt_pc, bt_now}; b2_wp <= b2_wp + 11'd1; end
+        // [F120j] armed at the first user-mode PC in $0002A000-$000CFFFF (TeraDesk text), then freeze on any vector-2 fault
+        if (~cpu_dbg_sr[13] & (bt_now >= 32'h0002A000) & (bt_now < 32'h000D0000)) b2_arm <= 1'b1;
+        if (~b2_frz & b2_arm & fc_hit) b2_frz <= 1'b1;   // [F120c] f118b/f120a XaAES fault trigger; ring = TeraDesk branches
+        b2_q <= b2_mem[b2_wp + b2_e];
+        if (b2_frz) begin
+            b2_div <= b2_div + 17'd1;
+            if (b2_div == 17'd0) begin
+                b2_byte <= b2_q[63 - 8*b2_b -: 8];
+                b2_cnt <= b2_cnt + 16'd1;
+                b2_b <= b2_b + 3'd1;
+                if (b2_b == 3'd7) b2_e <= b2_e + 11'd1;
+            end
+        end
+    end
+    assign dbg_idx = { b2_cnt, 8'd0, 208'd0, b2_byte };
+`else
+    assign dbg_idx = { fs_cnt, 7'd0, fs_end, 208'd0, fs_byte };
+`endif
+`endif
 endmodule
 
 `default_nettype wire
