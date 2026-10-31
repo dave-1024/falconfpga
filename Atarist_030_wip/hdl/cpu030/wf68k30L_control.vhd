@@ -274,6 +274,15 @@ entity WF68K30L_CONTROL is
         VBR_RD              : out bit;
 
         CACR_WR             : out bit;
+        PMMU_WR             : out bit; -- [PMMU1] PMOVE <ea>,MRn writeback strobe.
+        PMMU_WR_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of that PMOVE.
+        PMMU_FD             : out std_logic; -- [PMMU2b] FD bit (ext word bit 8) of that PMOVE.
+        PMMU_OP             : out std_logic; -- [PMMU2b] PFLUSH/PLOAD/PTEST writeback strobe (EA on the ALU result).
+        PMMU_EXT            : out std_logic_vector(15 downto 0); -- [PMMU2b] its extension word.
+        MMU_BUSY            : in std_logic := '0'; -- [PMMU2b] MMU operation still running: no next opcode.
+        PMMU_RD_SEL         : out std_logic_vector(5 downto 0); -- [PMMU1] Ext word bits 15-10 of the current PMOVE.
+        PMMU_LD_HI          : out bit; -- [PMMU1] Upper long of a CRP/SRP read is on DATA_TO_CORE.
+        PMMU_LO             : out bit; -- [PMMU1] Second (lower) long of a CRP/SRP transfer.
         CACR_RD             : out bit;
         CAAR_WR             : out bit;
         CAAR_RD             : out bit;
@@ -336,6 +345,12 @@ architecture BEHAVIOUR of WF68K30L_CONTROL is
 type FETCH_STATES is (START_OP, CALC_AEFF, FETCH_DISPL, FETCH_EXWORD_1, FETCH_D_LO, FETCH_D_HI, FETCH_OD_HI, FETCH_OD_LO, FETCH_ABS_HI, 
                       FETCH_ABS_LO, FETCH_IDATA_B2, FETCH_IDATA_B1, FETCH_MEMADR, FETCH_OPERAND, INIT_EXEC_WB, SLEEP, SWITCH_STATE);
 type EXEC_WB_STATES is (IDLE, EXECUTE, ADR_PIPELINE, WRITEBACK, WRITE_DEST);
+signal MV_RW, MV_AN, MV_RW_WB : std_logic; -- [PMMU1]
+signal PM_INFL : std_logic := '0'; -- [PMMU2]
+signal PMMU_WR_D : std_logic := '0';
+signal BIW_0_WB_MMU : std_logic := '0'; -- [PMMU2b] the instruction in writeback is an F-line (MMU) LEA.
+signal PMMU_OP_I : std_logic; -- [PMMU2] PMMU_WR one clock later (START_OP hold).
+signal PM_QUAD : std_logic; -- [PMMU1] PMOVE of the 64-bit CRP or SRP: two long bus transfers (EA, EA+4).
 signal FETCH_STATE          : FETCH_STATES := START_OP;  -- [F49] was
     -- uninitialised while its partner NEXT_FETCH_STATE had an init (F44a).
     -- Both are read by the TRAP_V/TRAP_cc terms; leaving one uninitialised
@@ -446,6 +461,7 @@ begin
 
     OW_REQ <= '0' when BUSY_EXH = '1' else
               '0' when EXH_REQ = '1' and LOOP_BSY = '0' else -- Non interrupt exception requests, loop has priority.
+              '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' else -- [PMMU2] PMOVE to the MMU: no next opcode before its writeback (8.1.10).
               '0' when OPD_ACK = '1' or OW_RDY = '1' else
               '1' when NO_PIPELINE = true and FETCH_STATE = START_OP and ALU_BSY = '0' else
               '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else '0';
@@ -670,6 +686,7 @@ begin
     -- Addressing mode:
     ADR_MODE <= ADR_MODE_I;
     ADR_MODE_I <= "010" when OP = BSR or OP = CAS2 or OP = LINK or OP = UNLK else -- (An), (Dn).
+                  "010" when OP = LEA and BIW_0(13 downto 12) = "11" and BIW_0(5 downto 3) = "000" else -- [PMMU2b] PFLUSHA etc.: dummy (A0).
                   "010" when OP = RTD or OP = RTR or OP = RTS else -- (An).
                   "011" when OP = CMPM else -- (An)+
                   "100" when OP = ABCD or OP = SBCD else -- -(An).
@@ -732,7 +749,7 @@ begin
                    BIW_0(2 downto 0) when OP = CAS or OP = CHK or OP = CHK2 or OP = CLR or OP = CMP or OP = CMPA or OP = CMPI or OP = CMPM or OP = CMP2 else
                    BIW_0(2 downto 0) when OP = DIVS or OP = DIVU or OP = EOR or OP = EORI or OP = EXG or OP = JMP or OP = JSR or OP = LEA or OP = LINK or OP = LSL or OP = LSR else
                    BIW_0(2 downto 0) when OP = MOVE or OP = MOVEA or OP = MOVE_FROM_CCR or OP = MOVE_FROM_SR or OP = MOVE_TO_CCR or OP = MOVE_TO_SR else
-                   BIW_0(2 downto 0) when OP = MOVE_USP or OP = MOVEM or OP = MOVEP or OP = MOVES or OP = MULS or OP = MULU else
+                   BIW_0(2 downto 0) when OP = MOVE_USP or OP = MOVEM or OP = MOVEP or OP = MOVES or OP = PMOVE or OP = MULS or OP = MULU else
                    BIW_0(2 downto 0) when OP = NBCD or OP = NEG or OP = NEGX or OP = NOT_B or OP = OR_B or OP = ORI or OP = PACK or OP = PEA else
                    BIW_0(2 downto 0) when OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR or OP = SBCD or OP = Scc or OP = SUB or OP = SUBA else
                    BIW_0(2 downto 0) when OP = SUBI or OP = SUBQ or OP = SUBX or OP = TAS or OP = TST or OP = UNLK or OP = UNPK else "000";
@@ -745,6 +762,7 @@ begin
                    BIW_0(2 downto 0) when OP = LINK else
                    MOVEM_PNTR(2 downto 0) when OP = MOVEM else
                    BIW_0(2 downto 0) when OP = MOVE_USP else
+                   BIW_1(7 downto 5) when OP = LEA and BIW_0(13 downto 12) = "11" else -- [PMMU3] PTEST A = 1: An.
                    BIW_0(11 downto 9); -- ADDA, EXG, LEA, MOVE, MOVEA, SUBA.
     
     AR_WR_1 <= AR_WR_I;
@@ -758,6 +776,7 @@ begin
                '1' when (OP_WB_I = ADDQ or OP_WB_I = SUBQ) and BIW_0_WB(5 downto 3) = "001" else
                '1' when OP_WB_I = EXG and BIW_0_WB(7 downto 3) = "01001" else -- Two address registers.
                '1' when OP_WB_I = EXG and BIW_0_WB(7 downto 3) = "10001" else -- Data and Address register.
+               '0' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' else -- [PMMU2b] MMU operation: no An.
                '1' when OP_WB_I = LEA else
                '1' when OP_WB_I = MOVE_USP and BIW_0_WB(3) = '1' else
                '1' when OP_WB_I = MOVEA else
@@ -798,12 +817,12 @@ begin
               '1' when OP = MOVE and BIW_0(8 downto 6) = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else
               '1' when OP = MOVEA and ADR_MODE_I = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else
               '1' when OP = MOVEM and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
-              '1' when OP = MOVES and ADR_MODE_I = "011" and ALU_INIT_I = '1' else 
+              '1' when (OP = MOVES or OP = PMOVE) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else 
               '1' when (OP = UNLK or OP = RTD or OP = RTR or OP = RTS) and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' else '0';
 
     with OP select
         AR_DEC_I <= '1' when ABCD | ADD | ADDA | ADDI | ADDQ | ADDX | AND_B | ANDI | ASL | ASR | BCHG | BCLR | BSET | BTST | CHK | CMP | CMPA | CMPI | 
-                             DIVS | DIVU | EOR | EORI | LSL | LSR | MOVE | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | MOVES | MULS | MULU | NBCD | NEG | NEGX | 
+                             DIVS | DIVU | EOR | EORI | LSL | LSR | MOVE | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | MOVES | PMOVE | MULS | MULU | NBCD | NEG | NEGX | 
                              NOT_B | OR_B | ORI | ROTL | ROTR | ROXL | ROXR | SBCD | SUB | SUBA | SUBI | SUBQ | SUBX | TAS | TST, '0' when others;
 
     AR_DEC_S <= AR_DEC_I when ADR_MODE_I = "100" and FETCH_STATE /= CALC_AEFF and NEXT_FETCH_STATE = CALC_AEFF else
@@ -817,6 +836,7 @@ begin
               '1' when OP = MOVEM and ADR_MODE_I = "100" and ALU_INIT_I = '1' and MOVEM_END = false else
               '1' when (OP = MOVE_FROM_CCR or OP = MOVE_FROM_SR) and ADR_MODE_I = "100" and INIT_ENTRY = '1' else
               '1' when OP = MOVES and ADR_MODE_I = "100" and BIW_1(11) = '1' and INIT_ENTRY = '1' else
+              '1' when OP = PMOVE and ADR_MODE_I = "100" and BIW_1(9) = '1' and INIT_ENTRY = '1' else -- [PMMU1] MMU register to memory.
               '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '1' and INIT_ENTRY = '1' else
               -- PEA: decrement late in SWITCH_STATE not to decremented address register for PEA (xx,A7,yy) address modi.
               '1' when OP = PEA and FETCH_STATE = SWITCH_STATE and PHASE2 = true else '0';
@@ -885,6 +905,9 @@ begin
                '0' when OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR else
                '0' when OP_WB_I = MOVE_USP else -- USP is written.
                '0' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' else -- To control register.
+               '0' when OP_WB_I = PMOVE else -- [PMMU1] MMU registers only, never a data register.
+               '0' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' else -- [PMMU2b] PFLUSH/PLOAD/PTEST: no register at all
+                                                                  -- (without this the AR lock is gone and Dn was written).
                '0' when OP_WB_I = STOP else -- SR is written but not DR.
                '1' when EXEC_WB_STATE = WRITEBACK else '0';
 
@@ -1001,6 +1024,7 @@ begin
             MOVEM_ADn_WB <= MOVEM_ADn_I;
             OP_WB_I <= OP;
             BIW_0_WB <= BIW_0(11 downto 0);
+            if BIW_0(13 downto 12) = "11" then BIW_0_WB_MMU <= '1'; else BIW_0_WB_MMU <= '0'; end if;
             BIW_1_WB <= BIW_1;
         end if;
     end process WB_BUFFER;
@@ -1031,6 +1055,8 @@ begin
                  LONG when (OP = CHK2 or OP = CMP2) and BIW_0(10 downto 9) = "10" else
                  LONG when OP = CMPM and BIW_0(7 downto 6) = "10" else
                  LONG when (OP = MOVE or OP = MOVEA) and BIW_0(13 downto 12) = "10" else
+                 WORD when OP = PMOVE and BIW_1(15 downto 13) = "011" else -- [PMMU1] MMUSR is a word (MC68030UM 2.x / 9.7.4).
+                 LONG when OP = PMOVE else -- [PMMU1] TC, TT0, TT1 are longs.
                  LONG when OP = MOVEC or OP = MOVEQ or OP = MOVE_USP or OP = RTD or OP = RTS else
                  LONG when OP = MOVEM and BIW_0(6) = '1' else
                  LONG when OP = MOVEP and FETCH_STATE = INIT_EXEC_WB and BIW_0(7 downto 6) < "10" else -- Writeback to registers is long (see top level multiplexer).
@@ -1128,6 +1154,40 @@ begin
     -- F11: cache control registers. No caches are implemented, but MC68030UM
     -- 6.3.1/6.3.2 define both as MOVEC-accessible 32 bit registers, so the
     -- programming model presents them. Read-back masking lives in the top.
+    -- [PMMU1] PMOVE: MV_RW/MV_AN map the PMOVE direction (ext bit 9: 1 = MMU register to memory) onto the
+    -- MOVES flow (ext bit 11: 1 = register to memory); the PMOVE source/destination is never An/Dn.
+    MV_RW <= BIW_1(9) when OP = PMOVE else BIW_1(11);
+    MV_AN <= '0' when OP = PMOVE else BIW_1(15);
+    MV_RW_WB <= BIW_1_WB(9) when OP_WB_I = PMOVE else BIW_1_WB(11);
+    PMMU_RD_SEL <= BIW_1(15 downto 10);
+    PM_QUAD <= '1' when OP = PMOVE and BIW_1(15 downto 11) = "01001" else '0';
+    -- First (upper) long of a quad read: the top level keeps it until the writeback of the lower long.
+    PMMU_LD_HI <= '1' when PM_QUAD = '1' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and PHASE2 = false else '0';
+    PMMU_LO <= '1' when PHASE2 = true else '0'; -- Quad write: the lower long is the second ALU load.
+    PMMU_WR <= '1' when OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK else '0';
+    -- [PMMU2] PM_INFL: a PMOVE to an MMU register is between INIT_EXEC_WB and one clock after its writeback.
+    -- START_OP waits on it, so the configuration exception (8.1.10) is pending before the next instruction.
+    P_PMMU_WR_D: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            if (OP_WB_I = PMOVE and BIW_1_WB(9) = '0' and EXEC_WB_STATE = WRITEBACK) or PMMU_OP_I = '1' then
+                PMMU_WR_D <= '1';
+            else
+                PMMU_WR_D <= '0';
+            end if;
+            if RESET_CPU = '1' or PMMU_WR_D = '1' then
+                PM_INFL <= '0';
+            elsif FETCH_STATE = INIT_EXEC_WB and ((OP = PMOVE and BIW_1(9) = '0') or (OP = LEA and BIW_0(13 downto 12) = "11")) then
+                PM_INFL <= '1';
+            end if;
+        end if;
+    end process P_PMMU_WR_D;
+    PMMU_WR_SEL <= BIW_1_WB(15 downto 10);
+    PMMU_FD <= BIW_1_WB(8);
+    PMMU_OP_I <= '1' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' and EXEC_WB_STATE = WRITEBACK else '0';
+    PMMU_OP <= PMMU_OP_I;
+    PMMU_EXT <= BIW_1_WB;
+
     CACR_RD <= '1' when OP = MOVEC and BIW_0(0) = '0' and BIW_1(11 downto 0) = x"002" else '0';
     CACR_WR <= '1' when OP_WB_I = MOVEC and BIW_0_WB(0) = '1' and BIW_1_WB(11 downto 0) = x"002" and EXEC_WB_STATE = WRITEBACK else '0';
 
@@ -1241,7 +1301,7 @@ begin
                                     BCLR | BFCHG | BFCLR | BFEXTS | BFEXTU | BFFFO | BFINS | BFSET | BFTST | BSET | BSR | BTST | CAS | CAS2 | 
                                     CHK | CHK2 | CLR | CMP | CMPA | CMPI | CMPM | CMP2 | DBcc | DIVS | DIVU | EOR | EORI | EORI_TO_CCR | EORI_TO_SR |
                                     EXG | EXT | EXTB | JSR | LEA | LINK | LSL | LSR | MOVE | MOVEA | MOVE_FROM_CCR | MOVE_TO_CCR | MOVE_FROM_SR | 
-                                    MOVE_TO_SR | MOVE_USP | MOVEC | MOVEM | MOVEQ | MOVEP | MOVES | MULS | MULU | NBCD | NEG | NEGX | NOT_B | OR_B | 
+                                    MOVE_TO_SR | MOVE_USP | MOVEC | MOVEM | MOVEQ | MOVEP | MOVES | PMOVE | MULS | MULU | NBCD | NEG | NEGX | NOT_B | OR_B | 
                                     ORI | ORI_TO_CCR | ORI_TO_SR | PACK | PEA | ROTL | ROTR | ROXL | ROXR | RTR | SBCD | Scc | SUB | SUBA | SUBI | 
                                     SUBQ | SUBX | SWAP | STOP | TAS | TRAPV | TRAPcc | TST | UNLK | UNPK, '0' when others;
 
@@ -1332,6 +1392,7 @@ begin
                        '1' when OP = MOVEM and BIW_0(10) = '0' and MOVEM_COND = true else -- Register to memory.
                        '1' when OP = MOVEP and BIW_0(7 downto 6) > "01" else -- Register to Memory.
                        '1' when OP = MOVES and BIW_1(11) = '1' else -- Register to memory.
+                       '1' when OP = PMOVE and BIW_1(9) = '1' else -- [PMMU1] MMU register to memory.
                        '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '1' else '0';
 
     ADR_MARK_USED <= ADR_MARK_USED_W;
@@ -1482,6 +1543,12 @@ begin
                 when MOVEP =>
                     if FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
                         ADR_OFFS_VAR := ADR_OFFS_VAR + "10";
+                    end if;
+                when PMOVE => -- [PMMU1] CRP/SRP: the lower long is at EA+4.
+                    if PM_QUAD = '1' and PHASE2 = false and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' then
+                        ADR_OFFS_VAR := ADR_OFFS_VAR + "100";
+                    elsif PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
+                        ADR_OFFS_VAR := ADR_OFFS_VAR + "100";
                     end if;
                 when others => null;
             end case;
@@ -1667,6 +1734,10 @@ begin
             PHASE2 <= true; -- Used as a control flow switch.
         elsif (OP = CHK2 or OP = CMP2 or OP = CMPM) and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
             PHASE2 <= true; -- Used as a control flow switch.
+        elsif PM_QUAD = '1' and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' then
+            PHASE2 <= true; -- [PMMU1] Upper long read, the lower one follows.
+        elsif PM_QUAD = '1' and MV_RW = '1' and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' then
+            PHASE2 <= true; -- [PMMU1] Upper long loaded for writing, the lower one follows.
         elsif OP = JSR and FETCH_STATE = SLEEP then
             PHASE2 <= true; -- One clock cycle delay for address calculation.
         elsif OP = PEA and FETCH_STATE = SWITCH_STATE then
@@ -1703,6 +1774,7 @@ begin
                false when (OP_WB_I = BFCHG or OP_WB_I = BFCLR or OP_WB_I = BFINS or OP_WB_I = BFSET) and BF_BYTES = 5 else
                false when OP_WB_I = MOVEM and OP = MOVEM and FETCH_STATE /= START_OP and FETCH_STATE /= SLEEP else
                false when OP_WB_I = MOVEP and OP = MOVEP and FETCH_STATE /= START_OP else
+               false when OP_WB_I = PMOVE and PM_QUAD = '1' and PHASE2 = false and FETCH_STATE /= START_OP else -- [PMMU1]
                true;
 
     P_FI_DIRTY: process
@@ -1771,7 +1843,7 @@ begin
 
     FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
-                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD) -- MOVEM_FIRST_RD: sensitivity audit
+                       OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
     -- ASH: avoid structural hazard.
     -- ASH: avoid control hazard.
@@ -1779,6 +1851,10 @@ begin
         case FETCH_STATE is
             when START_OP =>
                 if OPD_ACK = '0' and OW_RDY = '0' then
+                    NEXT_FETCH_STATE <= START_OP;
+                elsif PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' then -- [PMMU2b] also an MMU operation (PLOAD/PTEST walk)
+                    -- [PMMU2] A PMOVE to an MMU register finishes its writeback before the next instruction
+                    -- starts, so the post-instruction MMU configuration exception (8.1.10) is taken before it.
                     NEXT_FETCH_STATE <= START_OP;
                 -- Debugging:
                 --elsif OP_TEST = '1' and ALU_BSY = '1' then
@@ -2129,20 +2205,20 @@ begin
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             end if;
-                        when MOVES =>
+                        when MOVES | PMOVE =>
                             case BIW_0(5 downto 3) is
                                 when "010" | "011" => -- (An), (An)+.
-                                    if BIW_1(11) = '0' and AR_IN_USE = '0' then -- ADH.
+                                    if MV_RW = '0' and AR_IN_USE = '0' then -- ADH.
                                         NEXT_FETCH_STATE <= FETCH_OPERAND; -- Memory to register.
-                                    elsif BIW_1(11) = '1' and AR_IN_USE = '0' then -- ADH.
+                                    elsif MV_RW = '1' and AR_IN_USE = '0' then -- ADH.
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
                                     else
                                         NEXT_FETCH_STATE <= START_OP; -- Wait, ADH.
                                     end if;
                                 when "100" => -- -(An).
-                                    if BIW_1(11) = '0' and AR_IN_USE = '0' then -- ADH.
+                                    if MV_RW = '0' and AR_IN_USE = '0' then -- ADH.
                                         NEXT_FETCH_STATE <= CALC_AEFF; -- Memory to register.
-                                    elsif BIW_1(11) = '1' and AR_IN_USE = '0' then -- ADH.
+                                    elsif MV_RW = '1' and AR_IN_USE = '0' then -- ADH.
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
                                     else
                                         NEXT_FETCH_STATE <= START_OP; -- Wait, ADH.
@@ -2159,9 +2235,9 @@ begin
                                     end if;
                             end case;
                             -- Register to memory:
-                            if BIW_1(11) = '1' and BIW_1(15) = '1' and AR_IN_USE = '1' then -- ADH.
+                            if MV_RW = '1' and MV_AN = '1' and AR_IN_USE = '1' then -- ADH.
                                 NEXT_FETCH_STATE <= START_OP;
-                            elsif BIW_1(11) = '1' and BIW_1(15) = '0' and DR_IN_USE = '1' then -- ADH.
+                            elsif MV_RW = '1' and MV_AN = '0' and DR_IN_USE = '1' then -- ADH.
                                 NEXT_FETCH_STATE <= START_OP;
                             end if;
                         when ANDI_TO_CCR | ANDI_TO_SR | EORI_TO_CCR | EORI_TO_SR | ORI_TO_CCR | ORI_TO_SR | RESET =>
@@ -2203,8 +2279,8 @@ begin
                         else
                             NEXT_FETCH_STATE <= FETCH_DISPL;
                         end if;
-                    when MOVES =>
-                        if (EW_ACK = '1' or EW_RDY = '1') and AR_IN_USE = '0' and BIW_1(11) = '0' then
+                    when MOVES | PMOVE =>
+                        if (EW_ACK = '1' or EW_RDY = '1') and AR_IN_USE = '0' and MV_RW = '0' then
                             NEXT_FETCH_STATE <= CALC_AEFF;
                         elsif (EW_ACK = '1' or EW_RDY = '1') and AR_IN_USE = '0' then
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2225,6 +2301,10 @@ begin
                         end if;
                 end case;
             when FETCH_EXWORD_1 =>
+                -- [F121] The index type (Dn/An) of the EA extension word is EXT_WORD(15), not BIW_1(15): for ORI/ANDI/EORI/ADDI/SUBI/CMPI
+                -- BIW_1 is the immediate, for MULx.L/DIVx.L/BTST #/bitfield/CHK2/CAS it is the register word, for MOVE phase 2 it is the
+                -- source extension. An immediate with bit 15 set skipped the DR_IN_USE wait, so (d8,An,Dn) used Dn before a MULS write-back
+                -- (XaAES andi.w #-129,(8,a4,d0.l) after muls.w #24,d0: read at the stale index, write at the right one).
                 -- Be aware that the An registers which will be addressed by EXWORD_1 and are used for several addressing modes
                 -- are valid right after this state (because every address register manipulation requires no more than two clock cycles).
                 if EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "11" then -- 32 bit displacement.
@@ -2242,24 +2322,24 @@ begin
                 elsif EW_ACK = '1' or EW_RDY = '1' then -- Null displacement, no outer displacement.
                     case OP is
                         when ADD | CMP | SUB | AND_B | EOR | OR_B =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when ADDA | BCHG | BCLR | BFCHG | BFCLR | BFEXTS | BFEXTU | BFFFO | BFINS | BFSET | BFTST | BSET | BTST | CHK | CHK2 | CMP2 | CMPA | DIVS | DIVU | MULS | MULU | MOVE | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | SUBA =>
-                            if OP = MOVE and PHASE2 = true and BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0' then -- ADH.
+                            if OP = MOVE and PHASE2 = true and EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0' then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                            elsif OP = MOVE and PHASE2 = true and BIW_1(15) = '1' and AR_IN_USE = '0' then -- ADH.
+                            elsif OP = MOVE and PHASE2 = true and EXT_WORD(15) = '1' and AR_IN_USE = '0' then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                            elsif (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            elsif (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
-                        when MOVES =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
-                                if BIW_1(11) = '0' then
+                        when MOVES | PMOVE =>
+                            if (MV_AN = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (MV_AN = '1' and AR_IN_USE = '0') then -- ADH.
+                                if MV_RW = '0' then
                                     NEXT_FETCH_STATE <= CALC_AEFF;
                                 else
                                     NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2268,19 +2348,19 @@ begin
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when ADDI | ADDQ | ANDI | CAS | CMPI | EORI | NBCD | NEG | NEGX | NOT_B | ORI | SUBI | SUBQ | TST | TAS | ASL | ASR | LSL | LSR | ROTL | ROTR | ROXL | ROXR =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
 						when LEA | PEA =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= SWITCH_STATE;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when others => -- CLR, JMP, JSR, MOVE_FROM_CCR, MOVE_FROM_SR, MOVEM, Scc.
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
@@ -2318,10 +2398,10 @@ begin
                             else
                                 NEXT_FETCH_STATE <= FETCH_D_LO;
                             end if;
-                        when MOVES =>
+                        when MOVES | PMOVE =>
                             if AR_IN_USE = '1' then -- ADH.
                                 NEXT_FETCH_STATE <= FETCH_D_LO; -- Wait, ADH.
-                            elsif BIW_1(11) = '0' then
+                            elsif MV_RW = '0' then
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2377,10 +2457,10 @@ begin
                             else
                                 NEXT_FETCH_STATE <= FETCH_MEMADR;
                             end if;
-                        when MOVES =>
+                        when MOVES | PMOVE =>
                             if AR_IN_USE = '1' then -- ADH.
                                 NEXT_FETCH_STATE <= FETCH_MEMADR; -- Wait, ADH.
-                            elsif BIW_1(11) = '0' then
+                            elsif MV_RW = '0' then
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2436,8 +2516,8 @@ begin
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             end if;
-                        when MOVES =>
-                            if BIW_1(11) = '0' then
+                        when MOVES | PMOVE =>
+                            if MV_RW = '0' then
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2503,6 +2583,12 @@ begin
                         when MOVE =>
                             if BIW_0(8 downto 6) = "100" and ADR_MODE_I = "011" then -- (An)+,-(An).
                                 NEXT_FETCH_STATE <= SWITCH_STATE;
+                            else
+                                NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                            end if;
+                        when PMOVE => -- [PMMU1] CRP/SRP: read the lower long at EA+4.
+                            if PM_QUAD = '1' and PHASE2 = false then
+                                NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             end if;
@@ -2657,6 +2743,14 @@ begin
                             NEXT_FETCH_STATE <= SWITCH_STATE;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
+                        end if;
+                    when PMOVE => -- [PMMU1] CRP/SRP to memory: a second ALU load and write for the lower long.
+                        if ALU_BSY = '0' and PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false then
+                            NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                        elsif ALU_BSY = '0' then
+                            NEXT_FETCH_STATE <= START_OP;
+                        else
+                            NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVEP =>
                         if ALU_BSY = '0' and MOVEP_PNTR_I = 0 then
@@ -2853,8 +2947,8 @@ begin
                             else
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Register to memory.
                             end if;
-                        when MOVES =>
-                            if BIW_1_WB(11) = '0' then
+                        when MOVES | PMOVE =>
+                            if MV_RW_WB = '0' then
                                 NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is register.
                             else
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Destination is in memory.

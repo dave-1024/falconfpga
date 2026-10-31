@@ -50,7 +50,7 @@ module tb_ttram;
     reg  rst_n = 0;
     sdram u_sd (.sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas), .clk(clk), .reset_n(rst_n), .ready(ready),
-        .refresh(st_ref), .din(st_din), .dout(st_dout), .addr(st_addr), .ds(st_ds), .cs(st_cs), .ecs(st_ecs), .we(st_we),
+        .refresh(st_ref), .din(st_din), .dout(st_dout), .addr(st_addr), .ds(st_ds), .cs(st_cs), .ecs(st_ecs), .we(st_we), .zmask(1'b0),
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata));
     wire ctl_oe = u_sd.tt_oe | (!u_sd.tt_rdwin & st_cs & st_we);
     wire [31:0] m_err;
@@ -63,9 +63,14 @@ module tb_ttram;
     reg st_on = 0; integer op = 0; reg [9:0] sa; reg chk = 0; reg [9:0] chk_a;
     initial for (i = 0; i < 1024; i = i + 1) shadow[i] = 16'h0000;
     function [21:0] stmap(input [9:0] x); stmap = {x[9:5], 8'h00, x[4:0], 4'h0}; endfunction  // spread over rows
+    integer ph = 0;
+    wire [2:0] gph = (gc + 64'd0 + ph) % 8;   // ph >= 0   // OFFGRID: phase lag, only ever grows -> ST slot gaps of 8..15 clocks (ST starts at any TT step)
+`ifdef OFFGRID
+    always @(posedge clk) if (st_on && gph == 3'd6 && ($urandom % 4) == 0) ph = ph + 8 - ($urandom % 8);  // delay the next slot by 0..7
+`endif
     always @(posedge clk) if (st_on) begin
         #1;
-        case (gc % 8)
+        case (gph)
         7: begin op = $urandom % 6; if (op == 5) op = 1; sa = $urandom;
                  if (op == 2) begin st_ecs = 1; st_addr = stmap(sa); st_we = 0; end end   // ecs sampled at g7
         0: begin st_ecs = 0;

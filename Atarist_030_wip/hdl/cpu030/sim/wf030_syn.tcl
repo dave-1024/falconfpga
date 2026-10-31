@@ -4,7 +4,7 @@
 # Output: impl/gwsynthesis/wf030.vg
 set here [file dirname [file normalize [info script]]]
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
-foreach f {pkg address_registers alu bus_interface control data_registers exception_handler opcode_decoder icache dcache} {
+foreach f {pkg address_registers alu bus_interface control data_registers exception_handler opcode_decoder icache dcache mmu} {
     add_file $here/../wf68k30L_$f.vhd
 }
 # F58: synthesise with CLK_N_EXT = 1 like cpu030_st_bridge.v (falling-edge

@@ -60,14 +60,20 @@ entity WF68K30L_DATA_REGISTERS is
         DR_SEL_RD_2         : in std_logic_vector(2 downto 0);
         DR_SEL_ADH_2        : in std_logic_vector(2 downto 0); -- F56: data hazard check selects
         DR_SEL_ADH_3        : in std_logic_vector(2 downto 0);
+        DR_FC_SEL           : in std_logic_vector(2 downto 0) := "000"; -- [PMMU3] PFLUSH/PLOAD/PTEST Dn FC operand
+        DR_FC_OUT           : out std_logic_vector(2 downto 0);
         DR_WR_1             : in bit;
         DR_WR_2             : in bit;
         DR_MARK_USED        : in bit;
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
+        DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
+        DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
+        DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
         UNMARK              : in bit;
         
-        OP_SIZE             : in OP_SIZETYPE
+        OP_SIZE             : in OP_SIZETYPE;
+        DBG_DR              : out std_logic_vector(255 downto 0) -- [F77] DIAG_DUMP: D7..D0
     );
 end entity WF68K30L_DATA_REGISTERS;
     
@@ -83,6 +89,7 @@ signal DR_SEL_WR_I2     : std_logic_vector(2 downto 0);
 signal DR_USED_1        : std_logic_vector(3 downto 0);
 signal DR_USED_2        : std_logic_vector(3 downto 0);
 begin
+    DBG_DR <= DR(7) & DR(6) & DR(5) & DR(4) & DR(3) & DR(2) & DR(1) & DR(0); -- [F77]
     INBUFFER: process
     begin
         wait until CLK = '1' and CLK' event;
@@ -120,8 +127,14 @@ begin
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_2 else
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_3 else '0';
 
+    -- [F97] Forwarding for the index register: a full-format ext word latches INDEX before the previous
+    -- instruction's write-back of that Dn; the address unit re-reads it here until the write-back has landed.
+    DR_IDX_OUT <= DR(conv_integer(DR_IDX_SEL));
+    DR_IDX_PEND <= '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_IDX_SEL else
+                   '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_IDX_SEL else '0';
     DR_OUT_1 <= DR(DR_PNTR_RD_1);
     DR_OUT_2 <= DR(DR_PNTR_RD_2);
+    DR_FC_OUT <= DR(conv_integer(DR_FC_SEL))(2 downto 0); -- [PMMU3] MC68030UM p. 9-64: FC = Dn bits 2-0
 
     REGISTERS: process
     begin

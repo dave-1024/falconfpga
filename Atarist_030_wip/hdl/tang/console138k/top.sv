@@ -161,13 +161,21 @@ module top(
 
 // route BL616 debug uart via the twi signals through the FPGA to
 // unused pins on PMOD1 (the middle one)
+wire [1:0]   fcal_rpt;    // [F85] flash_cal report {own, tx} (misterynano)
 assign bl616_rx = 1'b0;          // from PMOD to BL616, nowadays unused
 `ifdef AE350_SERIAL
 assign uart_ext_tx = banner_busy ? banner_tx : ae350_uart_tx; // U15. PIN, then AE350.
 `elsif ST_HELPER
 // U15 (BL616 USB serial, 115200 8N1): fabric letters while the AE350 is in
 // reset, the AE350's UART2 while it runs (st_helper_ctrl.v).
-assign uart_ext_tx = sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+// [F69] while the main PLL is not locked (por) pll_wdog.v owns U15 and sends its status line.
+`ifdef DIAG_HEARTBEAT
+// [F72] debug: once a second the 68030/ST heartbeat line borrows U15 while the AE350 UART is idle (cpu_heartbeat.v).
+wire hb_own, hb_tx;
+assign uart_ext_tx = por ? wd_tx : fcal_rpt[1] ? fcal_rpt[0] : diag_dump[1] ? diag_dump[0] : hb_own ? hb_tx : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+`else
+assign uart_ext_tx = por ? wd_tx : fcal_rpt[1] ? fcal_rpt[0] : sth_ae_run ? ae350_uart_tx : sth_fab_tx;
+`endif
 `else
 assign uart_ext_tx = bl616_tx;   // desktop image
 `endif
@@ -182,6 +190,11 @@ wire pll_lock;
 // placements). The PLL CLKIN inputs still take the pad directly.
 wire clk_g;
 DCE u_clk_g ( .CLKIN(clk), .CE(1'b1), .CLKOUT(clk_g) );
+// [F69] PLL lock watchdog on the raw 50 MHz clock: restarts a PLL_INIT whose PLL has not locked in 50 ms,
+// and reports retries/lock bits on U15 while the fabric is still in por (docs/HELPER_SILENCE.md).
+wire [2:0] wd_init_rst; wire wd_tx; wire [7:0] wd_status; wire ae350_pll_lock;
+pll_wdog #(.N(3)) u_pll_wdog ( .clk(clk_g), .lock_a({DDR3_LOCK, ae350_pll_lock, pll_lock}),
+    .init_rst(wd_init_rst), .tx(wd_tx), .status(wd_status) );
 wire flash_clk;
 
 // S0 is AA13, port reset_n, pull-up. A press after lock reloads the ST reset
@@ -385,6 +398,8 @@ wire [16:0] diag_rom_idx;
 wire [15:0] diag_rom_data;
 wire [3:0]  diag_030;
 wire [167:0] diag_trace;
+wire [1:0]   diag_dump;   // [F77] {own, tx} register dump while the 030 is halted (DIAG_DUMP)
+wire         diag_go;
 wire [23:0] diag_vbase;
 
 // Helper bring-up. DDR3 trains, then the AE350 is released and owns MSPI
@@ -395,10 +410,7 @@ wire        CORE_CLK, DDR_CLK, AHB_CLK, APB_CLK, RTC_CLK;
 wire        ddr3_init_completed;
 wire        ae350_flash_csn, ae350_flash_miso, ae350_flash_mosi;
 wire        ae350_uart_tx;
-wire        ae350_flash_holdn, ae350_flash_wpn;
-// syn_keep: the ae350_flash_clk SDC clock is attached to this net. Gowin
-// V1.9.12.04 synthesis otherwise renames it (n250_3) and PnR stops (TA2003).
-(* syn_keep = 1 *) wire ae350_flash_clk;
+wire        ae350_flash_clk, ae350_flash_holdn, ae350_flash_wpn;
 `ifdef AE350_SERIAL
 `elsif ST_HELPER
 // ST_HELPER: the SoC drives ae350_flash_csn/clk/mosi; they reach the MSPI
@@ -422,10 +434,11 @@ wire [1:0]  extm_hresp;
 gowin_pll_ae350 u_gowin_pll_ae350 (
     .clkin(clk), .init_clk(clk_g),
     .clkout0(DDR_CLK), .clkout1(CORE_CLK), .clkout2(AHB_CLK),
-    .clkout3(APB_CLK), .clkout4(RTC_CLK)
+    .clkout3(APB_CLK), .clkout4(RTC_CLK),
+    .lock(ae350_pll_lock), .init_rst(wd_init_rst[1])
 );
 gowin_pll_ddr3 u_gowin_pll_ddr3 (
-    .clkin(clk), .init_clk(clk_g),
+    .clkin(clk), .init_clk(clk_g), .init_rst(wd_init_rst[2]),
     .enclk0(1'b1), .enclk1(1'b1), .enclk2(DDR3_STOP),
     .clkout0(DDR3_CLK_IN), .clkout1(DDR3_RW_CLK),
     .clkout2(DDR3_MEMORY_CLK), .lock(DDR3_LOCK)
@@ -553,7 +566,7 @@ st_helper_ctrl u_sth_ctrl (
     .ae_gpio_a   ( ae350_gpio[7:0]     ),
     .ae_csn_a    ( ae350_flash_csn     ),
     .s1_n_a      ( user_n              ),
-    .fu_done     ( fu_done             ),   // flash out of continuous read
+    .fu_done     ( fu_done             ),   // [F70] flash out of continuous read
     .ae_run      ( sth_ae_run          ),
     .flash_to_st ( sth_flash_to_st     ),
     .st_release  ( sth_st_release      ),
@@ -707,14 +720,18 @@ wire        nano_mspi_cs, nano_mspi_hold, nano_mspi_wp, nano_mspi_do, nano_mspi_
 // ---------------------------------------------------------------------------
 wire        st_mspi_cs, mspi_clk_pll;
 wire [1:0]  st_mspi_io_o, st_mspi_io_oe;
-// Before the AE350 is released, flash_unstick.v takes the flash out of the ST reader's continuous-read mode
+// [F70] Before the AE350 is released, flash_unstick.v takes the flash out of the ST reader's continuous-read mode
 // (left over from before a JTAG reconfigure) and resets it (0x66/0x99). It owns the pads only while fu_busy (AE350 in reset).
 wire fu_busy, fu_done, fu_csn, fu_sck, fu_io0, fu_io1_oe;
 flash_unstick u_flash_unstick ( .clk(clk32), .rst(por32), .busy(fu_busy), .done(fu_done),
     .csn(fu_csn), .sck(fu_sck), .io0(fu_io0), .io1_oe(fu_io1_oe) );
 wire fu_own = fu_busy & ~sth_flash_to_st;
-assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : fu_own ? fu_csn : ae350_flash_csn;
-assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : fu_own ? fu_sck : ae350_flash_clk;
+// [F71] AE350-side signals are premuxed so mspi_clk keeps f69's single 2:1 mux after the PLL clock.
+// [F73] syn_keep: the SCK pad LUT stays a 3-input mux of the PLL clock as in f69 (pmmu f70: TOS read as garbage).
+wire ae_side_csn /* synthesis syn_keep=1 */ = fu_own ? fu_csn : ae350_flash_csn;
+wire ae_side_clk /* synthesis syn_keep=1 */ = fu_own ? fu_sck : ae350_flash_clk;
+assign mspi_cs   = sth_flash_to_st ? st_mspi_cs   : ae_side_csn;
+assign mspi_clk  = sth_flash_to_st ? mspi_clk_pll : ae_side_clk;
 assign mspi_di   = sth_flash_to_st ? (st_mspi_io_oe[0] ? st_mspi_io_o[0] : 1'bz)
                                    : fu_own ? fu_io0 : ae350_flash_mosi;
 assign mspi_do   = (sth_flash_to_st && st_mspi_io_oe[1]) ? st_mspi_io_o[1] : (fu_own && fu_io1_oe) ? 1'b1 : 1'bz;
@@ -871,6 +888,9 @@ misterynano misterynano (
   .diag_rom_data ( diag_rom_data ),
   .diag_030      ( diag_030      ),
   .diag_trace    ( diag_trace    ),
+  .diag_dump     ( diag_dump     ),
+  .fcal_rpt      ( fcal_rpt      ),
+  .diag_go       ( diag_go       ),
   .diag_vbase    ( diag_vbase    ),
 
   // digital 16 bit audio output
@@ -921,7 +941,8 @@ pll_160m pll_hdmi (
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
                .lock(pll_lock),
                .clkin(clk),
-               .init_clk(clk_g)
+               .init_clk(clk_g),
+               .init_rst(wd_init_rst[0])   // [F69]
 	       );
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
@@ -972,9 +993,15 @@ localparam DIAG_ST = `DIAG_FB_SELFTEST;
 //   d: last-start FC/RW/SIZE, in-progress/hung, termination, IACK, CPU pins
 //   e: bridge 68000-side state
 //   f: {bus cycles started mod 256, live last program fetch A23:0}
+`ifdef DIAG_PMMU
+// [F76] PMMU overlay (cpu030_st_bridge.v DIAG_PMMU): rows a-e = PMMU page (TC/CRP/SRP or TT0/TT1/FAULT/PC/MMUSR+SSW),
+// row f top byte = last exception vector.
+assign diag_rows = { diag_trace, 24'd0 };
+`else
 assign diag_rows = { diag_trace[159:128],
                      diag_trace[167:160], diag_vbase[15:0], diag_vbase[23:16],
                      diag_trace[127:0] };
+`endif
 `else
 assign diag_rows = 192'd0;
 assign diag_now = 20'd0;  assign diag_ever = 20'd0;  assign diag_word = 16'd0;
@@ -1044,6 +1071,15 @@ video2hdmi #(.PIXEL_CLOCK(32_000_000)) video2hdmi (
     .tmds_d_n   ( tmds_d_n   ),
     .tmds_d_p   ( tmds_d_p   )
 );
+`endif
+
+`ifndef DIAG_HEARTBEAT
+assign diag_go = 1'b0;   // [F77] no dump without the heartbeat's U15 arbitration
+`endif
+`ifdef DIAG_HEARTBEAT
+// [F72] instance here, after diag_flags/por32/sth_ae_run are declared
+cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .ext_busy(diag_dump[1]), .go_ext(diag_go), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule

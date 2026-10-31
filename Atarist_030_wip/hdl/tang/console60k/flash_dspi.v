@@ -120,7 +120,14 @@ assign dspi_out =
 `ifdef VERILATOR
 wire [1:0] dspi_in = mspi_din;  
 `elsif ST_HELPER
-wire [1:0] dspi_in = mspi_io_i;
+// [F79] One input register per pad (IOB-packable, ireg_in_iob): the pads were latched straight into eight dout
+// flops each, through untimed fabric routing that changed with every placement (pmmu f70/f73/f77hb: random ROM
+// bit errors, "BAD ROM CRC IN CHIP E/O"). The sample instant is the same clk edge as before; the latch states
+// below move one clock later (LAT = 1) to take the registered value.
+(* syn_useioff = 1 *) reg [1:0] dspi_in_r = 2'b11;
+always @(posedge clk) dspi_in_r <= mspi_io_i;
+wire [1:0] dspi_in = dspi_in_r;
+`define FLASH_IN_LAT1
 `else
 wire [1:0] dspi_in = { mspi_do, mspi_di };  
 `endif
@@ -166,6 +173,23 @@ always @(posedge clk or negedge resetn) begin
         if(state == 6'd7)
             dspi_mode <= 1'b1;
 
+`ifdef FLASH_IN_LAT1
+        // latch output ([F79] one clock later: dspi_in is the IOB register of the pad at state 25..32)
+        if(state == 6'd26) dout[15:14] <= dspi_in;
+        if(state == 6'd27) dout[13:12] <= dspi_in;
+        if(state == 6'd28) dout[11:10] <= dspi_in;
+        if(state == 6'd29) dout[9:8]   <= dspi_in;
+        if(state == 6'd30) dout[7:6]   <= dspi_in;
+        if(state == 6'd31) dout[5:4]   <= dspi_in;
+        if(state == 6'd32) dout[3:2]   <= dspi_in;
+        if(state == 6'd33) dout[1:0]   <= dspi_in;
+        // CS# still rises after state 32 as before (the flash's last data bits were already sampled)
+        if(state == 6'd32) mspi_cs <= 1'b1;
+        if(state == 6'd33) begin
+            state <= 6'd0;
+            busy <= 1'b0;
+        // (end shared with the original branch below)
+`else
         // latch output
         if(state == 6'd25) dout[15:14] <= dspi_in;
         if(state == 6'd26) dout[13:12] <= dspi_in;
@@ -181,6 +205,7 @@ always @(posedge clk or negedge resetn) begin
             state <= 6'd0;	    
             busy <= 1'b0;
             mspi_cs <= 1'b1;	// deselect flash chip	 
+`endif
         end
       end
    end

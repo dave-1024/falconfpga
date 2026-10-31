@@ -125,6 +125,9 @@ module cpu030_st_bridge #(
     output wire        dbg_req,    // req_now: toggles once per 030 AS cycle (clk_32)
     output wire        dbg_dsack,  // s_dsack (clk_32)
     output wire        dbg_berr,   // s_berr (clk_32)
+    output wire [239:0] dbg_idx,   // [F100] IDX_DEBUG latches (clk_cpu domain, frozen values)
+    output wire [1:0]  dbg_dump,   // [F77] DIAG_DUMP {own, tx} register dump UART (clk_32), 2'b01 otherwise
+    input  wire        dbg_go,     // [F77] U15 free for the dump (from top.sv)
     // FalconFPGA DIAG diag030b/c, observation only (mixed clk_32/clk_cpu,
     // read through 2-FF syncs in the overlay; values are slow or frozen):
     // [167:128] {got, FC2:0, RW, SIZE1:0, bad_space, A31:0 at first BERR} (clk_32)
@@ -181,7 +184,14 @@ module cpu030_st_bridge #(
     wire        cpu_reset_out, cpu_halt_outn;
     wire        cpu_berrn, cpu_avecn;
     wire        cpu_ipendn, cpu_statusn;
-    wire [104:0] cpu_dbg_exc;          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
+    wire        cpu_mmu_on;            // [F66] TC.E of the 030 (clk_cpu register)
+    wire [104:0] cpu_dbg_exc;
+    wire [287:0] cpu_dbg_pmmu;
+`ifndef IDX_DEBUG
+    assign dbg_idx = 240'd0;   // [F100]
+`endif
+    wire [639:0] cpu_dbg_regs;         // [F77] DIAG_DUMP
+    wire [15:0]  cpu_dbg_sr;         // [F76] DIAG_PMMU {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, SSW}          // FalconFPGA DIAG {taken, vector, SR, PC, A5, BIW_0} (RTL only)
     // [IC] CIIN address decode, per bus cycle, as a 030 board drives it (MC68030UM 5.7.1: "interpreted
     // on a bus-cycle-by-bus-cycle basis"; the core latches it at the start of S4, or with STERM).
     // Decoded from the cycle the 030 is running (AS asserted, its own A31:0 and FC2:0):
@@ -217,6 +227,9 @@ module cpu030_st_bridge #(
     WF68K30L_TOP #(
         .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
         .CACHES    ( 0             ),    // [IC] ignored: the 68030 I cache is always built; CIINn below decides
+`ifdef DIAG_NOCACHE
+        .NOCACHE      ( `DIAG_NOCACHE ),   // [F90] debug: 1 I-cache off, 2 D-cache off, 3 both
+`endif
 `ifdef WF030_FAST_HANDOFF
         .FAST_HANDOFF ( 1          )     // [F65] prefetch S5 rolls into the next prefetch S0
 `else
@@ -254,6 +267,7 @@ module cpu030_st_bridge #(
         // constant: ST-side cycles inhibited (TF536 rule, CACHE_PLAN.md §4), the reserved fast-RAM
         // range cachable. The cache is always built and enabled by CACR EI.
         .CIINn     ( cpu_cii_n     ),
+        .MMU_ON    ( cpu_mmu_on    ),   // [F66] TC.E: pins sampled one clk_cpu after AS
         .CDISn     ( 1'b1          ),   // no hard cache-off (CIIN keeps ST-side code out of the cache)
         .CBACKn    ( 1'b1          ),   // no burst-capable memory
         .CBREQn    (               ),
@@ -264,6 +278,18 @@ module cpu030_st_bridge #(
         .DBG_STR   ( cpu_dbg_str   ),   // FalconFPGA DIAG STR
 `endif
         .DBG_EXC   ( cpu_dbg_exc   ),   // FalconFPGA DIAG (RTL only)
+`ifdef DIAG_PMMU
+        .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F76]
+`elsif DIAG_DUMP
+        .DBG_PMMU  ( cpu_dbg_pmmu  ),   // [F77]
+`endif
+`ifdef IDX_DEBUG
+        .DBG_IDX   ( dbg_idx       ),   // [F100]
+`endif
+`ifdef DIAG_DUMP
+        .DBG_REGS  ( cpu_dbg_regs  ),   // [F77]
+        .DBG_SR    ( cpu_dbg_sr    ),
+`endif
 `endif
         .STATUSn   ( cpu_statusn   ),   // FalconFPGA DIAG (was open)
         .REFILLn   (               ),
@@ -413,7 +439,7 @@ module cpu030_st_bridge #(
                 t_rd    <= tt_rdata;   // tt_dout loaded on the previous edge: stable now
                 t_dsack <= 1'b1;
             end
-            if (!t_open & cpu_tt_any) begin
+            if (!t_open & cpu_tt_any & slow_ok) begin   // [F66]
                 t_open   <= 1'b1;
                 tt_we    <= ~cpu_rwn;
                 tt_la    <= cpu_adr[23:2];
@@ -449,6 +475,27 @@ module cpu030_st_bridge #(
     end
 `endif
 
+    // ---- [F66] translated pins: sample them one clk_cpu after AS ------------------
+    // With TC.E = 1 the core's MMU gates AS and drives the address from its ATC lookup in the same clk_cpu
+    // as AS (C_ADR -> HITV -> HIT_OK/XLATE -> BLK -> ASn, H_PA -> A31:8). That path is a clk_cpu clock long
+    // and did not fit the half clk_cpu (31.25 ns) to the first clk_32 edge with AS low (pmmu8: -7.0 ns,
+    // diag builds -13 ns): the bridge could take a half-settled AS/address (logical page, AS glitch) and run
+    // an ST cycle with it -> the walker/core got the wrong data (FreeMiNT halted right after pmove tc).
+    // While mmu_on, AS/address are sampled only on clk_32 edges that are also clk_cpu rising edges
+    // (aligned), i.e. >= 62.5 ns after AS; the live (same-edge) path is off. The SDC gives the paths
+    // through the MMU's kept nets (XLATE, HIT_OK, H_PA) two clk_32 cycles. With TC.E = 0 those nets are
+    // constant and the bridge timing is exactly the old one.
+    reg  ph_cpu = 1'b0;                 // toggles on every clk_cpu rising edge
+    always @(posedge clk_cpu) ph_cpu <= ~ph_cpu;
+    reg  ph_32 = 1'b0;                  // ph_cpu as seen by the previous clk_32 edge
+    always @(posedge clk) ph_32 <= ph_cpu;
+    // On a clk_32 edge that is also a clk_cpu rising edge, ph_cpu still has the value it got one clk_cpu
+    // earlier, which the clk_32 edge in between already copied: equal. On the edge in between: different.
+    wire aligned = (ph_32 == ph_cpu);
+    reg  mmu_on = 1'b0;
+    always @(posedge clk) mmu_on <= cpu_mmu_on;
+    wire slow_ok = ~mmu_on | aligned;   // this clk_32 edge may take a new 030 request
+
     // ---- front end: request capture (clk_32) -------------------------------
     // clk_cpu is phase-locked to clk_32 (same PLL VCO, every clk_cpu edge is a
     // clk_32 rising edge), so the 030 outputs are sampled directly by clk_32
@@ -466,7 +513,7 @@ module cpu030_st_bridge #(
     always @(posedge clk) begin
         if (!cpu_rst_n || cpu_asn) begin
             c_open <= 1'b0;
-        end else if (!c_open
+        end else if (!c_open & slow_ok   // [F66]
 `ifdef TTRAM
                      & ~t_cycle
 `endif
@@ -557,9 +604,9 @@ module cpu030_st_bridge #(
     // later, so the 030 can follow a cycle that ends at S6 with the next S0.
     // q_* are the request fields: live on that edge, captured (c_*) after it.
 `ifdef TTRAM
-    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle;
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~t_cycle & ~mmu_on;   // [F66] no live path while translating
 `else
-    wire live    = cpu_rst_n & ~cpu_asn & ~c_open;
+    wire live    = cpu_rst_n & ~cpu_asn & ~c_open & ~mmu_on;
 `endif
     wire pending = live | (req_now != s_seen);
     wire        q_tag  = live ? ~c_req_t        : c_req_t;
@@ -830,17 +877,22 @@ module cpu030_st_bridge #(
     reg        d_got   = 1'b0;
     reg [6:0]  d_info  = 7'd0;    // FC2:0, RW, SIZE1:0, bad_space
     reg [31:0] d_badr  = 32'd0;
+`ifdef DIAG_HEARTBEAT
+    wire d_arm = 1'b1;   // [F75] heartbeat builds keep the LAST BERR (the first is TOS's memory probe)
+`else
+    wire d_arm = ~d_got;
+`endif
     always @(posedge clk) begin
         if (extReset | pwrUp) begin
             d_got  <= 1'b0;
             d_info <= 7'd0;
             d_badr <= 32'd0;
-        end else if (d_berr_now & ~d_got) begin
+        end else if (d_berr_now & d_arm) begin
             d_got  <= 1'b1;
             d_info <= {c_fc, c_rwn, c_size, req_bad_space};
             d_badr <= {c_adr_hi, c_adr};
 `ifdef TTRAM
-        end else if (t_berr & ~d_got) begin
+        end else if (t_berr & d_arm) begin
             // TT front-end BERR (A31:24 not $00/$01/$FF, or beyond TT_BYTES): 030 pins, bad_space bit = 1
             d_got  <= 1'b1;
             d_info <= {cpu_fc, cpu_rwn, cpu_size, 1'b1};
@@ -1125,8 +1177,74 @@ module cpu030_st_bridge #(
     end
     wire [3:0] h_pg = h_tmr[24:21];
     assign dbg_trace = {d_got, d_info, d_badr, h_frz, h_pg, 1'b1, h_t, h_e[h_pg], h_vec, h_vcnt, 6'd0};
+`elsif DIAG_PMMU
+    // [F76] PMMU overlay: live PMMU registers + last exception (vector, PC) until the 030 first asserts HALT,
+    // then frozen. Two pages of five 32-bit rows (a-e), switched every ~2 s; row f top byte = last exception vector.
+    //   page 0: {TC31, frozen, 0, TC28:0} | CRP hi | CRP lo | SRP hi | SRP lo   (TC30:29 are always 0)
+    //   page 1: TT0 | TT1 | FAULT_ADR | last exception PC | {MMUSR, 1, frozen, 5'b0, SSW8:0}
+    reg [287:0] pm_s   = 288'd0;
+    reg [7:0]   pm_vec = 8'd0;
+    reg [31:0]  pm_pc  = 32'd0;
+    reg         pm_frz = 1'b0, pm_hlt_d = 1'b1, pm_stb_d = 1'b0;
+    reg [7:0]   pm_halts = 8'd0;
+    reg [26:0]  pm_t = 27'd0;
+    always @(posedge clk) begin
+        pm_t <= pm_t + 27'd1;
+        pm_hlt_d <= hlt_sync[1];
+        pm_stb_d <= cpu_dbg_exc[104];
+        if (pm_hlt_d & ~hlt_sync[1] & (pm_halts != 8'hFF)) pm_halts <= pm_halts + 8'd1;
+        if (!pm_frz) begin
+            pm_s <= cpu_dbg_pmmu;
+            if (cpu_dbg_exc[104] & ~pm_stb_d) begin pm_vec <= cpu_dbg_exc[103:96]; pm_pc <= cpu_dbg_exc[79:48]; end
+            if (pm_hlt_d & ~hlt_sync[1]) pm_frz <= 1'b1;
+        end
+    end
+    wire pm_pg = pm_t[26];
+    wire [159:0] pm_rows = pm_pg ? {pm_s[127:96], pm_s[95:64], pm_s[47:16], pm_pc, pm_s[63:48], 1'b1, pm_frz, 5'b0, pm_s[8:0]}
+                                 : {pm_s[287], pm_frz, 1'b0, pm_s[284:256], pm_s[255:224], pm_s[223:192], pm_s[191:160], pm_s[159:128]};
+    assign dbg_trace = {pm_rows, pm_vec};
 `else
     assign dbg_trace = {d_got, d_info, d_badr, x_adr, row_d, row_e, x_cnt, x_pc};
+`endif
+
+// [F77] register dump on U15 while halted
+`ifdef DIAG_DUMP
+`ifdef DIAG_TRACE
+    // [F78] per-clk_cpu pin trace (cpu_trace.v); shares U15 with the dump, trace first
+    wire tr_want, tr_own, tr_tx, du_own, du_tx;
+`ifdef DIAG_TRACE_TRIG
+`ifdef DIAG_TRACE_POST
+    cpu_trace #(.POST(`DIAG_TRACE_POST), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC),
+`ifdef DIAG_TRACE_ARM
+                .TRIG_ARM(1)
+`else
+                .TRIG_ARM(0)
+`endif
+               ) u_cpu_trace (
+`elsif DIAG_TRACE_ARM
+    cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC), .TRIG_ARM(1)) u_cpu_trace (
+`elsif DIAG_TRACE_TRIG_PC
+    cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG), .TRIG_PC(`DIAG_TRACE_TRIG_PC)) u_cpu_trace (
+`else
+    cpu_trace #(.POST(512), .TRIG_ADR(`DIAG_TRACE_TRIG)) u_cpu_trace (
+`endif
+`else
+    cpu_trace u_cpu_trace (
+`endif .clk_cpu(clk_cpu), .rst_n(cpu_rst_n), .halt_n(cpu_halt_outn),
+        .ent({ipl_r, cpu_avecn, cpu_rmcn, 3'b000, 16'h0000,
+              cpu_asn, cpu_dsn, cpu_dsackn, cpu_berrn, cpu_halt_outn, cpu_rst_n, cpu_rwn, cpu_fc, cpu_size,
+              cpu_statusn, cpu_ipendn, cpu_dbg_exc[104], cpu_dbg_exc[103:96],
+              cpu_adr, (cpu_rwn ? cpu_din : cpu_dout), cpu_dbg_regs[63:32]}),
+        .clk(clk), .go(dbg_go & ~du_own), .want(tr_want), .own(tr_own), .tx(tr_tx) );
+    cpu_dump u_cpu_dump ( .clk(clk), .halt_n(hlt_sync[1]), .regs(cpu_dbg_regs), .sr(cpu_dbg_sr), .pmmu(cpu_dbg_pmmu),
+        .berr_adr(d_badr), .berr_info({d_got, d_info}), .go(dbg_go & ~tr_own & ~tr_want), .own(du_own), .tx(du_tx) );
+    assign dbg_dump = {tr_own | du_own, tr_own ? tr_tx : du_tx};
+`else
+    cpu_dump u_cpu_dump ( .clk(clk), .halt_n(hlt_sync[1]), .regs(cpu_dbg_regs), .sr(cpu_dbg_sr), .pmmu(cpu_dbg_pmmu),
+        .berr_adr(d_badr), .berr_info({d_got, d_info}), .go(dbg_go), .own(dbg_dump[1]), .tx(dbg_dump[0]) );
+`endif
+`else
+    assign dbg_dump = 2'b01;
 `endif
 
 endmodule

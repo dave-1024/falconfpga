@@ -71,7 +71,7 @@ io_fifo mfp_out_fifo (
 	.in_clk           ( clk ),
 	.in               ( din ),
 	.in_strobe        ( 1'b0 ),
-	.in_enable        ( write && (addr == 5'h17) ),
+	.in_enable        ( write && (addr == 5'h17) && !serial_data_out_fifo_full ),
 
 	.out_clk          ( clk ),
 	.out              ( serial_data_out ),
@@ -442,7 +442,8 @@ always @(*) begin
 		if(addr == 5'h13) dout = uart_sync_chr; 
 		if(addr == 5'h14) dout = { uart_ctrl, 1'b0 }; 
 		if(addr == 5'h15) dout = { serial_data_in_available, 5'b00000 , uart_rx_ctrl}; 
-		if(addr == 5'h16) dout = { !serial_data_out_fifo_full && !uart_tx_busy, 3'b000 , uart_tx_ctrl}; 
+		// F112: TBE follows the modelled shift register only, like a real MFP
+		if(addr == 5'h16) dout = { !uart_tx_busy, 3'b000 , uart_tx_ctrl}; 
 		if(addr == 5'h17) dout = serial_data_in_cpu;
 
 	end else if(iack) begin
@@ -477,7 +478,11 @@ wire uart_rx_irq = serial_data_in_available;
 
 // the io controller reading data clears tx irq. It may raus again immediately if 
 // there's more data in the output fifo
-wire uart_tx_irq = !serial_data_out_fifo_full && !serial_strobe_out;
+// F112: a real MFP shifts bytes out at the baud rate whether anyone listens
+// or not. The io-controller fifo is only a tap (bytes are dropped when it is
+// full); TBE and the tx irq come from the byte-time timer, so the irq is set
+// on the rising edge of !busy, i.e. when the byte has been shifted out.
+wire uart_tx_irq = !uart_tx_busy;
 
 // map the 16 interrupt sources onto the 16 interrupt register bits
 wire [15:0] ipr_set = {

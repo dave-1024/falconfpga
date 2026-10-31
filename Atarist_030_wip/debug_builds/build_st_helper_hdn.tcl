@@ -81,6 +81,7 @@ add_file hdl/cpu030/wf68k30L_exception_handler.vhd
 add_file hdl/cpu030/wf68k30L_opcode_decoder.vhd
 add_file hdl/cpu030/wf68k30L_icache.vhd
 add_file hdl/cpu030/wf68k30L_dcache.vhd
+add_file hdl/cpu030/wf68k30L_mmu.vhd
 add_file hdl/cpu030/wf68k30L_top.vhd
 add_file hdl/cpu030/cpu030_st_bridge.v
 add_file hdl/fdc1772/fdc1772.v
@@ -155,6 +156,7 @@ add_file hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m_mod.v
 add_file hdl/tang/console138k/pll_init.v
+add_file hdl/tang/console138k/pll_wdog.v
 add_file hdl/tang/console138k/flash_unstick.v
 add_file hdl/tang/console138k/reset_sync.v
 add_file hdl/helper/key_debounce.v

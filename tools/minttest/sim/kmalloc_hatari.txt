@@ -1,0 +1,10 @@
+# Hatari (STE, TOS 2.06, 030+MMU, 4 MB, mint_mp2.st): kmalloc ($3E65E) calls up to $5A4A6 (fast-path return $3E6BE)
+caller  size     result
+?       00000800 0009B7F4   (page-type map)
+150D0   00000850 0009AF84   (bio resize: descriptor table)
+150E8   00020000 0009C000   (bio resize: buffers)
+35A7C   00000020 00085514
+4C402   00000019 00085544
+4AD42   00000028 00085574
+4AD42   00000028 000855A4
+4660A   00000200 0009AD64

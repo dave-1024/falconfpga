@@ -40,7 +40,7 @@ architecture sim of tb030 is
   signal dbgx : std_logic_vector(104 downto 0);
   signal halto, reso, ipendn : std_logic;
   type mem_t is array (0 to 131071) of std_logic_vector(15 downto 0);  -- 256K ROM
-  type ram_t is array (0 to 2097151) of integer range 0 to 65535;      -- 4MB RAM
+  type ram_t is array (0 to 2621439) of integer range 0 to 65535;      -- 4MB RAM + [MINT] 1MB disk window at $C00000
   impure function load return mem_t is
     file f : text open read_mode is ROMFILE; variable l : line; variable m : mem_t := (others => x"FFFF");
     variable i : integer := 0; variable v : std_logic_vector(15 downto 0);
@@ -100,7 +100,7 @@ begin
   begin
     if RAMFILE /= "" then
       file_open(rf, RAMFILE, read_mode); wi := 0;
-      while not endfile(rf) and wi < 2097152 loop
+      while not endfile(rf) and wi < 2621440 loop
         readline(rf, l); hread(l, w); ram(wi) := to_integer(unsigned(w)); wi := wi + 1;
       end loop;
       file_close(rf);
@@ -120,6 +120,9 @@ begin
         isram := (a >= 8 and a < x"00010000") or (ST = 1 and a >= 8 and a < x"00400000");
         isio  := ST = 1 and ((a >= x"00FF8000" and a <= x"00FFFFFF" and a(23 downto 4) /= x"FF8C8") or (a >= x"00FA0000" and a < x"00FC0000"));
         wi := to_integer(a(21 downto 1));
+        if ST = 1 and a >= x"00C00000" and a < x"00D00000" then -- [MINT] disk window: RAMFILE words 2M.. (a floppy image)
+          isram := true; wi := 2097152 + to_integer(a(19 downto 1));
+        end if;
         istt := fc /= "111" and a(31 downto 16) = x"0100"; ti := to_integer(a(15 downto 2));
         if berrw /= 0 and rwn = '1' and isram and to_integer(a(15 downto 1)) = berrw / 2 and a(31 downto 16) = x"0000" then
           isram := false; -- [DC]
@@ -146,8 +149,21 @@ begin
           elsif a >= x"00FC0000" then w := rom(to_integer(a - x"00FC0000") / 2);
           else w := rom(to_integer(a(17 downto 1))); end if;
         elsif isram then w := std_logic_vector(to_unsigned(ram(wi), 16));
-        elsif ST = 1 and a(23 downto 1) = "11111111111110100010001" then
-          w := std_logic_vector(to_unsigned((255 - (n / 64) mod 256) * 257, 16)); -- MFP timer C data counts down
+        elsif ST = 1 and (a(23 downto 3) = "111111111111101000100" or a(23 downto 1) = "11111111111110100001111") then
+          -- MFP timer A/B/C/D data ($FFFA1F-$FFFA25) count down ([MINT] TOS/MiNT poll timer B data for a change)
+          w := std_logic_vector(to_unsigned((255 - (n / 64) mod 256) * 257, 16));
+        elsif ST = 1 and (a(23 downto 1) = "11111111111111000000000" or a(23 downto 1) = "11111111111111000000010") then
+          w := x"0202"; -- [MINT] (see below)
+        elsif ST = 1 and a(23 downto 1) = "11111111100000100110000" then
+          w := x"0000"; -- [MINT] shifter mode $FF8260 = low res (FFFF = res 3: the VBL handler saw a monitor change and reset)
+        elsif ST = 1 and a(23 downto 1) = "11111111111110100000000" then
+          w := x"FFDF"; -- [MINT] MFP GPIP: bit 5 low = FDC/HDC done at once (no FDC model; TOS would wait for its timeout)
+        elsif ST = 1 and a(23 downto 1) = "11111111100001100000010" then
+          w := x"0000"; -- [MINT] FDC/DMA data $FF8604: FDC status 0 (no error)
+        elsif ST = 1 and a(23 downto 1) = "11111111100001100000011" then
+          w := x"0001"; -- [MINT] DMA status $FF8606: bit 0 = no DMA error
+        elsif false then
+          w := x"0202"; -- [MINT] ACIA $FFFC00/$FFFC04 status: transmit empty, nothing received (FFFF looked like a key stream)
         else w := x"FFFF"; end if;
         if WSRND > 0 then
           lfsr := (lfsr * 75 + 74) mod 65537; wr := (lfsr / 7) mod (WSRND + 1);

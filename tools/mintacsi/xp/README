@@ -1,0 +1,4 @@
+Board instrumentation for the xaloader strcpy fault: helper.s is placed at xaaes.km text+0x10886
+(over the unused "no moose.adi" message, no relocations there), and the 10 bytes at text+0x6ced8
+(jsr (a0); lea (1,a2,d0.l),a2; adda.w #12,sp) become jsr (bd.l,pc) to the helper + nop.
+On a mismatch the helper faults at AA=0x40000000+d0 (strlen result wrong) or 0x50000000+a2 (lea wrong).

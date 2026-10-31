@@ -1,0 +1,16 @@
+size 578
+MPTEST FreeMiNT memory protection (PMMU)
+Ssystem(S_OSFEATURES)=00000005
+PASS memory protection on (OSFEATURES bit 0)
+parent secret at 000CE67C
+child V pid=00000003
+child V Pwaitpid=0003005A
+PASS child write to parent memory -> SIGBUS/SIGSEGV, child exits $5A/$5B
+PASS parent memory unchanged
+child W Pwaitpid=00040000
+PASS W child ran side by side, own memory intact, exit 0
+child W Pwaitpid=00050000
+PASS W child ran side by side, own memory intact, exit 0
+child W Pwaitpid=00060000
+PASS W child ran side by side, own memory intact, exit 0
+MPTEST FAILS=00000000

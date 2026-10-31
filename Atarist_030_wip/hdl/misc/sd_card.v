@@ -53,6 +53,7 @@ module sd_card # (
     input [7:0]		  rstart, // up to eight different sources can request data 
     input [7:0]		  wstart, 
     input [31:0]	  rsector,
+    input [239:0]  idx_dbg,   // [F100] IDX_DEBUG: replaces SDC cmd 10/11 readout when defined
 	output reg [2:0]  rsrc,     // source currently being process and for which 
     output			  rbusy,    //        busy and done are valid
     output			  rdone,
@@ -166,7 +167,10 @@ wire [2:0] drive =
 // start sector has to be known and the core will read and
 // write from and to the sd card without and further interaction
 // with the Companion.
-reg [31:0] direct_start [8];   
+// [F99] keep the direct-map bases in flip-flops: Gowin extracted this as RAM and images that
+// start at card LBA >= ~2^18 failed through the direct path (MCU path fine).
+reg [31:0] direct_start [8] /* synthesis syn_ramstyle = "registers" */;
+reg [23:0] ds;   // [F99] CMD6 start-sector bytes 31:8 (module level, was a block-local reg [24:0])
 // SD_WRITE_DEBUG event strobe from the MCU command decoder (1 clock)
 reg [1:0]  dbg_ev;        // 2 = direct base set (cmd 6), 3 = image inserted (cmd 4/7)
 reg [2:0]  dbg_ev_drv;
@@ -490,7 +494,6 @@ always @(posedge clk) begin
 			
 			// SDC CMD 6: ENABLE DIRECT ACCESS
 			if(command == 8'd6) begin
-			   reg [24:0] ds;
 			   
 			   // MCU reports that the core may access the image
 			   // directy without sector translation
@@ -522,6 +525,9 @@ always @(posedge clk) begin
             // SDC CMD 10: SD_WRITE_DEBUG state: direct_start[0], [1] (8 bytes),
             // core_request, mcu_request, rstart|wstart, rsector (4 bytes)
             if(DEBUG_LOG && command == 8'd10) begin
+`ifdef IDX_DEBUG
+               if(byte_cnt <= 4'd14) data_out <= idx_dbg[239 - 8*byte_cnt -: 8];
+`else
                case(byte_cnt)
                  4'd0: data_out <= direct_start[0][31:24];
                  4'd1: data_out <= direct_start[0][23:16];
@@ -540,12 +546,16 @@ always @(posedge clk) begin
                  4'd14: data_out <= rsector[7:0];
                  default: ;
                endcase
+`endif
             end
 
             // SDC CMD 11: SD_WRITE_DEBUG sd_rw.v state: {sdcmd,sddat}, {wack,wretry},
             // {wfail,7'b0}, sectoraddr (4), max clocks in CMD24 (4), counts of
             // WERR, CMD24 give-ups, read timeouts, bad data tokens (1 each)
             if(DEBUG_LOG && command == 8'd11) begin
+               `ifdef IDX_DEBUG
+               if(byte_cnt <= 4'd14) data_out <= idx_dbg[119 - 8*byte_cnt -: 8];
+`else
                case(byte_cnt)
                  4'd0: data_out <= rw_dbg[51:44];
                  4'd1: data_out <= rw_dbg[43:36];
@@ -564,6 +574,7 @@ always @(posedge clk) begin
                  4'd14: data_out <= rw_nbtok;
                  default: ;
                endcase
+`endif
             end
 
             // SDC CMD 7: LARGE FILE INSERTED, usually used for HDD images > 4GB

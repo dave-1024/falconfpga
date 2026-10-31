@@ -1,5 +1,5 @@
 // ===========================================================================
-// flash_unstick.v - bring the SPI NOR back to plain SPI mode before the AE350 boots from it
+// flash_unstick.v - [F70] bring the SPI NOR back to plain SPI mode before the AE350 boots from it
 //
 // flash_dspi.v (the ST's TOS reader) runs the flash in dual-I/O 0xBB *continuous read* (mode bits M5:4 = 10): the flash then
 // takes the next CS# cycle as "address + mode bits" with no command byte. A JTAG reconfigure resets the FPGA but not the flash, so

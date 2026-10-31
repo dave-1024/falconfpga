@@ -69,6 +69,9 @@ entity WF68K30L_ADDRESS_REGISTERS is
         AR_OUT_1            : out std_logic_vector(31 downto 0);
         AR_OUT_2            : out std_logic_vector(31 downto 0);
         INDEX_IN            : in std_logic_vector(31 downto 0);
+        INDEX_LIVE          : in std_logic_vector(31 downto 0) := x"00000000"; -- [F97]
+        INDEX_PEND          : in bit := '0';                                   -- [F97]
+        IDX_SEL             : out std_logic_vector(2 downto 0);                -- [F97]
         PC                  : out std_logic_vector(31 downto 0); -- Program counter (or sPC) always word aligned.
         PC_EW_OFFSET        : in std_logic_vector(3 downto 0); -- Offset to the first address extension word.
         FETCH_MEM_ADR       : in bit;
@@ -140,11 +143,25 @@ entity WF68K30L_ADDRESS_REGISTERS is
         PC_RESTORE          : in bit;
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG (A5 for the exception probe)
-        DBG_SP              : out std_logic_vector(31 downto 0) -- FalconFPGA DIAG STR: ISP
+        DBG_SP              : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG STR: ISP
+        DBG_AR              : out std_logic_vector(319 downto 0); -- [F77] DIAG_DUMP: A0..A6, USP, ISP, MSP
+        DBG_IDX             : out std_logic_vector(239 downto 0)  -- [F100] IDX_DEBUG latches (read via SDC cmd 10/11)
     );
 end entity WF68K30L_ADDRESS_REGISTERS;
     
 architecture BEHAVIOR of WF68K30L_ADDRESS_REGISTERS is
+signal IDX_TRK : bit := '0';                                   -- [F97] INDEX follows the live Dn
+signal IDX_N   : std_logic_vector(2 downto 0) := "000";
+signal IDX_L   : std_logic := '0';
+-- [F100] IDX_DEBUG: snapshot of an indexed EA at PC = DB_TARGET (xaaes env loop lea (1,a2,d0.l),a2).
+-- Not reset (survives the MiNT COLD reboot after the fault). Pruned by synthesis when DBG_IDX is unused.
+constant DB_TARGET : std_logic_vector(31 downto 0) := x"01FB114A";
+signal INDEX_S  : std_logic_vector(31 downto 0) := (others => '0');
+signal DB_ST    : integer range 0 to 7 := 0;
+signal DB_CNT   : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_FL    : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_TRK   : std_logic_vector(7 downto 0) := (others => '0');
+signal DB_IN, DB_LIVE0, DB_IDX2, DB_IDX6, DB_LIVE6, DB_EA6, DB_PC : std_logic_vector(31 downto 0) := (others => '0');
 type AR_TYPE is array(0 to 6) of std_logic_vector(31 downto 0);
 signal ADR_EFF_I        : std_logic_vector(31 downto 0);
 signal AR               : AR_TYPE; -- Address registers A0 to A6.
@@ -172,8 +189,10 @@ signal SCALE            : std_logic_vector(1 downto 0); -- Scale information for
 signal SFC_REG          : std_logic_vector(2 downto 0); -- Special function code registers.
 signal USP_REG          : std_logic_vector(31 downto 0); -- User stack pointer (refers to A7 in the user mode.).
 begin
+    IDX_SEL <= EXT_WORD(14 downto 12) when STORE_ADR_FORMAT = '1' else IDX_N; -- [F97]
     DBG_A5 <= AR(5); -- FalconFPGA DIAG
     DBG_SP <= ISP_REG; -- FalconFPGA DIAG STR
+    DBG_AR <= AR(0) & AR(1) & AR(2) & AR(3) & AR(4) & AR(5) & AR(6) & USP_REG & ISP_REG & MSP_REG; -- [F77]
     INBUFFER: process
     begin
         wait until CLK = '1' and CLK' event;
@@ -219,7 +238,12 @@ begin
         end if;
     end process P_IN_USE; 
 
-    AR_IN_USE <= '0' when AR_USED_1(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
+    -- [F116] While a full-format EA tracks a pending write-back of its index Dn (IDX_TRK, F97), report the
+    -- address unit busy so the control unit holds the EA calculation (FETCH_D_LO/FETCH_MEMADR/ABS -> SWITCH_STATE
+    -- for LEA/PEA, operand fetch) until INDEX holds the written value. F97 alone covered single-clock writers
+    -- (lsl, add); after MULS/MULU the next PEA/LEA (bd,Dn) used Dn from before the multiply (XaAES +$3266).
+    AR_IN_USE <= '1' when IDX_TRK = '1' else
+                 '0' when AR_USED_1(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
                  '0' when AR_USED_2(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
                  '1' when AR_USED_1(3) = '1' and AR_USED_1(2 downto 0) = AR_SEL_RD_1 else
                  '1' when AR_USED_1(3) = '1' and AR_USED_1(2 downto 0) = AR_SEL_RD_2 else
@@ -261,6 +285,7 @@ begin
     variable I_S_IS             : std_logic_vector(3 downto 0); 
     variable INDEX              : std_logic_vector(31 downto 0) := x"00000000";    
     variable INDEX_SCALED       : std_logic_vector(31 downto 0);
+    variable SCALE_V            : std_logic_vector(1 downto 0); -- [F93]
     variable MEM_ADR            : std_logic_vector(31 downto 0);
     variable OUTER_DISPL        : std_logic_vector(31 downto 0);
     variable PCVAR              : std_logic_vector(31 downto 0);
@@ -314,9 +339,32 @@ begin
                     end loop;
                     INDEX(15 downto 0) := AR(conv_integer(EXT_WORD(14 downto 12)))(15 downto 0);
                 end if;
+            elsif IDX_TRK = '1' and IDX_L = '1' then -- [F97] forward the Dn write-back into INDEX.
+                INDEX := INDEX_LIVE;
+            elsif IDX_TRK = '1' then
+                for i in 31 downto 16 loop
+                    INDEX(i) := INDEX_LIVE(15);
+                end loop;
+                INDEX(15 downto 0) := INDEX_LIVE(15 downto 0);
+            end if;
+            INDEX_S <= INDEX; -- [F100]
+            -- [F97] Track while the previous instruction's write-back of the index Dn is pending, plus one
+            -- clock to take the written value.
+            if RESET = '1' then
+                IDX_TRK <= '0';
+            elsif STORE_ADR_FORMAT = '1' then
+                IDX_N <= EXT_WORD(14 downto 12);
+                IDX_L <= EXT_WORD(11);
+                if EXT_WORD(15) = '0' and INDEX_PEND = '1' then IDX_TRK <= '1'; else IDX_TRK <= '0'; end if;
+            elsif INDEX_PEND = '0' then
+                IDX_TRK <= '0';
             end if;
             --
-            case SCALE is
+            -- [F93] at the STORE_ADR_FORMAT edge the SCALE signal still holds the previous brief word's scale
+            -- (it is latched at this same edge in ADR_FORMAT), so take it from EXT_WORD here. Board: clr.l/clr.w
+            -- (0,An,Dn*4)/(0,An,Dn*2) pairs in MiNT used each other's scale -> page map overwritten.
+            if STORE_ADR_FORMAT = '1' then SCALE_V := EXT_WORD(10 downto 9); else SCALE_V := SCALE; end if;
+            case SCALE_V is
                 when "00" => INDEX_SCALED := INDEX; -- Multiple by 1.
                 when "01" => INDEX_SCALED := INDEX(30 downto 0) & '0'; -- Multiple by 2.
                 when "10" => INDEX_SCALED := INDEX(29 downto 0) & "00"; -- Multiple by 4.
@@ -543,6 +591,25 @@ begin
     end process ADDRESS_MODES;
 
     ADR_EFF <= ADR_EFF_I;
+
+    IDX_DBG: process -- [F100]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if STORE_ADR_FORMAT = '1' and EXT_WORD(15) = '0' and PC_I = DB_TARGET then
+            DB_ST <= 1; DB_CNT <= DB_CNT + '1'; DB_PC <= PC_I;
+            DB_IN <= INDEX_IN; DB_LIVE0 <= INDEX_LIVE;
+            DB_FL <= "0000000" & to_stdulogic(INDEX_PEND);
+            DB_TRK <= x"00";
+        elsif DB_ST /= 0 then
+            DB_ST <= (DB_ST + 1) mod 8;
+            DB_FL(DB_ST) <= to_stdulogic(INDEX_PEND);
+            DB_TRK(DB_ST) <= to_stdulogic(IDX_TRK);
+            if DB_ST = 2 then DB_IDX2 <= INDEX_S; end if;
+            if DB_ST = 6 then DB_IDX6 <= INDEX_S; DB_LIVE6 <= INDEX_LIVE; DB_EA6 <= ADR_EFF_I; end if;
+        end if;
+    end process IDX_DBG;
+    -- cmd10 bytes 0..14: IN, LIVE0, FL, CNT, TRK, IDX2 ; cmd11 bytes 0..14: IDX6, LIVE6, EA6, PC(23:0)
+    DBG_IDX <= DB_IN & DB_LIVE0 & DB_FL & DB_CNT & DB_TRK & DB_IDX2 & DB_IDX6 & DB_LIVE6 & DB_EA6 & DB_PC(23 downto 0);
     ADR_EFF_WB <= ADR_WB(31 downto 0);
     
     -- Data outputs:

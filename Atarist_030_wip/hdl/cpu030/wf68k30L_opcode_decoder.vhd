@@ -800,14 +800,20 @@ begin
                  C when (OP_I = DIVS or OP_I = DIVU) and IPIPE.D(8 downto 6) = "001" else
                  C when OP_I = EORI or OP_I = EORI_TO_CCR or OP_I = EORI_TO_SR else
                  C when OP_I = LINK or OP_I = MOVEC else
-                 C when OP_I = MOVEM or OP_I = MOVEP or OP_I = MOVES else
+                 C when OP_I = MOVEM or OP_I = MOVEP or OP_I = MOVES or OP_I = PMOVE else
+                 C when OP_I = LEA and IPIPE.D(15 downto 12) = x"F" else -- [PMMU2b] MMU operation: EA words after the ext word.
                  C when (OP_I = MULS or OP_I = MULU) and IPIPE.D(8 downto 6) = "000" else
                  C when OP_I = ORI_TO_CCR or OP_I = ORI_TO_SR or OP_I = ORI else
                  C when OP_I = PACK or OP_I = RTD or OP_I = SUBI or OP_I = STOP else
                  C when OP_I = TRAPcc and IPIPE.D(2 downto 0) = "010" else 
                  C when OP_I = UNPK else D;
 
-    TRAP_CODE_I <= T_1010 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"A" else
+    -- [PMMU1] MC68030UM 9.8 (p. 9-64/9-65): an F-line instruction with CpID = 0 that the 68030 does not
+    -- support takes the F-line trap in supervisor mode but a privilege violation in user mode; PMOVE is privileged.
+    TRAP_CODE_I <= T_PRIV when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 9) = "1111000" and SBIT = '0' else
+                   T_PRIV when OP_I = PMOVE and SBIT = '0' else
+                   T_PRIV when OP_I = LEA and IPIPE.D(15 downto 12) = x"F" and SBIT = '0' else -- [PMMU2b]
+                   T_1010 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"A" else
                    T_1111 when OP_I = UNIMPLEMENTED and IPIPE.D(15 downto 12) = x"F"  else
                    T_ILLEGAL when OP_I = ILLEGAL else 
                    T_RTE when OP_I = RTE and SBIT = '1' else -- Handled like a trap simplifies the code.
@@ -1501,7 +1507,40 @@ begin
                     OP_I <= ROTL; -- Register shifts.
                 end if;
             when x"F" => -- 1111, Coprocessor Interface / 68K40 Extensions.
-                OP_I <= UNIMPLEMENTED;
+                -- [PMMU1] PMOVE (MC68030UM 9.8, CpID 0, opword $F000 + EA, one extension word).
+                -- Memory alterable EA only: (An), (An)+, -(An), (d16,An), (d8,An,Xn)/full, (xxx).W, (xxx).L.
+                -- Extension word: 000 P-REG R/W FD 00000000 (TT0 = 010, TT1 = 011),
+                --                 010 P-REG R/W FD 00000000 (TC = 000, SRP = 010, CRP = 011; the 64-bit SRP/CRP
+                --                 not yet with (An)+ / -(An): those two still take the F-line trap),
+                --                 011 000   R/W 0  00000000 (MMUSR, word).
+                -- [PMMU2b] PFLUSHA, PFLUSH, PLOAD, PTEST (MC68030UM 9.8, pp. A-? / 9-64): decoded as an LEA that computes
+                -- the control EA (no operand access) and hands EA + extension word to the MMU at writeback instead of
+                -- writing An. Forms with no EA (PFLUSHA, PFLUSH FC,#MASK) use (A0) as a dummy EA.
+                -- FC field: 10XXX immediate, 00000 SFC, 00001 DFC 01RRR Dn [PMMU3]. PTEST A = 1 [PMMU3]: level 1-7 only.
+                if IPIPE.D(11 downto 6) = "000000" and
+                   (IPIPE.C(4 downto 3) = "10" or IPIPE.C(4 downto 3) = "01" or IPIPE.C(4 downto 1) = "0000" or IPIPE.C(12 downto 10) = "001") and
+                   ((IPIPE.D(5 downto 0) = "000000" and IPIPE.C = x"2400") or -- PFLUSHA
+                    (IPIPE.D(5 downto 0) = "000000" and IPIPE.C(15 downto 8) = x"30") or -- PFLUSH FC,#MASK
+                    (((IPIPE.D(5 downto 3) = "010" or IPIPE.D(5 downto 3) = "101" or IPIPE.D(5 downto 3) = "110") or
+                      (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and
+                     ((IPIPE.C(15 downto 8) = x"38") or -- PFLUSH FC,#MASK,<ea>
+                      (IPIPE.C(15 downto 10) = "001000" and IPIPE.C(8 downto 5) = "0000") or -- PLOAD
+                      (IPIPE.C(15 downto 13) = "100" and (IPIPE.C(8 downto 5) = "0000" or -- PTEST, A = 0
+                       (IPIPE.C(8) = '1' and IPIPE.C(12 downto 10) /= "000")))))) then -- [PMMU3] A = 1 (not with level 0)
+                    OP_I <= LEA;
+                -- [PMMU3] PMOVE <ea>: control alterable modes only (M68000PRM pp. 6-48..6-50; MC68030UM 11.7.1 lists
+                -- no (An)+ / -(An) form): (An), (d16,An), (d8,An,Xn)/full, (xxx).W, (xxx).L. (An)+ and -(An) take the F-line
+                -- trap (a privilege violation in user mode), as every other unsupported CpID 0 form.
+                elsif IPIPE.D(11 downto 6) = "000000" and (IPIPE.D(5 downto 3) = "010" or IPIPE.D(5 downto 3) = "101" or
+                   IPIPE.D(5 downto 3) = "110" or (IPIPE.D(5 downto 3) = "111" and IPIPE.D(2 downto 0) < "010")) and IPIPE.C(7 downto 0) = x"00" and
+                   ((IPIPE.C(15 downto 13) = "000" and IPIPE.C(12 downto 11) = "01") or
+                    (IPIPE.C(15 downto 10) = "010000") or
+                    (IPIPE.C(15 downto 11) = "01001") or
+                    (IPIPE.C(15 downto 10) = "011000" and IPIPE.C(8) = '0')) then
+                    OP_I <= PMOVE;
+                else
+                    OP_I <= UNIMPLEMENTED;
+                end if;
             when others => -- U, X, Z, W, H, L, -.
                 null;
             end case;

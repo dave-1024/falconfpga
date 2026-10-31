@@ -186,7 +186,8 @@ entity WF68K30L_TOP is
         -- [F65] 1: prefetch-to-prefetch S5-to-S0 handoff in the bus interface.
         -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
         -- unchanged either way.
-        FAST_HANDOFF    : integer := 0);
+        FAST_HANDOFF    : integer := 0;
+        NOCACHE         : integer := 0); -- [F90] debug: bit 0 forces the I-cache off, bit 1 the D-cache (as CDISn for that cache)
 
     port (
         CLK             : in std_logic;
@@ -197,6 +198,10 @@ entity WF68K30L_TOP is
         DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DBG_STR         : out std_logic_vector(127 downto 0); -- FalconFPGA DIAG STR: decoder word stream + ISP
+        DBG_IDX         : out std_logic_vector(239 downto 0); -- [F100] IDX_DEBUG
+        DBG_REGS        : out std_logic_vector(639 downto 0); -- [F77] DIAG_DUMP: {D7..D0, A0..A6, USP, ISP, MSP, PC, VBR}
+        DBG_SR          : out std_logic_vector(15 downto 0);  -- [F77]
+        DBG_PMMU        : out std_logic_vector(287 downto 0); -- [F76] DIAG_PMMU: {TC, CRP, SRP, TT0, TT1, MMUSR, FAULT_ADR, 7'0 & SSW_80_F}
         DATA_IN         : in std_logic_vector(31 downto 0);
         DATA_OUT        : out std_logic_vector(31 downto 0);
         DATA_EN         : out std_logic; -- Enables the data port.
@@ -238,6 +243,7 @@ entity WF68K30L_TOP is
         CBACKn          : in std_logic := '1'; -- Cache burst acknowledge (no burst yet: unused).
         CBREQn          : out std_logic; -- Cache burst request (no burst yet: always negated).
         CIOUTn          : out std_logic; -- Cache inhibit out (no PMMU: always negated).
+        MMU_ON          : out std_logic; -- [F66] TC.E (registered): the pins are translated; see cpu030_st_bridge.v.
 
         -- Status controls:
         STATUSn         : out std_logic;
@@ -449,6 +455,7 @@ signal DC_FL_OK1                : std_logic_vector(1 downto 0);
 signal DC_FL_BE0                : std_logic;
 signal DC_FL_BE1                : std_logic;
 signal CDIS_R                   : std_logic := '0'; -- [IC] Registered CDIS (asserted = '1').
+signal CDIS_I, CDIS_D           : std_logic; -- [F90] per cache, with NOCACHE
 signal IC_LK_ADR                : std_logic_vector(31 downto 2); -- [IC]
 signal IC_LK_FC2                : std_logic;
 signal IC_HIT                   : std_logic;
@@ -479,6 +486,8 @@ signal PC_LOAD_EXH              : bit;
 signal PC_LOAD_MAIN             : bit;
 signal PC_OFFSET                : std_logic_vector(7 downto 0);
 signal DBG_A5_I                 : std_logic_vector(31 downto 0);
+signal DBG_DR_I                 : std_logic_vector(255 downto 0); -- [F77]
+signal DBG_AR_I                 : std_logic_vector(319 downto 0); -- [F77]
 signal DBG_SP_I                 : std_logic_vector(31 downto 0);
 signal DBG_QF_I                 : std_logic_vector(3 downto 0);
 signal DBG_QC                   : std_logic_vector(3 downto 0);
@@ -534,6 +543,9 @@ signal STATUS_REG               : std_logic_vector(15 downto 0);
 signal STATUSn_MAIN             : bit;
 signal STATUSn_EXH              : bit;
 signal STORE_ADR_FORMAT         : bit;
+signal IDX_SEL                  : std_logic_vector(2 downto 0); -- [F97]
+signal DR_IDX_OUT               : std_logic_vector(31 downto 0);
+signal DR_IDX_PEND              : bit;
 signal STORE_ABS_HI             : bit;
 signal STORE_ABS_LO             : bit;
 signal STORE_AEFF               : bit;
@@ -553,6 +565,8 @@ signal TRAP_cc                  : bit;
 signal TRAP_CHK                 : bit;
 signal TRAP_DIVZERO             : bit;
 signal TRAP_V                   : bit;
+signal TRAP_MMUCFG              : bit; -- [PMMU2]
+signal PMOVE_PC                 : std_logic_vector(31 downto 0); -- [PMMU2] address of the last PMOVE.
 signal UNMARK                   : bit;
 signal USE_APAIR                : boolean;
 signal USE_DFC                  : bit;
@@ -565,6 +579,50 @@ signal VBR                      : std_logic_vector(31 downto 0);
 signal VBR_WR                   : bit;
 signal VBR_RD                   : bit;
 signal CACR                     : std_logic_vector(31 downto 0);
+-- [PMMU1] MMU registers (MC68030UM 9.7). Stage 1: TC, TT0, TT1, MMUSR by PMOVE; TT0/TT1 drive CIOUT.
+signal MMU_TC                   : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_TT0                  : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_TT1                  : std_logic_vector(31 downto 0) := (others => '0');
+signal MMU_SR                   : std_logic_vector(15 downto 0) := (others => '0');
+signal MMU_CRP                  : std_logic_vector(63 downto 0) := (others => '0');
+signal MMU_SRP                  : std_logic_vector(63 downto 0) := (others => '0');
+signal PMMU_HI, PMMU_HI_WB      : std_logic_vector(31 downto 0) := (others => '0');
+signal PMMU_LD_HI               : bit;
+signal PMMU_LO                  : bit;
+signal PMMU_WR                  : bit;
+signal PMMU_WR_SEL              : std_logic_vector(5 downto 0);
+signal PMMU_RD_SEL              : std_logic_vector(5 downto 0);
+signal PMMU_RD_DATA             : std_logic_vector(31 downto 0);
+signal ADR_OUT_I                : std_logic_vector(31 downto 0);
+signal FC_OUT_I                 : std_logic_vector(2 downto 0);
+signal RWn_I                    : std_logic;
+signal RMCn_I                   : std_logic;
+signal RMC_LKn_I                : std_logic; -- [F67]
+signal TT0_HIT, TT1_HIT         : std_logic;
+signal TT_CI                    : std_logic;
+-- [PMMU2b] MMU (ATC + table walker) between the bus interface and the pins.
+signal PMMU_FD, MMU_FLUSH, ATC_CI, MMU_WALKING, MMU_RESET, TT_HIT_ANY : std_logic;
+signal C_ADR_O                  : std_logic_vector(31 downto 0);
+signal C_FC_O                   : std_logic_vector(2 downto 0);
+signal C_SIZE_O                 : std_logic_vector(1 downto 0);
+signal C_ASn, C_DSn, C_ECSn, C_OCSn, C_DBENn, C_DEN, C_BEN : std_logic;
+signal C_DOUT                   : std_logic_vector(31 downto 0);
+signal C_DSACKn                 : std_logic_vector(1 downto 0);
+signal C_STERMn, C_BERRn        : std_logic;
+signal P_RWn, P_RMCn            : std_logic;
+signal PMMU_OP, MMU_CMD_BUSY, MMU_SR_WR, MMU_CMD_TT : std_logic;
+signal PMMU_EXT, MMU_SR_NEW     : std_logic_vector(15 downto 0);
+signal MMU_CMD_FC               : std_logic_vector(2 downto 0);
+signal MMU_DN_FC                : std_logic_vector(2 downto 0); -- [PMMU3]
+signal MMU_AN_WR                : std_logic; -- [PMMU3] PTEST A = 1
+signal EXH_RERUN                : std_logic; -- [PMMU3] RTE write rerun (DF)
+signal EXH_RR_ADR, EXH_RR_DATA  : std_logic_vector(31 downto 0);
+signal EXH_RR_FC                : std_logic_vector(2 downto 0);
+signal MMU_AN_DATA              : std_logic_vector(31 downto 0);
+signal AR_WR_1_REG              : bit;
+signal CIINn_EFF                : std_logic;
+signal DC_WR_TTCI               : std_logic;
+signal DC_WR_GO_EFF             : std_logic;
 signal CACR_WR                  : bit;
 signal CACR_RD                  : bit;
 signal CAAR                     : std_logic_vector(31 downto 0);
@@ -671,8 +729,10 @@ begin
     FRM_RB <= STG_BF when STG_BA = '1' else QS_BF when QS_BV = '1' else '0';
 
     DATA_EXH <= -- Exception handler multiplexing:
+                EXH_RR_DATA when EXH_RERUN = '1' else -- [PMMU3] DOB of the faulted write.
                 SR_CPY & PC(31 downto 16) when STACK_POS = 2 else
                 PC(15 downto 0) & STACK_FORMAT & "00" & IVECT_OFFS when STACK_POS = 4 else
+                PMOVE_PC when STACK_FORMAT = x"2" and STACK_POS = 6 and IVECT_OFFS = "0011100000" else -- [PMMU2] vector 56.
                 PC when STACK_FORMAT = x"2" and STACK_POS = 6 else
                 PC when STACK_FORMAT = x"9" and STACK_POS = 6 else
                 -- F28/H22: MC68030UM p8-29 -- "If an address error exception
@@ -723,6 +783,155 @@ begin
         end if;
     end process P_CACHE_REGS;
 
+    -- [PMMU1] MMU registers, written by PMOVE <ea>,MRn in its writeback (MC68030UM 9.7.2-9.7.4).
+    -- Unimplemented bits read as zero: TC $83FFFFFF, TTx $FFFF8777, MMUSR $EE47.
+    -- RESET clears only the E bits of TC, TT0, TT1 (9.2.2, 9.7.3); there is no ATC yet, so FD has no effect.
+    -- TC written with E = 1 and an invalid PS (< 8) or IS + PS + TIA..(first zero TIx) /= 32 is stored with
+    -- E cleared (9.7.2); the MMU configuration exception (vector 56, 8.1.10) itself is a later stage.
+    P_MMU_REGS: process(CLK)
+        variable SUM : std_logic_vector(5 downto 0);
+        variable STOPPED : boolean;
+        variable TIX : std_logic_vector(3 downto 0);
+    begin
+        if CLK = '1' and CLK' event then
+            if RESET_CPU = '1' then
+                MMU_TC(31) <= '0';
+                MMU_TT0(15) <= '0';
+                MMU_TT1(15) <= '0';
+            elsif MMU_SR_WR = '1' then
+                MMU_SR <= MMU_SR_NEW; -- [PMMU2b] PTEST result.
+            elsif PMMU_WR = '1' then
+                case PMMU_WR_SEL is
+                    when "010000" => -- TC
+                        SUM := "00" & DATA_IN_EXH(23 downto 20);
+                        SUM := SUM + DATA_IN_EXH(19 downto 16);
+                        STOPPED := false;
+                        for i in 3 downto 0 loop
+                            TIX := DATA_IN_EXH(i*4+3 downto i*4);
+                            if TIX = "0000" then STOPPED := true; end if;
+                            if not STOPPED then SUM := SUM + TIX; end if;
+                        end loop;
+                        MMU_TC <= DATA_IN_EXH and x"83FFFFFF";
+                        if DATA_IN_EXH(31) = '1' and (DATA_IN_EXH(23) = '0' or SUM /= 32) then
+                            MMU_TC(31) <= '0';
+                        end if;
+                    when "000010" => MMU_TT0 <= DATA_IN_EXH and x"FFFF8777";
+                    when "000011" => MMU_TT1 <= DATA_IN_EXH and x"FFFF8777";
+                    when "011000" => MMU_SR <= DATA_IN_EXH(15 downto 0) and x"EE47";
+                    -- CRP/SRP (9.7.1, Figure 9-35): L/U, LIMIT, DT in the upper long, table address bits 31-4 in
+                    -- the lower; bits 3-0 are ignored. DT = 0 is loaded as written (the configuration exception
+                    -- it causes is a later stage).
+                    when "010010" => MMU_SRP <= (PMMU_HI_WB and x"FFFF0003") & (DATA_IN_EXH and x"FFFFFFF0");
+                    when "010011" => MMU_CRP <= (PMMU_HI_WB and x"FFFF0003") & (DATA_IN_EXH and x"FFFFFFF0");
+                    when others => null;
+                end case;
+            end if;
+        end if;
+    end process P_MMU_REGS;
+
+    P_PMMU_HI: process(CLK)
+    begin
+        if CLK = '1' and CLK' event then
+            if PMMU_LD_HI = '1' then
+                PMMU_HI <= DATA_TO_CORE;
+            end if;
+            if ALU_INIT = '1' and OP = PMOVE then
+                PMOVE_PC <= PC; -- [PMMU2] for the configuration exception frame (8.1.10).
+                PMMU_HI_WB <= PMMU_HI; -- Hand the upper long on with the instruction to its writeback.
+            end if;
+        end if;
+    end process P_PMMU_HI;
+
+    -- [PMMU2] MMU configuration exception (8.1.10): a PMOVE that loads TC with E=1 and a bad layout
+    -- (PS < 8 or PS+IS+TIA.. up to the first zero TIx /= 32, 9.7.2), or CRP/SRP with DT = 0 (9.7.1).
+    -- A strobe with the writeback, so the exception is pending before the next instruction starts.
+    P_MMUCFG: process(PMMU_WR, PMMU_WR_SEL, DATA_IN_EXH, PMMU_HI_WB)
+        variable SUM : std_logic_vector(5 downto 0);
+        variable STOPPED : boolean;
+        variable TIX : std_logic_vector(3 downto 0);
+    begin
+        SUM := "00" & DATA_IN_EXH(23 downto 20);
+        SUM := SUM + DATA_IN_EXH(19 downto 16);
+        STOPPED := false;
+        for i in 3 downto 0 loop
+            TIX := DATA_IN_EXH(i*4+3 downto i*4);
+            if TIX = "0000" then STOPPED := true; end if;
+            if not STOPPED then SUM := SUM + TIX; end if;
+        end loop;
+        TRAP_MMUCFG <= '0';
+        if PMMU_WR = '1' then
+            if PMMU_WR_SEL = "010000" and DATA_IN_EXH(31) = '1' and (DATA_IN_EXH(23) = '0' or SUM /= 32) then
+                TRAP_MMUCFG <= '1';
+            elsif (PMMU_WR_SEL = "010010" or PMMU_WR_SEL = "010011") and PMMU_HI_WB(1 downto 0) = "00" then
+                TRAP_MMUCFG <= '1';
+            end if;
+        end if;
+    end process P_MMUCFG;
+
+    PMMU_RD_DATA <= MMU_SRP(63 downto 32) when PMMU_RD_SEL = "010010" and PMMU_LO = '0' else
+                    MMU_SRP(31 downto 0) when PMMU_RD_SEL = "010010" else
+                    MMU_CRP(63 downto 32) when PMMU_RD_SEL = "010011" and PMMU_LO = '0' else
+                    MMU_CRP(31 downto 0) when PMMU_RD_SEL = "010011" else
+                    MMU_TC when PMMU_RD_SEL = "010000" else
+                    MMU_TT0 when PMMU_RD_SEL = "000010" else
+                    MMU_TT1 when PMMU_RD_SEL = "000011" else
+                    x"0000" & MMU_SR;
+
+    -- [PMMU1] Transparent translation match (MC68030UM 9.3, 9.7.3) on the cycle on the bus: E set,
+    -- A31-A24 equal to the base outside the mask, FC equal to FC BASE outside FC MASK, and R/W equal
+    -- to the R/W bit unless RWM is set; a read-modify-write (RMC) cycle matches only with RWM set.
+    -- Both match: the CI bits are ORed. CIOUT inhibits the on-chip caches (9.3) exactly like CIIN.
+    TT0_HIT <= '1' when MMU_TT0(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                        and ((FC_OUT_I xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                        and (MMU_TT0(8) = '1' or (RMC_LKn_I = '1' and RWn_I = MMU_TT0(9))) else '0';
+    TT1_HIT <= '1' when MMU_TT1(15) = '1' and ((ADR_OUT_I(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                        and ((FC_OUT_I xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                        and (MMU_TT1(8) = '1' or (RMC_LKn_I = '1' and RWn_I = MMU_TT1(9))) else '0';
+    TT_CI <= (TT0_HIT and MMU_TT0(10)) or (TT1_HIT and MMU_TT1(10));
+    CIINn_EFF <= CIINn and not TT_CI and not ATC_CI; -- [PMMU2b] page CI (9.5.1) like TT CI.
+    -- [PMMU1] MC68030UM 6.1.2 p6-8: with CIOUT asserted the data cache is completely ignored, even on
+    -- writes in write-allocation mode. The write's own address and FC (R/W = write) are matched, so a
+    -- write in a TT CI block neither updates a hit nor allocates. (A locked RMC write portion is matched
+    -- as a plain write here; RMC operands are not cached anyway, MC68030UM 6.1.2.)
+    DC_WR_TTCI <= '1' when (MMU_TT0(15) = '1' and MMU_TT0(10) = '1'
+                            and ((DC_WR_ADR(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                            and ((DC_WR_FC xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                            and (MMU_TT0(8) = '1' or MMU_TT0(9) = '0'))
+                       or (MMU_TT1(15) = '1' and MMU_TT1(10) = '1'
+                            and ((DC_WR_ADR(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                            and ((DC_WR_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                            and (MMU_TT1(8) = '1' or MMU_TT1(9) = '0')) else '0';
+    DC_WR_GO_EFF <= DC_WR_GO and not DC_WR_TTCI;
+    -- [PMMU2b] The MMU sits between the bus interface and the pins. With TC.E = 0 it is a wire.
+    TT_HIT_ANY <= TT0_HIT or TT1_HIT;
+    MMU_RESET <= '1' when RESET_CPU = '1' else '0';
+    -- 9.4 p9-17 / 9.7.5.1 p9-61: a PMOVE to CRP, SRP, TC, TT0 or TT1 with FD = 0 flushes the ATC.
+    MMU_FLUSH <= '1' when PMMU_WR = '1' and PMMU_FD = '0' and (PMMU_WR_SEL = "010000" or PMMU_WR_SEL = "010010"
+                     or PMMU_WR_SEL = "010011" or PMMU_WR_SEL = "000010" or PMMU_WR_SEL = "000011") else '0';
+    MMU_ON <= MMU_TC(31); -- [F66]
+    I_MMU: entity work.WF68K30L_MMU
+        port map(CLK => CLK, RESET => MMU_RESET, TC => MMU_TC, CRP => MMU_CRP, SRP => MMU_SRP,
+            TT_HIT => TT_HIT_ANY, FLUSH_ALL => MMU_FLUSH,
+            C_ADR => ADR_OUT_I, C_FC => FC_OUT_I, C_SIZE => C_SIZE_O, C_ASn => C_ASn, C_DSn => C_DSn,
+            C_RWn => RWn_I, C_RMCn => RMCn_I, C_RMCLn => RMC_LKn_I, C_ECSn => C_ECSn, C_OCSn => C_OCSn, C_DBENn => C_DBENn,
+            C_DATA_OUT => C_DOUT, C_DATA_EN => C_DEN, C_BUS_EN => C_BEN,
+            C_DSACKn => C_DSACKn, C_STERMn => C_STERMn, C_BERRn => C_BERRn,
+            P_ADR => ADR_OUT, P_FC => FC_OUT, P_SIZE => SIZE, P_ASn => ASn, P_DSn => DSn, P_RWn => RWn,
+            P_RMCn => RMCn, P_ECSn => ECSn, P_OCSn => OCSn, P_DBENn => DBENn, P_DATA_OUT => DATA_OUT,
+            P_DATA_EN => DATA_EN, P_BUS_EN => BUS_EN, P_DSACKn => DSACKn, P_STERMn => STERMn, P_BERRn => BERRn,
+            P_DATA_IN => DATA_IN, ATC_CI => ATC_CI, WALKING => MMU_WALKING,
+            CMD => PMMU_OP, CMD_EXT => PMMU_EXT, CMD_EA => DATA_IN_EXH, CMD_FC => MMU_CMD_FC, CMD_TT => MMU_CMD_TT,
+            CMD_BUSY => MMU_CMD_BUSY, SR_WR => MMU_SR_WR, SR_OUT => MMU_SR_NEW, AN_WR => MMU_AN_WR, AN_DATA => MMU_AN_DATA);
+    -- [PMMU2b] FC operand of PFLUSH/PLOAD/PTEST (9.8): 10XXX immediate, 00000 SFC, 00001 DFC.
+    MMU_CMD_FC <= PMMU_EXT(2 downto 0) when PMMU_EXT(4 downto 3) = "10" else MMU_DN_FC when PMMU_EXT(4 downto 3) = "01" else SFC when PMMU_EXT(0) = '0' else DFC;
+    -- PTEST level 0 sets T when TT0/TT1 match the tested address, FC and R/W (Table 9-3).
+    MMU_CMD_TT <= '1' when (MMU_TT0(15) = '1' and ((DATA_IN_EXH(31 downto 24) xor MMU_TT0(31 downto 24)) and not MMU_TT0(23 downto 16)) = x"00"
+                            and ((MMU_CMD_FC xor MMU_TT0(6 downto 4)) and not MMU_TT0(2 downto 0)) = "000"
+                            and (MMU_TT0(8) = '1' or PMMU_EXT(9) = MMU_TT0(9)))
+                       or (MMU_TT1(15) = '1' and ((DATA_IN_EXH(31 downto 24) xor MMU_TT1(31 downto 24)) and not MMU_TT1(23 downto 16)) = x"00"
+                            and ((MMU_CMD_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
+                            and (MMU_TT1(8) = '1' or PMMU_EXT(9) = MMU_TT1(9))) else '0';
+
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
                       ALU_RESULT_MV when F3_BYP = '1' else -- [F3] Next MOVEM register, in the clock its write is presented.
@@ -732,7 +941,9 @@ begin
 
     AR_SEL_RD_1 <= "111" when BUSY_EXH = '1' else AR_SEL_RD_1_MAIN; -- ISP during exception.
 
-    AR_IN_1 <= DATA_TO_CORE when BUSY_EXH = '1' else
+    AR_WR_1_REG <= AR_WR_1 or To_Bit(MMU_AN_WR);
+    AR_IN_1 <= MMU_AN_DATA when MMU_AN_WR = '1' else -- [PMMU3] PTEST A = 1 (the core is stalled by MMU_BUSY)
+               DATA_TO_CORE when BUSY_EXH = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
                -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
@@ -769,6 +980,7 @@ begin
                   DR_OUT_1 when OP = EXG else -- Two data registers.
                   VBR when OP = MOVEC and VBR_RD = '1' else
                   CACR when OP = MOVEC and CACR_RD = '1' else
+                  PMMU_RD_DATA when OP = PMOVE and BIW_1(9) = '1' else -- [PMMU1] PMOVE MRn,<ea>.
                   CAAR when OP = MOVEC and CAAR_RD = '1' else
                   x"0000000" & '0' & SFC when OP = MOVEC and SFC_RD = '1' else
                   x"0000000" & '0' & DFC when OP = MOVEC and DFC_RD = '1' else
@@ -987,11 +1199,14 @@ begin
 
     ADR_L <= x"000000" & "000" & BIW_0(2 downto 0) & "00" when BKPT_CYCLE = '1' else
              x"FFFFFFF" & IRQ_PEND & '1' when CPU_SPACE_EXH = '1' else
+             EXH_RR_ADR when EXH_RERUN = '1' else -- [PMMU3] RTE rerun of a faulted write.
              ADR_EFF_WB when DATA_WR_MAIN = '1' else ADR_EFF; -- Exception handler uses ADR_EFF for read and write access.
 
     -- FalconFPGA DIAG: PC_LOAD_EXH loads the handler address from the vector: IVECT_OFFS, the stacked SR
     -- copy and the PC (not yet reloaded) describe the exception being taken; A5 at that moment.
     DBG_EXC_STB <= '1' when PC_LOAD_EXH = '1' else '0';
+    DBG_REGS <= DBG_DR_I & DBG_AR_I & PC & VBR; DBG_SR <= STATUS_REG; -- [F77]
+    DBG_PMMU <= MMU_TC & MMU_CRP & MMU_SRP & MMU_TT0 & MMU_TT1 & MMU_SR & FAULT_ADR & "0000000" & SSW_80_F; -- [F76]
     DBG_EXC <= DBG_EXC_STB & IVECT_OFFS(9 downto 2) & SR_CPY & PC & DBG_A5_I & BIW_0; -- BIW_0 = opcode word (IRD) at handler load
     DBG_QC <= x"0" when Q_COUNT = 0 else x"1" when Q_COUNT = 1 else x"2" when Q_COUNT = 2 else x"3" when Q_COUNT = 3 else x"4";
     DBG_STR <= Q_HEAD & '0' & Q_STREAM(63 downto 48) & DBG_QF_I & DBG_QC & x"00" & DBG_SP_I & BIW_0 & DBG_IC_I; -- FalconFPGA DIAG STR
@@ -1018,13 +1233,14 @@ begin
                 when WORD => ADR_LATCH <= ADR_LATCH + x"2";
                 when others => ADR_LATCH <= ADR_LATCH + x"1";
             end case;
-        elsif BERRn = '0' then
+        elsif C_BERRn = '0' then
             FAULT_ADR <= ADR_LATCH;
         end if;
     end process P_ADR_LATCHES;
 
     FC_I <= FC_LATCH when BUS_BSY = '1' else FC_NXT;
-    FC_NXT <= SFC when USE_SFC = '1' else
+    FC_NXT <= EXH_RR_FC when EXH_RERUN = '1' else -- [PMMU3] FC of the faulted write (SSW).
+            SFC when USE_SFC = '1' else
             DFC when USE_DFC = '1' else
             "111" when (DATA_RD = '1' or DATA_WR = '1') and CPU_SPACE = '1' else
             "101" when (DATA_RD = '1' or DATA_WR = '1') and SBIT = '1' else
@@ -1044,13 +1260,16 @@ begin
         end if;
     end process P_CDIS;
 
+    CDIS_I <= '1' when (NOCACHE mod 2) = 1 else CDIS_R;
+    CDIS_D <= '1' when (NOCACHE / 2) mod 2 = 1 else CDIS_R;
+
     I_ICACHE: WF68K30L_ICACHE
         port map(
             CLK       => CLK,
             RESET     => RESET_CPU,
             EI        => CACR(0),
             FI        => CACR(1),
-            CDIS      => CDIS_R,
+            CDIS      => CDIS_I,
             CLR_ALL   => IC_CI,
             CLR_ENT   => IC_CEI,
             CLR_IDX   => CAAR(7 downto 2),
@@ -1072,8 +1291,8 @@ begin
     -- write strobes, read as zero). DBE (12) is stored but has no effect (no burst). CDIS disables both caches.
     DC_CD <= '1' when CACR_WR = '1' and DATA_IN_EXH(11) = '1' else '0';
     DC_CED <= '1' when CACR_WR = '1' and DATA_IN_EXH(10) = '1' else '0';
-    DC_FILL_EN <= CACR(8) and not CACR(9) and not CDIS_R;
-    DC_ON <= CACR(8) and not CDIS_R;
+    DC_FILL_EN <= CACR(8) and not CACR(9) and not CDIS_D;
+    DC_ON <= CACR(8) and not CDIS_D;
 
     I_DCACHE: WF68K30L_DCACHE
         port map(
@@ -1082,7 +1301,7 @@ begin
             ED        => CACR(8),
             FD        => CACR(9),
             WA        => CACR(13),
-            CDIS      => CDIS_R,
+            CDIS      => CDIS_D,
             CLR_ALL   => DC_CD,
             CLR_ENT   => DC_CED,
             CLR_IDX   => CAAR(7 downto 2),
@@ -1091,7 +1310,7 @@ begin
             LK_SZ     => DC_LK_SZ,
             LK_HIT    => DC_HIT,
             LK_DATA   => DC_HIT_DATA,
-            WR_GO     => DC_WR_GO,
+            WR_GO     => DC_WR_GO_EFF,
             WR_ADR    => DC_WR_ADR,
             WR_FC     => DC_WR_FC,
             WR_SZ     => DC_WR_SZ,
@@ -1109,7 +1328,7 @@ begin
         );
 
     CBREQn <= '1'; -- [IC] No burst fill until a burst-capable fast RAM exists (CACR IBE has no effect).
-    CIOUTn <= '1'; -- [IC] No PMMU, so no page or TT register can ask for cache inhibit.
+    CIOUTn <= not (TT_CI or ATC_CI); -- [PMMU1] TT0/TT1 CI (MC68030UM 9.3); page descriptor CI comes with the ATC.
 
     -- The core talks to the bus interface for data; the bus interface serves read hits from the data cache.
     -- Instruction words come from the prefetch queue, which the instruction cache feeds.
@@ -1130,6 +1349,9 @@ begin
             AR_OUT_1                => AR_OUT_1,
             AR_OUT_2                => AR_OUT_2,
             INDEX_IN                => DR_OUT_1, -- From data register section.
+            INDEX_LIVE              => DR_IDX_OUT,
+            INDEX_PEND              => DR_IDX_PEND,
+            IDX_SEL                 => IDX_SEL,
             PC                      => PC,
             FETCH_MEM_ADR           => FETCH_MEM_ADR,
             STORE_ADR_FORMAT        => STORE_ADR_FORMAT,
@@ -1174,7 +1396,7 @@ begin
             USP_WR                  => USP_WR,
             AR_DEC                  => AR_DEC,
             AR_INC                  => AR_INC,
-            AR_WR_1                 => AR_WR_1,
+            AR_WR_1                 => AR_WR_1_REG,
             AR_WR_2                 => AR_WR_2,
             UNMARK                  => UNMARK,
             EXT_WORD                => EXT_WORD,
@@ -1190,7 +1412,9 @@ begin
             PC_RESTORE              => PC_RESTORE_EXH,
             PC_OFFSET               => PC_OFFSET,
             DBG_A5                  => DBG_A5_I,
-            DBG_SP                  => DBG_SP_I
+            DBG_SP                  => DBG_SP_I,
+            DBG_AR                  => DBG_AR_I,
+            DBG_IDX                 => DBG_IDX
         );
 
     I_ALU: WF68K30L_ALU
@@ -1239,21 +1463,21 @@ begin
             CLK_F               => CLK_F, -- [F58]
 
             ADR_IN_P            => ADR_P,
-            ADR_OUT_P           => ADR_OUT,
+            ADR_OUT_P           => ADR_OUT_I,
 
             FC_IN               => FC_I,
-            FC_OUT              => FC_OUT,
+            FC_OUT              => FC_OUT_I,
 
             DATA_PORT_IN        => DATA_IN,
-            DATA_PORT_OUT       => DATA_OUT,
+            DATA_PORT_OUT       => C_DOUT,
             DATA_FROM_CORE      => DATA_FROM_CORE,
             DATA_TO_CORE        => BUS_DATA_WORD,
             OPCODE_TO_CORE      => BUS_OPCODE_WORD,
 
-            DATA_PORT_EN        => DATA_EN,
-            BUS_EN              => BUS_EN,
+            DATA_PORT_EN        => C_DEN,
+            BUS_EN              => C_BEN,
 
-            SIZE                => SIZE,
+            SIZE                => C_SIZE_O,
             OP_SIZE             => OP_SIZE_BUS,
 
             RD_REQ_IN           => DC_BUS_REQ,
@@ -1300,7 +1524,7 @@ begin
             IC_FILL_ADR         => IC_FILL_ADR,
             IC_FILL_FC2         => IC_FILL_FC2,
             IC_FILL_DATA        => IC_FILL_DATA,
-            CIINn               => CIINn,
+            CIINn               => CIINn_EFF,
             DC_FILL_EN          => DC_FILL_EN, -- [DC]
             DC_ON               => DC_ON,
             DC_LK_ADR           => DC_LK_ADR,
@@ -1330,16 +1554,17 @@ begin
             INBUFFER            => INBUFFER,
             OUTBUFFER           => OUTBUFFER,
 
-            DSACKn              => DSACKn,
-            ASn                 => ASn,
-            DSn                 => DSn,
-            RWn                 => RWn,
-            RMCn                => RMCn,
-            ECSn                => ECSn,
-            OCSn                => OCSn,
-            DBENn               => DBENn,
+            DSACKn              => C_DSACKn,
+            ASn                 => C_ASn,
+            DSn                 => C_DSn,
+            RWn                 => RWn_I,
+            RMCn                => RMCn_I,
+            RMC_LKn             => RMC_LKn_I,
+            ECSn                => C_ECSn,
+            OCSn                => C_OCSn,
+            DBENn               => C_DBENn,
 
-            STERMn              => STERMn,
+            STERMn              => C_STERMn,
 
             BRn                 => BRn,
             BGACKn              => BGACKn,
@@ -1352,7 +1577,7 @@ begin
 
             AVECn               => AVECn_BUSIF,
             HALTn               => HALT_INn,
-            BERRn               => BERRn,
+            BERRn               => C_BERRn,
             AERR                => AERR,
 
             BUS_BSY             => BUS_BSY
@@ -1448,6 +1673,15 @@ begin
             VBR_WR                  => VBR_WR,
             CACR_RD                 => CACR_RD,
             CACR_WR                 => CACR_WR,
+            PMMU_WR                 => PMMU_WR,
+            PMMU_WR_SEL             => PMMU_WR_SEL,
+            PMMU_FD                 => PMMU_FD,
+            PMMU_OP                 => PMMU_OP,
+            PMMU_EXT                => PMMU_EXT,
+            MMU_BUSY                => MMU_CMD_BUSY,
+            PMMU_RD_SEL             => PMMU_RD_SEL,
+            PMMU_LD_HI              => PMMU_LD_HI,
+            PMMU_LO                 => PMMU_LO,
             CAAR_RD                 => CAAR_RD,
             CAAR_WR                 => CAAR_WR,
             ISP_RD                  => ISP_RD,
@@ -1507,13 +1741,19 @@ begin
             DR_SEL_RD_2             => DR_SEL_RD_2,
             DR_SEL_ADH_2            => DR_SEL_ADH_2,
             DR_SEL_ADH_3            => DR_SEL_ADH_3,
+            DR_FC_SEL               => PMMU_EXT(2 downto 0),
+            DR_FC_OUT               => MMU_DN_FC,
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
             DR_MARK_USED            => DR_MARK_USED,
             USE_DPAIR               => USE_DPAIR,
             DR_IN_USE               => DR_IN_USE,
+            DR_IDX_SEL              => IDX_SEL,
+            DR_IDX_OUT              => DR_IDX_OUT,
+            DR_IDX_PEND             => DR_IDX_PEND,
             UNMARK                  => UNMARK,
-            OP_SIZE                 => OP_SIZE_WB
+            OP_SIZE                 => OP_SIZE_WB,
+            DBG_DR                  => DBG_DR_I
         );
 
     I_EXC_HANDLER: WF68K30L_EXCEPTION_HANDLER
@@ -1591,10 +1831,15 @@ begin
             TRAP_VECTOR             => BIW_0(3 downto 0),
             TRAP_cc                 => TRAP_cc,
             TRAP_V                  => TRAP_V,
+            TRAP_MMUCFG             => TRAP_MMUCFG,
             EX_TRACE_IN             => EX_TRACE,
             VBR_WR                  => VBR_WR,
             VBR                     => VBR,
-            EX_IS_AERR              => EX_IS_AERR
+            EX_IS_AERR              => EX_IS_AERR,
+            RERUN_WR                => EXH_RERUN,
+            RERUN_ADR               => EXH_RR_ADR,
+            RERUN_DATA              => EXH_RR_DATA,
+            RERUN_FC                => EXH_RR_FC
         );
 
     I_OPCODE_DECODER: WF68K30L_OPCODE_DECODER

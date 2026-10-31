@@ -218,6 +218,7 @@ entity WF68K30L_BUS_INTERFACE is
         DSn                 : out std_logic; -- Data select (top level entity).
         RWn                 : out std_logic; -- Hi is read, low = write (top level entity).
         RMCn                : out std_logic; -- Read modify write indicator (top level entity).
+        RMC_LKn             : out std_logic; -- [F67] RMCn without the T_SLICE term (equal while AS is low), for the MMU/TT match.
         ECSn                : out std_logic; -- External cycle start (top level entity).
         OCSn                : out std_logic; -- Operand cycle start (top level entity).
         DBENn               : out std_logic; -- Data buffer enable (top level entity).
@@ -371,6 +372,7 @@ signal FILL_WADR            : std_logic_vector(31 downto 1); -- [DC] Its word ad
 signal DC_PORT              : std_logic_vector(31 downto 0); -- [DC] The data bus, sampled with IN_MUX.
 signal DC_TRK               : bit := '0'; -- [DC] The running read is tracked for the fill.
 signal DC_OA                : std_logic_vector(31 downto 0) := (others => '0'); -- [DC] Its address, FC, size, RMC.
+signal DC_OA1               : std_logic_vector(31 downto 2) := (others => '0'); -- [F65] DC_OA(31 downto 2) + 1, registered with DC_OA.
 signal DC_OFC               : std_logic_vector(2 downto 0) := "000";
 signal DC_OSZ               : std_logic_vector(2 downto 0) := "000";
 signal DC_ORMC              : bit := '0';
@@ -867,7 +869,9 @@ begin
     -- they differ only in IDLE, where AS is negated and ADR_OUT_I is not used, so the
     -- control unit's address logic no longer reaches the address pins (and the ST bridge).
     ADR_OUT_I <= (F_CUR & '0') + ADR_OFFSET when PF_ACC = '1' else
-                 (FILL_WADR & '0') + ADR_OFFSET when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
+                 (FILL_WADR & '0') when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
+    -- [F68] A fill is one word cycle at FILL_WADR; ADR_OFFSET is 0 there (sim check over the run_rtl programs, CIMODE 0/1,
+    -- WS 0/3), so the adder is dropped from the fill address (bus address -> bridge live start path).
     ADR_OUT_P <= ADR_OUT_I;
 
     P_ADR_10: process
@@ -1190,8 +1194,8 @@ begin
                          RESET_CPU_I = '0' else '0';
     FILL_WADR <= DC_OA(31 downto 2) & '0' when DC_MISS(3) = '1' else
                  DC_OA(31 downto 2) & '1' when DC_MISS(2) = '1' else
-                 (DC_OA(31 downto 2) + '1') & '0' when DC_MISS(1) = '1' else
-                 (DC_OA(31 downto 2) + '1') & '1';
+                 DC_OA1 & '0' when DC_MISS(1) = '1' else
+                 DC_OA1 & '1'; -- [F65] incrementer moved before the register (bus address -> MMU -> AS -> bridge path)
     DC_FIN <= '1' when (DC_DECIDE = '1' and (DC_NEED = '0' or DC_MISS = "0000")) or
                        (FILL_PEND = '1' and DC_MISS = "0000" and FILL_ACC = '0') else '0';
     -- Only when the cache can change: something was read cachable, or a bus error hit an entry.
@@ -1226,9 +1230,9 @@ begin
            (OP_CHAIN_GO = '1' and CH_WR = '0') then
             DC_TRK <= '1'; -- A new read.
             if OP_CHAIN_GO = '1' then
-                DC_OA <= ADR_NXT; DC_OFC <= FC_NXT;
+                DC_OA <= ADR_NXT; DC_OFC <= FC_NXT; DC_OA1 <= ADR_NXT(31 downto 2) + '1';
             else
-                DC_OA <= ADR_LAT; DC_OFC <= FC_LAT;
+                DC_OA <= ADR_LAT; DC_OFC <= FC_LAT; DC_OA1 <= ADR_LAT(31 downto 2) + '1';
             end if;
             case OP_SIZE is
                 when LONG => DC_OSZ <= "100";
@@ -1789,6 +1793,9 @@ begin
         end if;
     end process P_RMC_LK;
     RMCn <= '0' when RMC_PIN = '1' else '1';
+    -- [F67] For the ATC WP check and the TT RWM match only: while AS is low T_SLICE /= IDLE, so this equals RMCn.
+    -- Without the falling-edge T_SLICE term the clk_cpu_n -> MMU -> core half-cycle path is gone (f66b: -5.2 ns).
+    RMC_LKn <= '0' when RMC = '1' and RMC_DONE = '0' and (RMC_LK = '1' or READ_ACCESS = '1') else '1';
     ECSn <= '0' when T_SLICE = S0 else '1';
     OCSn <= '0' when T_SLICE = S0 and OCS_INH = '0' else '1';
     ASn <= '0' when T_SLICE = S0 or T_SLICE = S1 or T_SLICE = S2 or T_SLICE = S3 or T_SLICE = S4 else '1';

@@ -72,7 +72,7 @@ type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, AND
                 CHK, CHK2, CLR, CMP, CMP2, CMPA, CMPI, CMPM, DBcc, DIVS, DIVU, EOR, EORI, EORI_TO_CCR, 
                 EORI_TO_SR, EXG, EXT, EXTB, ILLEGAL, JMP, JSR, LEA, LINK, LSL, LSR, MOVE, MOVE_FROM_CCR, MOVE_TO_CCR, 
                 MOVE_FROM_SR, MOVE_TO_SR, MOVE_USP, MOVEA, MOVEC, MOVEM, MOVEP, MOVEQ, MOVES, MULS, MULU, NBCD, NEG, 
-                NEGX, NOP, NOT_B, OR_B, ORI, ORI_TO_CCR, ORI_TO_SR, PACK, PEA, RESET, ROTL, ROTR, ROXL, ROXR, RTD, 
+                NEGX, NOP, NOT_B, OR_B, ORI, ORI_TO_CCR, ORI_TO_SR, PACK, PEA, PMOVE, RESET, ROTL, ROTR, ROXL, ROXR, RTD, 
                 RTE, RTR, RTS, SBCD, Scc, STOP, SUB, SUBA, SUBI, SUBQ, SUBX, SWAP, TAS, TRAP, TRAPcc, TRAPV, TST, 
                 UNLK, UNPK, UNIMPLEMENTED);
 
@@ -147,6 +147,9 @@ component WF68K30L_ADDRESS_REGISTERS
         AR_OUT_1            : out std_logic_vector(31 downto 0);
         AR_OUT_2            : out std_logic_vector(31 downto 0);
         INDEX_IN            : in std_logic_vector(31 downto 0);
+        INDEX_LIVE          : in std_logic_vector(31 downto 0) := x"00000000"; -- [F97]
+        INDEX_PEND          : in bit := '0';                                   -- [F97]
+        IDX_SEL             : out std_logic_vector(2 downto 0);                -- [F97]
         PC                  : out std_logic_vector(31 downto 0);
         PC_EW_OFFSET        : in std_logic_vector(3 downto 0);
         FETCH_MEM_ADR       : in bit;
@@ -207,7 +210,9 @@ component WF68K30L_ADDRESS_REGISTERS
         PC_RESTORE          : in bit;
         PC_OFFSET           : in std_logic_vector(7 downto 0);
         DBG_A5              : out std_logic_vector(31 downto 0);
-        DBG_SP              : out std_logic_vector(31 downto 0)
+        DBG_SP              : out std_logic_vector(31 downto 0);
+        DBG_AR              : out std_logic_vector(319 downto 0); -- [F77]
+        DBG_IDX             : out std_logic_vector(239 downto 0)  -- [F100]
     );
 end component;
 
@@ -348,6 +353,7 @@ component WF68K30L_BUS_INTERFACE
         DSn                 : out std_logic;
         RWn                 : out std_logic;
         RMCn                : out std_logic;
+        RMC_LKn             : out std_logic; -- [F67]
         ECSn                : out std_logic;
         OCSn                : out std_logic;
         DBENn               : out std_logic;
@@ -456,6 +462,15 @@ component WF68K30L_CONTROL
         VBR_WR              : out bit;
         VBR_RD              : out bit;
         CACR_WR             : out bit;
+        PMMU_WR             : out bit;
+        PMMU_WR_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_FD             : out std_logic;
+        PMMU_OP             : out std_logic;
+        PMMU_EXT            : out std_logic_vector(15 downto 0);
+        MMU_BUSY            : in std_logic := '0';
+        PMMU_RD_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_LD_HI          : out bit;
+        PMMU_LO             : out bit;
         CACR_RD             : out bit;
         CAAR_WR             : out bit;
         CAAR_RD             : out bit;
@@ -517,13 +532,19 @@ component WF68K30L_DATA_REGISTERS
         DR_SEL_RD_2         : in std_logic_vector(2 downto 0);
         DR_SEL_ADH_2        : in std_logic_vector(2 downto 0); -- F56: data hazard check selects
         DR_SEL_ADH_3        : in std_logic_vector(2 downto 0);
+        DR_FC_SEL           : in std_logic_vector(2 downto 0) := "000";
+        DR_FC_OUT           : out std_logic_vector(2 downto 0);
         DR_WR_1             : in bit;
         DR_WR_2             : in bit;
         DR_MARK_USED        : in bit;
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
+        DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
+        DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
+        DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
         UNMARK              : in bit;
-        OP_SIZE             : in OP_SIZETYPE
+        OP_SIZE             : in OP_SIZETYPE;
+        DBG_DR              : out std_logic_vector(255 downto 0) -- [F77]
     );
 end component;
 
@@ -589,11 +610,18 @@ component WF68K30L_EXCEPTION_HANDLER
         TRAP_VECTOR         : in std_logic_vector(3 downto 0);
         TRAP_cc             : in bit;
         TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
         EX_TRACE_IN         : in bit;
         VBR_WR              : in bit;
         VBR                 : out std_logic_vector(31 downto 0);
 
-        EX_IS_AERR          : out std_logic -- F28/H22.
+        EX_IS_AERR          : out std_logic;
+        -- [PMMU3] RTE of a format $A frame with SSW DF = 1 and RW = 0 reruns the faulted write (MC68030UM 8.2.1,
+        -- 8.1.2): address ($10), data output buffer ($18), FC and size from the SSW ($0A).
+        RERUN_WR            : out std_logic;
+        RERUN_ADR           : out std_logic_vector(31 downto 0);
+        RERUN_DATA          : out std_logic_vector(31 downto 0);
+        RERUN_FC            : out std_logic_vector(2 downto 0) -- F28/H22.
     );
 end component;
 

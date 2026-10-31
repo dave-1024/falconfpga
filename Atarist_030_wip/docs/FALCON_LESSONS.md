@@ -371,3 +371,240 @@ PLLs were ruled out on the board: a no-PLL "alive" bitstream and a one-PLL varia
 then 0x66 and 0x99 (reset), and waits 40 µs. st_helper_ctrl releases the AE350 only after that (`fu_done`). Sim: `sim/tb_flash_unstick.v`.
 **Lesson:** a design that leaves an external chip in a sticky mode must put it back at its own start-up, not rely on power-up. JTAG reloads
 do not reset the board.
+## WF68K30L: CpID 0 (PMMU) F-line must be privileged; PMMU stage 1 (branch pmmu)
+- Symptom: user-mode `$F0xx` (CpID 0, MMU) opcodes took Line-F (vector 11). MC68030UM p. 9-65 says every MMU
+  instruction is privileged: in user mode they must take privilege violation (vector 8) first. Fixed unconditionally.
+- Stage 1 PMMU adds PMOVE TC/TT0/TT1/MMUSR/CRP/SRP with manual masks (TC $83FFFFFF, TTx $FFFF8777,
+  MMUSR $EE47, CRP/SRP $FFFF0003_FFFFFFF0). TT0/TT1 matches with CI=1 drive CIOUTn and block cache fills.
+  No ATC or table walk yet: TC.E is stored but translation is identity. EmuTOS 1.4 (CONF_WITH_68030_PMMU)
+  writes CRP/TC/TT0/TT1 with PMOVE abs.L at boot, so CRP/SRP had to be in stage 1. TOS 2.06 has no PMOVE.
+- Lesson: PMOVE reuses the MOVES operand path; the R/W bit is ext-word bit 9 (not MOVES bit 11). Any mux keyed on the
+  direction must check BIW_1(9), or data reads back as 0.
+
+## WF68K30L: a TT cache-inhibited write must not touch the data cache (branch pmmu, e68e21f)
+- Rule: MC68030UM 6.1.2 p6-8: "when CIOUT is asserted, the data cache is completely ignored, even on write
+  cycles operating in the write-allocation mode". 6.1 p6-3: a read that hits the cache ignores the MMU, so CI bits only
+  matter for accesses that go to the bus.
+- Bug: stage 1 fed TT CI only into CIIN (fills). A write into a TT CI block still updated a hit, or allocated with
+  CACR WA set. Fix: DC_WR_GO is gated by a TT CI match on the write's own address and FC. prog_pmmu case: write-allocate
+  $1111, TT CI write $2222, the hit then reads stale $1111 (as the manual says), and $2222 after CD.
+- Lesson for tests: after changing TTx/TC, clear the caches (CACR CI/CD) before timing a cache-inhibited region,
+  or the old lines keep hitting (the first PMMUTEST board run "failed" this way).
+
+## WF68K30L: MMU between the bus interface and the pins; a running cycle keeps its translation (branch pmmu, stage 2b)
+- Design: `wf68k30L_mmu.vhd` (22-entry ATC, table walker) sits between the bus interface and the CPU pins. With TC.E = 0
+  it is a plain wire, so every old sim program gives a byte-identical bus log (cmp_full.sh, all prog_*.s, WS 0 and 3).
+- Bug found in sim (WS >= 3 only): the PMOVE to TC writes back while the next prefetch is already on the bus. TC.E going
+  to 1 in the middle of that cycle switched the address mux and blocked the cycle half way, and the table walker then
+  took the old cycle's DSACK as its own and read garbage descriptors. Fix: a cycle the pins already run keeps the
+  translation (pass-through / physical page / CI) it started with until AS negates; only new cycles see the new TC,
+  TTx or a flush. Same rule protects against PFLUSH/PMOVE flushes in the middle of a cycle.
+- Bug: a write through a root-pointer page (CRP DT = 1, no descriptor in memory) stored an ATC entry with M = 0, so the
+  retried write missed again (write + M = 0 must search) and the walker looped forever. Fix: the entry made by a write's
+  search is marked modified. (The manual: the M bit in the ATC records that the page descriptor's M is already set.)
+- Lesson for sims: a test that briefly enables TC (stage-1 prog_pmmu/prog_mmucfg) needs a valid root pointer once
+  translation is real; they now load an identity CRP (DT = 1) first.
+- Known deviation (core, not MMU): RTE does not rerun a faulted *write* (SSW DF); a faulted read is rerun. Demand paging
+  of writes needs that; listed for stage 3.
+- Bug (board, PMMUTEST pmmu3): PFLUSH/PLOAD/PTEST are decoded as an F-line LEA with the An write switched off. The data
+  register write strobe is "on at every writeback unless an An write locks it out", so with the An write gone the
+  instruction wrote its EA into Dn (d5 = $00029000 after `move.l (a1),d5; ptestr #5,(a1),#7`). Fix: the MMU LEA
+  never writes a register; prog_pmop now checks a data register across a PTEST.
+- Lesson: when an instruction borrows another's path and switches one write off, check every strobe that was keyed on
+  the one you removed (here DR_WR_1 used AR_WR as its lock).
+- Bug (sim, prog_xlate2): the walker checked a table's LIMIT only when the *next* table was long. MC68030UM 9.5.1.x: the
+  limit belongs to the long descriptor (or root pointer) that points to the table, whatever that table's format. A long
+  table descriptor with DT = 2 (short next table) ignored its limit. Fix: the check depends only on the limit coming from a
+  long descriptor / root pointer (LIM_ON).
+- Bug (sim, prog_xlate3, stage 3): the walker ORed bit 2 (WP) of *every* valid descriptor into the walk's WP, including an
+  indirect descriptor. In an indirect descriptor bits 31-2 are the address of the page descriptor (MC68030UM 9.5.1.11/12,
+  Figures 9-17 and 9-18), so a pointer such as $6906 made the page look write protected (PTEST gave W). Fix: only table and
+  page descriptors add to WP (and S on long ones); prog_xlate3 has an indirect pointer with bit 2 set.
+- Lesson: a descriptor field is only that field for the descriptor types that have it; check the DT before reading flags.
+- Stage 3: RTE of a format $A frame now reads the SSW ($0A); with DF = 1 and RW = 0 it reads the fault address ($10)
+  and the data output buffer ($18) and reruns the write with the SSW's FC and size before restoring PC and SR
+  (MC68030UM 8.1.2, 8.2.1). Before this a demand-paging handler that fixed a page saw the faulted write lost.
+  prog_df covers word, odd byte and long writes with the handler fixing WP and TC left on; prog_xlate's WP case now
+  expects the rerun. Limits: format $B frames still restart (no rerun); a rerun that faults again takes a new bus error.
+- Bug (review against the M68000PRM, stage 3): the decoder accepted PMOVE with (An)+ and -(An) for TC, TT0/TT1 and
+  MMUSR. The 68030 PMOVE takes control alterable modes only (PRM pp. 6-48..6-50; MC68030UM 11.7.1 has no such form), so
+  those encodings must take the F-line trap. Fix: decoder; sims rewritten to (An) + ADDQ; prog_pmmu and PMMUTEST T_prm
+  check the F-line.
+- Bug (same review): the MMU took PFLUSHA as mode 010; it is mode 001 ($2400, PRM p. 6-34). PFLUSHA still flushed every
+  entry through the FC/mask path (mask 000), so only its 11.7.2 timing was wrong. Fix: mode 001.
+- Lesson: check every encoding against the PRM's field tables, not against what the assembler happens to emit, and test
+  the forms that must trap as well as the ones that work.
+
+## Bridge sampled translated 030 pins half a clk_cpu after AS: FreeMiNT halted after `pmove tc` (branch pmmu, F65/F66)
+- Symptom (board, pmmu8): FreeMiNT 1.19 with memory protection stops after the FAT/VFAT banner. The diagnostic overlay
+  showed the CPU halted (double fault). The last fetch was just after `pmove 12(sp),tc; rts` in MiNT's set_mmu, and the
+  last cycle was a table-search read. An RTL replay of the same moment (Hatari RAM snapshot, wait states 0/1/3/random,
+  interrupts) and MTREE.PRG (MiNT's exact TC and tree under TOS) on the board both passed.
+- Cause (most likely; not yet confirmed on the board, which waits for a replug): the MMU sits between the bus interface and the pins, and with TC.E = 1 it gates AS and
+  drives A31:8 from its ATC lookup in the same clk_cpu as AS:
+  C_ADR -> HITV -> HIT_OK/XLATE -> BLK -> ASn and H_PA -> A31:8.
+  The ST bridge takes a request on the first clk_32 edge with AS low, which is half a clk_cpu (31.25 ns) after AS.
+  That path is a whole clk_cpu deep. On pmmu8, clk_cpu030 -> clk32_core failed by -7.0 ns (DC_OA -> FILL_WADR -> MMU ->
+  AS -> bridge r_adr CE); on the diagnostic builds it failed by -13 ns. So the bridge could take a half-settled AS or
+  address (a logical page, or an AS glitch while the lookup settles) and run an ST cycle with it. That only happens with
+  translation on, depends on placement and data, and cannot be seen in RTL simulation.
+- Why it was missed: the Gowin "Total Negative Slack" table showed 0 for every clock on these builds. Only the explicit
+  F58 `report_timing` clock-pair tables showed the negative slack, and the check only looked at TNS.
+- Fix:
+  - F65: DC_OA + 4 is registered with DC_OA, which takes a 30-bit incrementer out of the bus address path. It is
+    cycle-identical.
+  - F66: while TC.E = 1 (the new MMU_ON output), the bridge takes a new 030 request (ST and TT front ends) only on clk_32
+    edges that are also clk_cpu rising edges, at least 62.5 ns after AS, and the live same-edge path is off.
+  - The SDC gives the paths through the MMU's kept pin-side nets (BLK_PIN, XLATE_PIN, H_PA) two clk_32 cycles. With
+    TC.E = 0 those nets are constant and the bridge timing is the old one.
+  - Translated ST cycles start up to 31.25 ns later.
+- Lesson 1: a combinational output of a lookup (ATC, cache tags) must never reach a sampler of another clock domain on a
+  half-cycle path. Either register it or make the sampler wait for a full cycle, and say so in the SDC.
+- Lesson 2: check every explicit clock-pair report (tools/timing/timing_pairs.py), not just TNS. No build with negative
+  pair slack goes on the board.
+
+## Untimed flash pads: TOS read errors that come and go with placement (pmmu f70-f77, F79)
+
+- Symptom: pmmu f70, f71, f73 and f77hb gave a black screen, or on f77hb "WARNING: BAD ROM CRC IN CHIP E: / O:" and
+  bombs; f69, f73hb, f74hb, f78tr and main f70 booted. The logic of the flash path was the same in all of them. The
+  F77 register dump showed TOS restoring registers from opcode bytes (ISP = $4E7340DD) and double-faulting at $E0FBBA.
+- Cause: flash_dspi.v latched the IO0/IO1 pads straight into eight dout flops per pin. Eight loads cannot go into the
+  IOB, and the SDC has no input/output delays on the flash pads, so STA never timed them (no mspi path in any
+  timing_pairs report). The routing delay from each pad to its flops changed with every placement; at 100 MHz with SCK
+  on a 22.5 degree PLL phase there is no margin for that.
+- Board (SRAM): f79hb, f79rel and f79ovl (three placements) 3/3 cold boots each, no ROM CRC warning, TOS desktop, pmt5 PMMUTEST running with PASS lines.
+- Fix (F79, ST_HELPER flash reader): one register per pad (ireg_in_iob), dout latched one clock later (states 26-33,
+  CS# still rises after state 32). The sample instant is the same clk edge as before (sim: bit-identical to the old
+  reader). main has the same unregistered latch and no pad constraints.
+- Lesson 1: a pad sampled at 100 MHz must go through one IOB register, and an unconstrained I/O is a placement lottery:
+  give it set_input/output_delay or an IOB register, and check that the path shows up in STA.
+- Lesson 2: "same logic, different placement, different behaviour" means look for untimed paths first (pads, async
+  crossings, clocks through LUTs), not for logic bugs.
+
+## WF68K30L: indexed EA used the previous brief word's scale (FreeMiNT memory protection halt, branch pmmu, F93)
+
+- **Symptom.** FreeMiNT with memory protection on stopped on the board after the FAT/VFAT banner. Hatari and RTL
+  simulation ran on. A board trace of MiNT's clear loop showed `clr.l (0,a4,d1.l*4)` stepping by 2 and the next
+  `clr.w (0,a5,d1.l*2)` stepping by 4: each instruction used the other one's index scale. The word clear ran
+  twice as far as its buffer and zeroed a byte of MiNT's page-type map, so a page was marked invalid and MiNT halted.
+- **Root cause.** In `wf68k30L_address_registers.vhd` the scale is a separate register, latched from the brief
+  extension word on the `STORE_ADR_FORMAT` clock edge. The scaled index (index x scale) is computed in a clocked
+  process on that same edge, so it read the scale register before it had been updated, i.e. the previous indexed
+  instruction's scale. The index register itself was the new one.
+- **Fix (F93, 39ab2c4).** On the store edge the scaled index takes the scale straight from the extension word.
+  No switch. Board: MPTEST (child writes to parent memory get SIGBUS/SIGSEGV, parent unchanged, children run side
+  by side) passes with 0 failures.
+- How it was found: a BRAM bus trace on the board (cpu_trace, triggered by PC and address) of the loop's writes,
+  compared with the instruction encoding. The netlist had no RAM in this path, so it was not a tt19-style
+  block-RAM read; the caches were not involved.
+- *Lessons:* when a value is latched into a register on edge E, anything computed on edge E must use the source
+  (here the extension word), not the register. RTL simulation that passes does not clear such a race if the
+  result's use timing differs on the board. Look for "one instruction late" patterns (a field from the previous
+  instruction combined with the current operand) as a sign of it.
+
+## WF68K30L: full-format indexed EA used the index Dn before the previous instruction wrote it (FreeMiNT GEM launch crash, branch pmmu, F97)
+
+- **Symptom.** FreeMiNT 1-19-4a6 (030 kernel, memory protection on) from a FAT16 ACSI disk: with EmuTOS from ROM
+  "MEMORY VIOLATION type=hardware RW=r AA=2E020613 PC=101B258" in pid 0 right after the keyboard table; with the
+  EmuTOS PRG over TOS 2.06 "RW=w AA=0" at "Launching GEM". Even a 60-byte GEM.PRG crashed the same way. Hatari ran
+  the same disk to XaAES/TeraDesk. The fault PC is kernel text+19c2c, after
+  `lsl.l #3,d0 ; movea.l (bd.l,d0.l),a0 ; movea.l (a0),a0` (full extension word, base suppressed, 32-bit bd).
+- **Proof.** EATEST.PRG (same sequence, table of known values) on the board: index 0 correct, 1..7 wrong. The
+  values read match d0 from *before* the lsl (idx*3 instead of idx*24: bytes +3..+21 of the table). Brief format
+  `(0,a1,d0.l)` and `(An)` read the right values. RTL sim (tb030, prog_fidx.s) reproduces it at all wait states.
+- **Root cause.** `wf68k30L_control.vhd` FETCH_EXWORD_1: the brief format waits there until the index register
+  is no longer in use (ADH: DR_IN_USE / AR_IN_USE), but the full format left the state on EW_ACK straight to
+  FETCH_D_HI / D_LO / OD / MEMADR without that check. `STORE_ADR_FORMAT` latches INDEX (DR_OUT_1) on that exit
+  edge, so an index written by the instruction right before was taken before its write-back. Memory indirect
+  `([bd,Dn.l])` was affected the same way.
+- **Fix (F97).** In FETCH_EXWORD_1 a full-format extension word stays in the state (EW_RDY keeps the word) while
+  the index register (Dn: DR_IN_USE, An: AR_IN_USE) is in use; the full-format exits also accept EW_RDY.
+  Regression: `sim/rtl/prog_fidx.s` + `expect_fidx.txt` in run_rtl.sh (full format bd.l/bd.w with and without
+  base, word index *8, brief, memory indirect; WS 0/1/3/7, CIMODE 0/1, FASTH 0/1).
+- *Lessons:* every path out of a state that latches an operand needs the same hazard interlock; when one
+  addressing form has a "wait while in use" check, check all its sibling forms. "Value from one instruction
+  earlier" again (as F93), this time the register value instead of the scale. A tiny board-side test program
+  copied from the crashing code (EATEST) found it in two runs where a full OS boot took 5 minutes per try.
+- **One pattern, three bugs (C10, F93, F97).** In plain words: something reads a value at the moment it is being
+  changed, and gets the old one. C10 (I-cache, "TT-RAM caches-on SP -2 slip"): the cache read the long a fill had
+  just written and got the old long, because the block RAM had no write-through. F93: the scaled index was computed
+  on the edge that loaded the new scale, so it used the previous instruction's scale. F97: the full-format EA
+  latched its index register before the previous instruction's write-back landed. Each time: the result looked
+  like it came from "one write earlier". When a board result is one step stale, look for a register that is
+  latched on the same edge (or before) the write that should feed it, and check every path into that latch has
+  the same wait/forwarding as the one that works.
+- **Method that found it fast.** Take the crash PC from the OS's report, disassemble that spot in the binary, copy
+  the exact instruction sequence (same registers, same addressing mode, same preceding instruction) into a tiny
+  test PRG with a table of known values, print expected vs got, and run it on the board and in Hatari. Hatari
+  passing and the board failing on 20 instructions points straight at the core; then the same sequence becomes
+  the RTL sim regression. This took two board runs (~5 min each) instead of many full OS boots.
+- **FreeMiNT note (software, not the core).** `sys/arch/mprot030.c` sizes its page-mode table from `_ramtop`
+  ($5a4; init_tables: mint_top_tt, tt_mbytes, global_mode_table_size), while `sys/memory.c` takes the alt-RAM
+  regions from TOS `Mxalloc(-1, F_ALTONLY)`. `mark_region()` then does an unchecked
+  `memset(&global_mode_table[start>>13], mode, len>>13)`. If `_ramtop` is changed (we cleared it to "hide"
+  TT-RAM) the table is too small and MiNT bus-errors at ramtop+$3b during boot (0200003b with 16 MB, 0180003b with
+  8 MB; same in Hatari). Do not touch `_ramtop`/`ramvalid`; EmuTOS 1.4 256K adds the full TT-RAM with xmaddalt and
+  that works with memory protection on.
+- **EmuTOS 192K on this core:** EmuTOS 1.4 192K UK (padded to 256K at flash $500000) panics with "Exception
+  number 33" (pc $00FCCFE4) before any disk boot. Use the 256K build.
+- **F94 reverted, black screens not explained yet.** F94 (ext_io read select registered on clk_32) was never
+  board-tested. On the board the F94 build (22b6c04), the first F97 build on top of it, AND the F97 build without
+  F94 (f97n) all gave no HDMI picture after a cold boot, while f93n on the same setup showed the EmuTOS desktop.
+  The f93n and f97n trees differ only in wf68k30L_control.vhd; a tb030 sim of the EmuTOS 256K ROM boot gives an
+  identical bus trace with and without F97 (EmuTOS does not use full-format EAs early). So F94 is not proven bad:
+  two different changes giving the same black screen points at placement (see the untimed flash pads, F79) rather
+  than logic. Lesson: do not stack an untested timing fix under a functional fix; test each bitstream on the board.
+- **F97 fix PENDING (29 Oct 2026).** The FETCH_EXWORD_1 interlock (all variants: f97n, f97p1, f97B Dn-only, f97fx
+  registered wait flag) passes every RTL sim test but gives a black screen on the board; the same tree with the
+  old wf68k30L_control.vhd boots. The control.vhd change is reverted on pmmu; prog_fidx stays in the suite and
+  fails until F97 is fixed another way (next try: forward the Dn write-back into INDEX in address_registers).
+- **F97 fixed by forwarding (29 Oct 2026, f97fw).** No fetch-logic change: the data register file reports whether
+  the index Dn still has a write-back pending (DR_USED) and gives its live value; the address unit keeps re-reading
+  INDEX from that Dn while it is pending, plus one clock to take the written value. prog_fidx 16/16, run_rtl,
+  icache, dcache PASS; timing_pairs pass; 44524 LUT + 5327 ALU, 18213 registers. Board: EmuTOS desktop after a cold
+  boot, EATEST PASS, MiNT (MP on) now gets past the old crash to XaAES start. Why every FETCH_EXWORD_1 interlock
+  variant blacked the board while RTL sim matched bit for bit is still not explained (sim/hardware mismatch).
+
+- F99 "Pexec() failed" after uploading .hd images (OPEN). Symptom: MiNT's loader stops with
+  "FreeMiNT loader: Pexec() failed!"; it looked like bad uploads. First theory: the image's position on the SD card
+  (all failing files started above ~128 MB, the working ones below). DISPROVED: an SD_WRITE_DEBUG build (f99d)
+  shows the core uses the correct start sector (361624) and reads the correct card sectors (base + image sector),
+  with no read timeouts or bad tokens. The real split is the image CONTENT: every failing image comes from the
+  local copy (crc 31dc9006, short MINT.INI with WRITE_BOOT=YES, BOOT.LOG, no 040SP/060SP.PRG); the working ones
+  are older images on the card (185-byte MINT.INI, 040SP/060SP present). The same local image boots in Hatari.
+  The register change to sd_card.v (direct_start in flip-flops, module-level ds) is harmless and kept.
+  Lessons: (1) build_st_helper.tcl rewrites build_sel.vh - add SD_WRITE_DEBUG in the tcl or the sdstate/sdwlog
+  readout is junk (0x8C); (2) before blaming hardware for "one file works, the other fails", diff the files'
+  contents (config files, logs) and not only their location.
+- **F110: SD card FAT corruption was the SDRAM controller reading the wrong bank (FIXED, 30 Oct 2026).**
+  Symptom: every MiNT boot wrote 4 wrong bytes into FAT1 sector 2050 at offset 0x34 (clusters 0x1A/0x1B,
+  MINT030.PRG's chain), so the *next* boot failed with "Pexec() failed". The FAT2 copy had the same bytes.
+  Cause, in plain words: `sdram.v` sends the ST READ/WRITE command (CAS) with the column address but did not
+  set the bank, trusting the bank left by the ACTIVE one clock earlier. The TT-RAM engine sets the bank to 1 or 2
+  for its own commands, later in the same clocked block, so whenever one of its steps landed on the ST ACTIVE
+  clock it overwrote that command and its bank. The ST READ that followed went to the TT-RAM bank, at the ST
+  column, and returned TT-RAM data. A second bug in the same engine issued AUTO REFRESH while a TT bank was still
+  recovering from an auto-precharge write (tWR + tRP).
+  Fix (F110): every ST CAS drives bank 0; TT command steps wait on every ST ACTIVE / REFRESH / CAS clock (they
+  never override, and nothing is aborted); TT writes also wait while ST or TT read data is on DQ; an ST write is
+  held up to 3 clocks while TT read data is on DQ (its cycle end is kept); TT drives DQ/DQM only on its own
+  command clocks; REFRESH is deferred while a TT bank is open or recovering. +46 LUT, Fmax unchanged. Board: 5 MiNT
+  boots (MP on and off, 3 cold reloads), every FAT clean, second boots work.
+  How it was found (watchpoint chain, one stage per build, each on a fresh image):
+  F106 latched CPU writes to the FAT buffer in TT-RAM ($01FDE000): only EmuTOS memmove wrote it, with correct
+  data. F107 shadowed every TT write and compared every TT read: no mismatch, so the buffer was never read back
+  wrong. F108 latched the ACSI DMA side: the DMA already read the bad long out of ST-RAM, and the sector buffer and
+  SD write path passed it through unchanged; the last write into the EmuTOS bounce buffer ($01007C, from a Hatari
+  trace) was correct. F109 recorded the SDRAM pins: the write went to bank 0, the DMA's read of the same address
+  went out with bank = 1. That pointed straight at the missing `sd_ba` on the ST CAS.
+  Wrong turns: (1) MMU translation: ruled out because it happened the same with memory protection on and off;
+  (2) "stale TT-RAM read" when the CPU copies the buffer out: F107 disproved it, the TT path was clean; (3) a
+  wrong label: the board ROM had been written down as TOS 2.06 when it is EmuTOS 1.4 256K, so for a while the
+  Hatari reference looked like it did not match; (4) the TT bench had been "failing anyway" for days because
+  `zmask` was left unconnected (X on every ST read), so nobody trusted it and it could not show the bug.
+  General rule for the "fine in sim, wrong on hardware when timing coincides" class: every command must drive all
+  of its fields (command, address, bank, DQ/DQM ownership) on the clock it is issued, never rely on a value left
+  by an earlier command; and the bench must randomise the arbiter phase (tb_ttram `OFFGRID=1 ./run_ttram.sh`:
+  ST slot gaps of 8..15 clocks). On the fixed 8-clock grid both the old and new controllers pass; off-grid the
+  old one shows exactly the board bug ("RD on idle bank 1"), plus REFRESH with a busy bank, swallowed commands,
+  DQ contention and lost ST writes. A bench that keeps failing for a known reason is worse than none: fix it.

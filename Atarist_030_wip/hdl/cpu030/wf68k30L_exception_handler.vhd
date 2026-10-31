@@ -171,6 +171,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         TRAP_VECTOR         : in std_logic_vector(3 downto 0);
         TRAP_cc             : in bit;
         TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
         EX_TRACE_IN         : in bit;
         VBR_WR              : in bit;
         VBR                 : out std_logic_vector(31 downto 0);
@@ -178,16 +179,23 @@ entity WF68K30L_EXCEPTION_HANDLER is
         -- ERROR. The normal RC/RB path is driven from IPIPE_C_FAULT, a
         -- prefetch BUS fault; an address error is not a bus fault, so RC
         -- could never assert for one.
-        EX_IS_AERR          : out std_logic
+        EX_IS_AERR          : out std_logic;
+        -- [PMMU3] RTE of a format $A frame with SSW DF = 1 and RW = 0 reruns the faulted write (MC68030UM 8.2.1,
+        -- 8.1.2): address ($10), data output buffer ($18), FC and size from the SSW ($0A).
+        RERUN_WR            : out std_logic;
+        RERUN_ADR           : out std_logic_vector(31 downto 0);
+        RERUN_DATA          : out std_logic_vector(31 downto 0);
+        RERUN_FC            : out std_logic_vector(2 downto 0)
     );
 end entity WF68K30L_EXCEPTION_HANDLER;
     
 architecture BEHAVIOR of WF68K30L_EXCEPTION_HANDLER is
 type EX_STATES is (IDLE, BUILD_STACK, BUILD_TSTACK, CALC_VECT_No, EXAMINE_VERSION, GET_VECTOR, HALTED, INIT, READ_BOTTOM, 
-                   READ_TOP, REFILL_PIPE, RESTORE_ISP, RESTORE_PC, RESTORE_STATUS, UPDATE_PC, SWITCH_STATE, VALIDATE_FRAME);
+                   READ_TOP, REFILL_PIPE, RESTORE_ISP, RESTORE_PC, RESTORE_STATUS, UPDATE_PC, SWITCH_STATE, VALIDATE_FRAME,
+                   RERUN_SSW, RERUN_FA, RERUN_DOB, RERUN_WRITE); -- [PMMU3]
 
 type EXCEPTIONS is (EX_NONE, EX_1010, EX_1111, EX_AERR, EX_BERR, EX_CHK, EX_DIVZERO, EX_FORMAT, EX_ILLEGAL,
-                    EX_INT, EX_PRIV, EX_RESET, EX_RTE, EX_TRACE, EX_TRAP, EX_TRAPcc, EX_TRAPV);
+                    EX_INT, EX_PRIV, EX_RESET, EX_RTE, EX_TRACE, EX_TRAP, EX_TRAPcc, EX_TRAPV, EX_MMUCFG);
 
 signal ACCESS_ERR           : bit := '0';  -- [F54] measured warm-boot value
 signal AVEC                 : bit := '0';  -- [F54] measured warm-boot value
@@ -230,6 +238,7 @@ signal EX_P_TRACE           : bit := '0';  -- [F51] no spurious pending exceptio
 signal EX_P_TRAP            : bit := '0';  -- [F52] init
 signal EX_P_TRAPcc          : bit := '0';  -- [F50] belt-and-braces init
 signal EX_P_TRAPV           : bit := '0';  -- [F52] init
+signal EX_P_MMUCFG          : bit := '0';  -- [PMMU2]
 signal INT_VECT             : std_logic_vector(31 downto 0); -- Interrupt vector.
 signal IBOUND               : boolean := false;  -- [F54] measured warm-boot value
 signal IRQ                  : std_logic_vector(2 downto 0);
@@ -239,6 +248,9 @@ signal PIPE_CNT             : std_logic_vector(1 downto 0);
 signal PIPE_FULL            : boolean := false;  -- [F54] measured warm-boot value
 signal STACK_CNT            : integer range 0 to 46 := 0;  -- [F54] measured warm-boot value
 signal STACK_FORMAT_I       : std_logic_vector(3 downto 0);
+signal RR_SIZE              : OP_SIZETYPE := LONG; -- [PMMU3]
+signal RR_FC                : std_logic_vector(2 downto 0) := "000";
+signal RR_ADR, RR_DATA      : std_logic_vector(31 downto 0) := (others => '0');
 signal SYS_INIT             : bit := '1';  -- [F54] measured warm-boot value
 begin
     -- F28/H22: see the port declaration.
@@ -324,6 +336,15 @@ begin
             EX_P_AERR <= '0';
         elsif SYS_INIT = '1' then
             EX_P_AERR <= '0';
+        end if;
+        --
+        -- [PMMU2] MMU configuration exception: pending from the PMOVE writeback until its frame is built.
+        if TRAP_MMUCFG = '1' then
+            EX_P_MMUCFG <= '1';
+        elsif EX_STATE = BUILD_STACK and EXCEPTION = EX_MMUCFG then
+            EX_P_MMUCFG <= '0';
+        elsif SYS_INIT = '1' then
+            EX_P_MMUCFG <= '0';
         end if;
         --
         if EX_TRACE_IN = '1' then
@@ -475,7 +496,7 @@ begin
     EXH_REQ <= '0' when EX_STATE /= IDLE else
                '1' when TRAP_CODE_OPC /= NONE else
                '1' when (EX_P_RESET or EX_P_BERR or EX_P_AERR or EX_P_DIVZERO or EX_P_CHK) = '1' else
-               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ) = '1' else '0';
+               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ or EX_P_MMUCFG) = '1' else '0';
 
     INT_VECTOR: process
     -- This process provides the vector base register handling and 
@@ -502,6 +523,7 @@ begin
                 when EX_TRAPcc      => VECT_No := x"07";
                 when EX_TRAPV       => VECT_No := x"07";
                 when EX_PRIV        => VECT_No := x"08";
+                when EX_MMUCFG      => VECT_No := x"38"; -- [PMMU2] vector 56 (Table 8-1).
                 when EX_TRACE       => VECT_No := x"09";
                 when EX_1010        => VECT_No := x"0A";
                 when EX_1111        => VECT_No := x"0B";
@@ -560,6 +582,8 @@ begin
             EXCEPTION <= EX_TRAPV;
         elsif EX_STATE = IDLE and EX_P_FORMAT = '1' then
             EXCEPTION <= EX_FORMAT;
+        elsif EX_STATE = IDLE and EX_P_MMUCFG = '1' then
+            EXCEPTION <= EX_MMUCFG; -- [PMMU2] group 2 (Table 8-4).
         -- Priority level 3:
         elsif EX_STATE = IDLE and EX_P_ILLEGAL = '1' then
             EXCEPTION <= EX_ILLEGAL;
@@ -587,6 +611,9 @@ begin
                   x"00000002" when NEXT_EX_STATE = RESTORE_PC else
                   x"00000006" when NEXT_EX_STATE = VALIDATE_FRAME else
                   x"00000036" when NEXT_EX_STATE = EXAMINE_VERSION else
+                  x"0000000A" when NEXT_EX_STATE = RERUN_SSW else -- [PMMU3] SSW
+                  x"00000010" when NEXT_EX_STATE = RERUN_FA else -- [PMMU3] data cycle fault address
+                  x"00000018" when NEXT_EX_STATE = RERUN_DOB else -- [PMMU3] data output buffer
                   x"0000005A" when NEXT_EX_STATE = READ_BOTTOM else -- F9/H9: touch the frame's LAST word ($5A), not one past it; a $B frame ending at a protection boundary must not fault on its own RTE.
                   INT_VECT when NEXT_EX_STATE = UPDATE_PC else x"00000000"; -- Default is top of the stack.
 
@@ -595,6 +622,8 @@ begin
                LONG when NEXT_EX_STATE = BUILD_STACK or NEXT_EX_STATE = BUILD_TSTACK else -- Always long access.
                LONG when NEXT_EX_STATE = UPDATE_PC or EX_STATE = UPDATE_PC else
                LONG when EX_STATE = SWITCH_STATE else
+               LONG when NEXT_EX_STATE = RERUN_FA or NEXT_EX_STATE = RERUN_DOB else -- [PMMU3]
+               RR_SIZE when NEXT_EX_STATE = RERUN_WRITE or EX_STATE = RERUN_WRITE else
                BYTE when NEXT_EX_STATE = GET_VECTOR else WORD;
 
     with STACK_FORMAT_I select
@@ -644,6 +673,7 @@ begin
                  '1' when NEXT_EX_STATE = EXAMINE_VERSION else 
                  '1' when NEXT_EX_STATE = READ_TOP else 
                  '1' when NEXT_EX_STATE = READ_BOTTOM else
+                 '1' when NEXT_EX_STATE = RERUN_SSW or NEXT_EX_STATE = RERUN_FA or NEXT_EX_STATE = RERUN_DOB else -- [PMMU3]
                  '1' when NEXT_EX_STATE = RESTORE_ISP else
                  '1' when NEXT_EX_STATE = RESTORE_STATUS else
                  '1' when NEXT_EX_STATE = UPDATE_PC else
@@ -652,7 +682,26 @@ begin
     DATA_WR_I <= '1' when ISP_EARLY_I = '1' else -- [XT1]
                  '0' when DATA_RDY = '1' else
                  '1' when EX_STATE = BUILD_STACK else
-                 '1' when EX_STATE = BUILD_TSTACK else '0';
+                 '1' when EX_STATE = BUILD_TSTACK else
+                 '1' when EX_STATE = RERUN_WRITE else '0'; -- [PMMU3]
+
+    -- [PMMU3] Frame values for the write rerun.
+    P_RERUN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE = RERUN_SSW and DATA_RDY = '1' then
+            RR_FC <= DATA_IN(2 downto 0);
+            case DATA_IN(5 downto 4) is
+                when "01" => RR_SIZE <= BYTE;
+                when "10" => RR_SIZE <= WORD;
+                when others => RR_SIZE <= LONG;
+            end case;
+        end if;
+        if EX_STATE = RERUN_FA and DATA_RDY = '1' then RR_ADR <= DATA_IN; end if;
+        if EX_STATE = RERUN_DOB and DATA_RDY = '1' then RR_DATA <= DATA_IN; end if;
+    end process P_RERUN;
+    RERUN_WR <= '1' when EX_STATE = RERUN_WRITE else '0';
+    RERUN_ADR <= RR_ADR; RERUN_DATA <= RR_DATA; RERUN_FC <= RR_FC;
 
     ISP_LOAD <= '1' when EX_STATE = RESTORE_ISP and DATA_RDY = '1' and DATA_VALID = '1' else '0';
     PC_RESTORE <= '1' when EX_STATE = RESTORE_PC and DATA_RDY = '1' and DATA_VALID = '1' else '0';
@@ -668,7 +717,8 @@ begin
               '1' when EXCEPTION = EX_INT and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_TRAP and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_TRAPcc and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
-              '1' when EXCEPTION = EX_TRAPV and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else '0';
+              '1' when EXCEPTION = EX_TRAPV and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
+              '1' when EXCEPTION = EX_MMUCFG and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else '0'; -- [PMMU2] next PC (8.1.10).
 
     ISP_DEC <= '1' when EX_STATE = INIT and EXCEPTION /= EX_RESET and EXCEPTION /= EX_RTE else -- Early due to one clock cycle address calculation.
                '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and NEXT_EX_STATE = BUILD_STACK else
@@ -732,7 +782,7 @@ begin
                 when EX_INT | EX_ILLEGAL | EX_1010 | EX_1111 | EX_FORMAT | EX_PRIV | EX_TRAP =>
                     STACK_POS_VAR := 4; -- Format 0.
                     STACK_FORMAT_I <= x"0";
-                when EX_CHK | EX_TRAPcc | EX_TRAPV | EX_TRACE | EX_DIVZERO =>
+                when EX_CHK | EX_TRAPcc | EX_TRAPV | EX_TRACE | EX_DIVZERO | EX_MMUCFG =>
                     STACK_POS_VAR := 6; -- Format 2.
                     STACK_FORMAT_I <= x"2";
                 when EX_AERR | EX_BERR =>
@@ -837,7 +887,7 @@ begin
                     NEXT_EX_STATE <= IDLE; -- Wait until the pipelined architecture is ready.
                 elsif EX_P_RESET = '1' or EX_P_AERR = '1' or EX_P_BERR = '1' then
                     NEXT_EX_STATE <= INIT;
-                elsif EX_P_TRAP = '1' or EX_P_TRAPcc = '1' or EX_P_TRAPV = '1' or EX_P_CHK = '1' or EX_P_DIVZERO = '1' then
+                elsif EX_P_TRAP = '1' or EX_P_TRAPcc = '1' or EX_P_TRAPV = '1' or EX_P_CHK = '1' or EX_P_DIVZERO = '1' or EX_P_MMUCFG = '1' then
                     NEXT_EX_STATE <= INIT;
                 elsif EX_P_FORMAT = '1' then
                     NEXT_EX_STATE <= INIT;
@@ -932,7 +982,9 @@ begin
                     NEXT_EX_STATE <= IDLE;
                 elsif DATA_RDY = '1' then
                     case DATA_IN(15 downto 12) is
-                        when x"0" | x"1" | x"2" | x"9" | x"A" => -- F3/H8: format $A has no version word ($36 is beyond its 16 words); a real 030 restores it without that access. Deallocation ($20) already correct.
+                        when x"A" => -- [PMMU3] Look at the SSW: rerun a faulted write first.
+                            NEXT_EX_STATE <= RERUN_SSW;
+                        when x"0" | x"1" | x"2" | x"9" => -- F3/H8: format $A has no version word ($36 is beyond its 16 words); a real 030 restores it without that access. Deallocation ($20) already correct.
                             NEXT_EX_STATE <= RESTORE_PC;
                         when x"B" =>
                             NEXT_EX_STATE <= EXAMINE_VERSION;
@@ -941,6 +993,40 @@ begin
                     end case;
                 else
                     NEXT_EX_STATE <= VALIDATE_FRAME;
+                end if;
+            when RERUN_SSW =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' and DATA_IN(8) = '1' and DATA_IN(6) = '0' then
+                    NEXT_EX_STATE <= RERUN_FA; -- DF = 1, write.
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= RERUN_SSW;
+                end if;
+            when RERUN_FA =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RERUN_DOB;
+                else
+                    NEXT_EX_STATE <= RERUN_FA;
+                end if;
+            when RERUN_DOB =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RERUN_WRITE;
+                else
+                    NEXT_EX_STATE <= RERUN_DOB;
+                end if;
+            when RERUN_WRITE =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE; -- The rerun faults again: a new bus error.
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= RERUN_WRITE;
                 end if;
             when EXAMINE_VERSION =>
                 if ACCESS_ERR = '1' then
