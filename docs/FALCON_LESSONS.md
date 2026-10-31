@@ -40,3 +40,14 @@ EmuTOS writes the first byte straight to UDR; the next one is queued while the b
 The io-controller fifo is now only a tap: bytes are dropped when it is full. io_fifo `full` uses a 4-bit compare.
 **General rule:** a peripheral must keep its own timing even when the host side of a bridge is absent; never derive a CPU-visible status or interrupt from whether an
 external consumer happens to read. Check each interrupt source is an edge where the latch expects an edge. A small bench (write UDR 40 times, poll TSR, check IPR bit 10) shows both bugs.
+
+## F116: MULS/MULU result not forwarded to a following full-format EA index (2026-10-31)
+- Symptom: MiNT + XaAES with TT-RAM rebooted in a loop right after `xaaes.cnf`; kernel faulted in strcpy/strlen
+  on garbage pointers (e.g. AA=$3F97DDA). F115 fault freeze showed XaAES building the pointer with
+  `muls.w #n,d3 ; pea (bd.l,d3.l)`.
+- Cause: F97's IDX_TRK detected that the index Dn of a full-format EA had a write-back pending, but only waited
+  for single-clock writers (lsl/add). A multi-clock MULS/MULU result arrived after the EA was formed, so the EA
+  used Dn from before the multiply.
+- Fix: `wf68k30L_address_registers.vhd` drives AR_IN_USE while IDX_TRK is set, so the control unit holds the EA
+  calculation until INDEX has the written value. Regression: sim/rtl/prog_pea.s (expect_pea.txt), WS 0/1/3/7.
+- Result: f116a (timing_pairs 0 fail, cpu030 20.76 MHz, 44670 LUT) boots MiNT + XaAES to the desktop with TT-RAM on.

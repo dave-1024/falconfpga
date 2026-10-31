@@ -238,7 +238,12 @@ begin
         end if;
     end process P_IN_USE; 
 
-    AR_IN_USE <= '0' when AR_USED_1(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
+    -- [F116] While a full-format EA tracks a pending write-back of its index Dn (IDX_TRK, F97), report the
+    -- address unit busy so the control unit holds the EA calculation (FETCH_D_LO/FETCH_MEMADR/ABS -> SWITCH_STATE
+    -- for LEA/PEA, operand fetch) until INDEX holds the written value. F97 alone covered single-clock writers
+    -- (lsl, add); after MULS/MULU the next PEA/LEA (bd,Dn) used Dn from before the multiply (XaAES +$3266).
+    AR_IN_USE <= '1' when IDX_TRK = '1' else
+                 '0' when AR_USED_1(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
                  '0' when AR_USED_2(2 downto 0) = "111" and SBIT = '1' and MSBIT(1) /= MBIT else -- Wrong stack pointer.
                  '1' when AR_USED_1(3) = '1' and AR_USED_1(2 downto 0) = AR_SEL_RD_1 else
                  '1' when AR_USED_1(3) = '1' and AR_USED_1(2 downto 0) = AR_SEL_RD_2 else
