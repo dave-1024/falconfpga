@@ -685,6 +685,38 @@ always @(posedge clk) begin
       end
    end
 end
+`ifdef STREAM_CAP
+// [F113b] AUX_CAP: the cmd 9 ring holds the MFP AUX byte stream instead of card writes.
+// idx_dbg = { aux byte count16, ST reset count8, ..., newest byte [7:0] } from atarist.v.
+// Each entry = { seq16, flags 8'h00, 8 AUX bytes } (shown by "sdwlog n" as img/card hex).
+// Capture freezes at the first ST reset after AUX output, so it keeps the last 512 bytes before it.
+reg [15:0] ax_c1 = 16'd0, ax_c2 = 16'd0;
+reg  [7:0] ax_r1 = 8'd0, ax_r2 = 8'd0, ax_b1 = 8'd0, ax_b2 = 8'd0;
+reg [63:0] ax_w = 64'd0;
+reg  [2:0] ax_n = 3'd0;
+reg        ax_frz = 1'b0, ax_any = 1'b0;
+initial begin dbg_wp = 6'd0; dbg_wcnt = 16'd0; dbg_rcnt = 16'd0; end
+always @(posedge clk) begin
+   ax_c1 <= idx_dbg[239:224]; ax_c2 <= ax_c1;
+   ax_r1 <= idx_dbg[223:216]; ax_r2 <= ax_r1;
+   ax_b1 <= idx_dbg[7:0];     ax_b2 <= ax_b1;
+   dbg_q <= dbg_ring[dbg_idx];
+   if(!ax_frz) begin
+      if(ax_c1 != ax_c2 && ax_c1 == idx_dbg[239:224]) begin
+         ax_any <= 1'b1; dbg_rcnt <= dbg_rcnt + 16'd1;
+         ax_w <= { ax_w[55:0], ax_b1 }; ax_n <= ax_n + 3'd1;
+         if(ax_n == 3'd7) begin
+            dbg_ring[dbg_wp] <= { dbg_wcnt, 8'h00, ax_w[55:0], ax_b1 };
+            dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1;
+         end
+      end else if(ax_r1 != ax_r2 && ax_any) begin
+         ax_frz <= 1'b1;   // flush the partial word, padded with 00
+         dbg_ring[dbg_wp] <= { dbg_wcnt, 8'h00, ax_w << (8*(8-ax_n)) };
+         dbg_wp <= dbg_wp + 6'd1; dbg_wcnt <= dbg_wcnt + 16'd1;
+      end
+   end
+end
+`else
 always @(posedge clk) begin
    if(dbg_we) dbg_ring[dbg_wp] <= dbg_wd;
    dbg_q <= dbg_ring[dbg_idx];
@@ -701,6 +733,7 @@ always @(posedge clk) begin
       end
    end
 end
+`endif
 
 sd_rw #(.CLK_DIV(CLK_DIV), .SIMULATE(SIMULATE), .WRITE_FIX(WRITE_FIX), .HARDEN(HARDEN)) sd_rw (
    // rstn active-low, 1:working, 0:reset

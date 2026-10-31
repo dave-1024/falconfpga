@@ -59,6 +59,14 @@ puts $fh "`define ST_SD_HARDEN"
 # the first BERR (cpu030_st_bridge.v). tt19 had it in and showed HDMI dropouts;
 # release tt20 is built without it. Delete the comment to build it in.
 # puts $fh "`define TT_RING"
+# [F113] AUX_CAP debug build
+puts $fh "`define SD_WRITE_DEBUG"
+puts $fh "`define IDX_DEBUG"
+puts $fh "`define REGS_TAP"
+puts $fh "`define FAULT_CAP"
+puts $fh "`define BR_TRACE"
+puts $fh "`define BR_TRACE2"
+puts $fh "`define STREAM_CAP"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -228,7 +236,7 @@ set_option -correct_hold_violation 1
 # (u_gowin_pll_ddr3/u_pll_init/waitcnt, clk_osc) missed hold by up to 0.131 ns
 # (clk_osc hold TNS -0.371, 4 endpoints; clock skew -0.75 ns). Placer 1 is
 # clean on every clock (clk_cpu030 17.65 MHz, clk32_core 32.11 MHz).
-set_option -place_option 3
+set_option -place_option 1
 set_option -loading_rate 70.000
 set_option -ireg_in_iob 1
 set_option -oreg_in_iob 1
