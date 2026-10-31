@@ -1,5 +1,7 @@
 # Testing the 68030 PMMU (falconfpga)
 
+> **Status (31 Oct 2026):** PMMU merged to main (9fe250b); FreeMiNT with memory protection + XaAES + TeraDesk work (F121). Flash 0 holds f121a, not pmmu8. Dated board notes below are history.
+
 ## In short
 Every PMMU feature gets three kinds of test:
 - **Simulation** (`sim/rtl/prog_pmmu.s`, run by `run_rtl.sh`): fast, exact, and cycle-level.

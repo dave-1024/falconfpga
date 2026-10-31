@@ -1,5 +1,7 @@
 # PMMU progress log (branch `pmmu`)
 
+> **Status (31 Oct 2026):** done and merged to main (9fe250b); F121 fixed the MiNT/XaAES/TeraDesk menu freeze. Flash 0 holds f121a. The log below is history; board states named in it (pmmu8 etc.) are no longer current.
+
 - 27 Oct 2026 07:40 GMT: branch `pmmu` forked from main 4f9ce7d. Box clone /workspace/pmmu, base worktree /workspace/pmmu_base.
   Manual: /workspace/pmmu_ref/um.pdf (+ um.txt). linserver unreachable from the box today; builds run on the box Gowin.
 - 5621114: stage 1 first cut (PMOVE TC/TT0/TT1/MMUSR, TT CI, CpID 0 user privilege).

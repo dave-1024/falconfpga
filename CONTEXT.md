@@ -35,7 +35,7 @@ with the DSP56001.
 
 ## David's working preferences (defaults, not rules; ask before anything hard to undo)
 - Correctness fixes go in with no switch, each with a FALCON_LESSONS entry.
-- clk_cpu030 at 17 MHz or above; report Fmax and LUT/ALU for every build.
+- clk_cpu030 at 16 MHz or above; report Fmax and LUT/ALU for every build.
 - Credit contributors; keep licence headers.
 - One SDRAM module (J9). TT-RAM and caches on by default; always STE.
 - Finish the current queue before starting new work. Keep tokens lean.

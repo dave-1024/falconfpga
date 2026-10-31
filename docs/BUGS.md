@@ -43,11 +43,12 @@ say something, it is marked **TODO** or **(unsure)**.
 | SD write path | (Lead left open after the float-panic hunt) | The float panic itself was the image, not the SD write path. Write jam was fixed by `ST_SD_WRITE_FIX`/`ST_SD_HARDEN` | TODO: no open SD write bug is listed in TODO.md. Confirm whether this lead is still needed |
 | HDMI after flash | Picture often doesn't come up until about 3 reloads after a flash | Seen repeatedly (e.g. TT1 capture: black after reload) | Not investigated yet |
 | Mailbox byte loss (again) | One lost character once on tt6 ("hello from the T") | Seen once after the `3e0d6b8` fix; the next boot was fine (17 bytes OK) | Watch for repeats |
-| PMMU opcodes | PMMU instructions trap to Line F (the core has no PMMU) | **(unsure: not stated in these words in the sources)** PMMU is a planned later step, in HDL; needed for TOS 3/4 (PMOVE) | PMMU work (TODO.md item 4) |
 | Operand idle clocks | Slower than a real 68030 in some instructions | E.g. memory-indirect ~10 idle clocks after the operand read (JSR ([bd,An]) 77 vs 28 clocks); CAS2 has idle clocks inside its locked sequence | Exact-timing work in TODO.md |
 
 
-Release build tt20 (71624aa, 21 Oct 2026): clk32 33.38 MHz, clk_cpu030 22.42 MHz, worst slack -4.89 ns, 41127 LUT + 5036 ALU.
+Current flashed build f121a (main, 31 Oct 2026): clk_cpu030 20.185 MHz, clk32_core 34.207 MHz, 45636 LUT + 5317 ALU, timing_pairs passes. The PMMU is merged (9fe250b), so the old "PMMU opcodes trap to Line F" row is closed. GEMBENCH and disk write/read-back are not yet rechecked on f121a.
+
+History: release build tt20 (71624aa, 21 Oct 2026): clk32 33.38 MHz, clk_cpu030 22.42 MHz, worst slack -4.89 ns, 41127 LUT + 5036 ALU. The tt20 rows above are from that build.
 | [P1] TOS 2.06 desktop stops taking clicks in Set Preferences when choosing ST Medium (parked) | Pointer still moves; Medium, OK and Cancel ignored (`docs/img/pmmu/pmmu5_tos206_prefs_hang.png`, 27 Oct 2026). Clicks work elsewhere on the desktop, so the helper's click injection is fine | **Unknown.** David: seen before the PMMU work; probably the same medium-res fault as the older medium-res DESKTOP.INF crash (medium-res addressing, blitter or cache). May also explain the GEMBENCH VDI/display scores below 100%. Investigate all three together after the PMMU | Plan: pmmu2 vs pmmu5, BLITON on/off, caches off, TT-RAM off, EmuTOS vs TOS 2.06. Note: pmmu2 did not come up with TOS 2.06 in flash (serial dead, no HDMI) (open, 27 Oct 2026) |
 
 ## Planned / later

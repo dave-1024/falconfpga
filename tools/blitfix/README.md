@@ -4,7 +4,7 @@
 
 1. `TTRAM.PRG` (ours, `ttram.s`): finds the 030-side TT-RAM at `$01000000` (512 KB steps until a bus error;
    refuses if `$01xxxxxx` mirrors ST-RAM, i.e. TT-RAM switched off), `Maddalt()`s it, sets `$5A4`/`$5A8`
-   and adds an `_FRB` cookie (64 KB ST-RAM DMA bounce buffer, kept resident). No PMMU use: the core has none,
+   and adds an `_FRB` cookie (64 KB ST-RAM DMA bounce buffer, kept resident). No PMMU use (written before the core had a PMMU; the PMMU is on main since 9fe250b, but TTRAM.PRG still needs none),
    which is why agranlund's `fastram.prg` (builds a PMMU table) is not used. Skips itself if `Mxalloc(-1,1)` > 0.
 2. `BLITON.PRG` (ours, `bliton.s`): `Blitmode(1)` if a blitter is present; prints the mode ($0003).
 3. `BLITFIX.PRG`: agranlund's tftools blitfix (GPL-2.0, source and licence in `blitfix_src/`, prebuilt binary
