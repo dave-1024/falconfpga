@@ -2301,6 +2301,10 @@ begin
                         end if;
                 end case;
             when FETCH_EXWORD_1 =>
+                -- [F121] The index type (Dn/An) of the EA extension word is EXT_WORD(15), not BIW_1(15): for ORI/ANDI/EORI/ADDI/SUBI/CMPI
+                -- BIW_1 is the immediate, for MULx.L/DIVx.L/BTST #/bitfield/CHK2/CAS it is the register word, for MOVE phase 2 it is the
+                -- source extension. An immediate with bit 15 set skipped the DR_IN_USE wait, so (d8,An,Dn) used Dn before a MULS write-back
+                -- (XaAES andi.w #-129,(8,a4,d0.l) after muls.w #24,d0: read at the stale index, write at the right one).
                 -- Be aware that the An registers which will be addressed by EXWORD_1 and are used for several addressing modes
                 -- are valid right after this state (because every address register manipulation requires no more than two clock cycles).
                 if EW_ACK = '1' and EXT_WORD(8) = '1' and EXT_WORD(5 downto 4) = "11" then -- 32 bit displacement.
@@ -2318,17 +2322,17 @@ begin
                 elsif EW_ACK = '1' or EW_RDY = '1' then -- Null displacement, no outer displacement.
                     case OP is
                         when ADD | CMP | SUB | AND_B | EOR | OR_B =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when ADDA | BCHG | BCLR | BFCHG | BFCLR | BFEXTS | BFEXTU | BFFFO | BFINS | BFSET | BFTST | BSET | BTST | CHK | CHK2 | CMP2 | CMPA | DIVS | DIVU | MULS | MULU | MOVE | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | SUBA =>
-                            if OP = MOVE and PHASE2 = true and BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0' then -- ADH.
+                            if OP = MOVE and PHASE2 = true and EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0' then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                            elsif OP = MOVE and PHASE2 = true and BIW_1(15) = '1' and AR_IN_USE = '0' then -- ADH.
+                            elsif OP = MOVE and PHASE2 = true and EXT_WORD(15) = '1' and AR_IN_USE = '0' then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                            elsif (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            elsif (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
@@ -2344,19 +2348,19 @@ begin
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when ADDI | ADDQ | ANDI | CAS | CMPI | EORI | NBCD | NEG | NEGX | NOT_B | ORI | SUBI | SUBQ | TST | TAS | ASL | ASR | LSL | LSR | ROTL | ROTR | ROXL | ROXR =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= CALC_AEFF;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
 						when LEA | PEA =>
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= SWITCH_STATE;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;
                             end if;
                         when others => -- CLR, JMP, JSR, MOVE_FROM_CCR, MOVE_FROM_SR, MOVEM, Scc.
-                            if (BIW_1(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (BIW_1(15) = '1' and AR_IN_USE = '0') then -- ADH.
+                            if (EXT_WORD(15) = '0' and AR_IN_USE = '0' and DR_IN_USE = '0') or (EXT_WORD(15) = '1' and AR_IN_USE = '0') then -- ADH.
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             else
                                 NEXT_FETCH_STATE <= FETCH_EXWORD_1;

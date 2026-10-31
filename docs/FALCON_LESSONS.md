@@ -51,3 +51,24 @@ external consumer happens to read. Check each interrupt source is an edge where 
 - Fix: `wf68k30L_address_registers.vhd` drives AR_IN_USE while IDX_TRK is set, so the control unit holds the EA
   calculation until INDEX has the written value. Regression: sim/rtl/prog_pea.s (expect_pea.txt), WS 0/1/3/7.
 - Result: f116a (timing_pairs 0 fail, cpu030 20.76 MHz, 44670 LUT) boots MiNT + XaAES to the desktop with TT-RAM on.
+
+## F121: immediate operand taken as the EA extension word -> RMW read at a stale index (2026-10-31)
+- Symptom: MiNT + XaAES + TeraDesk desktop froze as soon as the Desk menu was hovered/clicked; MiNT then showed
+  "PROCESS desktop KILLED: MEMORY VIOLATION ... Addr 13F600D0" in an alert loop.
+- Cause: in `wf68k30L_control.vhd` state FETCH_EXWORD_1 the Dn/An test for the brief-format index used BIW_1(15).
+  BIW_1 is the extension word only for plain EA ops; for ORI/ANDI/EORI/ADDI/SUBI/CMPI it is the immediate (for
+  MULx.L/DIVx.L/bitfield/CHK2/CAS the register word, for MOVE phase 2 the source extension). An immediate with bit 15
+  set (`andi.w #-129,(8,a4,d0.l)`, XaAES menu de-select after `muls.w #24,d0`) skipped the DR_IN_USE wait: the RMW
+  read went to a4+8+old d0, the write to the right address with (wrong word & imm). XaAES then took an MMU fault.
+- Fix: use EXT_WORD(15) (the word actually being decoded) in FETCH_EXWORD_1. Regression: sim/rtl/prog_madda.s
+  (expect_madda.txt): 13 cases, ORI/ANDI/EORI/ADDI/SUBI/CMPI .w/.l with bit-15 immediates after MULS/MULU .w/.l and
+  DIVU/DIVS .w/.l writers, .l and .w index; fails before, passes after (WS 0/1/3/7). prog_mrmw passed all along
+  because its immediate ($0080) had bit 15 clear: the exact condition is "immediate bit 15 = 1", not the writer.
+- Wrong turns (cost ~10 builds): (1) TeraDesk looked like the first process to die (alert named "desktop", user
+  branch traces into TeraDesk) - it was only the process context; TeraDesk sat in evnt_multi. (2) The fixed TeraDesk
+  load address ($A2100 from one alert) changes per boot ($2A100 on others): range filters on a guessed load address
+  captured nothing. (3) The garbage a4=$13F600E0 at $01F5FA06 was a secondary fault in XaAES cleanup, not the cause.
+  (4) The freeze trigger fc_hit3 required fault address >= $02000000, so it skipped the first fault and froze on the
+  later one; triggering on any vector-2 fault (fc_hit, armed after the desktop) caught the real site in one run.
+- Rule: when a hazard check reads "the extension word", check which word each opcode class actually has in BIW_1.
+  Test decode-dependent hazards with immediates of both signs.
