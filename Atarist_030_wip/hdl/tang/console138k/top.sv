@@ -174,6 +174,9 @@ assign uart_ext_tx = bl616_tx;   // desktop image
 
 wire clk32;
 wire pll_lock;
+`ifdef SDRAM64
+wire pll_lock_sd;   // pll_sd (SDRAM64)
+`endif
 // FalconFPGA 9 Oct 2026: the 50 MHz board clock for FABRIC logic (pll_init
 // FSMs, S0 debounce, DDR3/AE350 reset debounce, SPI-ext detect) goes through
 // a DCE (global clock enable buffer) so it is distributed on the global clock network. Before, the
@@ -213,7 +216,12 @@ always @(posedge clk32) begin
             s1_release <= 1'b1;
     end
 end
-wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
+`ifdef SDRAM64
+wire por = !(pll_lock && pll_lock_sd);  // core reset waits for pll_sd too
+`else
+wire por = !pll_lock;
+`endif
+//  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 // FalconFPGA 9 Oct 2026: por (= !pll_lock, a clk_osc flop in pll_hdmi's
 // pll_init) is asynchronous to every fabric clock. Each domain gets its own
 // copy that asserts at once and deasserts synchronously (reset_sync.v), so
@@ -760,6 +768,9 @@ misterynano misterynano (
 
   // clock and power on reset from system
   .clk32 ( clk32 ),         // 32 Mhz system clock input
+`ifdef SDRAM64
+  .clk_sd64 ( clk_sd64 ),   // 64 MHz SDRAM controller clock
+`endif
   .clk_cpu ( clk_cpu030 ),  // 8 Mhz 68030 clock (only used with CPU_030 in atarist.v)
   .clk_cpu_n ( clk_cpu030_n ), // the same at 180 degrees (68030 falling-edge registers)
   .flash_clk ( flash_clk ), // 100 Mhz flash clock
@@ -895,10 +906,22 @@ wire	   clk_pixel_x5;
 wire	   clk_pixel; 
 wire	   clk_cpu030;   // Atarist_030_wip: 16 MHz 68030 clock, phase-locked to clk32
 wire	   clk_cpu030_n; // clk_cpu030 at 180 degrees (global clock for the 68030's falling-edge registers)
+`ifdef SDRAM64
+// SDRAM64 (sd64b): a second PLL fed by clk32 makes the 64 MHz SDRAM controller clock and the
+// 64 MHz pin clock. pll_hdmi is unchanged; its clkout2 (32 MHz pin clock) is left unconnected.
+wire       clk_sd64;
+wire       sdram_clk32_nc;
+wire       pll_lock_hdmi;
+assign     pll_lock = pll_lock_hdmi;   // jtagseln / BL616 pins follow pll_hdmi only (as tt26rmc2)
+`endif
 pll_160m pll_hdmi (
                .clkout0(clk_pixel_x5),       // 160 MHz
                .clkout1(clk_pixel),          // 32 MHz
+`ifdef SDRAM64
+               .clkout2(sdram_clk32_nc),     // 32 MHz, 338,4° (unused with SDRAM64)
+`else
                .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
+`endif
                .clkout3(flash_clk),          // 100 MHz
 `ifdef AE350_SERIAL
                .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
@@ -909,10 +932,24 @@ pll_160m pll_hdmi (
 `endif
                .clkout5(clk_cpu030),         // 16 MHz, WF68K30L CPU clock
                .clkout6(clk_cpu030_n),       // 16 MHz, 180 deg: WF68K30L falling-edge registers
+`ifdef SDRAM64
+               .lock(pll_lock_hdmi),
+`else
                .lock(pll_lock),
+`endif
                .clkin(clk),
                .init_clk(clk_g)
 	       );
+`ifdef SDRAM64
+pll_sd64 pll_sd (
+               .clkin(clk_pixel),            // clk32
+               .init_clk(clk_g),
+               .rst_in(!pll_lock_hdmi),
+               .clkout0(clk_sd64),           // 64 MHz, phase 0
+               .clkout1(O_sdram_clk),        // 64 MHz, 327 deg (1.43 ns lead)
+               .lock(pll_lock_sd)
+               );
+`endif
 
 assign clk32 = clk_pixel;   // the 32 Mhz system clock is the pixel clock
 

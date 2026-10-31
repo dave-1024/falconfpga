@@ -11,6 +11,10 @@ module tb_bus;
     parameter integer FL_PHASE_PS  = 3000;
     reg clk32 = 0, clk_cpu = 0, flclk = 0;
     always #15625 clk32 = ~clk32;
+`ifdef SDRAM64
+    reg clk64 = 0; always @(clk32) begin clk64 = 1; #7812 clk64 = 0; end   // 64 MHz, rising on every clk32 edge
+    reg clk64_pad = 0; always @(clk64) clk64_pad <= #14219 clk64;                                        // pin clock 1.4 ns before the next clk64 edge
+`endif
     integer cph = CPU_PHASE_PS; initial begin if ($value$plusargs("cph=%d", cph)) ; #(cph); forever #31250 clk_cpu = ~clk_cpu; end
     initial begin #(FL_PHASE_PS); forever #5000 flclk = ~flclk; end
     wire clk_cpu_n = ~clk_cpu;
@@ -35,6 +39,9 @@ module tb_bus;
     wire sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas;
     wire [15:0] sd_dout;
     sdram sdram (.clk(clk32), .reset_n(porb), .ready(sd_ready), .zmask(1'b0),
+`ifdef SDRAM64
+        .clk_sd(clk64), .clk_sd_pad(clk64_pad),
+`endif
         .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .refresh(refresh), .din(mdout), .dout(sd_dout), .addr(ram_a[22:1]), .ds({cash_n, casl_n}),
@@ -64,6 +71,8 @@ module tb_bus;
         n_clash = n_clash + 1; if (n_clash < 10) $display("%0t SDRAM DATA BUS CLASH", $time); end
     always @(posedge sd_clk) if ({sd_ras, sd_cas, sd_we} == 3'b011 && sd_ba != 0) n_ttact = n_ttact + 1;
 `endif
+    integer sdtf = 0; reg [8*64-1:0] sdtfn; initial if ($value$plusargs("sdtrace=%s", sdtfn)) sdtf = $fopen(sdtfn, "w");
+    always @(posedge clk32) if (sdtf != 0 && $time < 3000000000) begin #1000 $fdisplay(sdtf, "%0t %b %h %h %h %b %h", $time, {sd_ras,sd_cas,sd_we}, sd_a, sd_ba, sd_dout, sdram.tt_ack, sdram.tt_dout); end
     integer early_en = 1; initial if ($value$plusargs("early=%d", early_en)) ;
     wire ram_early_en = (early_en != 0);
     always @* mdin = sd_dout;
@@ -89,7 +98,10 @@ module tb_bus;
 `endif
             end
         end
-`ifdef TTRAM
+`ifdef SDRAM64
+        // SDRAM64: datasheet CL2 (data tAC after the edge following the READ, held tOH after the next)
+        if (rdq[0]) begin ra_now = ra0; #2700 dq_oe <= 0; #2700 dq_o <= (ra_now[22:21] == 0) ? ram[ra_now[20:0]] : ttm[{ra_now[22], ra_now[20:0]}]; dq_oe <= 1; end
+`elsif TTRAM
         if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= (ra_now[22:21] == 0) ? ram[ra_now[20:0]] : ttm[{ra_now[22], ra_now[20:0]}]; dq_oe <= 1; end
 `else
         if (rdq[1]) begin #2700 dq_oe <= 0; #2700 dq_o <= ram[ra_now[20:0]]; dq_oe <= 1; end

@@ -18,6 +18,9 @@ module misterynano #(
   input			user, // S1
 
   input			clk32,
+`ifdef SDRAM64
+  input			clk_sd64, // FalconFPGA SDRAM64: 64 MHz SDRAM controller clock, phase-locked to clk32
+`endif
   input			clk_cpu, // 16 MHz 68030 clock (Atarist_030_wip, CPU_030 in atarist.v)
   input			clk_cpu_n, // clk_cpu at 180 degrees (PLL), the 68030's falling-edge registers
   input			por, // power on-reset (! all PLL's locked), released synchronously to clk32
@@ -293,6 +296,10 @@ wire [31:0] tt_wdata, tt_rdata;
 `endif
 sdram sdram (
         .clk(clk32),
+`ifdef SDRAM64
+        .clk_sd(clk_sd64),
+        .clk_sd_pad(clk_sd64),   // sd_clk is unused on the board (top.sv: O_sdram_clk from the PLL)
+`endif
         .reset_n(!por),
         .ready(ram_ready),          // ram is done initialzing
 

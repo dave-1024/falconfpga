@@ -302,6 +302,11 @@ signal T_SLICE              : TIME_SLICES := IDLE;  -- [F54] measured warm-boot 
 signal WAITSTATES           : bit := '0';  -- [F54] measured warm-boot value
 signal WP_BUFFER            : std_logic_vector(31 downto 0);
 signal WRITE_ACCESS         : bit := '0';  -- [F54] measured warm-boot value
+signal RMC_LK               : bit := '0'; -- [RMC1] Locked read of the RMC sequence has started.
+signal RMC_PIN              : bit; -- [RMC1] Bus-visible RMC: S0 of the first locked read .. end of the last write.
+signal RMC_HOLD             : bit; -- [RMC1] Lock held and the write(s) still owed: no opcode cycle may start.
+signal RMC_DONE             : bit := '0'; -- [RMC1] As many write cycles as locked reads have completed.
+signal RMC_NR, RMC_NW       : integer range 0 to 7 := 0; -- [RMC1] Locked read / write cycles completed.
 -- [F62] Opcode prefetch queue.
 type QWORDS_T is array (0 to 3) of std_logic_vector(15 downto 0);
 signal Q_W                  : QWORDS_T;
@@ -755,7 +760,7 @@ begin
     end process BUS_STATE_REG;
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
-                          OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC, SIZE_N, WR_REQ, WRITE_ACCESS,
+                          OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC_PIN, SIZE_N, WR_REQ, WRITE_ACCESS,
                           OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I, OPC_ADR) -- OPC_ADR: sensitivity audit
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
@@ -767,7 +772,7 @@ begin
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- Reset condition (bus cycle terminated).
                 elsif HALT_In = '0' then
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- This is the 'HALT' condition.
-                elsif (BR_In = '0' and RMC = '0') or ARB_STATE /= IDLE or BGACK_In = '0' then
+                elsif (BR_In = '0' and RMC_PIN = '0') or ARB_STATE /= IDLE or BGACK_In = '0' then
                     NEXT_BUS_CTRL_STATE <= IDLE;  -- Arbitration, wait!
                 elsif FILL_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- [DC] Data cache fill cycle.
@@ -892,8 +897,8 @@ begin
     -- a 68030 where a prefetch fault is signalled only if the word is used. Odd addresses
     -- still take the ordinary opcode cycle path to raise the address error. A write that
     -- touches the queued or in-flight long words flushes the queue.
-    OPC_LEGACY <= OPCODE_REQ when PREFETCH_Q = 0 else
-                  OPCODE_REQ and To_Bit(OPC_ADR(0)); -- [C3]
+    OPC_LEGACY <= OPCODE_REQ and not RMC_HOLD when PREFETCH_Q = 0 else -- [RMC1] no opcode cycle inside the RMC sequence
+                  OPCODE_REQ and To_Bit(OPC_ADR(0)) and not RMC_HOLD; -- [C3]
     Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
@@ -904,7 +909,7 @@ begin
     -- bus busy across operand cycles (W->R, R->R, MOVEM.W, stack). Exception processing keeps the old threshold.
     -- [IC] A long word the instruction cache holds is taken from the cache (P_QUEUE) and never starts a bus
     -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
-    PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT);
+    PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT) and not RMC_HOLD; -- [RMC1] no prefetch between the locked read and its write
     IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
     IC_LK_ADR <= F_ADR(31 downto 2);
     IC_LK_FC2 <= Q_FC(2);
@@ -1754,7 +1759,36 @@ begin
 
     -- Bus control signals:
     RWn <= '0' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 else '1';
-    RMCn <= '0' when RMC = '1' else '1';
+    -- [RMC1] Cycle-correct RMCn (MC68030 UM 7.6 read-modify-write). The control unit holds RMC for the whole
+    -- TAS/CAS/CAS2 instruction (it also keeps the prefetcher off, so no cycle can come between the locked
+    -- read and the write). The pin and the bus lock follow the bus instead: RMCn goes low with S0 (AS) of the
+    -- first operand read while RMC is set, and stays low through the write(s) until RMC drops. Before that
+    -- read the bus is not locked, so a pending BR is granted as on a real 030.
+    RMC_PIN <= '1' when RMC = '1' and RMC_DONE = '0' and
+                        (RMC_LK = '1' or (READ_ACCESS = '1' and T_SLICE /= IDLE)) else '0';
+    RMC_HOLD <= '1' when RMC = '1' and RMC_LK = '1' and RMC_DONE = '0' else '0';
+    P_RMC_LK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RMC = '0' then
+            RMC_LK <= '0'; RMC_DONE <= '0'; RMC_NR <= 0; RMC_NW <= 0;
+        else
+            if READ_ACCESS = '1' and T_SLICE /= IDLE and T_SLICE /= S0 and RMC_DONE = '0' then
+                RMC_LK <= '1';
+            end if;
+            if BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and RMC_LK = '1' and RMC_DONE = '0' then
+                if READ_ACCESS = '1' and RMC_NR < 7 then
+                    RMC_NR <= RMC_NR + 1;
+                elsif WRITE_ACCESS = '1' then
+                    RMC_NW <= RMC_NW + 1;
+                    if RMC_NW + 1 >= RMC_NR then
+                        RMC_DONE <= '1'; -- Last write of the sequence ends with this S5: release the lock.
+                    end if;
+                end if;
+            end if;
+        end if;
+    end process P_RMC_LK;
+    RMCn <= '0' when RMC_PIN = '1' else '1';
     ECSn <= '0' when T_SLICE = S0 else '1';
     OCSn <= '0' when T_SLICE = S0 and OCS_INH = '0' else '1';
     ASn <= '0' when T_SLICE = S0 or T_SLICE = S1 or T_SLICE = S2 or T_SLICE = S3 or T_SLICE = S4 else '1';
@@ -1786,14 +1820,14 @@ begin
         end if;
     end process ARB_REG;
     
-    ARB_DEC: process(ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, RETRY, RMC)
+    ARB_DEC: process(ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, RETRY, RMC_PIN)
     -- This is the bus arbitration state machine's decoder. It can handle single-, two- 
     -- or three wire arbitration. The two wire arbitration is done in the GRANT state
     -- by negating BRn.
     begin
         case ARB_STATE is
             when IDLE =>
-                if RMC = '1' and RETRY = '0' then
+                if RMC_PIN = '1' and RETRY = '0' then -- [RMC1]
                     NEXT_ARB_STATE <= IDLE; -- Arbitration in RETRY operation is possible.
                 elsif BGACK_In = '0' and BUS_CTRL_STATE = IDLE then -- This is the single wire arbitration.
                     NEXT_ARB_STATE <= WAIT_RELEASE_3WIRE;

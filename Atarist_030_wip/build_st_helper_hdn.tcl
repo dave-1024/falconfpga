@@ -51,6 +51,8 @@ puts $fh "`define ST_SD_WRITE_FIX"
 puts $fh "`define SD_WRITE_DEBUG"
 puts $fh "`define ST_FLOPPY_MEDIACH"
 puts $fh "`define ST_SD_HARDEN"
+# SDRAM64: SDRAM controller and pin clock at 64 MHz (second PLL pll_sd64 from clk32, VCO 960), ST/TT commands at the 32 MHz times.
+puts $fh "`define SDRAM64"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
@@ -152,6 +154,8 @@ add_file hdl/tang/mega138kpro/gowin_dpb/fdc_dpram.v
 add_file hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m.v
 add_file hdl/tang/console138k/gowin_pll/pll_160m_mod.v
+add_file hdl/tang/console138k/gowin_pll/pll_sd64.v
+add_file hdl/tang/console138k/gowin_pll/pll_sd64_mod.v
 add_file hdl/tang/console138k/pll_init.v
 add_file hdl/tang/console138k/reset_sync.v
 add_file hdl/helper/key_debounce.v

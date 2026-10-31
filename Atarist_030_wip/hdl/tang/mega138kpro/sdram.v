@@ -45,6 +45,16 @@ module sdram (
 	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
 	input		  we,         // cpu/chipset requests write
 	input		  zmask       // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
+`ifdef SDRAM64
+	,
+	// FalconFPGA SDRAM64: the controller runs at 64 MHz (clk_sd, phase-locked to clk, 2:1).
+	// Every command is issued on the 64 MHz edge that coincides with the clk edge it used
+	// at 32 MHz and lasts one 64 MHz clock; read data is captured 3 clk_sd edges after the
+	// READ (CL2 at 64 MHz, same geometry as CL2 at 32 MHz) and handed over at the old edge.
+	// So every ST/TT command, dout and tt_dout change happens at the same absolute time.
+	input		  clk_sd,     // 64 MHz, edges at every clk edge and half way
+	input		  clk_sd_pad  // the SDRAM pin clock (sim: sd_clk; board: PLL CLKOUT2 drives the pin)
+`endif
 `ifdef TTRAM
 	,
 	// FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 32-bit TT-RAM port in banks 1/2.
@@ -60,7 +70,21 @@ module sdram (
 `endif
 );
 
+`ifdef SDRAM64
+assign sd_clk = clk_sd_pad;
+// ce: high on the clk_sd edges that coincide with clk edges
+// sd64b: t32 is first sampled on the falling clk_sd edge (half way between the clk edges),
+// so the ce phase does not depend on the clk32/clk_sd64 skew (the clocks come from two PLLs).
+reg t32 = 1'b0, t32_n = 1'b0, ce_s = 1'b0, ce_r = 1'b0;
+always @(posedge clk) t32 <= ~t32;
+always @(negedge clk_sd) t32_n <= t32;
+always @(posedge clk_sd) begin ce_s <= t32_n; ce_r <= ce_s; end
+wire ce = ce_s ^ ce_r;
+`define SDCLK clk_sd
+`else
 assign sd_clk = ~clk;
+`define SDCLK clk
+`endif
 assign sd_cke = 1'b1;  
    
 localparam RASCAS_DELAY   = 3'd1;   // tRCD=15ns -> 1 cycle@32MHz
@@ -162,7 +186,42 @@ wire tt_go = (init_state == 0) && tg_ok && (tg == 3'd2) && tt_req && !tt_busy &&
 `endif
 
 reg zmask_q = 1'b0;
-always @(posedge clk) begin
+`ifdef SDRAM64
+`ifdef SD64_NEGCAP
+// sd64k: DQ sampled on the falling clk_sd edge 2.5 clocks after the READ edge, handed on at edge 3
+reg [15:0] sdq_n;
+always @(negedge clk_sd) sdq_n <= sd_data[15:0];
+`define SDQ_CAP sdq_n
+`else
+`define SDQ_CAP sd_data[15:0]
+`endif
+// read capture, 3 clk_sd edges after the READ edge; tag: bank 0 = ST, else TT word (A0)
+reg        rp1 = 1'b0, rp2 = 1'b0;
+reg [1:0]  rp1t, rp2t;
+reg [15:0] h_st, h_tt0, h_tt1;
+always @(posedge clk_sd) begin
+   rp1  <= (sd_cmd == CMD_READ);
+   rp1t <= (sd_ba == 2'b00) ? 2'd0 : (sd_addr[0] ? 2'd2 : 2'd1);
+   rp2  <= rp1; rp2t <= rp1t;
+   if (rp2) case (rp2t)
+      2'd0: h_st  <= `SDQ_CAP;
+      2'd1: h_tt0 <= `SDQ_CAP;
+      default: h_tt1 <= `SDQ_CAP;
+   endcase
+end
+`define RD_ST  h_st
+`define RD_TT0 h_tt0
+`define RD_TT1 h_tt1
+`else
+`define RD_ST  sd_data[15:0]
+`define RD_TT0 sd_data[15:0]
+`define RD_TT1 sd_data[15:0]
+`endif
+always @(posedge `SDCLK) begin
+`ifdef SDRAM64
+ if (!ce) sd_cmd <= CMD_NOP;   // a command lasts one clk_sd
+ else begin
+`endif
    sd_cmd <= CMD_NOP;  // default: idle
 
    // init state machines runs once reset ends
@@ -241,7 +300,7 @@ always @(posedge clk) begin
       
         // read phase
         if(state == STATE_READ && !we) begin
-            dout <= zmask_q ? 16'h0000 : sd_data[15:0];
+            dout <= zmask_q ? 16'h0000 : `RD_ST;
         end
       end
    end
@@ -269,8 +328,8 @@ always @(posedge clk) begin
          3'd1: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0000, tt_a[7:0], 1'b0}; sd_ba <= tt_bank; end
          3'd2: begin sd_cmd <= CMD_READ; sd_addr <= {4'b0010, tt_a[7:0], 1'b1}; sd_ba <= tt_bank;
                      tt_ack <= 1'b1; end   // L2: early ack, tt_dout is complete 3 edges later (see bridge)
-         3'd4: tt_w0 <= sd_data[15:0];
-         3'd5: begin tt_dout <= {tt_w0, sd_data[15:0]}; tt_busy <= 1'b0;
+         3'd4: tt_w0 <= `RD_TT0;
+         3'd5: begin tt_dout <= {tt_w0, `RD_TT1}; tt_busy <= 1'b0;
                      tt_rdwin <= 1'b0; tt_dqme <= 1'b0; end
          default: ;
          endcase
@@ -289,6 +348,15 @@ always @(posedge clk) begin
       end
    end
 `endif
+`ifdef SDRAM64
+ end
+`endif
 end
    
 endmodule
+
+`undef SDCLK
+`undef SDQ_CAP
+`undef RD_ST
+`undef RD_TT0
+`undef RD_TT1

@@ -6,6 +6,10 @@
 `timescale 1ns/1ps
 module tb_ttram;
     reg clk = 0; always #15.625 clk = ~clk;          // 32 MHz
+`ifdef SDRAM64
+    reg clk_sd = 0; always @(clk) begin clk_sd = 1; #7.812 clk_sd = 0; end  // 64 MHz, rising edges on every clk edge
+    reg clk_sd_pad = 0; always @(clk_sd) clk_sd_pad <= #14.2 clk_sd;                 // pin clock 1.4 ns ahead of the next clk_sd edge
+`endif
     reg clk_cpu = 0;                                  // 16 MHz, edges on clk rising edges
     always @(posedge clk) clk_cpu <= ~clk_cpu;
     wire clk_cpu_n = ~clk_cpu;
@@ -51,10 +55,20 @@ module tb_ttram;
     sdram u_sd (.sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas), .clk(clk), .reset_n(rst_n), .ready(ready),
         .refresh(st_ref), .din(st_din), .dout(st_dout), .addr(st_addr), .ds(st_ds), .cs(st_cs), .ecs(st_ecs), .we(st_we),
-        .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata));
+        .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata)
+`ifdef SDRAM64
+        , .clk_sd(clk_sd), .clk_sd_pad(clk_sd_pad)
+`endif
+        );
+    integer trf; initial trf = $fopen("/tmp/sdtrace.txt");
+    always @(posedge clk) begin #1 $fdisplay(trf, "%0t %b %h %h %h %b %h %h %b %b", $time, {sd_ras,sd_cas,sd_we}, sd_a, sd_ba, st_dout, tt_ack, tt_rdata, sd_dqm[1:0], tt_req, ASn); end
     wire ctl_oe = u_sd.tt_oe | (!u_sd.tt_rdwin & st_cs & st_we);
     wire [31:0] m_err;
-    sdram_model mdl (.clk(clk), .cmd({sd_ras, sd_cas, sd_we}), .a(sd_a), .ba(sd_ba), .dqm(sd_dqm[1:0]),
+    `ifdef SDRAM64
+    sdram_model mdl (.clk(clk_sd),
+`else
+    sdram_model mdl (.clk(clk),
+`endif .cmd({sd_ras, sd_cas, sd_we}), .a(sd_a), .ba(sd_ba), .dqm(sd_dqm[1:0]),
                      .dq(sd_dq[15:0]), .ctl_oe(ctl_oe), .errors(m_err));
 
     // ---------------- ST SDRAM traffic on the 8-clock grid ----------------

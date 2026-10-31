@@ -616,7 +616,7 @@ module cpu030_st_bridge #(
     reg [1:0] arb_nx;
     reg       granting = 1'b0;
     wire bg_block  = (phase == P_S0) | rmc_lock;   // no grant while a cycle starts or during RMC
-    wire bus_avail = BRi & BgackI & (arb == A_IDLE);
+    wire bus_avail = (BRi | rmc_lock) & BgackI & (arb == A_IDLE);   // TODO 9: no BR stall while the 030 holds RMC
 
     always @* begin
         arb_nx = arb;

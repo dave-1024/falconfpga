@@ -10,7 +10,7 @@
 // create_clock -name clk_hdmi -period 6.25 -waveform {0 3.125} [get_nets {video2hdmi/clk_pixel_x5}] -add
 // create_clock -name clk_flash -period 10 -waveform {0 5} [get_nets {flash_clk}]
 create_clock -name clk_spi -period 10 -waveform {0 5} [get_ports {mspi_clk}] -add
-create_clock -name clk_32 -period 31.25 -waveform {0 15.625} [get_ports {O_sdram_clk}] -add
+create_clock -name clk_32 -period 15.625 -waveform {0 7.812} [get_ports {O_sdram_clk}] -add
 create_clock -name clk_osc -period 20 -waveform {0 10} [get_ports {clk}] -add
 
 // FalconFPGA stage 1 (HDMI_TESTPATTERN in top.sv): standalone 640x480@60 HDMI.
@@ -35,6 +35,7 @@ create_generated_clock -name clk32_core -source [get_ports {clk}] -master_clock 
 // both clock edges, so its internal falling-edge paths get half a period.
 // It is related to clk32_core (every clk_cpu030 edge is a clk32 rising edge):
 // the bridge's clk_cpu030 <-> clk32_core paths are timed, not cut.
+create_generated_clock -name clk_sd64 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 32 -divide_by 25 [get_pins {pll_sd/u_pll/PLL_inst/CLKOUT0}]
 create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT5}]
 // F58: the WF68K30L's falling-edge registers (bus interface input/data
 // registers DATA_INMUX, DSACK/AVEC/HALT/BERR samples, SLICE_CNT_N, RETRY,
@@ -43,7 +44,7 @@ create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock 
 // core's inverted CLK was a fabric LUT and those paths were not analysed).
 // Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
 create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_sd64 clk_cpu030 clk_cpu030_n}]
 // F58: explicit reports for the 68030 clock pairs (half-cycle paths between
 // clk_cpu030 and clk_cpu030_n, and the bridge's direct clk32 <-> CPU paths)
 report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_cpu030_n}]
@@ -76,7 +77,7 @@ create_clock -name ddr3_memory_clk -period 5  -waveform {0 2.5} [get_nets {DDR3_
 // flash CS#, UART2_TXD), UART2_RXD (sampled by the UART's own oversampler)
 // and the static, once-switched flash pad mux. Without this group STA would
 // time those crossings as if the 50 MHz and 32 MHz PLL outputs were related.
-set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_sd64 clk_cpu030 clk_cpu030_n}]
 
 // ---------------------------------------------------------------------------
 // Clocks STA found but nobody created (TA1132, 9 Oct 2026). Before this, every
@@ -123,7 +124,7 @@ create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_i
 // mux described above and in the AE350 group line further up; the clk32
 // dividers only meet the HDMI 640 domain through the existing frame-buffer
 // crossing.
-set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi clk32_core clk_sd64 clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
 set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
 set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
 
@@ -149,3 +150,15 @@ set_false_path -to [get_pins {u_porfl_sync/sync_*_s0/PRESET}]
 // gowin_pll_ddr3). Gowin's own reference SDC (ae350_shared_ddr3.sdc, also
 // Hybrid030 ae350_stage0.sdc) declares the two clocks exclusive for this.
 set_clock_groups -exclusive -group [get_clocks {ddr3_memory_clk}] -group [get_clocks {ddr3_clkin}]
+
+// SDRAM64 (SDRAM_CLOCK plan step 1): sdram.v runs on clk_sd64 with a clock enable on the edges that
+// coincide with clk32 edges, so clk32 <-> clk_sd64 transfers have a full clk32 period.
+set_multicycle_path -from [get_clocks {clk32_core}] -to [get_clocks {clk_sd64}] -setup -end 2
+set_multicycle_path -from [get_clocks {clk32_core}] -to [get_clocks {clk_sd64}] -hold -end 1
+set_multicycle_path -from [get_clocks {clk_sd64}] -to [get_clocks {clk32_core}] -setup -start 2
+set_multicycle_path -from [get_clocks {clk_sd64}] -to [get_clocks {clk32_core}] -hold -start 1
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_sd64}] -to_clock [get_clocks {clk_sd64}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_sd64}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_sd64}] -to_clock [get_clocks {clk32_core}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_sd64}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_sd64}] -to_clock [get_clocks {clk32_core}]
