@@ -5,7 +5,7 @@ This is the variant of the FPGA companion firmware for the BL616 MCU.
 ## Example wiring M0S Dock (BL616 MPU)
 
 M0S Dock consists of a M0S PCBA subassembly that is mounted on a carrier PCBA as a M0S Dock.
-![Tang Nano 20k with M0S Dock](m0s_dock_tn20k.png)
+![Tang Nano 20k with M0S Dock](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/bl616/m0s_dock_tn20k.png)
 
 |M0S pin<BR>/ Dock|Signal      |BL616 GPIO|Note        |
 |------|------------- |--------|--------------|
@@ -28,11 +28,11 @@ M0S Dock consists of a M0S PCBA subassembly that is mounted on a carrier PCBA as
 
 Location JTAG connection TN20k PCBA top side.  
 
-![Tang Nano 20k JTAG](../rp2040/jtag_tn20k.png)
+![Tang Nano 20k JTAG](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/rp2040/jtag_tn20k.png)
 
 Location GPIO 0,1,3,20 for JTAG purposes on M0S sub-module PCBA. M0S Dock top side. 
 
-![M0S](M0S.png)
+![M0S](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/bl616/M0S.png)
 
 ## Tang integrated onboard BL616 MPU
 

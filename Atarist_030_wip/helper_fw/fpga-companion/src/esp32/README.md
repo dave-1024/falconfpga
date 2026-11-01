@@ -122,4 +122,4 @@ Additional debug output is sent via UART at 115200 bit/s
 
 # Example wiring
 
-![Tang Nano 20k with ESP32s2](esp32s2_tn20k.png)
+![Tang Nano 20k with ESP32s2](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/esp32/esp32s2_tn20k.png)

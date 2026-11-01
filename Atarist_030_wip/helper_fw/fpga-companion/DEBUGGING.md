@@ -54,4 +54,4 @@ to not slow the FPGA Companion down too much.
 The output actually uses ANSI color and should look like this on a
 terminal supporting that:
 
-![Debug output in terminal](debug.png)
+![Debug output in terminal](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/debug.png)

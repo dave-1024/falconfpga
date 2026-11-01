@@ -61,7 +61,7 @@ Currently the following interrupt sources are being used:
 
 SPI communication is initiated by the MCU by driving CSN low.
 
-The basic SPI communication runs between [```spi.c```](src/spi.c) on the
+The basic SPI communication runs between ```spi.c``` on the
 MCU side and [```mcu_spi.v```](https://github.com/MiSTle-Dev/MiSTeryNano/blob/main/src/misc/mcu_spi.v) on FPGA side.
 
 The first byte of each message identifies the target inside the FPGA

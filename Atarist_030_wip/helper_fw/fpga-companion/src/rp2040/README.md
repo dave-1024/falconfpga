@@ -180,7 +180,7 @@ On the regular Pico, the FPGA Companion uses the following pins:
 
 Location JTAG connection TN20k PCBA top side.  
 
-![Tang Nano 20k JTAG](jtag_tn20k.png)
+![Tang Nano 20k JTAG](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/rp2040/jtag_tn20k.png)
 
 ## Using the internal micro USB connector
 
@@ -203,7 +203,7 @@ To use this you need a micro-USB to USB-A-OTG adapter.
 
 ## Example wiring
 
-![Tang Nano 20k with Raspberry Pi Pico](pico_tn20k.png)
+![Tang Nano 20k with Raspberry Pi Pico](https://raw.githubusercontent.com/MiSTle-Dev/FPGA-Companion/main/src/rp2040/pico_tn20k.png)
 
 The FPGA Companion for the Raspberry Pi Pico can also be used
 on the [MiSTeryShield20k RPiPico](https://github.com/vossstef/tang_nano_20k_c64/tree/main/board/misteryshield20k_rpipico).
