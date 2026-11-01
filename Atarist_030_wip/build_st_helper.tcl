@@ -67,6 +67,7 @@ puts $fh "`define FAULT_CAP"
 puts $fh "`define BR_TRACE"
 puts $fh "`define BR_TRACE2"
 puts $fh "`define STREAM_CAP"
+puts $fh "`define LINUX_TRACE"
 close $fh
 
 set_device GW5AST-LV138PG484AC1/I0 -device_version C

@@ -1383,7 +1383,77 @@ module cpu030_st_bridge #(
             end
         end
     end
-`ifdef BR_TRACE2
+`ifdef LINUX_TRACE
+    // [LT] LINUX_TRACE (branch trace-linux, diagnostic only): 2048 x 64-bit BRAM ring, armed when the 030 turns
+    // its PMMU on (TC.E 0->1, i.e. Linux head.S; TOS never does). Entry kinds:
+    //   branch    {from PC32, to PC32}  (non-sequential PC change; a pair equal to one of the last 4 is skipped = loop squash)
+    //   EC        {8'hEC, vector8, SR16, PC32}            every exception with vector < 24 or 32..47 (traps)
+    //   EF        {8'hEF, 24'd0, FAULT_ADR32}             after an EC with vector 2/3
+    //   EE / ED   {8'hEE (write) | 8'hED (read), adr[23:0], data32}  data cycles to $xxFFxxxx (chipset I/O)
+    //   EB        {8'hEB, adr[23:0], adr32}               any cycle ended by BERR
+    // Freeze: halt (double fault), or an exception with vector 3..8 or 10..15 (not BERR = 2, which Linux uses for
+    // hardware probing; not trace = 9), 64 entries after the trigger; or 2^29 clk (~16 s) after arming.
+    // Streaming as BR_TRACE2: oldest first, one byte per 2^17 clk, endlessly; read with repeated "sdwlog 64".
+    reg  [63:0] b2_mem [0:2047];
+    reg  [10:0] b2_wp = 11'd0, b2_e = 11'd0;
+    reg  [2:0]  b2_b = 3'd0;
+    reg  [16:0] b2_div = 17'd0;
+    reg         b2_frz = 1'b0, lt_arm = 1'b0, lt_trg = 1'b0;
+    reg  [6:0]  lt_post = 7'd0;
+    reg  [29:0] lt_tmo = 30'd0;
+    reg  [63:0] b2_q = 64'd0;
+    reg  [15:0] b2_cnt = 16'd0;
+    reg  [7:0]  b2_byte = 8'd0;
+    reg  [1:0]  lt_mmu = 2'b00, lt_hlt = 2'b11;
+    reg  [63:0] lt_l0 = 64'd0, lt_l1 = 64'd0, lt_l2 = 64'd0, lt_l3 = 64'd0;
+    reg         lt_ef = 1'b0, lt_lg = 1'b0;
+    reg  [31:0] lt_fa = 32'd0;
+    wire [7:0]  lt_vec = cpu_dbg_exc[103:96];
+    wire        lt_exc = cpu_dbg_exc[104] & ~fx_d;
+    wire        lt_erec = lt_exc & ((lt_vec < 8'd24) | ((lt_vec >= 8'd32) & (lt_vec < 8'd48)));
+    wire        lt_bad = lt_exc & (((lt_vec >= 8'd3) & (lt_vec <= 8'd8)) | ((lt_vec >= 8'd10) & (lt_vec <= 8'd15)));
+    wire        lt_cyc = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn) & ~lt_lg & (cpu_fc != 3'b111);
+    wire        lt_io  = lt_cyc & (cpu_adr[23:16] == 8'hFF) & (cpu_fc[1:0] != 2'b10);
+    wire        lt_be  = lt_cyc & ~cpu_berrn;
+    wire [63:0] lt_br  = {bt_pc, bt_now};
+    wire        lt_brw = bt_x & (lt_br != lt_l0) & (lt_br != lt_l1) & (lt_br != lt_l2) & (lt_br != lt_l3);
+    reg         lt_we; reg [63:0] lt_wd;
+    always @(*) begin
+        lt_we = 1'b1;
+        if (lt_erec)    lt_wd = {8'hEC, lt_vec, cpu_dbg_exc[95:80], cpu_dbg_exc[79:48]};
+        else if (lt_be) lt_wd = {8'hEB, cpu_adr[23:0], cpu_adr};
+        else if (lt_io) lt_wd = {(cpu_rwn ? 8'hED : 8'hEE), cpu_adr[23:0], (cpu_rwn ? cpu_din : cpu_dout)};
+        else if (lt_ef) lt_wd = {8'hEF, 24'd0, lt_fa};
+        else if (lt_brw) lt_wd = lt_br;
+        else begin lt_we = 1'b0; lt_wd = 64'd0; end
+    end
+    always @(posedge clk) begin
+        lt_mmu <= {lt_mmu[0], cpu_mmu_on};
+        lt_hlt <= {lt_hlt[0], cpu_halt_outn};
+        if (cpu_asn) lt_lg <= 1'b0; else if (lt_cyc) lt_lg <= 1'b1;
+        if (lt_exc & ((lt_vec == 8'd2) | (lt_vec == 8'd3))) begin lt_ef <= 1'b1; lt_fa <= fc_fadr; end
+        else if (lt_ef & ~lt_erec & ~lt_be & ~lt_io) lt_ef <= 1'b0;
+        if (lt_brw & ~lt_erec & ~lt_be & ~lt_io & ~lt_ef) begin lt_l3 <= lt_l2; lt_l2 <= lt_l1; lt_l1 <= lt_l0; lt_l0 <= lt_br; end
+        if (lt_mmu == 2'b01) lt_arm <= 1'b1;
+        if (~b2_frz & lt_arm) begin
+            if (lt_we & lt_arm) begin b2_mem[b2_wp] <= lt_wd; b2_wp <= b2_wp + 11'd1; if (lt_trg) lt_post <= lt_post + 7'd1; end
+            lt_tmo <= lt_tmo + 30'd1;
+            if (lt_bad | ~lt_hlt[1]) lt_trg <= 1'b1;
+            if ((lt_trg & (lt_post == 7'd64)) | ~lt_hlt[1] | lt_tmo[29]) b2_frz <= 1'b1;
+        end
+        b2_q <= b2_mem[b2_wp + b2_e];
+        if (b2_frz) begin
+            b2_div <= b2_div + 17'd1;
+            if (b2_div == 17'd0) begin
+                b2_byte <= b2_q[63 - 8*b2_b -: 8];
+                b2_cnt <= b2_cnt + 16'd1;
+                b2_b <= b2_b + 3'd1;
+                if (b2_b == 3'd7) b2_e <= b2_e + 11'd1;
+            end
+        end
+    end
+    assign dbg_idx = { b2_cnt, 8'd0, 208'd0, b2_byte };
+`elsif BR_TRACE2
     // [F120] BR_TRACE2: 2048-entry BRAM ring of {from PC, to PC} (bt_x from BR_TRACE), frozen by fc_hit3.
     // After the freeze it streams the ring oldest-first, one byte per 2^17 clk, endlessly; the STREAM_CAP
     // word counter mod 2048 = entry index. Read it with repeated "sdwlog 64".

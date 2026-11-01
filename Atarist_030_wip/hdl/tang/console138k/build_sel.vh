@@ -17,3 +17,4 @@
 `define BR_TRACE
 `define BR_TRACE2
 `define STREAM_CAP
+`define LINUX_TRACE
