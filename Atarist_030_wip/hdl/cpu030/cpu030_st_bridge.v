@@ -1385,7 +1385,7 @@ module cpu030_st_bridge #(
     end
 `ifdef LINUX_TRACE
     // [LT] LINUX_TRACE (branch trace-linux, diagnostic only): 2048 x 64-bit BRAM ring, armed when the 030 turns
-    // its PMMU on (TC.E 0->1, i.e. Linux head.S; TOS never does). Entry kinds:
+    // its PMMU on from TT-RAM code (TC.E 0->1 with PC in $01xxxxxx = Linux head.S; TOS 2.06 enables it from ROM at boot). Entry kinds:
     //   branch    {from PC32, to PC32}  (non-sequential PC change; a pair equal to one of the last 4 is skipped = loop squash)
     //   EC        {8'hEC, vector8, SR16, PC32}            every exception with vector < 24 or 32..47 (traps)
     //   EF        {8'hEF, 24'd0, FAULT_ADR32}             after an EC with vector 2/3
@@ -1434,7 +1434,7 @@ module cpu030_st_bridge #(
         if (lt_exc & ((lt_vec == 8'd2) | (lt_vec == 8'd3))) begin lt_ef <= 1'b1; lt_fa <= fc_fadr; end
         else if (lt_ef & ~lt_erec & ~lt_be & ~lt_io) lt_ef <= 1'b0;
         if (lt_brw & ~lt_erec & ~lt_be & ~lt_io & ~lt_ef) begin lt_l3 <= lt_l2; lt_l2 <= lt_l1; lt_l1 <= lt_l0; lt_l0 <= lt_br; end
-        if (lt_mmu == 2'b01) lt_arm <= 1'b1;
+        if ((lt_mmu == 2'b01) & (bt_now[31:24] == 8'h01)) lt_arm <= 1'b1;   // PMMU enabled from TT-RAM code (Linux head.S), not TOS 2.06 boot (ROM)
         if (~b2_frz & lt_arm) begin
             if (lt_we & lt_arm) begin b2_mem[b2_wp] <= lt_wd; b2_wp <= b2_wp + 11'd1; if (lt_trg) lt_post <= lt_post + 7'd1; end
             lt_tmo <= lt_tmo + 30'd1;
