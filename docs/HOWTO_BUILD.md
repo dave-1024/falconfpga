@@ -118,6 +118,12 @@ scripts this guide should tell builders to use.
    ```
 4. The result is `Atarist_030_wip/helper_fw/companion/output/helper_companion.bin`.
 5. If the script prints **"WARNING: no .bootloader section. Do not flash."**, stop: do not flash that file.
+6. A good build prints **no** warning, then the file's SHA-256 and its size (`NNNN bytes`), and ends with
+   "Flash output/helper_companion.bin at 0x0600000". Note the SHA-256 so you can tell builds apart.
+
+> **What "companion" means here.** `helper_companion.bin` is FPGA-Companion ported to the **AE350 RISC-V helper**
+> inside the FPGA SOM. It goes into the SPI flash at **0x600000** with programmer op 56. It is **not** the BL616
+> FPGA-Companion firmware. **Never flash the BL616** (the board's USB chip) for this project.
 
 ### On Windows
 1. Run `Atarist_030_wip\helper_fw\companion\build_companion.bat`. It makes the same file.
@@ -145,6 +151,18 @@ scripts this guide should tell builders to use.
 | `0x000000` | the bitstream (`.fs`) |
 | `0x500000` | TOS |
 | `0x600000` | helper firmware |
+
+### Recommended order (avoids "can't find SPI flash")
+Start from a **fresh power-cycle** (board off and on), then flash in this order:
+1. TOS at `0x500000` (op 56), 2. helper at `0x600000` (op 56), 3. the core (op 53).
+Then **power-cycle again** instead of only `--run 1`.
+
+Why: once the core has run, it leaves the flash chip in a continuous-read mode that the programmer cannot talk to,
+so a later op 56 fails with **"can't find SPI flash"** (or writes badly). Fix: power-cycle and repeat the op, or run a
+read-only verify of the .fs in flash first (`--run 66 --fsFile st_helper.fs`). **Never bulk erase** to "fix" it.
+(Details: `docs/HELPER_SILENCE.md`, FALCON_LESSONS F70.)
+
+The numbered steps below show each command; use them in the order above.
 
 ### Safety rules: please follow these
 - **Never use "bulk erase".** It wipes everything.
@@ -207,9 +225,12 @@ Handy console commands: `c` full reset of the Atari side, `w` warm reset, `ls` l
 
 | Problem | What to try |
 |---|---|
+| Black screen **and** the helper console is silent (no "AE350 FPGA-Companion … running from DDR3" banner on `/dev/ttyUSB1` at 115200) | The helper is not running, so the Atari side is never released. Power-cycle and reflash the helper at `0x600000` (check the build had no `.bootloader` warning). If op 56 says "can't find SPI flash", see "Recommended order" in Part 6. |
+| Black screen, banner present | Type `c`. Check the SDRAM module is seated in **J9**. Check TOS was written at `0x500000` (not `0x5000000`). |
 | No picture on HDMI after flashing | Reload the FPGA (step 5 of Part 6) again. It can take **about 3 reloads** before HDMI comes up. |
 | Helper console does not answer after flashing | Run the reload (`--run 1`) once more; on Linux also `sudo modprobe ftdi_sio`. |
 | Stops at "System halted!" | Type `c` in the helper console. If it still halts, switch the board off and on. |
+| "can't find SPI flash" during op 56 | Power-cycle, then repeat; or run op 66 verify first. Never bulk erase. |
 | Programmer cannot find the board | Run `--scan-cables` again and use the new location number. |
 | Programmer refuses the TOS file | The file name must end in `.bin`. |
 | Build fails the timing check | Switch `place_option` between 1 and 3 (Part 3, step 6). Do not change the timing rules. |

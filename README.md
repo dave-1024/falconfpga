@@ -145,7 +145,7 @@ window on the TeraDesk desktop.*
 ## How to try it
 1. Build the core: `cd Atarist_030_wip` then `gw_sh build_st_helper.tcl`.
 2. Build the helper firmware: `Atarist_030_wip/helper_fw/companion/build_companion.sh`.
-3. Flash with Gowin's `programmer_cli`: core at 0, TOS at 0x500000, helper at 0x600000. Put floppy images on the SD card.
+3. Flash with Gowin's `programmer_cli` from a fresh power-cycle: TOS at 0x500000, helper (`helper_companion.bin`, the AE350 firmware, not BL616) at 0x600000, then the core (op 53); power-cycle after. Put floppy images on the SD card.
 
 Step by step, in plain words: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md). Engineer's version (switches, flash
 map, rules): [`Atarist_030_wip/docs/BUILD.md`](Atarist_030_wip/docs/BUILD.md). All docs: [`docs/README.md`](docs/README.md).

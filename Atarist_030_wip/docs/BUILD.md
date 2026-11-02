@@ -2,7 +2,7 @@
 
 Short version: run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/` (Gowin V1.9.12.03 or V1.9.12.04, Windows or Linux), check
 timing, and flash `impl/pnr/st_helper.fs` with `programmer_cli` op 53. Build the AE350 helper with
-`helper_fw/companion/build_companion.sh` (Linux) or `.bat` (Windows), and flash it with op 56 at 0x600000.
+`helper_fw/companion/build_companion.sh` (Linux) or `.bat` (Windows), and flash it with op 56 at 0x600000 (AE350 firmware; never flash the BL616). Flash order and "can't find SPI flash": see docs/HOWTO_BUILD.md Part 6.
 Details, reasons and the rules are below. What went wrong before and why is in
 [FALCON_LESSONS.md](FALCON_LESSONS.md); open work is in [TODO.md](TODO.md); the SD/floppy write path is in
 [SD_WRITE_DEBUG.md](SD_WRITE_DEBUG.md).

@@ -1,5 +1,7 @@
 # ST_HELPER: the AE350 RISC-V helper alongside the 030 ST desktop
 
+> **History note (Nov 2026).** Much of this file records the first bring-up (`helper_fw/mailbox/`, `helper_mailbox.bin`, "FPGA-Companion not ported yet"). That is out of date: main now uses the AE350 FPGA-Companion port, `helper_fw/companion/` -> `helper_companion.bin` at 0x600000. For current build and flash steps use `docs/HOWTO_BUILD.md` and `docs/BUILD.md`; read the rest here as history.
+
 > **URGENT / REQUIRED (TODO, wanted, not optional): WF68K30L bus request handoff rework** so the next bus cycle
 > starts straight after S5 like a real 68030 (cycle-correct; also a speedup).
 > - Today a new transfer costs 2 extra clocks: DATA_C1C4 -> IDLE -> START_CYCLE (wf68k30L_bus_interface.vhd:530-568,
