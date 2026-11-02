@@ -1389,10 +1389,10 @@ module cpu030_st_bridge #(
     //   branch    {from PC32, to PC32}  (non-sequential PC change; a pair equal to one of the last 4 is skipped = loop squash)
     //   EC        {8'hEC, vector8, SR16, PC32}            every exception with vector < 24 or 32..47 (traps)
     //   EF        {8'hEF, 24'd0, FAULT_ADR32}             after an EC with vector 2/3
-    //   EE / ED   {8'hEE (write) | 8'hED (read), adr[23:0], data32}  data cycles to $xxFFxxxx (chipset I/O)
+    //   EE / ED   {8'hEE (write) | 8'hED (read), adr[23:0], data32}  data cycles to $FFFFxxxx (chipset I/O)
     //   EB        {8'hEB, adr[23:0], adr32}               any cycle ended by BERR
     // Freeze: halt (double fault), or an exception with vector 3..8 or 10..15 (not BERR = 2, which Linux uses for
-    // hardware probing; not trace = 9), 64 entries after the trigger; or 2^29 clk (~16 s) after arming.
+    // hardware probing; not trace = 9; [lt3] not 4 = NatFeats probe), 64 entries after the trigger; or 2^31 clk (~67 s) after arming.
     // Streaming as BR_TRACE2: oldest first, one byte per 2^17 clk, endlessly; read with repeated "sdwlog 64".
     reg  [63:0] b2_mem [0:2047];
     reg  [10:0] b2_wp = 11'd0, b2_e = 11'd0;
@@ -1400,7 +1400,7 @@ module cpu030_st_bridge #(
     reg  [16:0] b2_div = 17'd0;
     reg         b2_frz = 1'b0, lt_arm = 1'b0, lt_trg = 1'b0;
     reg  [6:0]  lt_post = 7'd0;
-    reg  [29:0] lt_tmo = 30'd0;
+    reg  [31:0] lt_tmo = 32'd0;
     reg  [63:0] b2_q = 64'd0;
     reg  [15:0] b2_cnt = 16'd0;
     reg  [7:0]  b2_byte = 8'd0;
@@ -1411,9 +1411,9 @@ module cpu030_st_bridge #(
     wire [7:0]  lt_vec = cpu_dbg_exc[103:96];
     wire        lt_exc = cpu_dbg_exc[104] & ~fx_d;
     wire        lt_erec = lt_exc & ((lt_vec < 8'd24) | ((lt_vec >= 8'd32) & (lt_vec < 8'd48)));
-    wire        lt_bad = lt_exc & (((lt_vec >= 8'd3) & (lt_vec <= 8'd8)) | ((lt_vec >= 8'd10) & (lt_vec <= 8'd15)));
+    wire        lt_bad = lt_exc & ((lt_vec == 8'd3) | ((lt_vec >= 8'd5) & (lt_vec <= 8'd8)) | ((lt_vec >= 8'd10) & (lt_vec <= 8'd15)));   // [lt3] not 4: NatFeats probe (nf_get_id_phys) is an expected illegal
     wire        lt_cyc = ~cpu_asn & ((cpu_dsackn != 2'b11) | ~cpu_berrn) & ~lt_lg & (cpu_fc != 3'b111);
-    wire        lt_io  = lt_cyc & (cpu_adr[23:16] == 8'hFF) & (cpu_fc[1:0] != 2'b10);
+    wire        lt_io  = lt_cyc & (cpu_adr[31:16] == 16'hFFFF) & (cpu_fc[1:0] != 2'b10);
     wire        lt_be  = lt_cyc & ~cpu_berrn;
     wire [63:0] lt_br  = {bt_pc, bt_now};
     wire        lt_brw = bt_x & (lt_br != lt_l0) & (lt_br != lt_l1) & (lt_br != lt_l2) & (lt_br != lt_l3);
@@ -1437,9 +1437,9 @@ module cpu030_st_bridge #(
         if ((lt_mmu == 2'b01) & (bt_now[31:24] == 8'h01)) lt_arm <= 1'b1;   // PMMU enabled from TT-RAM code (Linux head.S), not TOS 2.06 boot (ROM)
         if (~b2_frz & lt_arm) begin
             if (lt_we & lt_arm) begin b2_mem[b2_wp] <= lt_wd; b2_wp <= b2_wp + 11'd1; if (lt_trg) lt_post <= lt_post + 7'd1; end
-            lt_tmo <= lt_tmo + 30'd1;
+            lt_tmo <= lt_tmo + 32'd1;
             if (lt_bad | ~lt_hlt[1]) lt_trg <= 1'b1;
-            if ((lt_trg & (lt_post == 7'd64)) | ~lt_hlt[1] | lt_tmo[29]) b2_frz <= 1'b1;
+            if ((lt_trg & (lt_post == 7'd64)) | ~lt_hlt[1] | lt_tmo[31]) b2_frz <= 1'b1;
         end
         b2_q <= b2_mem[b2_wp + b2_e];
         if (b2_frz) begin
