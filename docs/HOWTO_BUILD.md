@@ -152,17 +152,12 @@ scripts this guide should tell builders to use.
 | `0x500000` | TOS |
 | `0x600000` | helper firmware |
 
-### Recommended order (avoids "can't find SPI flash")
-Start from a **fresh power-cycle** (board off and on), then flash in this order:
-1. TOS at `0x500000` (op 56), 2. helper at `0x600000` (op 56), 3. the core (op 53).
-Then **power-cycle again** instead of only `--run 1`.
-
-Why: once the core has run, it leaves the flash chip in a continuous-read mode that the programmer cannot talk to,
-so a later op 56 fails with **"can't find SPI flash"** (or writes badly). Fix: power-cycle and repeat the op, or run a
-read-only verify of the .fs in flash first (`--run 66 --fsFile st_helper.fs`). **Never bulk erase** to "fix" it.
+### Order matters (avoids "can't find SPI flash")
+Flash from a **fresh power-cycle** in the order below: TOS, then the helper, then the core, then power-cycle again.
+Once the core has run, it leaves the flash chip in a continuous-read mode the programmer cannot talk to, so a later
+op 56 fails with **"can't find SPI flash"** (or writes badly). Fix: power-cycle and repeat the op, or first run a
+read-only verify of the .fs in flash (`--run 66 --fsFile st_helper.fs`). **Never bulk erase** to "fix" it.
 (Details: `docs/HELPER_SILENCE.md`, FALCON_LESSONS F70.)
-
-The numbered steps below show each command; use them in the order above.
 
 ### Safety rules: please follow these
 - **Never use "bulk erase".** It wipes everything.
@@ -173,17 +168,13 @@ The numbered steps below show each command; use them in the order above.
 On Linux, run these from `/opt/gowin/Programmer/bin` as root (`sudo`), and type `./programmer_cli`. On Windows use
 `programmer_cli.exe` from the Gowin Programmer folder.
 
-1. **Find the board.** Do this every time, because the number changes:
+1. **Power-cycle the board** (switch off and on), so the flash chip starts in its normal mode.
+2. **Find the board.** Do this every time, because the number changes:
    ```
    ./programmer_cli --scan-cables
    ```
    Note the "location" number it shows. Below we write `LOC`: replace it with your number. On David's board it is currently **4369** (older notes say 417;
    that number is out of date: it changes after reboots and replugs).
-2. **Flash the bitstream** (takes a few minutes, allow up to 5):
-   ```
-   ./programmer_cli -d GW5AST-138C --location LOC --run 53 --fsFile st_helper.fs
-   ```
-   It should end with "Program Flash finished". The end address it prints must be below `0x500000`.
 3. **Flash TOS** (only the first time, or when changing TOS):
    ```
    ./programmer_cli -d GW5AST-138C --location LOC --run 56 --mcuFile emutos256k.bin --spiaddr 0x500000
@@ -192,11 +183,15 @@ On Linux, run these from `/opt/gowin/Programmer/bin` as root (`sudo`), and type 
    ```
    ./programmer_cli -d GW5AST-138C --location LOC --run 56 --mcuFile helper_companion.bin --spiaddr 0x600000
    ```
-5. **Restart the FPGA from flash:**
+5. **Flash the bitstream** (takes a few minutes, allow up to 5):
    ```
-   ./programmer_cli -d GW5AST-138C --location LOC --run 1
+   ./programmer_cli -d GW5AST-138C --location LOC --run 53 --fsFile st_helper.fs
    ```
-6. **Linux only:** the programmer disconnects the helper's console port. Bring it back with:
+   It should end with "Program Flash finished". The end address it prints must be below `0x500000`.
+   If you only changed the core, skip steps 3 and 4.
+6. **Power-cycle the board** again so it starts cleanly from flash. (Later, to just reload the FPGA without a
+   power-cycle: `./programmer_cli -d GW5AST-138C --location LOC --run 1`.)
+7. **Linux only:** the programmer disconnects the helper's console port. Bring it back with:
    ```
    sudo modprobe ftdi_sio
    ```
@@ -225,9 +220,9 @@ Handy console commands: `c` full reset of the Atari side, `w` warm reset, `ls` l
 
 | Problem | What to try |
 |---|---|
-| Black screen **and** the helper console is silent (no "AE350 FPGA-Companion … running from DDR3" banner on `/dev/ttyUSB1` at 115200) | The helper is not running, so the Atari side is never released. Power-cycle and reflash the helper at `0x600000` (check the build had no `.bootloader` warning). If op 56 says "can't find SPI flash", see "Recommended order" in Part 6. |
+| Black screen **and** the helper console is silent (no "AE350 FPGA-Companion … running from DDR3" banner on `/dev/ttyUSB1` at 115200) | The helper is not running, so the Atari side is never released. Power-cycle and reflash the helper at `0x600000` (check the build had no `.bootloader` warning). If op 56 says "can't find SPI flash", see "Order matters" in Part 6. |
 | Black screen, banner present | Type `c`. Check the SDRAM module is seated in **J9**. Check TOS was written at `0x500000` (not `0x5000000`). |
-| No picture on HDMI after flashing | Reload the FPGA (step 5 of Part 6) again. It can take **about 3 reloads** before HDMI comes up. |
+| No picture on HDMI after flashing | Reload the FPGA (`--run 1`, see step 6 of Part 6). It can take **about 3 reloads** before HDMI comes up. |
 | Helper console does not answer after flashing | Run the reload (`--run 1`) once more; on Linux also `sudo modprobe ftdi_sio`. |
 | Stops at "System halted!" | Type `c` in the helper console. If it still halts, switch the board off and on. |
 | "can't find SPI flash" during op 56 | Power-cycle, then repeat; or run op 66 verify first. Never bulk erase. |
