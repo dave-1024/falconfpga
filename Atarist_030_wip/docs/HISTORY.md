@@ -179,3 +179,10 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     protection + XaAES 1.7.0 + TeraDesk 4.08 on EmuTOS 1.4, desktop menus working. Board build f121a: clk_cpu030
     20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU. 8972091 restored the `syn_keep` on `ae350_flash_clk` (f25c282)
     that the merge had dropped, so Gowin V1.9.12.04 builds again. Details: docs/BUGS.md, FALCON_LESSONS.
+
+26. **Linux/m68k (`cmpm-fix`, 1-3 Nov 2026, fast-forwarded to main as db13859).** Linux 6.18 bring-up found F122
+    (CMPM from I-cache, e85fbe9), F123 (f1cd154), F124/F125 (cfcbd1c), F126 (858d4d5), F127 (68787e7), F128
+    (99cd704), F129 sim-only sensitivity list (8cbb348), F130 memory-indirect index hazard (0a480b0), F131 write-fault
+    restart (db13859). Result: Linux/m68k 6.18 boots to a BusyBox shell with the data cache on. Board build f131:
+    clk_cpu030 21.230 / clk32_core 33.874 MHz, 45988 LUT + 5327 ALU, flashed 3 Nov 2026. Gowin V1.9.12.04 bitstreams
+    reported black screen / no sync (friend, Nov 2026); build with V1.9.12.03. Details: docs/BUGS.md.

@@ -1,5 +1,12 @@
 # Building and flashing Atarist_030_wip (Tang Console 138K)
 
+> **Warning: build with Gowin EDA V1.9.12.03, the version David uses.** In Nov 2026 a friend built the same
+> source with a different Gowin version (reported as "04", i.e. V1.9.12.04) and every bitstream gave a black screen /
+> no HDMI sync. Built with V1.9.12.03 the same source works, and the bitstream we built for him worked on his board.
+> We suspect the Gowin toolchain (placement/synthesis differences), not confirmed. Until it is understood, treat
+> V1.9.12.04 and any other version as **not supported**, even though it completes the build and meets timing.
+> Flash with `programmer_cli` V1.9.12.03 too.
+
 Short version: run `gw_sh build_st_helper.tcl` in `Atarist_030_wip/` (Gowin V1.9.12.03 or V1.9.12.04, Windows or Linux), check
 timing, and flash `impl/pnr/st_helper.fs` with `programmer_cli` op 53. Build the AE350 helper with
 `helper_fw/companion/build_companion.sh` (Linux) or `.bat` (Windows), and flash it with op 56 at 0x600000 (AE350 firmware; never flash the BL616). Flash order and "can't find SPI flash": see docs/HOWTO_BUILD.md Part 6.
@@ -8,15 +15,11 @@ Details, reasons and the rules are below. What went wrong before and why is in
 [SD_WRITE_DEBUG.md](SD_WRITE_DEBUG.md).
 
 ## 1. What you need
-- **Gowin EDA V1.9.12.03 or V1.9.12.04**: both are known to work. Most builds here were made and timed with
-  V1.9.12.03. Windows (`gw_sh.exe`) or Linux headless (`/opt/gowin/IDE/bin/gw_sh`, run with
-  `QT_QPA_PLATFORM=offscreen`); both give the same results. Other versions place differently, and this design is
-  placement sensitive (section 5).
-- **About V1.9.12.04.** It renames the AE350 flash clock wire unless it is told to keep it, and then `run all`
-  stopped with TA2003/TA2004 "Cannot get clock with name 'ae350_flash_clk'" from `atarist_st_helper.sdc`
-  lines 91-127. `top.sv` now marks that wire `(* syn_keep = 1 *)`, so both versions build. V1.9.12.04 gives a
-  little less speed (main build: clk32 33.55 vs 35.35 MHz, clk_cpu030 21.79 vs 22.88 MHz), still within timing.
-  Versions other than these two are untested.
+- **Gowin EDA V1.9.12.03** (David's version). Windows (`gw_sh.exe`) or Linux headless (`/opt/gowin/IDE/bin/gw_sh`, run
+  with `QT_QPA_PLATFORM=offscreen`); both give the same results. This design is placement sensitive (section 5).
+- **V1.9.12.04 is not supported.** With the `(* syn_keep = 1 *)` on `ae350_flash_clk` in `top.sv` it completes the
+  build and meets timing, but in Nov 2026 a friend's V1.9.12.04 bitstreams all gave a black screen / no sync, while the
+  same source built with V1.9.12.03 works. Suspected toolchain issue, not confirmed. Other versions are untested.
 - **Board:** Sipeed Tang Console 138K (GW5AST-LV138PG484AC1/I0, **device version C**) with the **Tang SDRAM module in
   J9**. Don't flash with J9 empty.
 - **TOS:** TOS 2.06 (256 KB) for all tests; EmuTOS 256K also boots. It lives in the board flash at 0x500000, not in
@@ -106,6 +109,13 @@ Rules:
 - After a flash, a second op 1 is sometimes needed before the helper console answers.
 - Then **cold boot (`c` on the helper console) before any test** and check the desktop. A bare reload (op 1) without a
   `c` can stop at "System halted!" after the cartridge self-test (TODO.md); after a `c`, reloads and `w` resets are clean.
+
+### Flash kit, short version
+From a fresh power-cycle, in this order (`programmer_cli` V1.9.12.03; find the cable first with `--scan-cables`):
+1. TOS: 256 KB `.bin` (EmuTOS 1.4 256K or TOS 2.06) at 0x500000: `--run 56 --mcuFile tos.bin --spiaddr 0x500000`.
+2. Helper firmware at 0x600000: `--run 56 --mcuFile helper_companion.bin --spiaddr 0x600000`.
+3. Core last: `--run 53 --fsFile st_helper.fs`.
+4. Power-cycle. Never touch the BL616.
 
 ## 8. The AE350 helper
 Source: `helper_fw/fpga-companion` (FPGA-Companion with an AE350 port in `src/ae350/`). Build script:

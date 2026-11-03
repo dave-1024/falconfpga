@@ -9,6 +9,15 @@ say something, it is marked **TODO** or **(unsure)**.
 | ID | What it did | Cause | Fix | Commit | Date |
 |---|---|---|---|---|---|
 | F121: immediate taken as the EA extension word (**XaAES menu freeze**) | FreeMiNT + XaAES + TeraDesk froze as soon as the Desk menu was used; MiNT then showed "MEMORY VIOLATION" alerts | In `wf68k30L_control.vhd` (state FETCH_EXWORD_1) the "is the index a data register?" test read bit 15 of BIW_1. For ORI/ANDI/EORI/ADDI/SUBI/CMPI that word is the immediate, not the extension word. An immediate with bit 15 set skipped the wait for a pending register write, so after a MULS the read-modify-write read went to an old index | Test bit 15 of EXT_WORD (the word really being decoded). Regression `sim/rtl/prog_madda.s`, 13 cases | `dd24508` | 31 Oct 2026 |
+| F122: CMPM read the same operand twice from the I-cache | Linux sysctl "duplicate entry" panic at boot (kernel memcmp wrong) | Running from the I-cache, CMPM.L (Ay)+,(Ax)+ read (Ay) twice | Select Ax in START_OP (address pipeline). `prog_cmpmic.s` | `e85fbe9` | 1-3 Nov 2026 |
+| F123: MOVE <mem>,-(An) decremented An twice after a fault | Garbage push / stack shifted after a source page fault | Source read bus error, instruction restarts after RTE, but -(An) had already been applied | No AR_DEC when the source read ends in a bus error. `prog_movepredec_fault.s` | `f1cd154` | 1-3 Nov 2026 |
+| F124/F125: (An)+ and -(An) source not undone after a fault | An changed twice when a faulting instruction restarted | Source (An)+ (MOVE) and -(An) (all ops) were applied before the bus error | Don't change An when the operand read faults. `prog_srcfault_ea.s` | `cfcbd1c` | 1-3 Nov 2026 |
+| F126: MOVEM regs,-(An) left SP 8 bytes low after a write fault | Linux user code jumped to 0x19 | An decremented per register, not restored on write bus error | Snapshot An at entry, restore after write bus error | `858d4d5` | 1-3 Nov 2026 |
+| F127: MOVEM mem->regs after a read fault | Wrong registers/An after restart | STORE_AEFF and An not restored for (An)+,regs and read faults | Release STORE_AEFF on BUSY_EXH; An snapshot/restore for read faults. `prog_movem_rd_postinc.s` | `68787e7` | 1-3 Nov 2026 |
+| F128: MOVES memory-indirect pointer fetched in user space | Linux FPU emulator `moves.w ([32,sp]),a1` -> BAD KERNEL BUSERR | Pointer fetch used SFC instead of supervisor data space | Only the operand uses SFC. `prog_moves_memind.s` | `99cd704` | 1-3 Nov 2026 |
+| F129: FETCH_DEC sensitivity list (sim only) | In simulation a MOVES read after a MOVES write ran as a write | Missing MV_RW, MV_AN, PM_QUAD in a sensitivity list; hardware unaffected | Added the signals. `prog_tlbsw.s` | `8cbb348` | 1-3 Nov 2026 |
+| F130: memory-indirect pointer read before index register write-back | Linux FPU emulator crash: `bfextu ...,d0; jmp ([bd,pc,d0*4])` used the old d0 (board only) | Pointer read did not wait for AR_IN_USE | Wait for AR_IN_USE (index Dn / base An) clear | `0a480b0` | 1-3 Nov 2026 |
+| F131: write-fault restart (wrong PC / next instruction's An) | BusyBox `fork()` "stack smashing detected": SP 4 bytes low after a push faulted on a copy-on-write page | Short frame stacked the wrong next PC (with an interrupt), or the next instruction's (e.g. `bsr`) fetch-side An change was not undone | Stack the correct next PC; undo the next instruction's An change | `db13859` | 1-3 Nov 2026 |
 | F116: MULS/MULU result not ready for a full-format indexed EA (**XaAES reboot loop**) | MiNT + XaAES with TT-RAM rebooted in a loop right after reading `xaaes.cnf` | F97 waited for a pending index register write only for single-clock writers. A multi-clock MULS/MULU wrote its result after the address was already formed (`muls.w #n,d3; pea (bd.l,d3.l)`) | The address unit holds the EA calculation until the index register has its new value. Regression `sim/rtl/prog_pea.s` | `085fa99` | 31 Oct 2026 |
 | F112: MFP serial transmitter never interrupted (**XaAES hang writing to AUX**) | XaAES stopped right after "Loading config ... xaaes.cnf" | The MFP's "transmit buffer empty" status and interrupt depended on a FIFO read by the io controller, so they never fired byte by byte. The FIFO's "full" test also compared a 4-bit pointer with a 32-bit value | The byte timer alone drives TBE and the TX interrupt, like a real MFP; the FIFO is only a tap; 4-bit "full" compare | `c835ed3` | 30 Oct 2026 |
 | F110: SDRAM ST/TT arbitration (**SD card FAT corruption**) | Every MiNT boot wrote 4 wrong bytes into the FAT, so the next boot failed with "Pexec() failed" | `sdram.v` sent the ST read/write command without setting the bank; a TT-RAM step on the same clock changed the bank, so the ST read returned TT-RAM data. Also AUTO REFRESH could be sent while a TT bank was still recovering | Every ST CAS drives bank 0; TT steps never land on ST command clocks; REFRESH waits while a TT bank is busy. +46 LUT. 5 MiNT boots with clean FATs | `4f349d3` | 30 Oct 2026 |
@@ -33,6 +42,14 @@ say something, it is marked **TODO** or **(unsure)**.
 | Mailbox lost byte (helper) | Lost characters in the cartridge/helper mailbox | RX ring not drained while transmitting | Drain while sending | `3e0d6b8` | TODO |
 
 ## Open
+
+- **SD write path** (open, 3 Nov 2026): FDD->HDD copy fails after about one file until a cold boot; C: contents seen in
+  the A: window; misdirected sector write found in a floppy image on 15 Oct 2026. Helper firmware or core DMA/ACSI: not
+  yet known.
+- **FC/FB missing in user prefetch fault frames** (board only, not reproduced in sim). Linux kernel workaround in use.
+- **Helper leaves a file transfer open** after a failed upload; later uploads fail until it is closed.
+- **Gowin V1.9.12.04 bitstreams: black screen / no sync** (friend's report, Nov 2026); V1.9.12.03 builds of the same
+  source work. Suspected toolchain issue, unconfirmed. Build with V1.9.12.03.
 
 | Bug | Symptom | What we know | Next step |
 |---|---|---|---|

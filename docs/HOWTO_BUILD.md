@@ -1,5 +1,12 @@
 # How to build falconfpga, step by step
 
+> **Warning: build with Gowin EDA V1.9.12.03, the version David uses.** In Nov 2026 a friend built the same
+> source with a different Gowin version (reported as "04", i.e. V1.9.12.04) and every bitstream gave a black screen /
+> no HDMI sync. Built with V1.9.12.03 the same source works, and the bitstream we built for him worked on his board.
+> We suspect the Gowin toolchain (placement/synthesis differences), not confirmed. Until it is understood, treat
+> V1.9.12.04 and any other version as **not supported**, even though it completes the build and meets timing.
+> Flash with `programmer_cli` V1.9.12.03 too.
+
 This guide is for anyone who wants to build this project themselves. It tries to use plain words.
 You only need to type the commands shown in the grey boxes.
 
@@ -34,7 +41,8 @@ If this guide and that one ever disagree, trust that one.
 
 ### Software
 1. **Gowin EDA version V1.9.12.03**. Use exactly this version: other versions lay the design out differently and
-   it may then fail. Works on Windows or Linux.
+   it may then fail. A friend's V1.9.12.04 build (Nov 2026) finished without errors but gave a **black screen / no
+   sync**; the same code built with V1.9.12.03 works (suspected Gowin issue, not confirmed). Works on Windows or Linux.
 2. **Gowin Programmer** (`programmer_cli`), which comes with Gowin EDA.
 3. For the helper firmware:
    - **Andes AST v5.1.1** toolchain (`nds32le-elf-newlib-v5`), from GitHub

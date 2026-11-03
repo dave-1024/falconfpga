@@ -84,7 +84,13 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
-## What works now (31 Oct 2026)
+## What works now (3 Nov 2026)
+- **Linux/m68k 6.18 boots to a BusyBox shell** (BusyBox v1.37.0 ash, `#` prompt) on build **f131**, with the data
+  cache on. Getting there found ten CPU bugs, F122-F131 ([`docs/BUGS.md`](docs/BUGS.md)). The kernel still needs one
+  workaround: on the board, some user-mode prefetch fault frames come without the FC/FB flags, so the kernel treats
+  such a frame as an instruction-fetch fault (see "What doesn't work yet"). Our kernel is custom (6.18.60 with a
+  console that writes into the TOS screen); mainline Linux has no ACSI driver, so the root image is loaded from floppy.
+- **No FPU, by design**: a stock Falcon has none, and Linux uses its FPU emulator.
 - **FreeMiNT with memory protection, XaAES 1.7.0 and TeraDesk 4.08**, started from EmuTOS 1.4 off an ACSI hard disk
   image on the SD card. The desktop menus work (the menu freeze was bug F121, fixed 31 Oct 2026). TeraDesk's info box
   shows about 14 MB of TT-RAM free.
@@ -108,8 +114,10 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
   on-screen menu (OSD), all run by a small helper processor (the AE350) on the same chip. The helper now starts after a
   plain reload of the chip, with no power cycle needed (F70).
 - HDMI/DVI video out.
-- The build on the board: **f121a** (main code with the F121 fix): clk_cpu030 20.19 MHz, clk32 34.21 MHz,
-  45636 LUT + 5317 ALU, no failing timing paths.
+- The build on the board (in flash since 3 Nov 2026): **f131** (main `db13859`): clk_cpu030 21.230 MHz,
+  clk32_core 33.874 MHz, 45988 LUT + 5327 ALU, `tools/timing/timing_pairs.py` passes. The previous build f121a
+  (clk_cpu030 20.19, clk32 34.21 MHz, 45636 LUT + 5317 ALU) is kept as a fallback.
+- GEMBENCH figures above were last measured before F122-F131 (blitter run 2026-10, F121 era); not re-measured on f131.
 - Recent fixes, in plain English: [`docs/BUGS.md`](docs/BUGS.md).
 
 ![TeraDesk info box under FreeMiNT and XaAES, with memory protection on](docs/img/mint_xaaes_teradesk_about.png)
@@ -123,13 +131,22 @@ protection. It reads Tera Desktop V4.08, a multitask OS, 3.76 MB ST-RAM and 13.9
 window on the TeraDesk desktop.*
 
 ## What doesn't work yet
+- **SD card writes (open).** Copying from a floppy image to the hard disk image fails after about one file until a
+  cold boot; contents of C: have been seen in the A: window; and on 15 Oct 2026 a floppy image was found with a run
+  of sectors overwritten by unrelated data (looks like a write to the wrong sector). Reads are fine. Keep backups of
+  hard disk images and don't trust data written to them yet. Not yet known whether the helper firmware or the core's
+  DMA/ACSI side is at fault.
+- **Missing FC/FB flags (board only).** Some user-mode prefetch bus-fault frames on the board lack the FC/FB bits;
+  not reproduced in simulation. Linux carries a workaround for it.
+- **Helper upload state.** An upload over the helper's serial link can fail until a half-finished file transfer the
+  helper left open is closed.
 - TOS 2.06 after switching the board **off and on** (a real power-cycle): it gave a black screen on 23 Oct; resets
   now reach the desktop, but the power-cycle test still has to be repeated. EmuTOS is fine.
 - The serial port can stall after one kind of blitter operation.
 - **Faster memory is the next job.** The plan is to run the memory chips twice as fast (64 MHz instead of 32 MHz) to
   speed up TT-RAM and let the 68030 fill its caches in quick bursts. The work so far is on the `sdram64` branch
   (notes in `docs/sdram64/` there); it needs to be brought up to date with main before it goes on.
-- No FPU (maths co-processor) yet.
+- No FPU (maths co-processor), by design: a stock Falcon has none.
 - No Falcon hardware yet (VIDEL video, DSP, IDE).
 - Full list, in order: [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md);
   bugs in plain English: [`docs/BUGS.md`](docs/BUGS.md); TOS versions: [`docs/TOS_COMPAT.md`](docs/TOS_COMPAT.md).
@@ -139,7 +156,8 @@ window on the TeraDesk desktop.*
 - **One Tang SDRAM module** in slot **J9** (ST-RAM and TT-RAM share it). Never flash with J9 empty.
 - A microSD card (FAT) with `.st` floppy images, an HDMI screen, a USB keyboard and mouse.
 - Your own **TOS** image (TOS 2.06 or EmuTOS). Atari TOS is not in this repository.
-- **Gowin EDA V1.9.12.03 or V1.9.12.04** (Windows or Linux) to build, and for the helper firmware the Andes AST v5.1.1 toolchain.
+- **Gowin EDA V1.9.12.03** (Windows or Linux) to build; other versions, V1.9.12.04 included, are not supported (see
+  [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md)), and for the helper firmware the Andes AST v5.1.1 toolchain.
   No ready-made bitstreams are published: this repository is source only.
 
 ## How to try it
@@ -231,7 +249,7 @@ This bench is **one person**. An AI assistant is used for engineering help: HDL 
 It does not replace the board, the real 68030, or the decision of what is known-good. Silicon results and the instruction audit are David’s. Commit volume is not a team. The cores listed under Credits were written by the people named there, not by the assistant.
 
 ### Toolchain
-Gowin IDE / gw_sh **V1.9.12.03** or **V1.9.12.04** on Windows or headless Linux (same results; V1.9.12.04 needs the `syn_keep` on `ae350_flash_clk` that `top.sv` has), device **Version C**. The AE350 helper
+Gowin IDE / gw_sh **V1.9.12.03** on Windows or headless Linux. V1.9.12.04 completes the build (thanks to the `syn_keep` on `ae350_flash_clk` in `top.sv`) but a friend's V1.9.12.04 bitstreams gave a black screen / no sync while V1.9.12.03 builds of the same source work (Nov 2026, suspected toolchain issue, unconfirmed), device **Version C**. The AE350 helper
 firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**. This repository is
 **source only**: bitstreams, `impl/`, ROMs and disk images stay on the machine that built or flashed them.
 

@@ -33,7 +33,16 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Current state (2026-10-31, UK)
+## Current state (2026-11-03, UK)
+- `main` = db13859: `cmpm-fix` fast-forwarded (F122-F131 CPU fixes). `sdram64` untouched.
+- Board: flash 0 = **f131**: clk_cpu030 21.230 / clk32_core 33.874 MHz, 45988 LUT + 5327 ALU, timing_pairs pass.
+  Linux/m68k 6.18 boots to a BusyBox shell (dcache on; kernel workaround for user prefetch fault frames without FC/FB).
+  f121a kept on linserver as fallback.
+- Open: SD write path (FDD->HDD copy, C: in A: window, 15 Oct misdirected sector), board-only FC/FB flags, helper
+  stale open transfer. Build only with Gowin V1.9.12.03 (V1.9.12.04 -> black screen / no sync, friend's report).
+- Next: Linux kernel without debug prints, NetBSD/atari, SD write test, sdram64 rebase.
+
+## State on 2026-10-31 (history)
 - `main` = 8972091: PMMU merged (9fe250b), syn_keep on `ae350_flash_clk` restored for Gowin V1.9.12.04 (8972091).
 - Board: flash 0 = **f121a** (F121 fix): clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU, timing_pairs pass.
   EmuTOS 1.4 at 0x500000. FreeMiNT (memory protection on) + XaAES 1.7.0 + TeraDesk 4.08 from the ACSI image; desktop
