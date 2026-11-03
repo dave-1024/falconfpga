@@ -227,6 +227,7 @@ module cpu030_st_bridge #(
     WF68K30L_TOP #(
         .CLK_N_EXT ( 1             ),   // falling-edge registers on clk_cpu_n (global clock)
         .CACHES    ( 0             ),    // [IC] ignored: the 68030 I cache is always built; CIINn below decides
+        .WA_ADR_HI ( 1             ),    // [F132] write-allocate only in fast RAM ($01xxxxxx): ST RAM is DMA'd, never snooped
 `ifdef DIAG_NOCACHE
         .NOCACHE      ( `DIAG_NOCACHE ),   // [F90] debug: 1 I-cache off, 2 D-cache off, 3 both
 `endif
