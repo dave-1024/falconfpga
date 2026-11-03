@@ -49,3 +49,9 @@ Workaround without a rebuild: clear CACR bit 13 (WA).
 - sdrace re-run on f132 NOT done: the Tailscale SOCKS proxy dropped before remount.
   Next: tsr.sh; mount a sdrace3.st; mount h0 sdrace.hd; c; after ~4 min `get sdrace.hd 51200 256`.
   Expect mode A/B fd=0.
+
+## 22:41 UK f132 verification (SRAM f132, flash f131)
+sdrace3.st A:, sdrace.hd h0, cold boot 22:41. Results (lba 100): A 0/40, B 0/40, C 0/40, D 0/40, E 0/40 floppy errors,
+ACSI 0, T ok. (f131: A 40, B 40, E 35.) Fix confirmed.
+RTL regression run_rtl.sh on sd-write: PASS rc=0 (23:18 UK); simall (process(all) copy): PASS rc=0.
+Note: tb030 uses WA_ADR_HI default -1 (MC68030 behaviour); the board setting (1) is only covered by the board test.
