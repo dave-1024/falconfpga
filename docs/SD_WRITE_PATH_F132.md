@@ -29,3 +29,15 @@ copy happens inside EmuTOS's floppy path (its own buffer), not in our buffer.
 wf68k30L_top.vhd generic WA_ADR_HI; bridge sets 1: write-allocate only for $01xxxxxx (TT/fast RAM).
 ST-side writes still update hits; no ST entry can be created, so DMA'd ST-RAM stays coherent.
 Workaround without a rebuild: clear CACR bit 13 (WA).
+
+## Re: "ST-RAM is CIIN so staleness is unlikely" (22:25 UK)
+- CIIN only stops READ fills. wf68k30L_dcache.vhd header line 24 (WR_*): "with WA set and FD clear a miss
+  allocates an aligned long word ... CIIN is not looked at" (= MC68030UM 6.1.2: CIIN ignored on writes).
+  So any CPU long write to ST-RAM with CACR.WA=1 creates a valid line; later reads of that address hit it
+  (lookup does not check CIIN either) even after DMA rewrote the RAM.
+- Board proof is direct: buffers were ST-RAM (program loaded in ST, DMA can't reach TT-RAM anyway, 24-bit),
+  WA on -> 40/40 stale, WA off -> 0/40, CACR=0 -> 0-1/40.
+- TT-RAM / DMA: DMA and blitter are 24-bit ST bus only. EmuTOS bounces TT-RAM transfers through _FRB
+  (mode T: TT buffer got correct data, ST alias untouched). TTRAM.PRG installs _FRB for TOS 2.06, but the TOS 2.06
+  ROM floppy driver does not use _FRB: a TT-flagged program reading floppy into a TT-RAM buffer on TOS 2.06 would
+  DMA into the ST alias. Secondary risk only; ROM desktop/GEMDOS buffers are ST-RAM.
