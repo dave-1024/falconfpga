@@ -714,6 +714,10 @@ begin
                    BIW_0(11 downto 9) when (OP = ADDX or OP = SUBX) and FETCH_STATE = CALC_AEFF and PHASE2 = false else
                    BIW_0(11 downto 9) when (OP = ADDX or OP = SUBX) and FETCH_STATE = FETCH_OPERAND and PHASE2 = false and RD_RDY = '0' else -- Destination first.
                    BIW_0(11 downto 9) when (OP = ADDX or OP = SUBX) and FETCH_STATE = INIT_EXEC_WB else
+                   -- [F122] CMPM: Ax (read first) must be selected in START_OP already: the address pipeline takes the
+                   -- selector one clock before the bus cycle. With the opword from the I-cache and the operand cycle
+                   -- starting at once, the first read used Ay, so CMPM (Ay)+,(Ax)+ compared (Ay) with itself (Linux memcmp).
+                   BIW_0(11 downto 9) when OP = CMPM and FETCH_STATE = START_OP else
                    BIW_0(11 downto 9) when OP = CMPM and FETCH_STATE = FETCH_OPERAND and PHASE2 = false else -- Fetch destination.
                    BIW_0(11 downto 9) when OP = MOVE and FETCH_STATE = FETCH_MEMADR and PHASE2 = true else
                    BIW_0(11 downto 9) when OP = MOVE and FETCH_STATE = START_OP and BIW_0(5 downto 3) < "010" and BIW_0(8 downto 6) /= "000" else  -- Dn, An.
