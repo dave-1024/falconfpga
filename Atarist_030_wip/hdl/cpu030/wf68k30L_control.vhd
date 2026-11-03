@@ -801,7 +801,10 @@ begin
     AR_WR_II <= '1' when OP_WB_I = UNLK and EXEC_WB_STATE = WRITEBACK else -- Write (SP) to An.
                 '1' when OP_WB_I = EXG and EXEC_WB_STATE = WRITEBACK and BIW_0_WB(7 downto 3) = "01001" else '0'; -- Two address registers.
 
-    AR_INC_S <= '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
+    -- [F125] -(An) source: the predecrement was done before the read; undo it when the read ends with a bus error
+    -- (the instruction restarts after RTE and decrements again).
+    AR_INC_S <= '1' when AR_DEC_I = '1' and ADR_MODE_I = "100" and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '0' else
+              '1' when (OP = ADD or OP = CMP or OP = SUB) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDA or OP = CMPA or OP = SUBA) and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and DATA_RDY = '1' else
               '1' when (OP = ADDI or OP = CMPI or OP = SUBI) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = ADDQ or OP = SUBQ) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
@@ -817,7 +820,9 @@ begin
               '1' when (OP = MULS or OP = MULU or OP = DIVS or OP = DIVU) and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
               '1' when (OP = MOVE_FROM_CCR or OP = MOVE_FROM_SR) and ADR_MODE_I = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else 
               '1' when (OP = MOVE_TO_CCR or OP = MOVE_TO_SR) and ADR_MODE_I = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else 
-              '1' when OP = MOVE and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and NEXT_FETCH_STATE /= FETCH_OPERAND else
+              -- [F124] Not when the source read ended with a bus error (the instruction restarts after RTE).
+              '1' when OP = MOVE and ADR_MODE_I = "011" and FETCH_STATE = FETCH_OPERAND and NEXT_FETCH_STATE /= FETCH_OPERAND and
+                       not (RD_RDY = '1' and DATA_VALID = '0') else
               '1' when OP = MOVE and BIW_0(8 downto 6) = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else
               '1' when OP = MOVEA and ADR_MODE_I = "011" and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE /= INIT_EXEC_WB else
               '1' when OP = MOVEM and ADR_MODE_I = "011" and ALU_INIT_I = '1' else
