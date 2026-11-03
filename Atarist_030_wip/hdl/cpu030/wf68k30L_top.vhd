@@ -187,6 +187,7 @@ entity WF68K30L_TOP is
         -- 0 (default): the IDLE -> START_CYCLE gap stays. Operand cycles are
         -- unchanged either way.
         FAST_HANDOFF    : integer := 0;
+        WA_ADR_HI       : integer := -1; -- [F132] >= 0: CACR WA only allocates on writes with A31:24 = this value (board fast RAM); -1 = MC68030 (CIIN ignored on writes)
         NOCACHE         : integer := 0); -- [F90] debug: bit 0 forces the I-cache off, bit 1 the D-cache (as CDISn for that cache)
 
     port (
@@ -625,6 +626,7 @@ signal AR_WR_1_REG              : bit;
 signal CIINn_EFF                : std_logic;
 signal DC_WR_TTCI               : std_logic;
 signal DC_WR_GO_EFF             : std_logic;
+signal DC_WA_EFF                : std_logic; -- [F132]
 signal CACR_WR                  : bit;
 signal CACR_RD                  : bit;
 signal CAAR                     : std_logic_vector(31 downto 0);
@@ -904,6 +906,13 @@ begin
                             and ((DC_WR_FC xor MMU_TT1(6 downto 4)) and not MMU_TT1(2 downto 0)) = "000"
                             and (MMU_TT1(8) = '1' or MMU_TT1(9) = '0')) else '0';
     DC_WR_GO_EFF <= DC_WR_GO and not DC_WR_TTCI;
+    -- [F132] A real 68030 ignores CIIN on writes, so with CACR WA a write miss allocates even on the
+    -- cache-inhibited ST side, and nothing on an ST board snoops DMA: a later floppy/ACSI DMA into that
+    -- RAM leaves the stale line hitting (board: EmuTOS Floprd read back old sector data 40/40 with WA set,
+    -- 0/40 with WA clear). The ST side is never meant to be cached (CIIN rule), so on this board a write
+    -- miss only allocates in the fast-RAM range; hits on existing entries are still updated.
+    DC_WA_EFF <= CACR(13) when WA_ADR_HI < 0 else
+                 CACR(13) when conv_integer(DC_WR_ADR(31 downto 24)) = WA_ADR_HI else '0';
     -- [PMMU2b] The MMU sits between the bus interface and the pins. With TC.E = 0 it is a wire.
     TT_HIT_ANY <= TT0_HIT or TT1_HIT;
     MMU_RESET <= '1' when RESET_CPU = '1' else '0';
@@ -1304,7 +1313,7 @@ begin
             RESET     => RESET_CPU,
             ED        => CACR(8),
             FD        => CACR(9),
-            WA        => CACR(13),
+            WA        => DC_WA_EFF, -- [F132]
             CDIS      => CDIS_D,
             CLR_ALL   => DC_CD,
             CLR_ENT   => DC_CED,
