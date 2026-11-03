@@ -513,6 +513,7 @@ component WF68K30L_CONTROL
         RESET_STRB          : out bit;
         BERR                : out bit;
         BERR_IBOUND         : out bit;
+        BERR_PCSTALE        : out bit;
         MOVEM_RA            : out bit; -- [F2]
         STATUSn             : out bit;
         EX_TRACE            : out bit;
@@ -607,6 +608,7 @@ component WF68K30L_EXCEPTION_HANDLER
         TRAP_AERR           : in bit;
         TRAP_BERR           : in bit;
         BERR_IBOUND         : in bit;
+        BERR_PCSTALE        : in bit;
         TRAP_CHK            : in bit;
         TRAP_DIVZERO        : in bit;
         TRAP_ILLEGAL        : in bit;

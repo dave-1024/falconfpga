@@ -330,6 +330,7 @@ entity WF68K30L_CONTROL is
         RESET_STRB          : out bit;
         BERR                : out bit;
         BERR_IBOUND         : out bit; -- [FLT2] Data write fault at an instruction boundary (format $A).
+        BERR_PCSTALE        : out bit; -- [F131] ... and the next instruction is not issued yet: PC_I is still the faulted one.
         MOVEM_RA            : out bit; -- [F2] MOVEM memory to register waits for a read and more registers follow.
         STATUSn             : out bit;
         EX_TRACE            : out bit;
@@ -371,6 +372,9 @@ signal MV_ACT, MV_FLT, MV_RESTORE_I, MV_SAVE_I : bit := '0'; -- [F126]
 signal WR_FLT               : bit; -- [FLT1] The control unit's data write ends with a bus error (this clock).
 signal WFLT                 : bit := '0'; -- [FLT1] Held from a data write fault until the exception handler runs.
 signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed an address register in this instruction.
+signal ISS_SEEN             : boolean := false; -- [F131]
+signal FI_MULTI             : boolean := false; -- [F131] the fetch side changed more than one An (or SP by a displacement).
+signal FI_REST              : boolean; -- [F131] the single fetch-side An change can be undone (MV snapshot, user mode).
 signal WR_LAST              : boolean; -- [FLT2] The running write is its instruction's last bus cycle.
 signal F3_EARLY             : bit; -- [F3] Next MOVEM register taken in the S3 clock of the running write.
 signal F3_BYP_I             : bit := '0';
@@ -1793,7 +1797,10 @@ begin
     -- after RTE, so An must get back its value from before the instruction (user mode, see address registers).
     -- [F127] also MOVEM (An)+,regs: snapshot at the first increment/decrement of the instruction.
     MV_SAVE <= MV_SAVE_I;
-    MV_SAVE_I <= '1' when OP = MOVEM and (ADR_MODE_I = "100" or ADR_MODE_I = "011") and (AR_DEC_S = '1' or AR_INC_S = '1') and MV_ACT = '0' else '0';
+    MV_SAVE_I <= '1' when OP = MOVEM and (ADR_MODE_I = "100" or ADR_MODE_I = "011") and (AR_DEC_S = '1' or AR_INC_S = '1') and MV_ACT = '0' else
+                 -- [F131] any other instruction: snapshot its first fetch-side An change, so that a write fault of the
+                 -- previous instruction (taken while this one is already in its address calculation) can undo it.
+                 '1' when OP /= MOVEM and (AR_DEC_S = '1' or AR_INC_S = '1') and FI_DIRTY = false and MV_ACT = '0' else '0';
     MV_RESTORE <= MV_RESTORE_I;
     P_MVFLT: process
     begin
@@ -1803,8 +1810,10 @@ begin
             MV_ACT <= '0'; MV_FLT <= '0';
         elsif MV_FLT = '1' and BUSY_EXH = '1' then
             MV_RESTORE_I <= '1'; MV_FLT <= '0'; MV_ACT <= '0';
-        elsif MV_ACT = '1' and (WR_FLT = '1' or (RD_RDY = '1' and DATA_VALID = '0')) then
+        elsif MV_ACT = '1' and OP = MOVEM and (WR_FLT = '1' or (RD_RDY = '1' and DATA_VALID = '0')) then
             MV_FLT <= '1';
+        elsif MV_ACT = '1' and OP /= MOVEM and WR_FLT = '1' and FI_REST then
+            MV_FLT <= '1'; -- [F131]
         elsif MV_SAVE_I = '1' then
             MV_ACT <= '1'; MV_FLT <= '0';
         elsif MV_FLT = '0' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP then
@@ -1839,12 +1848,39 @@ begin
         wait until CLK = '1' and CLK' event;
         if AR_INC_S = '1' or AR_DEC_S = '1' or SP_ADD_DISPL_S = '1' then
             FI_DIRTY <= true;
+            if FI_DIRTY = true or SP_ADD_DISPL_S = '1' or (AR_INC_S = '1' and AR_DEC_S = '1') then
+                FI_MULTI <= true; -- [F131]
+            end if;
         elsif FETCH_STATE = START_OP then
             FI_DIRTY <= false;
+            FI_MULTI <= false;
         end if;
     end process P_FI_DIRTY;
 
-    BERR_IBOUND <= '1' when WR_FLT = '1' and EXEC_WB_STATE = WRITE_DEST and WR_LAST = true and FI_DIRTY = false and
+    -- [F131] PC_I points to the last issued instruction (BIW_0). A write fault taken as format $A must stack the
+    -- address of the NEXT instruction. When the fetch side is idle (START_OP/SLEEP) and has not issued the next
+    -- opword (e.g. pipe still refilling after an RTE), PC_I is still the faulted instruction: the exception handler
+    -- must advance it (as for interrupts). Otherwise RTE reruns the write and then executes the instruction again
+    -- (user move.l a3,-(sp) after an IRQ: USP decremented twice, glibc fork() stack-protector abort on the board).
+    P_ISS_SEEN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE /= START_OP and FETCH_STATE /= SLEEP then
+            ISS_SEEN <= false;
+        elsif OPD_ACK = '1' then
+            ISS_SEEN <= true;
+        end if;
+    end process P_ISS_SEEN;
+    BERR_PCSTALE <= '1' when (FETCH_STATE = START_OP or FETCH_STATE = SLEEP) and ISS_SEEN = false and
+                             OPD_ACK = '0' else '0';
+
+    -- [F131] The fetch side may already have changed one An for the next instruction (e.g. BSR after a faulting
+    -- MOVE.L A3,-(SP)): in user mode that change is undone from the MV snapshot and the short frame is used, so RTE
+    -- reruns the write and executes the next instruction from its start (was: long frame, next instruction ran again
+    -- on top of its own predecrement -> SP 4 low).
+    FI_REST <= MV_ACT = '1' and OP /= MOVEM and FI_DIRTY = true and FI_MULTI = false and SBIT_I = '0';
+
+    BERR_IBOUND <= '1' when WR_FLT = '1' and EXEC_WB_STATE = WRITE_DEST and WR_LAST = true and (FI_DIRTY = false or FI_REST) and
                             AR_INC_S = '0' and AR_DEC_S = '0' and SP_ADD_DISPL_S = '0' else '0';
 
     STATE_REGs: process

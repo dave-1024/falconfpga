@@ -164,6 +164,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         TRAP_AERR           : in bit;
         TRAP_BERR           : in bit;
         BERR_IBOUND         : in bit; -- [FLT2] From the control unit, with TRAP_BERR.
+        BERR_PCSTALE        : in bit; -- [F131] With BERR_IBOUND: PC_I not yet advanced past the faulted instruction.
         TRAP_CHK            : in bit;
         TRAP_DIVZERO        : in bit;
         TRAP_ILLEGAL        : in bit;
@@ -241,6 +242,7 @@ signal EX_P_TRAPV           : bit := '0';  -- [F52] init
 signal EX_P_MMUCFG          : bit := '0';  -- [PMMU2]
 signal INT_VECT             : std_logic_vector(31 downto 0); -- Interrupt vector.
 signal IBOUND               : boolean := false;  -- [F54] measured warm-boot value
+signal IB_PCINC             : boolean := false;  -- [F131]
 signal IRQ                  : std_logic_vector(2 downto 0);
 signal IRQ_PEND_I           : std_logic_vector(2 downto 0);
 signal MBIT                 : std_logic;
@@ -299,8 +301,10 @@ begin
             IBOUND <= true;
         elsif TRAP_BERR = '1' and BERR_IBOUND = '1' then
             IBOUND <= true; -- [FLT2] Data write fault taken at an instruction boundary: short frame (MC68030UM 8.1.2, table 8-6).
+            IB_PCINC <= BERR_PCSTALE = '1'; -- [F131]
         elsif EX_STATE = BUILD_STACK then
             IBOUND <= false;
+            IB_PCINC <= false;
         end if;
     end process INSTRUCTION_BOUNDARY;
     
@@ -712,7 +716,8 @@ begin
     -- This signal forces the PC logic in the address register section to calculate the address
     -- of the next instruction. This address is written on the stack. For the following
     -- instructions the old PC value is stacked: BERR, AERR, ILLEGAL, PRIV, TRACE, 1010, 1111, FORMAT.
-    PC_INC <= '1' when EXCEPTION = EX_CHK and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
+    PC_INC <= '1' when EXCEPTION = EX_BERR and IBOUND = true and IB_PCINC = true and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else -- [F131]
+              '1' when EXCEPTION = EX_CHK and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_DIVZERO and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_INT and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
               '1' when EXCEPTION = EX_TRAP and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
