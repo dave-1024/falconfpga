@@ -832,7 +832,10 @@ begin
     AR_DEC_S <= AR_DEC_I when ADR_MODE_I = "100" and FETCH_STATE /= CALC_AEFF and NEXT_FETCH_STATE = CALC_AEFF else
               '1' when (OP = BSR or OP = JSR or OP = LINK) and FETCH_STATE = START_OP and NEXT_FETCH_STATE /= START_OP else
               '1' when (OP = CLR or OP = Scc) and ADR_MODE_I = "100" and INIT_ENTRY = '1' else
-              '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and BIW_0(5 downto 3) /= "011" and INIT_ENTRY = '1' else -- (An)+, -(An)
+              -- [F123] Not when the source operand read ended with a bus error: the instruction restarts after RTE and
+              -- decremented again (MOVE <mem>,-(An) pushed a garbage slot; Linux busybox argc/argv shifted).
+              '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and BIW_0(5 downto 3) /= "011" and INIT_ENTRY = '1' and
+                       not (FETCH_STATE = FETCH_OPERAND and DATA_VALID = '0') else -- (An)+, -(An)
               '1' when OP = MOVE and BIW_0(8 downto 6) = "100" and FETCH_STATE = SWITCH_STATE else -- Needed for source (An)+ mode.
               '1' when OP = MOVEM and ADR_MODE_I = "100" and INIT_ENTRY = '1' else -- Decrement before the first bus access. 
               -- [F1] After the last bus access the address register is not decremented. The last register is the one with no list bit above it
