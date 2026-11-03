@@ -1,0 +1,140 @@
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
+index 787fc81..aabd3a8 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_bus_interface.vhd
+@@ -87,6 +87,7 @@
+ --   2026-10-17 IC: 68030 instruction cache on the prefetch queue: a queue long that hits is taken from the cache
+ --     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
+ --     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
++--   2026-11-03 F140: Q_HIT also serves the next word in an OPCODE_RDY clock (OPC_RD_NEXT, Q_NMATCH): one opcode word per clock.
+ -- 
+ 
+ library work;
+@@ -150,6 +151,7 @@ entity WF68K30L_BUS_INTERFACE is
+         RMC                 : in bit; -- Indicates a read modify write operation.
+         BUSY_EXH            : in bit;
+         OPC_RD              : in bit; -- [F62] Raw decoder opcode request (not masked while the bus is busy).
++        OPC_RD_NEXT         : in bit; -- [F140] Request of the word after the one OPCODE_RDY delivers in this clock.
+         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
+         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
+         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
+@@ -357,6 +359,7 @@ signal RA_TAKE              : bit; -- [F2] The held read-ahead is handed over on
+ signal RA_DROP              : bit; -- [F2] Not requested as expected: dropped, the request runs its own cycle.
+ signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
+ signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
++signal Q_NMATCH             : bit; -- [F140]
+ signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
+ signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
+ signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
+@@ -904,7 +907,12 @@ begin
+     OPC_LEGACY <= OPCODE_REQ and not RMC_HOLD when PREFETCH_Q = 0 else -- [RMC1] no opcode cycle inside the RMC sequence
+                   OPCODE_REQ and To_Bit(OPC_ADR(0)) and not RMC_HOLD; -- [C3]
+     Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
+-    Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
++    -- [F140] Back to back: in a ready clock the decoder's PC_L still points at the word being delivered, so the
++    -- next word (PC_L + 2) is matched against the queue head (Q_NMATCH). Only a hit is served this way; a miss
++    -- waits for the next clock and goes through Q_MISS with the updated address as before.
++    Q_NMATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) + '1' and Q_FC = OPC_FC else '0';
++    Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
++             '1' when Q_NMATCH = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
+     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
+                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
+     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_opcode_decoder.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_opcode_decoder.vhd
+index 4036721..76a7ad6 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_opcode_decoder.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_opcode_decoder.vhd
+@@ -66,6 +66,7 @@
+ --   2026-10-04 F57: explicit power-up values for set-type flops.
+ --   2026-10-04 F59: pipe flush sets OP to NOP (loop-mode interrupt deadlock).
+ --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
++--   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
+ -- 
+ 
+ library work;
+@@ -104,6 +105,7 @@ entity WF68K30L_OPCODE_DECODER is
+         PC_OFFSET           : out std_logic_vector(7 downto 0);
+ 
+         OPCODE_RD           : out bit;
++        OPC_RD_NEXT         : out bit; -- [F140] In an OPCODE_RDY clock: the following word is wanted too (queue only).
+         OPCODE_RDY          : in bit;
+         OPCODE_VALID        : in std_logic;
+         OPCODE_DATA         : in std_logic_vector(15 downto 0);
+@@ -252,6 +254,13 @@ begin
+     end process P_OPCODE_FLUSH;
+ 
+     OPCODE_RD <= OPCODE_RD_I;
++    -- [F140] OPCODE_RD_I is cleared by OPCODE_RDY, so a word could only be requested every other clock.
++    -- In the clock of a ready strobe, ask the prefetch queue for the next word as well when the pipe has
++    -- room for it after this one is loaded (pointer below 2), so a queue holding words (cache hits)
++    -- fills the pipe at one word per clock as the 68030 pipeline. Not during flush, dismissal,
++    -- exceptions or loop mode; the bus interface uses it only for queue hits, never to start a bus cycle.
++    OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
++                            IPIPE_PNTR < 2 and LOOP_ATN = false and LOOP_BSY_I = false else '0';
+     OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
+ 
+     -- [PFCOF] The control unit executes a change of flow (COF_PEND): hold the stream fetches past it,
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
+index 509cd7e..3bdf7c8 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_pkg.vhd
+@@ -40,6 +40,7 @@
+ --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
+ --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
+ --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
++--   2026-11-03 F140: OPC_RD_NEXT ports (decoder out, bus interface in).
+ -- 
+ 
+ library ieee;
+@@ -289,6 +290,7 @@ component WF68K30L_BUS_INTERFACE
+         RMC                 : in bit;
+         BUSY_EXH            : in bit;
+         OPC_RD              : in bit; -- [F62]
++        OPC_RD_NEXT         : in bit; -- [F140]
+         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
+         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
+         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
+@@ -653,6 +655,7 @@ component WF68K30L_OPCODE_DECODER
+         PC_ADR_OFFSET       : out std_logic_vector(7 downto 0);
+         PC_OFFSET           : out std_logic_vector(7 downto 0);
+         OPCODE_RD           : out bit;
++        OPC_RD_NEXT         : out bit; -- [F140]
+         OPCODE_RDY          : in bit;
+         OPCODE_VALID        : in std_logic;
+         OPCODE_DATA         : in std_logic_vector(15 downto 0);
+diff --git a/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd b/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
+index bacecd5..4e24150 100644
+--- a/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
++++ b/Atarist_030_wip/hdl/cpu030/wf68k30L_top.vhd
+@@ -162,6 +162,7 @@
+ --   2026-10-17 IC: 68030 instruction cache (WF68K30L_ICACHE) on the prefetch queue, unconditional; cache pins
+ --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
+ --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
++--   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
+ --
+ 
+ library work;
+@@ -414,6 +415,7 @@ signal MOVEP_PNTR               : integer range 0 to 3;
+ signal MSP_RD                   : bit;
+ signal MSP_WR                   : bit;
+ signal OPCODE_RD                : bit;
++signal OPC_RD_NEXT              : bit; -- [F140]
+ signal OPCODE_RDY               : bit;
+ signal OPCODE_VALID             : std_logic;
+ signal OPCODE_TO_CORE           : std_logic_vector(15 downto 0);
+@@ -1498,6 +1500,7 @@ begin
+             RMC                 => RMC,
+             BUSY_EXH            => BUSY_EXH,
+             OPC_RD              => OPCODE_RD, -- [F62]
++            OPC_RD_NEXT         => OPC_RD_NEXT, -- [F140]
+             OPC_ADR             => PC_L,
+             OPC_FC              => OPC_FC,
+             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
+@@ -1881,6 +1884,7 @@ begin
+             PC_OFFSET               => PC_OFFSET_OPD,
+ 
+             OPCODE_RD               => OPCODE_RD,
++            OPC_RD_NEXT             => OPC_RD_NEXT, -- [F140]
+             OPCODE_RDY              => OPCODE_RDY,
+             OPCODE_VALID            => OPCODE_VALID,
+             OPCODE_DATA             => OPCODE_TO_CORE,

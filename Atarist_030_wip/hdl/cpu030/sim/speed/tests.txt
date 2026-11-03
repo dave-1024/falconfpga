@@ -1,0 +1,58 @@
+# name|instruction(s) one copy|K|manual cache-case clocks per copy|note
+nop|nop|16|2|
+moveq|moveq #1,d0|16|2|
+move.l_Dn_Dn|move.l d1,d0|16|2|
+movea.l_Dn_An|movea.l d1,a2|16|2|
+move.w_Dn_(An)|move.w d1,(a0)|16|3|mem write
+move.w_(An)_Dn|move.w (a0),d0|16|5|fea (An) 3 + move 0..2
+move.w_Dn_(An)+|move.w d1,(a0)+|16|3|mem write
+move.w_(An)+_Dn|move.w (a0)+,d0|16|5|
+move.w_Dn_-(An)|move.w d1,-(a1)|16|4|
+move.w_d16(An)_Dn|move.w 4(a0),d0|16|6|
+move.w_Dn_d16(An)|move.w d1,4(a0)|16|4|
+move.w_d8(An,Xn)_Dn|move.w 2(a0,d4.w),d0|16|8|
+move.l_#imm_Dn|move.l #0x12345678,d0|12|4|fiea #.L 4
+add.l_Dn_Dn|add.l d1,d0|16|2|
+add.w_(An)_Dn|add.w (a0),d0|16|5|fea 3 + 2
+add.w_Dn_(An)|add.w d1,(a0)|16|6|fea 3 + 3
+adda.l_Dn_An|adda.l d1,a2|16|2|
+adda.w_Dn_An|adda.w d1,a2|16|4|
+cmp.l_Dn_Dn|cmp.l d1,d0|16|2|
+cmpa.l_Dn_An|cmpa.l d1,a2|16|4|
+addq.l_Dn|addq.l #1,d0|16|2|
+subq.l_Dn|subq.l #1,d0|16|2|
+addi.l_Dn|addi.l #5,d0|12|6|ADDI 2 + fiea #.L 4 (4+op head)
+and.l_Dn_Dn|and.l d1,d0|16|2|
+eor.l_Dn_Dn|eor.l d1,d0|16|2|
+or.l_Dn_Dn|or.l d1,d0|16|2|
+clr.l_Dn|clr.l d0|16|2|
+neg.l_Dn|neg.l d0|16|2|
+not.l_Dn|not.l d0|16|2|
+ext.l_Dn|ext.l d0|16|4|
+swap|swap d0|16|4|
+tst.l_Dn|tst.l d0|16|2|
+scc_Dn|seq d0|16|4|
+lsl.l_#_Dn|lsl.l #2,d0|16|4|
+asl.l_#_Dn|asl.l #2,d0|16|6|
+asr.l_#_Dn|asr.l #2,d0|16|4|
+ror.l_#_Dn|ror.l #2,d0|16|6|
+lsl.l_Dx_Dn|lsl.l d4,d0|16|6|
+roxl.l_Dn|roxl.l #1,d0|16|12|
+mulu.w_Dn_Dn|mulu.w d1,d0|8|28|max
+muls.l_Dn_Dn|muls.l d1,d0|8|44|max (fiea none: Dn)
+divu.w_Dn_Dn|divu.w d5,d0|8|44|max
+divs.l_Dn_Dn|divs.l d5,d0|8|90|max
+lea_d16(An)|lea 4(a0),a2|16|2|
+lea_d8(An,Xn)|lea 2(a0,d4.w),a2|16|4|
+bra.w_taken|bra.w 1f;1:|12|6|
+bra.s_taken|bra.s 1f;nop;1:|12|6|skipped nop not run
+beq.s_not|beq.s 1f;nop;1:|16|6|Z clear, incl. nop 2
+beq.w_not|beq.w 1f;1:|12|6|
+bfextu|bfextu d1{4:8},d0|12|10|
+btst_#_Dn|btst #3,d1|12|4|
+bset_Dn_Dn|bset d4,d0|16|6|
+bsr_rts|bsr.w sub|8|15|BSR 6 + RTS 9 (stack long on 16-bit port)
+jsr_rts|jsr (a3)|8|13|JSR 4 + jea (An) 0 + RTS 9
+pea_(An)|pea (a0)|12|4|
+dbf_loop8|moveq #7,d6;1: dbf d6,1b|8|54|moveq 2 + 7x DBcc taken 6 + expired 10
+delay_loop8|moveq #7,d0;1: subq.l #1,d0;bcc.s 1b|8|72|Linux __delay: moveq 2 + 8x(subq 2+Bcc taken 6) + subq 2 + Bcc.B not taken 4
