@@ -1173,7 +1173,9 @@ begin
     -- core's own MOVEC convention: reads qualify on OP, writes on OP_WB_I.
     -- MiNT reads user space with MOVES, so a supervisor FC here bypasses
     -- user-space translation entirely under memory protection.
-    USE_SFC <= '1' when OP = MOVES and DATA_RD_MAIN = '1' else '0';
+    -- [F128] Not for the memory-indirect pointer fetch: only the operand access uses SFC (Linux FPU emulator
+    -- 'moves.w ([32,sp]),a1' read its kernel-stack pointer in user space -> BAD KERNEL BUSERR).
+    USE_SFC <= '1' when OP = MOVES and DATA_RD_MAIN = '1' and FETCH_MEM_ADR = '0' else '0';
 
     PC_LOAD <= PC_LOAD_EXH or PC_LOAD_MAIN;
 
