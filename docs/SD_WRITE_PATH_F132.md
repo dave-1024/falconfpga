@@ -41,3 +41,11 @@ Workaround without a rebuild: clear CACR bit 13 (WA).
   (mode T: TT buffer got correct data, ST alias untouched). TTRAM.PRG installs _FRB for TOS 2.06, but the TOS 2.06
   ROM floppy driver does not use _FRB: a TT-flagged program reading floppy into a TT-RAM buffer on TOS 2.06 would
   DMA into the ST alias. Secondary risk only; ROM desktop/GEMDOS buffers are ST-RAM.
+
+## 22:35 UK f132 build + SRAM load
+- build_st_helper.tcl (main) has ST_SD_WRITE_FIX, ST_FLOPPY_MEDIACH, ST_SD_HARDEN all enabled: Łukasz's build has them.
+- f132 (c4f0a0f): clk_cpu030 20.869 MHz, clk32_core 36.139 MHz, 46083 LUT + 5331 ALU, timing_pairs rc=0, md5 d1357caf.
+  Loaded to SRAM 22:35 UK (rc=0, flash still f131). Board reloaded atarist.ini (A: gbref.st).
+- sdrace re-run on f132 NOT done: the Tailscale SOCKS proxy dropped before remount.
+  Next: tsr.sh; mount a sdrace3.st; mount h0 sdrace.hd; c; after ~4 min `get sdrace.hd 51200 256`.
+  Expect mode A/B fd=0.
