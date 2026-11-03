@@ -293,6 +293,7 @@ signal ALU_REQ                  : bit;
 signal ALU_RESULT               : std_logic_vector(63 downto 0);
 signal AMODE_SEL                : std_logic_vector(2 downto 0);
 signal AR_DEC                   : bit;
+signal MV_SAVE, MV_RESTORE      : bit;
 signal AR_IN_1                  : std_logic_vector(31 downto 0);
 signal AR_IN_2                  : std_logic_vector(31 downto 0);
 signal AR_IN_USE                : bit;
@@ -1395,6 +1396,8 @@ begin
             USP_RD                  => USP_RD,
             USP_WR                  => USP_WR,
             AR_DEC                  => AR_DEC,
+            MV_SAVE                 => MV_SAVE,
+            MV_RESTORE              => MV_RESTORE,
             AR_INC                  => AR_INC,
             AR_WR_1                 => AR_WR_1_REG,
             AR_WR_2                 => AR_WR_2,
@@ -1645,6 +1648,8 @@ begin
             AR_SEL_WR_2             => AR_SEL_WR_2,
             AR_INC                  => AR_INC,
             AR_DEC                  => AR_DEC,
+            MV_SAVE                 => MV_SAVE,
+            MV_RESTORE              => MV_RESTORE,
             AR_WR_1                 => AR_WR_1,
             AR_WR_2                 => AR_WR_2,
             DR_MARK_USED            => DR_MARK_USED,

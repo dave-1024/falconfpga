@@ -194,6 +194,8 @@ component WF68K30L_ADDRESS_REGISTERS
         AR_SEL_WR_1         : in std_logic_vector(2 downto 0);
         AR_SEL_WR_2         : in std_logic_vector(2 downto 0);
         AR_DEC              : in bit;
+        MV_SAVE             : in bit;
+        MV_RESTORE          : in bit;
         AR_INC              : in bit;
         AR_WR_1             : in bit;
         AR_WR_2             : in bit;
@@ -436,6 +438,8 @@ component WF68K30L_CONTROL
         AR_SEL_WR_2         : out std_logic_vector(2 downto 0);
         AR_INC              : out bit;
         AR_DEC              : out bit;
+        MV_SAVE             : out bit;
+        MV_RESTORE          : out bit;
         AR_WR_1             : out bit;
         AR_WR_2             : out bit;
         DR_MARK_USED        : out bit;

@@ -241,6 +241,8 @@ entity WF68K30L_CONTROL is
         AR_SEL_WR_2         : out std_logic_vector(2 downto 0);
         AR_INC              : out bit;
         AR_DEC              : out bit;
+        MV_SAVE             : out bit;
+        MV_RESTORE          : out bit;
         AR_WR_1             : out bit;
         AR_WR_2             : out bit;
 
@@ -365,6 +367,7 @@ signal ALU_INIT_I           : bit := '0';  -- [F54] measured warm-boot value
 signal AR_INC_S           : bit; -- [FLT2] internal copy of the AR_INC output.
 signal AR_DEC_S           : bit; -- [FLT2] internal copy of the AR_DEC output.
 signal SP_ADD_DISPL_S     : bit; -- [FLT2] internal copy of the SP_ADD_DISPL output.
+signal MV_ACT, MV_FLT, MV_RESTORE_I : bit := '0'; -- [F126]
 signal WR_FLT               : bit; -- [FLT1] The control unit's data write ends with a bus error (this clock).
 signal WFLT                 : bit := '0'; -- [FLT1] Held from a data write fault until the exception handler runs.
 signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed an address register in this instruction.
@@ -1766,6 +1769,27 @@ begin
     AR_DEC <= AR_DEC_S;
     SP_ADD_DISPL <= SP_ADD_DISPL_S;
     WR_FLT <= '1' when WR_RDY = '1' and DATA_VALID = '0' else '0';
+
+    -- [F126] MOVEM regs,-(An): An is decremented per register; a write bus error restarts the whole instruction
+    -- after RTE, so An must get back its value from before the instruction (user mode, see address registers).
+    MV_SAVE <= '1' when OP = MOVEM and ADR_MODE_I = "100" and BIW_0(10) = '0' and INIT_ENTRY = '1' else '0';
+    MV_RESTORE <= MV_RESTORE_I;
+    P_MVFLT: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        MV_RESTORE_I <= '0';
+        if RESET_CPU = '1' then
+            MV_ACT <= '0'; MV_FLT <= '0';
+        elsif OP = MOVEM and ADR_MODE_I = "100" and BIW_0(10) = '0' and INIT_ENTRY = '1' then
+            MV_ACT <= '1'; MV_FLT <= '0';
+        elsif MV_FLT = '1' and BUSY_EXH = '1' then
+            MV_RESTORE_I <= '1'; MV_FLT <= '0'; MV_ACT <= '0';
+        elsif MV_ACT = '1' and WR_FLT = '1' then
+            MV_FLT <= '1';
+        elsif OP /= MOVEM then
+            MV_ACT <= '0';
+        end if;
+    end process P_MVFLT;
 
     P_WFLT: process
     begin

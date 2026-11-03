@@ -122,6 +122,8 @@ entity WF68K30L_ADDRESS_REGISTERS is
         AR_SEL_WR_1         : in std_logic_vector(2 downto 0);
         AR_SEL_WR_2         : in std_logic_vector(2 downto 0);
         AR_DEC              : in bit; -- Address register decrement.
+        MV_SAVE             : in bit; -- [F126] MOVEM -(An) user mode: snapshot An.
+        MV_RESTORE          : in bit; -- [F126] write fault: restore An (instruction restarts after RTE).
         AR_INC              : in bit; -- Address register increment.
         AR_WR_1             : in bit; -- Address register write.
         AR_WR_2             : in bit; -- Address register write.
@@ -169,6 +171,9 @@ signal AR_OUT_1_I       : std_logic_vector(31 downto 0);
 signal AR_OUT_2_I       : std_logic_vector(31 downto 0);
 signal ADR_WB           : std_logic_vector(32 downto 0);
 signal AR_PNTR_1        : integer range 0 to 7;
+signal MV_SNAP          : std_logic_vector(31 downto 0); -- [F126]
+signal MV_PNTR          : integer range 0 to 7;
+signal MV_VALID         : bit := '0';
 signal AR_PNTR_2        : integer range 0 to 7;
 signal AR_PNTR_WB_1     : integer range 0 to 7;
 signal AR_PNTR_WB_2     : integer range 0 to 7;
@@ -755,6 +760,9 @@ begin
         elsif AR_WR_2 = '1' and AR_PNTR_WB_2 = 7 then
             USP_REG <= AR_IN_2; -- Used for EXG and UNLK.
         end if;
+        if MV_RESTORE = '1' and MV_VALID = '1' and MV_PNTR = 7 then
+            USP_REG <= MV_SNAP; -- [F126]
+        end if;
     end process STACK_POINTERS;
 
     ADDRESS_REGISTERS: process
@@ -793,7 +801,24 @@ begin
         if AR_WR_2 = '1' and AR_PNTR_WB_2 < 7 then
             AR(AR_PNTR_WB_2) <= AR_IN_2; -- Used for EXG and UNLK.
         end if;
+        if MV_RESTORE = '1' and MV_VALID = '1' and MV_PNTR < 7 then
+            AR(MV_PNTR) <= MV_SNAP; -- [F126]
+        end if;
     end process ADDRESS_REGISTERS;
+
+    MV_SNAPSHOT: process -- [F126]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if MV_SAVE = '1' then
+            MV_PNTR <= AR_PNTR_1;
+            if SBIT = '0' then MV_VALID <= '1'; else MV_VALID <= '0'; end if;
+            if AR_PNTR_1 = 7 then
+                MV_SNAP <= USP_REG;
+            else
+                MV_SNAP <= AR(AR_PNTR_1);
+            end if;
+        end if;
+    end process MV_SNAPSHOT;
 
     FCODES: process
     -- These flip flops provide the alternate function
