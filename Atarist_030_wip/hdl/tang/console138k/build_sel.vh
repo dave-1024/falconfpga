@@ -8,6 +8,5 @@
 `define BRIDGE_EARLY_AS
 `define WF030_FAST_HANDOFF
 `define ST_SD_WRITE_FIX
-`define SD_WRITE_DEBUG
 `define ST_FLOPPY_MEDIACH
 `define ST_SD_HARDEN
