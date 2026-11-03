@@ -420,6 +420,7 @@ signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
 signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
+signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
 signal ADR_MARK_USED_W      : bit; -- [C1]
 signal WR_RDY               : bit := '0';  -- [F54] measured warm-boot value
 signal WRITE_CYCLE          : bit := '0';  -- [F54] measured warm-boot value
@@ -560,7 +561,7 @@ begin
                  -- [C2] ADR_EFF is registered: in the first FETCH_MEMADR clock it still holds the value
                  -- computed in the previous state (MEM_ADR + od of the LAST memory-indirect access).
                  -- With an idle bus the pointer read went out at that stale address. Registered gate.
-                 '1' when FETCH_STATE = FETCH_MEMADR and MEMADR_IN = '1' else
+                 '1' when FETCH_STATE = FETCH_MEMADR and MEMADR_IN = '1' and MEMADR_OK = '1' else
                  '1' when FETCH_STATE = FETCH_OPERAND else
                  -- Option A step 3: MOVEM memory to register, 2nd and later reads: the effective address is valid in
                  -- CALC_AEFF already (AR increment / offset update at ALU_INIT, one registered calculation clock in
@@ -1371,6 +1372,22 @@ begin
             MEMADR_IN <= '0';
         end if;
     end process P_MEMADR_IN;
+
+    -- [F130] FETCH_D_LO/FETCH_EXWORD_1/FETCH_OD_x enter FETCH_MEMADR without the AR_IN_USE (ADH) wait, and the pointer
+    -- read went out with an index Dn whose write-back was still pending (F97 IDX_TRK only holds the later states).
+    -- Board: 'bfextu d2{8:2},d0; jmp ([bd,pc,d0.l*4])' (Linux FPU emulator fp_decode_cond) read the table at the stale
+    -- d0 -> BAD KERNEL BUSERR. The pointer read now waits until AR_IN_USE (base An pending or IDX_TRK) has been clear
+    -- for two clocks, so INDEX and the registered ADR_EFF hold the written value. Sticky for the rest of FETCH_MEMADR.
+    P_MEMADR_OK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE /= FETCH_MEMADR then
+            MEMADR_Q1 <= '0'; MEMADR_OK <= '0';
+        else
+            if AR_IN_USE = '0' then MEMADR_Q1 <= '1'; end if;
+            if MEMADR_Q1 = '1' then MEMADR_OK <= '1'; end if;
+        end if;
+    end process P_MEMADR_OK;
 
     -- [MI1] Memory indirect: the pointer read (FETCH_MEMADR) and, right after it, the operand read
     -- (CALC_AEFF one clock, the address calculation) come before further queue prefetches. Before,
