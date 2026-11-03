@@ -367,7 +367,7 @@ signal ALU_INIT_I           : bit := '0';  -- [F54] measured warm-boot value
 signal AR_INC_S           : bit; -- [FLT2] internal copy of the AR_INC output.
 signal AR_DEC_S           : bit; -- [FLT2] internal copy of the AR_DEC output.
 signal SP_ADD_DISPL_S     : bit; -- [FLT2] internal copy of the SP_ADD_DISPL output.
-signal MV_ACT, MV_FLT, MV_RESTORE_I : bit := '0'; -- [F126]
+signal MV_ACT, MV_FLT, MV_RESTORE_I, MV_SAVE_I : bit := '0'; -- [F126]
 signal WR_FLT               : bit; -- [FLT1] The control unit's data write ends with a bus error (this clock).
 signal WFLT                 : bit := '0'; -- [FLT1] Held from a data write fault until the exception handler runs.
 signal FI_DIRTY             : boolean := false; -- [FLT2] The fetch side changed an address register in this instruction.
@@ -1668,6 +1668,8 @@ begin
             -- This logic is modeled synchronously (one clock latency) due to the one clock delay of the address calculation.
             if OP /= MOVEM or BIW_0(10) /= '1' or (ADR_MODE_I /= "010" and ADR_MODE_I /= "101" and ADR_MODE_I /= "110") then
                 STORE_AEFF <= '0'; 
+            elsif BUSY_EXH = '1' then
+                STORE_AEFF <= '0'; -- [F127] A bus error aborts the MOVEM: the exception stacks with the normal address calculation.
             elsif FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP then
                 STORE_AEFF <= '0'; -- Operation completed.
             elsif FETCH_STATE = SWITCH_STATE or FETCH_STATE = CALC_AEFF or FETCH_STATE = FETCH_OPERAND or FETCH_STATE = INIT_EXEC_WB then
@@ -1772,7 +1774,9 @@ begin
 
     -- [F126] MOVEM regs,-(An): An is decremented per register; a write bus error restarts the whole instruction
     -- after RTE, so An must get back its value from before the instruction (user mode, see address registers).
-    MV_SAVE <= '1' when OP = MOVEM and ADR_MODE_I = "100" and BIW_0(10) = '0' and INIT_ENTRY = '1' else '0';
+    -- [F127] also MOVEM (An)+,regs: snapshot at the first increment/decrement of the instruction.
+    MV_SAVE <= MV_SAVE_I;
+    MV_SAVE_I <= '1' when OP = MOVEM and (ADR_MODE_I = "100" or ADR_MODE_I = "011") and (AR_DEC_S = '1' or AR_INC_S = '1') and MV_ACT = '0' else '0';
     MV_RESTORE <= MV_RESTORE_I;
     P_MVFLT: process
     begin
@@ -1780,13 +1784,13 @@ begin
         MV_RESTORE_I <= '0';
         if RESET_CPU = '1' then
             MV_ACT <= '0'; MV_FLT <= '0';
-        elsif OP = MOVEM and ADR_MODE_I = "100" and BIW_0(10) = '0' and INIT_ENTRY = '1' then
-            MV_ACT <= '1'; MV_FLT <= '0';
         elsif MV_FLT = '1' and BUSY_EXH = '1' then
             MV_RESTORE_I <= '1'; MV_FLT <= '0'; MV_ACT <= '0';
-        elsif MV_ACT = '1' and WR_FLT = '1' then
+        elsif MV_ACT = '1' and (WR_FLT = '1' or (RD_RDY = '1' and DATA_VALID = '0')) then
             MV_FLT <= '1';
-        elsif OP /= MOVEM then
+        elsif MV_SAVE_I = '1' then
+            MV_ACT <= '1'; MV_FLT <= '0';
+        elsif MV_FLT = '0' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP then
             MV_ACT <= '0';
         end if;
     end process P_MVFLT;
