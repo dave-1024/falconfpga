@@ -76,6 +76,7 @@
 -- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
 -- Changes are tagged Fnn in the code. Dates are from git history.
 -- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-11-04 F145: EXCEPTION_HANDLER_DEC sensitivity list completed (EX_P_MMUCFG).
 --   2026-09-30 F3/F4/F9: format $A RTE, version word x"1904", RTE reads last frame word.
 --   2026-09-30 F5/F6: bus-errored IACK is spurious; AVEC ends CPU-space IACK only.
 --   2026-09-30 F12: RTE abandoned by a fault is not retried.
@@ -878,7 +879,7 @@ begin
 
     EXCEPTION_HANDLER_DEC: process(ACCESS_ERR, BUSY_MAIN, BUSY_OPD, DATA_IN, DATA_VALID, DOUBLE_BUSFLT, EX_STATE, EX_P_RESET, EX_P_AERR, EX_P_BERR, EX_P_TRACE, 
                                    INT_REQ, EX_P_ILLEGAL, EX_P_1010, EX_P_TRAPcc, EX_P_RTE, EX_P_1111, EX_P_FORMAT, EX_P_PRIV, EX_P_TRAP, EX_P_TRAPV, 
-                                   EX_P_CHK, EX_P_DIVZERO, EXCEPTION, DATA_RDY, PIPE_FULL, MBIT, STACK_CNT, STACK_FORMAT_I)
+                                   EX_P_CHK, EX_P_DIVZERO, EXCEPTION, DATA_RDY, PIPE_FULL, MBIT, STACK_CNT, STACK_FORMAT_I, EX_P_MMUCFG) -- [F145] EX_P_MMUCFG
     begin
         case EX_STATE is
             when IDLE =>

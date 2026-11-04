@@ -324,3 +324,12 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
   suspect a timing/CDC path that timing_pairs does not cover (or a power-up value), not a pure logic error. This
   fits sim never reproducing it. Next: compare the bld_aq and aqt4 timing reports and unconstrained/async paths
   around OW_REQ/opword acknowledge, IC_MISS_LK and the bus-interface handoff.
+- 2026-11-04 15:40 UK F145: early issue on again except ADDQ/SUBQ #,An (a workaround from an external review; the
+  root cause of the bld_aq failure is not explained). Sensitivity lists completed (control EXEC_WB_DEC MV_RW_WB,
+  exception handler EX_P_MMUCFG, mmu P_PINS BM_CNT).
+  run_rtl PASS; irq suite and grpb (I-cache on/off) identical to F143.
+  Build: clk_cpu030 21.312 MHz, clk32_core 33.902, 46160 LUT + 5322 ALU, timing_pairs PASS.
+  Board (SRAM): AUTO LOOPTEST 3/3 cold boots, ST 216684, TT off 557103, TT I/I+D 1307189 (same as F144; the LOOPTEST
+  loop is not register-only). Linux: BogoMIPS 1.95 (lpj 9792), F143 was 1.79 (8960).
+  Brief-format index after DIVUL/MULS/MULU.L/BFEXTU/BFEXTS/BFFFO/DIVS.W/DIVU.W (lea/pea/move d8(An,Dn)) matches the
+  padded reference at WS 0/1/3/7 on F143 and F145: the external claim is not reproduced.

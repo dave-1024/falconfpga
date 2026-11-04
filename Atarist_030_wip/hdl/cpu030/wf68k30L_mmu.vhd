@@ -1,5 +1,6 @@
 ------------------------------------------------------------------------
 -- [PMMU2] WF68K30L MMU: address translation cache (ATC) and table walker (MC68030UM section 9).
+-- [F145] 2026-11-04: P_PINS sensitivity list completed (BM_CNT).
 --
 -- Sits between the bus interface and the pins. With TC.E set, a cycle that is not CPU space (FC 7) and not in
 -- a transparent window (TT0/TT1) is looked up in the 22-entry fully associative ATC (9.4, p9-17..9-20):
@@ -240,7 +241,7 @@ begin
     XLATE_PIN <= XLATE; -- [F66]
     P_PINS: process(WS, XLATE, HIT_OK, BLK_PIN, XLATE_PIN, C_ADR, C_FC, C_SIZE, C_ASn, C_DSn, C_RWn, C_RMCn, C_ECSn, C_OCSn, C_DBENn,
                     C_DATA_OUT, C_DATA_EN, C_BUS_EN, H_PA, PMASK, BM_A, BM_D, BM_SZ, BM_AS, BM_DS, BM_WR, BS, RMC_W,
-                    P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI, CYC_ON, CYC_X, CYC_PA, CYC_MASK)
+                    P_DSACKn, P_STERMn, P_BERRn, FAULT_NOW, H_CI, CYC_ON, CYC_X, CYC_PA, CYC_MASK, BM_CNT) -- [F145] BM_CNT
         variable BLK : boolean;
     begin
         BLK := WS /= W_IDLE or (XLATE = '1' and HIT_OK = '0');
