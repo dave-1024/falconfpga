@@ -370,3 +370,8 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
   (c) OPCODE_RDY from IC_MTAKE in the same clock, and/or OPD_ACK combinational from PIPE_RDY. Saves 1-2 per COF,
       but adds a long combinational path (Fmax is 21.3 MHz against a 16 MHz floor) and is early-issue-like board risk.
   Stopped here for the token budget; no RTL changed (F145 unchanged).
+- 2026-11-04 18:20 UK, step (b) sized and not started (token budget): opcode delivery is one registered 16-bit strobe
+  (bus_interface OPCODE_RDY_I process ~1610-1640, Q_HIT/Q_NMATCH ~915-925). Two words per clock needs a second
+  word/valid/fault port (bus_interface, top ~1355/1495/1906, pkg component), a two-word queue pop (Q_CNT, Q_ADR+4,
+  Q_C) and decoder IPIPE fill transitions 0->2 and 1->3 with fault bits (opcode_decoder ~370-475).
+  About 100-150 lines over 4 files. Do it in a fresh session; F145 is unchanged.
