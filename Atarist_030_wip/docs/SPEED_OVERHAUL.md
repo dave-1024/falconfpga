@@ -191,6 +191,10 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
 - 07:33 UK: **bisect: bld_def (groups D+E+F early) PASSES** on the board: AUTO LOOPTEST runs on a cold boot (lta1.st), same numbers as F143 (ST 216684, TT off 557103, TT I/I+D 1204819). The fault is in A, B or C. Single-group builds bld_a / bld_b running (bld_c next).
 - 08:20 UK: **bisect: the failing group is B** (register ALU: ADD/ADDA/ADDQ/SUB/SUBA/SUBQ/AND/OR/EOR/CMP/CLR/NEG/NEGX/NOT/TST with a Dn/An <ea>). Single-group builds, each timing_pairs rc=0, SRAM, cold boot with lta1.st: bld_a (A only) PASS, bld_b (B only) FAIL (desktop, AUTO LOOPTEST does not run), bld_c (C only) PASS; bld_def PASS.
   Sim does not reproduce B: 48 random group-B programs (grpb/gen.py: Dn/An ALU ops followed by An address use, Bcc on the flags, Scc, X-flag ops, TRAP #0; WS 0-2, WSRND, CIMODE 0/1, and 24 of them with periodic level 4 + level 6 interrupts, autovector and vector 30) write identical results on F143 and on the B-only core. Next: bld_b1 (ADD/SUB/AND/OR/EOR/CMP/ADDA/SUBA) and bld_b2 (ADDQ/SUBQ/CLR/NEG/NEGX/NOT/TST) are building.
+- 09:00 UK: **bisect B: both halves fail on the board.** bld_b1 (ADD/SUB/AND/OR/EOR/CMP/ADDA/SUBA early) FAIL (desktop, no AUTO LOOPTEST); bld_b2 (ADDQ/SUBQ/CLR/NEG/NEGX/NOT/TST early) FAIL (AUTO does not run; FreeMiNT then panics "Bus Error" addr=$E1091C pc=$E0F89E sr=2300 ssr=0115). Both timing_pairs rc=0.
+  The two halves share address arithmetic on An (ADDA/SUBA, ADDQ/SUBQ #,An, ALU with An source) and CCR-setting Dn ops; A (MOVEQ/EXG/SWAP/EXT), C (Dn immediates) and D (MOVE/MOVEA Rn) pass.
+  grpb extended (An as index, (An)+/-(An), LEA/PEA/MOVEM/JSR (An) right after the An write, SP arithmetic, BSR, user mode with USP and interrupts); a label bug in gen.py (0x1fc rewritten) is fixed. 32 programs on the fixed generator are identical on F143 and the B-only core. The fault is not reproduced in the CPU-only bench.
+  Board left on bld142n (F143) SRAM, drive0=/sd/gbref.st (read back), TOS desktop confirmed.
 
 ## Broad harness, F143 (EARLY_ISSUE=false), 2026-11-04
 
