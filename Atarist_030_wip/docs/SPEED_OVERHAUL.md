@@ -333,3 +333,16 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
   loop is not register-only). Linux: BogoMIPS 1.95 (lpj 9792), F143 was 1.79 (8960).
   Brief-format index after DIVUL/MULS/MULU.L/BFEXTU/BFEXTS/BFFFO/DIVS.W/DIVU.W (lea/pea/move d8(An,Dn)) matches the
   padded reference at WS 0/1/3/7 on F143 and F145: the external claim is not reproduced.
+- 2026-11-04 17:30 UK, timing gaps (sim harness, I-cache warm, WS=0), F145 baseline:
+  BSR.W+RTS 29, JSR (An)+RTS 29 (manual 13-15); LEA (d16,An) 5 (manual 2); LEA (An) 4; MOVEM.L 4 regs to (An) 37,
+  (An) to 4 regs 43 (manual ~12-16).
+  * BSR/JSR+RTS and MOVEM: each 16-bit bus cycle takes 4 clocks in tb030 (that is ~16 of BSR+RTS's 29 and ~32 of
+    MOVEM's 37). The rest is change-of-flow refill: 16 bus-idle clocks from the RTS's last read to the next push,
+    and it is not an SP hazard (padding after BSR adds its full cost; NOP 3, BRA.W 7, JMP 9).
+    Fixing it needs a bus-interface rework (cycle length) plus faster COF refill: skipped as a large rework.
+  * LEA (d16,An): START_OP > FETCH_DISPL > SWITCH_STATE (the registered ADR_EFF calculation clock) > INIT_EXEC_WB.
+    Removing a state needs a combinational EA path into the An write (Fmax risk): skipped.
+  * F146 (not committed): LEA (An)/(d16,An) in F141 EARLY_OW gave LEA (An) 4 -> 3 clocks (d16 unchanged).
+    irq and grpb were identical to F145; build 19.561 MHz, 46123 LUT + 5328 ALU, timing_pairs PASS; AUTO LOOPTEST
+    passed 2/2. But Linux panicked early ("Attempted to kill the idle task") where F145 boots: dropped. The early-
+    issue class of bug again (cf. ADDQ/SUBQ #,An, F143): real-board-only, sim does not catch it.
