@@ -295,3 +295,10 @@ Decision (David, 2026-11-04): push the current WF68K30L core as far as possible 
 - It uses the lessons learned here (prefetch queue/COF handling, early issue hazards such as the F141 group B board failure, IRQ_HOT gating, bus-error restart F122-F131) and the MC68030UM (section 11 timings, bus protocol) as the oracle.
 - It must be a drop-in replacement: same top-level ports and ST/TT bridge interface as WF68K30L.
 - Keep the speed harness reusable as its test bench: `hdl/cpu030/sim/speed` (tests.txt, gen.py, runall.sh, the broad timing table vs the manual), `sim/speed/irq`, `sim/speed/grpb` (random differential test) and `sim/rtl/run_rtl.sh`.
+
+## Planned steps: deeper pipelining (approved by David, 2026-11-04)
+
+Order: after the F141 An-involved early-issue fault is found and fixed. Every step keeps all cycle counts at or above MC68030UM section 11 (never faster than the manual; the broad harness table must stay at faster 0), and passes run_rtl, the process(all) variant, grpb, the Gowin build with timing_pairs (clk_cpu030 >= 16 MHz) and the board check before it is committed.
+1. **ALU result forwarding**: an instruction that reads a register written by the previous ALU instruction takes the ALU result directly instead of waiting for the register-file writeback (DR/AR_IN_USE stall removed for the forwarded case). An registers included only after the F141 An fault is understood.
+2. **Decode-ahead**: decode the next operation word (and determine its extension-word count/INSTR_LVL) while the current instruction executes, so START_OP of the next instruction does not wait on decode; extension words are taken from the pipe as soon as they are present.
+3. **Overlap of register-only instructions with pending write bus cycles**: as the 68030 bus controller, a posted operand write may run while following register-only instructions execute; the next memory access waits for the write as now. Bus-error/restart semantics (F122-F131) must be unchanged.
