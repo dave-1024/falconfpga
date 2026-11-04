@@ -346,3 +346,16 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
     irq and grpb were identical to F145; build 19.561 MHz, 46123 LUT + 5328 ALU, timing_pairs PASS; AUTO LOOPTEST
     passed 2/2. But Linux panicked early ("Attempted to kill the idle task") where F145 boots: dropped. The early-
     issue class of bug again (cf. ADDQ/SUBQ #,An, F143): real-board-only, sim does not catch it.
+- 2026-11-04 17:40 UK, bus-cycle check: the 4-clock 16-bit cycle comes from the bench, not the CPU.
+  tb030.vhd:171 waits 2+WS clock edges after AS before driving DSACK. With 1+WS (scratch copy only) the CPU runs
+  3-clock async cycles (MC68030UM minimum); BSR.W+RTS 29 -> 25 and MOVEM.L 4 regs to (An) 37 -> 29.
+  So bus_interface S0-S5 placement and handoff are fine; on the board the ST bridge sets the cycle length legitimately.
+  MOVEM's remaining gap is mostly the 16-bit port (8 cycles x 3); the manual's 12-16 assumes a 32-bit port.
+  Real CPU waste left: change-of-flow refill, about 13 internal clocks per BSR+RTS pair beyond 4 x 3 bus clocks
+  (manual about 3). Plan (not small): (1) RTS/JMP/BSR should start the target fetch from the I-cache in the clock the
+  target is known (extend the F144 IC_MTAKE path, bus_interface ~930-945 and 1400-1415, to RTS's operand-read end),
+  (2) skip the decoder P_BSY/COF_BLK stall once the target long is queued (opcode_decoder ~245-300),
+  (3) allow START_OP decode in the clock IPIPE becomes valid after the flush (control START_OP OPD_ACK wait).
+  Estimated 150-300 lines across 3 files, plus board risk like F141/F146 (early-issue bugs seen only on the board).
+  Optional bench change: tb030 DSACK at 1+WS to model 3-clock async cycles. That would rebase all harness numbers,
+  so do it as its own step.
