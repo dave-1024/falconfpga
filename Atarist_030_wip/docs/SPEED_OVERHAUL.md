@@ -187,6 +187,8 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
 - 05:31 UK: F143 gates PASS (run_rtl incl. F122-F131, simall). Committed. Board build = bld142n (logically identical).
 - 05:32 UK: F141 per-group board bisect started. Groups: A MOVEQ/EXG/SWAP/EXT, B register ALU, C Dn immediates, D MOVE/MOVEA Rn, E register shifts, F bit ops on Dn. Builds bld_abc (A+B+C early) and bld_def (D+E+F early), both from the F142 source.
 - 06:27 UK: **bisect: bld_abc (groups A+B+C early, D+E+F off) FAILS** on the board (AUTO shows no output; desktop only). The fault is in A (MOVEQ/EXG/SWAP/EXT), B (register ALU) or C (Dn immediates). bld_def is building.
+- 07:25 UK: Linux (linux68k30.st via AUTO bootstrap, lxa.st) on bld142n/F143 SRAM reaches the busybox prompt (~20 min): **Clocking 7.1MHz, BogoMips 1.79** (Calibration 8960 loops), f131: 6.6 MHz / 1.66. A real 16 MHz 030 gives ~3.95. drive0 restored to /sd/gbref.st and the TOS desktop confirmed.
+- 07:33 UK: **bisect: bld_def (groups D+E+F early) PASSES** on the board: AUTO LOOPTEST runs on a cold boot (lta1.st), same numbers as F143 (ST 216684, TT off 557103, TT I/I+D 1204819). The fault is in A, B or C. Single-group builds bld_a / bld_b running (bld_c next).
 
 ## Broad harness, F143 (EARLY_ISSUE=false), 2026-11-04
 
