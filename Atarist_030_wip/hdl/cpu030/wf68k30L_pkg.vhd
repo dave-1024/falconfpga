@@ -40,6 +40,7 @@
 --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-04 F147: OPCODE_RDY_2/OPCODE_VALID_2/second opcode word ports (bus interface out, decoder in).
 --   2026-11-03 F140: OPC_RD_NEXT ports (decoder out, bus interface in).
 -- 
 
@@ -286,6 +287,9 @@ component WF68K30L_BUS_INTERFACE
         WR_TAKE             : in bit;
         OPCODE_REQ          : in bit;
         OPCODE_RDY          : out bit;
+        OPCODE_RDY_2        : out bit; -- [F147]
+        OPCODE_VALID_2      : out std_logic; -- [F147]
+        OPCODE_TO_CORE_2    : out std_logic_vector(15 downto 0); -- [F147]
         OPCODE_VALID        : out std_logic;
         RMC                 : in bit;
         BUSY_EXH            : in bit;
@@ -661,6 +665,9 @@ component WF68K30L_OPCODE_DECODER
         OPC_RD_NEXT         : out bit; -- [F140]
         PIPE_FULL           : out bit; -- [F140]
         OPCODE_RDY          : in bit;
+        OPCODE_RDY_2        : in bit; -- [F147]
+        OPCODE_VALID_2      : in std_logic; -- [F147]
+        OPCODE_DATA_2       : in std_logic_vector(15 downto 0); -- [F147]
         OPCODE_VALID        : in std_logic;
         OPCODE_DATA         : in std_logic_vector(15 downto 0);
         IPIPE_FILL          : in bit;

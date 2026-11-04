@@ -67,6 +67,7 @@
 --   2026-10-04 F59: pipe flush sets OP to NOP (loop-mode interrupt deadlock).
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
+--   2026-11-04 F147: two-word pipe fill 0->2 / 1->3 (OPCODE_RDY_2), fetch offset +2 words.
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 -- 
 
@@ -109,6 +110,9 @@ entity WF68K30L_OPCODE_DECODER is
         OPC_RD_NEXT         : out bit; -- [F140] In an OPCODE_RDY clock: the following word is wanted too (queue only).
         PIPE_FULL           : out bit; -- [F140] Stages D, C and B hold words.
         OPCODE_RDY          : in bit;
+        OPCODE_RDY_2        : in bit; -- [F147]
+        OPCODE_VALID_2      : in std_logic; -- [F147]
+        OPCODE_DATA_2       : in std_logic_vector(15 downto 0); -- [F147]
         OPCODE_VALID        : in std_logic;
         OPCODE_DATA         : in std_logic_vector(15 downto 0);
 
@@ -208,6 +212,7 @@ signal OP_I                 : OP_68K;
 signal OPCODE_FLUSH         : bit := '0'; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal OPCODE_RD_I          : bit;
 signal OPCODE_RDY_I         : bit;
+signal OPCODE_RDY_2_I       : bit; -- [F147]
 signal OW_REQ               : bit;
 
 signal TRAP_CODE_I          : TRAPTYPE_OPC;
@@ -279,7 +284,7 @@ begin
     -- exceptions or loop mode; the bus interface uses it only for queue hits, never to start a bus cycle.
     -- Only on demand (the control unit waits for an operation or extension word), so the pipe does not run
     -- further ahead of execution than before and the stream prefetch placement is unchanged.
-    OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
+    OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_RDY_2 = '0' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
                             IPIPE_PNTR < 2 and (OW_REQ = '1' or EW_REQ = '1') and LOOP_ATN = false and LOOP_BSY_I = false else '0';
     OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
 
@@ -355,6 +360,7 @@ begin
         end if;
     end process P_PF_HOLD;
     OPCODE_RDY_I <= '0' when OPCODE_FLUSH = '1' else OPCODE_RDY; -- Dismiss the current read cycle.
+    OPCODE_RDY_2_I <= '0' when OPCODE_FLUSH = '1' else OPCODE_RDY_2; -- [F147]
     BUSY_OPD <= '0' when EXH_REQ = '1' and BUSY_MAIN = '0' and IPIPE_PNTR > 0 and OPCODE_RD_I = '0' else -- Fill one opcode is sufficient here.
                 '1' when IPIPE_PNTR < 3 or OPCODE_RD_I = '1' else '0';
 
@@ -486,11 +492,23 @@ begin
                 when 1 =>
                     IPIPE.C <= OPCODE_DATA;
                     IPIPE_C_FAULT <= not OPCODE_VALID;
-                    IPIPE_PNTR <= 2;
+                    if OPCODE_RDY_2_I = '1' then -- [F147] Two words.
+                        IPIPE.B <= OPCODE_DATA_2;
+                        IPIPE_B_FAULT <= not OPCODE_VALID_2;
+                        IPIPE_PNTR <= 3;
+                    else
+                        IPIPE_PNTR <= 2;
+                    end if;
                 when 0 =>
                     IPIPE.D <= OPCODE_DATA;
                     IPIPE_D_FAULT <= not OPCODE_VALID;
-                    IPIPE_PNTR <= 1;
+                    if OPCODE_RDY_2_I = '1' then -- [F147] Two words.
+                        IPIPE.C <= OPCODE_DATA_2;
+                        IPIPE_C_FAULT <= not OPCODE_VALID_2;
+                        IPIPE_PNTR <= 2;
+                    else
+                        IPIPE_PNTR <= 1;
+                    end if;
                 when others => null;
             end case;
         end if;
@@ -728,8 +746,12 @@ begin
         if CLK = '1' and CLK' event then
             if IPIPE_FLUSH = '1' then
                 ADR_OFFSET := "0000000";
+            elsif PC_INC_I = '1' and OPCODE_RDY_2_I = '1' then -- [F147] Two words.
+                ADR_OFFSET := ADR_OFFSET + "10" - PC_VAR;
             elsif PC_INC_I = '1' and OPCODE_RDY_I = '1' then
                 ADR_OFFSET := ADR_OFFSET + '1' - PC_VAR;
+            elsif OPCODE_RDY_2_I = '1' then -- [F147]
+                ADR_OFFSET := ADR_OFFSET + "10";
             elsif OPCODE_RDY_I = '1' then
                 ADR_OFFSET := ADR_OFFSET + '1';
             elsif PC_INC_I = '1' then

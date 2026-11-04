@@ -162,6 +162,7 @@
 --   2026-10-17 IC: 68030 instruction cache (WF68K30L_ICACHE) on the prefetch queue, unconditional; cache pins
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
+--   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
 --   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
 --
@@ -422,6 +423,9 @@ signal OPC_RD_NEXT              : bit; -- [F140]
 signal PIPE_FULL                : bit; -- [F140]
 signal OPCODE_RDY               : bit;
 signal OPCODE_VALID             : std_logic;
+signal OPCODE_RDY_2             : bit; -- [F147]
+signal OPCODE_VALID_2           : std_logic; -- [F147]
+signal OPCODE_TO_CORE_2         : std_logic_vector(15 downto 0); -- [F147]
 signal OPCODE_TO_CORE           : std_logic_vector(15 downto 0);
 signal OP_SIZE                  : OP_SIZETYPE;
 signal OP_SIZE_BUS              : OP_SIZETYPE;
@@ -1508,6 +1512,9 @@ begin
             WR_TAKE             => WR_TAKE,
             OPCODE_REQ          => IC_BUS_REQ,
             OPCODE_RDY          => BUS_OPCODE_RDY,
+            OPCODE_RDY_2        => OPCODE_RDY_2, -- [F147]
+            OPCODE_VALID_2      => OPCODE_VALID_2,
+            OPCODE_TO_CORE_2    => OPCODE_TO_CORE_2,
             OPCODE_VALID        => OPCODE_VALID,
             RMC                 => RMC,
             BUSY_EXH            => BUSY_EXH,
@@ -1904,6 +1911,9 @@ begin
             OPCODE_RDY              => OPCODE_RDY,
             OPCODE_VALID            => OPCODE_VALID,
             OPCODE_DATA             => OPCODE_TO_CORE,
+            OPCODE_RDY_2            => OPCODE_RDY_2, -- [F147]
+            OPCODE_VALID_2          => OPCODE_VALID_2,
+            OPCODE_DATA_2           => OPCODE_TO_CORE_2,
 
             IPIPE_FILL              => IPIPE_FILL,
             IPIPE_FLUSH             => IPIPE_FLUSH,

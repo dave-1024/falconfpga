@@ -89,6 +89,7 @@
 --     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
 --   2026-11-03 F140: Q_HIT also serves the next word in an OPCODE_RDY clock (OPC_RD_NEXT, Q_NMATCH): one opcode word per clock.
 --   2026-11-04 F144: branch target from the instruction cache in the stream-restart clock (IC_MTAKE, IC_MISS_LK).
+--   2026-11-04 F147: two-word opcode delivery (OPCODE_RDY_2) on the first queue hit after an IC_MTAKE restart.
 -- 
 
 library work;
@@ -148,6 +149,9 @@ entity WF68K30L_BUS_INTERFACE is
         WR_TAKE             : in bit; -- [F3] The control unit took WR_EARLY for the next MOVEM register: no DATA_RDY.
         OPCODE_REQ          : in bit; -- Read opcode.
         OPCODE_RDY          : out bit; -- Indicates 'new opcode available' (this is a strobe).
+        OPCODE_RDY_2        : out bit; -- [F147] OPCODE_RDY also carries the following word (OPCODE_TO_CORE_2).
+        OPCODE_VALID_2      : out std_logic; -- [F147]
+        OPCODE_TO_CORE_2    : out std_logic_vector(15 downto 0); -- [F147]
         OPCODE_VALID        : out std_logic; -- The opcode buffer contains valid data when '1'.
         RMC                 : in bit; -- Indicates a read modify write operation.
         BUSY_EXH            : in bit;
@@ -283,6 +287,11 @@ signal HALTED               : bit := '0';  -- [F54] measured warm-boot value
 signal NEXT_ARB_STATE       : ARB_STATES := IDLE;  -- [F54] measured warm-boot value
 signal NEXT_BUS_CTRL_STATE  : BUS_CTRL_STATES := IDLE;  -- [F54] measured warm-boot value
 signal OBUFFER              : std_logic_vector(15 downto 0);
+signal OBUFFER_2            : std_logic_vector(15 downto 0); -- [F147]
+signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
+signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
+signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
+signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
 signal READ_ACCESS          : bit := '0';  -- [F54] measured warm-boot value
@@ -920,6 +929,9 @@ begin
     Q_NMATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) + '1' and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
              '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
+    -- [F147] Two words in the first queue hit after an IC_MTAKE restart (pipe empty, word 1 present).
+    Q_HIT2 <= '1' when Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1' and Q_CNT >= 2 and Q_C(1) = '1' else '0';
+
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
@@ -1325,8 +1337,14 @@ begin
             W := Q_W; F := Q_F; C := Q_C; CNT := Q_CNT;
             if Q_HIT = '1' then
                 W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3); C(0 to 2) := C(1 to 3);
-                CNT := CNT - 1;
-                Q_ADR <= Q_ADR + '1';
+                if Q_HIT2 = '1' then -- [F147] Two words taken.
+                    W(0 to 1) := W(2 to 3); F(0 to 1) := F(2 to 3); C(0 to 1) := C(2 to 3); C(2) := '0'; C(3) := '0';
+                    CNT := CNT - 2;
+                    Q_ADR <= Q_ADR + "10";
+                else
+                    CNT := CNT - 1;
+                    Q_ADR <= Q_ADR + '1';
+                end if;
             end if;
             -- Bus errors of the running prefetch, per word.
             if PF_ACC = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_FLT = '1' then
@@ -1614,6 +1632,7 @@ begin
         wait until CLK = '1' and CLK' event;
         --
         OPCODE_RDY_I <= '0'; -- This is a strobe.
+        OPCODE_RDY_2_I <= '0'; -- [F147] Strobe.
         DATA_RDY_I <= '0'; -- This is a strobe.
         --
         -- The following variable is responsible, that the _RDY signals are
@@ -1636,6 +1655,9 @@ begin
             elsif Q_HIT = '1' then
                 OBUFFER <= Q_W(0);
                 OPCODE_RDY_I <= '1';
+                OBUFFER_2 <= Q_W(1); -- [F147]
+                OPCODE_VALID_2_I <= not To_StdULogic(Q_F(1));
+                OPCODE_RDY_2_I <= Q_HIT2;
             end if;
         elsif OPCODE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" then
             -- Instruction prefetches are always long and on word boundaries.
@@ -1722,6 +1744,19 @@ begin
         end if;
     end process P_WP_DONE;
     OPCODE_RDY <= OPCODE_RDY_I;
+    OPCODE_RDY_2 <= OPCODE_RDY_2_I; -- [F147]
+    OPCODE_VALID_2 <= OPCODE_VALID_2_I;
+    OPCODE_TO_CORE_2 <= OBUFFER_2;
+
+    P_RESTART_PEND: process -- [F147]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if IC_MTAKE = '1' then
+            RESTART_PEND <= '1';
+        elsif OPCODE_RDY_I = '1' or RESET_CPU_I = '1' then
+            RESTART_PEND <= '0';
+        end if;
+    end process P_RESTART_PEND;
 
     DATA_TO_CORE <= DBUFFER;
     OPCODE_TO_CORE <= OBUFFER;
