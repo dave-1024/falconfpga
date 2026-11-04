@@ -176,3 +176,10 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
   - smc_tt.s / smc_st.s: code copied into cacheable RAM, CACR clear, run, new code, clear, run (Pexec-like).
   Baseline (838ef0c) and F142 give identical results in every case. **The board failure does not reproduce in sim yet.**
   The bisect build without F141 early issue (bld142n, EARLY_OW forced to '0') is running. The first try failed with a Gowin "License verification failed / server not responding"; a plain retry is building.
+- 04:37 UK **bisect result**: the F142 build with the F141 early issue forced off (bld142n: clk_cpu030 / timing_pairs rc=0, 46091 LUT + 5331 ALU, SRAM) runs LOOPTEST from AUTO on a cold boot:
+  ST-RAM 216684 loops/s (73.8 clk) in all three cache modes; TT-RAM caches off 557103 (28.7); TT-RAM I-cache and I+D 1204819 (13.3 clk/pass, f132: 1117318 = 14.3).
+  So **the fault is in F141's early OW_REQ**, not F140 or F142 (the F140 queue path and the MOVEQ overwrite-only hazard change are in this build).
+  F143 turns early issue off (EARLY_ISSUE constant). bld142n is logically the same as F143.
+  The board is left on bld142n in SRAM, with f131 in flash. atarist.ini is restored to drive0=/sd/gbref.st.
+  The F143 regressions (run_rtl + simall) are running.
+  F141 root cause is still open. The sim IRQ checks pass, so suspects are board-only paths: the ST bridge FAST_HANDOFF / ST-RAM wait timing, a bus-error retry, MFP vectored interrupts on the real bridge, and TRAP/line-A/GEMDOS paths with an early OW_REQ while the next opcode is in ST-RAM.
