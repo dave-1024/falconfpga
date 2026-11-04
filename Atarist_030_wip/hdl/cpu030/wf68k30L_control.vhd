@@ -157,6 +157,7 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-04 F142: CMPA Rn,An one clock longer (4, as the manual; it was faster).
 --   2026-11-04 F141: early OW_REQ in INIT_EXEC_WB for register-only instructions (2-clock issue, MC68030UM 11.6).
 --
 
@@ -426,6 +427,7 @@ signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
 signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
+signal CMPA_DLY             : bit := '0'; -- [F142]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
 signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
 signal ADR_MARK_USED_W      : bit; -- [C1]
@@ -576,6 +578,17 @@ begin
 
     RD_RDY <= DATA_RDY when READ_CYCLE = '1' else '0';
     WR_RDY <= DATA_RDY when WRITE_CYCLE = '1' else '0';
+
+    -- [F142] CMPA Rn,An takes 4 clocks on the 68030 (MC68030UM 11.6.7), one more than CMP: one extra START_OP clock.
+    P_CMPA_DLY: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE = START_OP and (OPD_ACK = '1' or OW_RDY = '1') and OP = CMPA and BIW_0(5 downto 4) = "00" then
+            CMPA_DLY <= '1';
+        else
+            CMPA_DLY <= '0';
+        end if;
+    end process P_CMPA_DLY;
 
     INIT_ENTRY <= '1' when FETCH_STATE /= INIT_EXEC_WB and NEXT_FETCH_STATE = INIT_EXEC_WB else '0';
     
@@ -1957,7 +1970,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2049,7 +2062,9 @@ begin
                              DIVS | DIVU | MULS | MULU | MOVEA | MOVE_TO_CCR | MOVE_TO_SR | SUBA =>
                              case BIW_0(5 downto 3) is
                                 when "000" => -- Source is Dn.
-                                    if (OP = ADDA or OP = SUBA or OP = CMPA or OP = MOVEA) and (AR_IN_USE = '1' or DR_IN_USE = '1') then -- ADH.
+                                    if OP = CMPA and CMPA_DLY = '0' then -- [F142] CMPA Rn,An: 4 clocks (MC68030UM 11.6.7).
+                                        NEXT_FETCH_STATE <= START_OP;
+                                    elsif (OP = ADDA or OP = SUBA or OP = CMPA or OP = MOVEA) and (AR_IN_USE = '1' or DR_IN_USE = '1') then -- ADH.
                                         NEXT_FETCH_STATE <= START_OP;
                                     elsif DR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -2057,7 +2072,9 @@ begin
                                         NEXT_FETCH_STATE <= START_OP;
                                     end if;
                                 when "001" => -- Valid for ADDA, CMPA, MOVEA, SUBA; source is An.
-                                    if AR_IN_USE = '0' then
+                                    if OP = CMPA and CMPA_DLY = '0' then -- [F142]
+                                        NEXT_FETCH_STATE <= START_OP;
+                                    elsif AR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB; -- ADH.
                                     else
                                         NEXT_FETCH_STATE <= START_OP;
