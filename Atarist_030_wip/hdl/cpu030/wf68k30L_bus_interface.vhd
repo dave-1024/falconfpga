@@ -88,6 +88,7 @@
 --     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
 --     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
 --   2026-11-03 F140: Q_HIT also serves the next word in an OPCODE_RDY clock (OPC_RD_NEXT, Q_NMATCH): one opcode word per clock.
+--   2026-11-04 F144: branch target from the instruction cache in the stream-restart clock (IC_MTAKE, IC_MISS_LK).
 -- 
 
 library work;
@@ -362,6 +363,8 @@ signal RA_DROP              : bit; -- [F2] Not requested as expected: dropped, t
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
 signal Q_NMATCH             : bit; -- [F140]
+signal IC_MISS_LK           : bit; -- [F144]
+signal IC_MTAKE             : bit; -- [F144]
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
 signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
 signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
@@ -930,8 +933,13 @@ begin
     -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
     PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT) and not RMC_HOLD; -- [RMC1] no prefetch between the locked read and its write
     IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
-    IC_LK_ADR <= F_ADR(31 downto 2);
-    IC_LK_FC2 <= Q_FC(2);
+    -- [F144] Stream restart (branch target, Q_MISS) with no prefetch in flight: look the requested long up in the
+    -- instruction cache in the restart clock and queue it at once (IC_MTAKE), one clock earlier than the IC_TAKE
+    -- of the next clock. The 68030 starts the target fetch from the cache when the branch resolves.
+    IC_MISS_LK <= '1' when Q_MISS = '1' and INFL = '0' and RMC_HOLD = '0' and RESET_CPU_I = '0' else '0';
+    IC_MTAKE <= IC_MISS_LK and To_Bit(IC_HIT);
+    IC_LK_ADR <= OPC_ADR(31 downto 2) when IC_MISS_LK = '1' else F_ADR(31 downto 2);
+    IC_LK_FC2 <= OPC_FC(2) when IC_MISS_LK = '1' else Q_FC(2); -- [F144]
     -- [IC] Fill: every bus prefetch long reports its end with, per word, "no bus error and CIIN negated on its
     -- portion" (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache fills aligned longs whose two words are
     -- OK, assembles the longs of a misaligned stream (4n+2 start) from consecutive fetches, and checks EI, FI
@@ -1393,6 +1401,17 @@ begin
                 F_ADR <= OPC_ADR(31 downto 1);
                 if (INFL = '1' and PF_DONE = '0') or PF_START = '1' then
                     INFL_STALE <= '1';
+                end if;
+            end if;
+            -- [F144] The restart long from the instruction cache (IC_MTAKE, see above).
+            if IC_MTAKE = '1' then
+                if OPC_ADR(1) = '0' then
+                    W(0) := IC_HIT_DATA(31 downto 16); F(0) := '0'; C(0) := '1';
+                    W(1) := IC_HIT_DATA(15 downto 0); F(1) := '0'; C(1) := '1'; CNT := 2;
+                    F_ADR <= OPC_ADR(31 downto 1) + "10";
+                else
+                    W(0) := IC_HIT_DATA(15 downto 0); F(0) := '0'; C(0) := '1'; CNT := 1;
+                    F_ADR <= OPC_ADR(31 downto 1) + '1';
                 end if;
             end if;
             -- [F65] Same decision as the FSM. A cancel that sends the bus to

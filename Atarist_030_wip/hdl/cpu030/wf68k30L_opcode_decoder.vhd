@@ -67,6 +67,7 @@
 --   2026-10-04 F59: pipe flush sets OP to NOP (loop-mode interrupt deadlock).
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
+--   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 -- 
 
 library work;
@@ -215,6 +216,7 @@ signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
+signal COF_BLK              : bit := '0'; -- [F144]
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
     -- This logic requires asynchronous reset. This flip flop is intended 
@@ -235,11 +237,25 @@ begin
                 OPCODE_RD_I <= '1';
             elsif (LOOP_ATN = true and OPCODE_RD_I = '0') or LOOP_BSY_I = true then
                 OPCODE_RD_I <= '0';
+            elsif ((COF_PEND = '1' or COF_BLK = '1') and PF_DEMAND = '0') and BUSY_EXH = '0' then
+                OPCODE_RD_I <= '0'; -- [F144] No stream read behind a pending change of flow (it would be dismissed).
             elsif IPIPE_PNTR < 3 then
                 OPCODE_RD_I <= '1';
             end if;
         end if;
     end process P_BSY;
+
+    -- [F144] BRA/BSR taken over by the control unit: its target replaces the stream, so the decoder starts
+    -- no further stream read (it would be dismissed by the flush and delay the target request two clocks).
+    P_COF_BLK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if IPIPE_FLUSH = '1' or BUSY_EXH = '1' then
+            COF_BLK <= '0';
+        elsif OW_REQ = '1' and PIPE_RDY = '1' and (OP_I = BRA or OP_I = BSR) and LOOP_BSY_I = false then
+            COF_BLK <= '1';
+        end if;
+    end process P_COF_BLK;
 
     P_OPCODE_FLUSH: process
     -- If there is a pending opcode cycle during a pipe flush,
