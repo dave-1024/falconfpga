@@ -186,3 +186,4 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
 - 04:40 UK: loopmode.s (DBcc loop mode with register-only bodies) added. F142 and F143 both pass it; an apparent F142 failure was a stale GHDL mcode bench (sources edited after the build). F143 regressions are running. F143 WIP is on speed-wip.
 - 05:31 UK: F143 gates PASS (run_rtl incl. F122-F131, simall). Committed. Board build = bld142n (logically identical).
 - 05:32 UK: F141 per-group board bisect started. Groups: A MOVEQ/EXG/SWAP/EXT, B register ALU, C Dn immediates, D MOVE/MOVEA Rn, E register shifts, F bit ops on Dn. Builds bld_abc (A+B+C early) and bld_def (D+E+F early), both from the F142 source.
+- 06:27 UK: **bisect: bld_abc (groups A+B+C early, D+E+F off) FAILS** on the board (AUTO shows no output; desktop only). The fault is in A (MOVEQ/EXG/SWAP/EXT), B (register ALU) or C (Dn immediates). bld_def is building.
