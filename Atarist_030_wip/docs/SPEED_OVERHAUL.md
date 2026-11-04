@@ -149,3 +149,4 @@ Gates: `run_rtl.sh` fails two of them, so the prototype is not committed.
 4. Slow outliers (BSR/JSR/RTS, PEA, Scc, shifts), then the fast bug: CMPA.L Rn,An 3 → 4.
 Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) variant and a Gowin V1.9.12.03 build
 (clk_cpu030 >= 16 MHz, timing_pairs).
+- 2026-11-04 01:45 UK: WIP is safe on branch speed-wip (05f1121). The Gowin V1.9.12.03 build of F140+F141 (/workspace/bld141) gives clk_cpu030 20.069 MHz (f132: 20.869), clk32_core 33.885 MHz, 45892 LUT + 5330 ALU, timing_pairs rc=0, fs md5 5734c25d. The first run_rtl had one failure, prog_mmut: every block is faster, all still slower than the manual floors. expect_mmut.txt has been updated, and run_rtl plus simall are re-running.
