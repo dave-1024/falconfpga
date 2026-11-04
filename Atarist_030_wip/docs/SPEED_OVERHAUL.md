@@ -183,3 +183,4 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
   The board is left on bld142n in SRAM, with f131 in flash. atarist.ini is restored to drive0=/sd/gbref.st.
   The F143 regressions (run_rtl + simall) are running.
   F141 root cause is still open. The sim IRQ checks pass, so suspects are board-only paths: the ST bridge FAST_HANDOFF / ST-RAM wait timing, a bus-error retry, MFP vectored interrupts on the real bridge, and TRAP/line-A/GEMDOS paths with an early OW_REQ while the next opcode is in ST-RAM.
+- 04:40 UK: loopmode.s (DBcc loop mode with register-only bodies) added. F142 and F143 both pass it; an apparent F142 failure was a stale GHDL mcode bench (sources edited after the build). F143 regressions are running. F143 WIP is on speed-wip.
