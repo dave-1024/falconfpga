@@ -189,6 +189,8 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
 - 06:27 UK: **bisect: bld_abc (groups A+B+C early, D+E+F off) FAILS** on the board (AUTO shows no output; desktop only). The fault is in A (MOVEQ/EXG/SWAP/EXT), B (register ALU) or C (Dn immediates). bld_def is building.
 - 07:25 UK: Linux (linux68k30.st via AUTO bootstrap, lxa.st) on bld142n/F143 SRAM reaches the busybox prompt (~20 min): **Clocking 7.1MHz, BogoMips 1.79** (Calibration 8960 loops), f131: 6.6 MHz / 1.66. A real 16 MHz 030 gives ~3.95. drive0 restored to /sd/gbref.st and the TOS desktop confirmed.
 - 07:33 UK: **bisect: bld_def (groups D+E+F early) PASSES** on the board: AUTO LOOPTEST runs on a cold boot (lta1.st), same numbers as F143 (ST 216684, TT off 557103, TT I/I+D 1204819). The fault is in A, B or C. Single-group builds bld_a / bld_b running (bld_c next).
+- 08:20 UK: **bisect: the failing group is B** (register ALU: ADD/ADDA/ADDQ/SUB/SUBA/SUBQ/AND/OR/EOR/CMP/CLR/NEG/NEGX/NOT/TST with a Dn/An <ea>). Single-group builds, each timing_pairs rc=0, SRAM, cold boot with lta1.st: bld_a (A only) PASS, bld_b (B only) FAIL (desktop, AUTO LOOPTEST does not run), bld_c (C only) PASS; bld_def PASS.
+  Sim does not reproduce B: 48 random group-B programs (grpb/gen.py: Dn/An ALU ops followed by An address use, Bcc on the flags, Scc, X-flag ops, TRAP #0; WS 0-2, WSRND, CIMODE 0/1, and 24 of them with periodic level 4 + level 6 interrupts, autovector and vector 30) write identical results on F143 and on the B-only core. Next: bld_b1 (ADD/SUB/AND/OR/EOR/CMP/ADDA/SUBA) and bld_b2 (ADDQ/SUBQ/CLR/NEG/NEGX/NOT/TST) are building.
 
 ## Broad harness, F143 (EARLY_ISSUE=false), 2026-11-04
 
