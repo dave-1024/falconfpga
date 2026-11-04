@@ -304,3 +304,16 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
 1. **ALU result forwarding**: an instruction that reads a register written by the previous ALU instruction takes the ALU result directly instead of waiting for the register-file writeback (DR/AR_IN_USE stall removed for the forwarded case). An registers included only after the F141 An fault is understood.
 2. **Decode-ahead**: decode the next operation word (and determine its extension-word count/INSTR_LVL) while the current instruction executes, so START_OP of the next instruction does not wait on decode; extension words are taken from the pipe as soon as they are present.
 3. **Overlap of register-only instructions with pending write bus cycles**: as the 68030 bus controller, a posted operand write may run while following register-only instructions execute; the next memory access waits for the write as now. Bus-error/restart semantics (F122-F131) must be unchanged.
+
+### F141/F143 ADDQ/SUBQ #,An root cause: board trace notes (2026-11-04 11:25 UK)
+- The board ROM is EmuTOS 1.4 (etos256uk.img), not TOS 2.06. The B2 MiNT panic PC $E0F89E had been read
+  against the wrong image. Its SSR $0115 decodes as a byte write (FC5) to ROM $E1091C.
+- bld_aq + DIAG_TRACE (debug only: cpu_trace trigger on an address-error/illegal exception or any write to
+  $E00000-$EFFFFF) caught only EmuTOS's deliberate CPU probe (illegal $7300 at $E0A536 behind `subq.l #4,sp`).
+  The frame was stacked at the correct SP, so it is not the fault. No ROM write and no address error were seen
+  in the LOOPTEST failure: AUTO programs are skipped silently and nothing crashes.
+- Debug builds need DIAG_HEARTBEAT (and DIAG_DUMP); without it diag_go = 0 and the trace never transmits.
+- Sim: early issue saves no cycles in tb030 unless the I-cache serves the stream (CIMODE=1, code at $FD0000).
+  Earlier grpb runs did not exercise the hazard window. With I-cache, a supervisor `addq #6,sp; trap` test saves
+  18 clocks and is still correct; no AR mark/UNMARK collision is seen.
+- Next: trace trigger at the EmuTOS AUTO loop body ($E01656) to tell a failing Fsfirst from a failing Pexec/program.
