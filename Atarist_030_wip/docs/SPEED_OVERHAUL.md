@@ -171,3 +171,8 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
   So **F140-F142 has a board-only regression** (AUTO programs fail silently, possibly a crash or immediate exit), and every sim gate missed it. It was not flashed.
   The board was left on f132 in SRAM, with f131 in flash. atarist.ini was restored to drive0=/sd/gbref.st.
   Next: find which change it is (F140 vs F141/F142). Options: board builds of F140 alone and F141 alone, or a sim of LOOPTEST.PRG/TTRAM.PRG under tb030 with ST-like wait states and interrupts (the MFP 200 Hz timer). Suspects: F141 early OW_REQ with IRQ_HOT (interrupt and trace timing on the board), and F140 Q_HIT next-word path with real bus wait states.
+- 04:20 UK: new sim checks in sim/speed/irq/:
+  - irqchk.s: a register-only instruction mix (every F141 early-issue op) with periodic level 4 + level 6 (MFP-style vector) interrupts, loop in ROM (cached) and in TT-RAM (32-bit, cached), WS1 + WSRND 2, 16 IRQ phases.
+  - smc_tt.s / smc_st.s: code copied into cacheable RAM, CACR clear, run, new code, clear, run (Pexec-like).
+  Baseline (838ef0c) and F142 give identical results in every case. **The board failure does not reproduce in sim yet.**
+  The bisect build without F141 early issue (bld142n, EARLY_OW forced to '0') is running. The first try failed with a Gowin "License verification failed / server not responding"; a plain retry is building.
