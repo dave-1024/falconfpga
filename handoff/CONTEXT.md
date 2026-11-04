@@ -168,3 +168,10 @@ tools/ · LICENSE, NOTICE.md, LICENSE-ORIGINAL.md · handoff/ (this file).
 8. Phase 2 follow-ups still open: stale bus-fault flag on a chained late BERR; clk_cpu030 decoder -> ADR_EFF path;
    clk32 blitter falling-edge path.
 Pinned: the ~10% GEMBench 4.03 display gap (Display 90%); GEMBENCH 6 sees no blitter ("BLiTTER NP"), see TODO.md. Final stage: remove the ST/STE switch, STE only.
+
+## Roadmap: future ground-up 030 core
+
+Decision (David, 2026-11-04): push the current WF68K30L core as far as possible first. Once a functioning Falcon exists, if the CPU still lags, a separate project will build a brand-new drop-in, cycle-exact 68030 core.
+- It uses the lessons learned here (prefetch queue/COF handling, early issue hazards such as the F141 group B board failure, IRQ_HOT gating, bus-error restart F122-F131) and the MC68030UM (section 11 timings, bus protocol) as the oracle.
+- It must be a drop-in replacement: same top-level ports and ST/TT bridge interface as WF68K30L.
+- Keep the speed harness reusable as its test bench: `hdl/cpu030/sim/speed` (tests.txt, gen.py, runall.sh, the broad timing table vs the manual), `sim/speed/irq`, `sim/speed/grpb` (random differential test) and `sim/rtl/run_rtl.sh`.

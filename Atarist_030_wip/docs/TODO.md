@@ -215,3 +215,10 @@ stays out until that plan is followed.
 - 030-side fast RAM controller at $01000000: 32-bit port (DSACK0+DSACK1), CIIN negated (cacheable), burst fills for the I/D caches.
 - Test with EmuTOS first (TT-RAM autodetect, _FRB cookie), then the TF-patched TOS 2.06 should work out of the box.
 - Later PMMU tests: TOS-to-RAM via PMMU (MAPROM-style), and FreeMiNT memory protection.
+
+## Roadmap: future ground-up 030 core
+
+Decision (David, 2026-11-04): push the current WF68K30L core as far as possible first. Once a functioning Falcon exists, if the CPU still lags, a separate project will build a brand-new drop-in, cycle-exact 68030 core.
+- It uses the lessons learned here (prefetch queue/COF handling, early issue hazards such as the F141 group B board failure, IRQ_HOT gating, bus-error restart F122-F131) and the MC68030UM (section 11 timings, bus protocol) as the oracle.
+- It must be a drop-in replacement: same top-level ports and ST/TT bridge interface as WF68K30L.
+- Keep the speed harness reusable as its test bench: `hdl/cpu030/sim/speed` (tests.txt, gen.py, runall.sh, the broad timing table vs the manual), `sim/speed/irq`, `sim/speed/grpb` (random differential test) and `sim/rtl/run_rtl.sh`.
