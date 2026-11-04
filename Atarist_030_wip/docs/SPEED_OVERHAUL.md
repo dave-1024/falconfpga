@@ -317,3 +317,10 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
   Earlier grpb runs did not exercise the hazard window. With I-cache, a supervisor `addq #6,sp; trap` test saves
   18 clocks and is still correct; no AR mark/UNMARK collision is seen.
 - Next: trace trigger at the EmuTOS AUTO loop body ($E01656) to tell a failing Fsfirst from a failing Pexec/program.
+- 2026-11-04 12:10 UK: the AUTO loop finds LOOPTEST (Fsfirst d0=0 at $E01656, trace build aqt3). The trace build aqt4
+  (bld_aq CPU logic + DIAG_TRACE/HEARTBEAT, PC trigger $E0166A, which never fired: the trace PC field does not show
+  every instruction address) ran LOOPTEST on 3 of 3 cold boots with bld144's numbers. The original bld_aq failed
+  2 of 2 cold boots the same day. The same early-issue logic passes or fails per place-and-route, every time:
+  suspect a timing/CDC path that timing_pairs does not cover (or a power-up value), not a pure logic error. This
+  fits sim never reproducing it. Next: compare the bld_aq and aqt4 timing reports and unconstrained/async paths
+  around OW_REQ/opword acknowledge, IC_MISS_LK and the bus-interface handoff.
