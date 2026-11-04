@@ -1,4 +1,5 @@
-import random,sys,re
+import random,sys,re,os
+FOCUS=os.environ.get('FOCUS')
 seed=int(sys.argv[1]); r=random.Random(seed); N=int(sys.argv[2]) if len(sys.argv)>2 else 300
 ops2=['add','sub','and','or','cmp']
 L=[]
@@ -6,7 +7,7 @@ def D(): return 'd%d'%r.randrange(0,6)
 def A(): return 'a%d'%r.randrange(0,4)
 def sz(): return r.choice(['.b','.w','.l'])
 for i in range(N):
-    k=r.randrange(27)
+    k=r.randrange(27) if not FOCUS else r.choice([4,4,4,4,9,15,16,17,21,22,23,24,0,3,5,1,25,13])
     if k==0: L.append(f"{r.choice(ops2)}{sz()} {D()},{D()}")
     elif k==1: s=r.choice(['.w','.l']); L.append(f"{r.choice(['add','sub','cmp'])}{s} {A()},{D()}")
     elif k==2: a=A(); L.append(f"{r.choice(['adda','suba'])}{r.choice(['.w','.l'])} d6,{a}"); L.append(f"move.l {D()},({a})"); L.append(f"move.l ({a}),{D()}")
