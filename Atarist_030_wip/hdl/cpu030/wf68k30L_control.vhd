@@ -157,6 +157,7 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-04 F143: F141 early issue disabled (EARLY_ISSUE = false) after the board AUTO failure; MOVEQ hazard change kept.
 --   2026-11-04 F142: CMPA Rn,An one clock longer (4, as the manual; it was faster).
 --   2026-11-04 F141: early OW_REQ in INIT_EXEC_WB for register-only instructions (2-clock issue, MC68030UM 11.6).
 --
@@ -427,6 +428,7 @@ signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
 signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
+constant EARLY_ISSUE        : boolean := false; -- [F143] F141 early OW_REQ disabled (board failure).
 signal CMPA_DLY             : bit := '0'; -- [F142]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
 signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
@@ -487,7 +489,9 @@ begin
     -- flow, touch the SR or memory; never with trace on or an interrupt that may be taken after this
     -- instruction (IRQ_HOT, INT_TRIG is evaluated in INIT_EXEC_WB), so the stacked PC and the exception order
     -- are those of the normal path.
-    EARLY_OW <= '0' when TRACE_MODE /= "00" or IRQ_HOT = '1' else
+    -- [F143] Early issue is off: the F142 board build ran the desktop, but no AUTO program (TTRAM.PRG, LOOPTEST.PRG)
+    -- ran; the same build with EARLY_OW = '0' runs them (board bisect 2026-11-04). Root cause not reproduced in sim yet.
+    EARLY_OW <= '0' when EARLY_ISSUE = false or TRACE_MODE /= "00" or IRQ_HOT = '1' else
                 '1' when OP = MOVEQ or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB else
                 '1' when (OP = ADD or OP = ADDA or OP = ADDQ or OP = SUB or OP = SUBA or OP = SUBQ or OP = AND_B or OP = OR_B or
                           OP = EOR or OP = CMP or OP = CLR or OP = NEG or OP = NEGX or OP = NOT_B or OP = TST) and
