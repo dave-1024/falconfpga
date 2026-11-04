@@ -155,3 +155,4 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
   moveq 2/4/3, cmp.l 2/3/2.38, tst.l 2/3/2.38, move.l #imm 4/9/7, addi.l 6/10/6, lea d16 2/6/5, btst # 4/6/4,
   bra 6/11/10, bsr+rts 15/32/30, dbf_loop8 54/107/79, delay_loop8 72/110/101.
   Open bug: cmpa.l is 3, the manual says 4.
+- 2026-11-04 01:55 UK: board step blocked. ssh linserver fails: the SOCKS proxy through David's PC is down, because the PC is offline. The bld141 bitstream is ready (impl/pnr/st_helper.fs, md5 5734c25d) and has passed timing_pairs. It has not been loaded. The board is unchanged: f132 in SRAM, f131 in flash.
