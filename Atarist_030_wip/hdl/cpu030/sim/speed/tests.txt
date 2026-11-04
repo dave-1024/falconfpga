@@ -56,3 +56,30 @@ jsr_rts|jsr (a3)|8|13|JSR 4 + jea (An) 0 + RTS 9
 pea_(An)|pea (a0)|12|4|
 dbf_loop8|moveq #7,d6;1: dbf d6,1b|8|54|moveq 2 + 7x DBcc taken 6 + expired 10
 delay_loop8|moveq #7,d0;1: subq.l #1,d0;bcc.s 1b|8|72|Linux __delay: moveq 2 + 8x(subq 2+Bcc taken 6) + subq 2 + Bcc.B not taken 4
+# --- 2026-11-04 extension (manual figures marked ~ are estimates from the section 11 tables, not exact)
+move.l_(An)_Dn|move.l (a0),d0|16|5|fea (An) 3 + 2; long on 16-bit port
+move.l_Dn_(An)|move.l d1,(a1)|16|3|
+move.w_(An)_(An)|move.w (a0),(a1)|16|~7|
+move.w_abs.w_Dn|move.w 0x2000.w,d0|16|~5|
+move.l_d16(An)_d16(An)|move.l 4(a0),8(a1)|12|~9|
+movea.w_(An)_An|movea.w (a0),a2|16|5|
+add.l_(An)_Dn|add.l (a0),d0|16|5|
+add.l_d16(An)_Dn|add.l 4(a0),d0|16|6|
+add.l_Dn_d16(An)|add.l d1,4(a1)|16|~7|
+cmp.w_(An)_Dn|cmp.w (a0),d0|16|5|
+cmpi.w_#_Dn|cmpi.w #3,d0|16|4|
+cmpi.l_#_Dn|cmpi.l #3,d0|12|6|
+tst.w_(An)|tst.w (a0)|16|5|
+clr.w_(An)|clr.w (a1)|16|~4|
+clr.l_-(An)|clr.l -(a1)|16|~5|
+and.w_#_Dn|andi.w #0xff,d0|16|4|
+ext.w_Dn|ext.w d0|16|4|
+lea_(An)|lea (a0),a2|16|2|
+lea_abs.w|lea 0x2000.w,a2|16|~4|
+pea_d16(An)|pea 4(a0)|12|~5|
+movem.l_4r_to_(An)|movem.l d0-d1/d4-d5,(a1)|8|~12|
+movem.l_(An)_to_4r|movem.l (a0),d0-d1/d4-d5|8|~16|
+mulu.w_#_Dn|mulu.w #3,d0|8|~30|max + fiea #.W
+lsr.w_#_Dn|lsr.w #1,d0|16|4|
+asl.w_Dx_Dn|asl.w d1,d0|16|~8|
+bne.s_taken|bne.s 1f;nop;1:|12|6|d1 /= 0 after setup? Z from previous

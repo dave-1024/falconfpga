@@ -187,3 +187,94 @@ Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) vari
 - 05:31 UK: F143 gates PASS (run_rtl incl. F122-F131, simall). Committed. Board build = bld142n (logically identical).
 - 05:32 UK: F141 per-group board bisect started. Groups: A MOVEQ/EXG/SWAP/EXT, B register ALU, C Dn immediates, D MOVE/MOVEA Rn, E register shifts, F bit ops on Dn. Builds bld_abc (A+B+C early) and bld_def (D+E+F early), both from the F142 source.
 - 06:27 UK: **bisect: bld_abc (groups A+B+C early, D+E+F off) FAILS** on the board (AUTO shows no output; desktop only). The fault is in A (MOVEQ/EXG/SWAP/EXT), B (register ALU) or C (Dn immediates). bld_def is building.
+
+## Broad harness, F143 (EARLY_ISSUE=false), 2026-11-04
+
+Summary: 83 rows: slower 72, equal 11, faster 0.
+Values are clocks per instruction, WS0 bench, I-cache warm. ~ = manual figure estimated. The bench is a 16-bit port at ~4 clocks per bus cycle, so memory-operand rows are not directly comparable (the manual assumes 2-clock 32-bit cycles).
+
+| Test | Manual | F143 | Ratio |
+|---|---|---|---|
+| `nop` | 2 | 3.00 | 1.50 |
+| `moveq` | 2 | 3.00 | 1.50 |
+| `move.l_Dn_Dn` | 2 | 4.00 | 2.00 |
+| `movea.l_Dn_An` | 2 | 3.00 | 1.50 |
+| `move.w_Dn_(An)` | 3 | 7.00 | 2.33 |
+| `move.w_(An)_Dn` | 5 | 10.00 | 2.00 |
+| `move.w_Dn_(An)+` | 3 | 7.00 | 2.33 |
+| `move.w_(An)+_Dn` | 5 | 10.00 | 2.00 |
+| `move.w_Dn_-(An)` | 4 | 7.00 | 1.75 |
+| `move.w_d16(An)_Dn` | 6 | 12.00 | 2.00 |
+| `move.w_Dn_d16(An)` | 4 | 9.00 | 2.25 |
+| `move.w_d8(An,Xn)_Dn` | 8 | 12.00 | 1.50 |
+| `move.l_#imm_Dn` | 4 | 7.00 | 1.75 |
+| `add.l_Dn_Dn` | 2 | 4.00 | 2.00 |
+| `add.w_(An)_Dn` | 5 | 10.00 | 2.00 |
+| `add.w_Dn_(An)` | 6 | 14.00 | 2.33 |
+| `adda.l_Dn_An` | 2 | 4.00 | 2.00 |
+| `adda.w_Dn_An` | 4 | 4.00 | 1.00 |
+| `cmp.l_Dn_Dn` | 2 | 3.00 | 1.50 |
+| `cmpa.l_Dn_An` | 4 | 4.00 | 1.00 |
+| `addq.l_Dn` | 2 | 4.00 | 2.00 |
+| `subq.l_Dn` | 2 | 4.00 | 2.00 |
+| `addi.l_Dn` | 6 | 6.00 | 1.00 |
+| `and.l_Dn_Dn` | 2 | 4.00 | 2.00 |
+| `eor.l_Dn_Dn` | 2 | 4.00 | 2.00 |
+| `or.l_Dn_Dn` | 2 | 4.00 | 2.00 |
+| `clr.l_Dn` | 2 | 4.00 | 2.00 |
+| `neg.l_Dn` | 2 | 4.00 | 2.00 |
+| `not.l_Dn` | 2 | 4.00 | 2.00 |
+| `ext.l_Dn` | 4 | 4.00 | 1.00 |
+| `swap` | 4 | 4.00 | 1.00 |
+| `tst.l_Dn` | 2 | 3.00 | 1.50 |
+| `scc_Dn` | 4 | 4.00 | 1.00 |
+| `lsl.l_#_Dn` | 4 | 6.00 | 1.50 |
+| `asl.l_#_Dn` | 6 | 7.00 | 1.17 |
+| `asr.l_#_Dn` | 4 | 6.00 | 1.50 |
+| `ror.l_#_Dn` | 6 | 7.00 | 1.17 |
+| `lsl.l_Dx_Dn` | 6 | 7.00 | 1.17 |
+| `roxl.l_Dn` | 12 | 13.00 | 1.08 |
+| `mulu.w_Dn_Dn` | 28 | 30.00 | 1.07 |
+| `muls.l_Dn_Dn` | 44 | 46.00 | 1.05 |
+| `divu.w_Dn_Dn` | 44 | 46.00 | 1.05 |
+| `divs.l_Dn_Dn` | 90 | 92.00 | 1.02 |
+| `lea_d16(An)` | 2 | 5.00 | 2.50 |
+| `lea_d8(An,Xn)` | 4 | 5.00 | 1.25 |
+| `bra.w_taken` | 6 | 10.00 | 1.67 |
+| `bra.s_taken` | 6 | 10.00 | 1.67 |
+| `beq.s_not` | 6 | 10.00 | 1.67 |
+| `beq.w_not` | 6 | 10.00 | 1.67 |
+| `bfextu` | 10 | 13.00 | 1.30 |
+| `btst_#_Dn` | 4 | 4.00 | 1.00 |
+| `bset_Dn_Dn` | 6 | 7.00 | 1.17 |
+| `bsr_rts` | 15 | 30.00 | 2.00 |
+| `jsr_rts` | 13 | 30.00 | 2.31 |
+| `pea_(An)` | 4 | 11.00 | 2.75 |
+| `dbf_loop8` | 54 | 79.00 | 1.46 |
+| `delay_loop8` | 72 | 102.00 | 1.42 |
+| `move.l_(An)_Dn` | 5 | 14.00 | 2.80 |
+| `move.l_Dn_(An)` | 3 | 11.00 | 3.67 |
+| `move.w_(An)_(An)` | ~7 | 14.00 | 2.00 |
+| `move.w_abs.w_Dn` | ~5 | 12.00 | 2.40 |
+| `move.l_d16(An)_d16(An)` | ~9 | 24.00 | 2.67 |
+| `movea.w_(An)_An` | 5 | 10.00 | 2.00 |
+| `add.l_(An)_Dn` | 5 | 14.00 | 2.80 |
+| `add.l_d16(An)_Dn` | 6 | 16.00 | 2.67 |
+| `add.l_Dn_d16(An)` | ~7 | 22.00 | 3.14 |
+| `cmp.w_(An)_Dn` | 5 | 10.00 | 2.00 |
+| `cmpi.w_#_Dn` | 4 | 4.00 | 1.00 |
+| `cmpi.l_#_Dn` | 6 | 6.00 | 1.00 |
+| `tst.w_(An)` | 5 | 10.00 | 2.00 |
+| `clr.w_(An)` | ~4 | 7.00 | 1.75 |
+| `clr.l_-(An)` | ~5 | 11.00 | 2.20 |
+| `and.w_#_Dn` | 4 | 4.00 | 1.00 |
+| `ext.w_Dn` | 4 | 4.00 | 1.00 |
+| `lea_(An)` | 2 | 4.00 | 2.00 |
+| `lea_abs.w` | ~4 | 5.00 | 1.25 |
+| `pea_d16(An)` | ~5 | 11.00 | 2.20 |
+| `movem.l_4r_to_(An)` | ~12 | 37.00 | 3.08 |
+| `movem.l_(An)_to_4r` | ~16 | 43.00 | 2.69 |
+| `mulu.w_#_Dn` | ~30 | 33.00 | 1.10 |
+| `lsr.w_#_Dn` | 4 | 6.00 | 1.50 |
+| `asl.w_Dx_Dn` | ~8 | 9.00 | 1.12 |
+| `bne.s_taken` | 6 | 7.00 | 1.17 |
