@@ -150,3 +150,8 @@ Gates: `run_rtl.sh` fails two of them, so the prototype is not committed.
 Each step needs the full `run_rtl.sh`, the `/workspace/simall` process(all) variant and a Gowin V1.9.12.03 build
 (clk_cpu030 >= 16 MHz, timing_pairs).
 - 2026-11-04 01:45 UK: WIP is safe on branch speed-wip (05f1121). The Gowin V1.9.12.03 build of F140+F141 (/workspace/bld141) gives clk_cpu030 20.069 MHz (f132: 20.869), clk32_core 33.885 MHz, 45892 LUT + 5330 ALU, timing_pairs rc=0, fs md5 5734c25d. The first run_rtl had one failure, prog_mmut: every block is faster, all still slower than the manual floors. expect_mmut.txt has been updated, and run_rtl plus simall are re-running.
+- 2026-11-04 01:50 UK: F140+F141 gates PASS: run_rtl.sh (bus-error/restart F122-F131 included), the simall process(all) variant, and timing_pairs. Committed to speed.
+  Harness clocks/instr (manual / base / F141):
+  moveq 2/4/3, cmp.l 2/3/2.38, tst.l 2/3/2.38, move.l #imm 4/9/7, addi.l 6/10/6, lea d16 2/6/5, btst # 4/6/4,
+  bra 6/11/10, bsr+rts 15/32/30, dbf_loop8 54/107/79, delay_loop8 72/110/101.
+  Open bug: cmpa.l is 3, the manual says 4.

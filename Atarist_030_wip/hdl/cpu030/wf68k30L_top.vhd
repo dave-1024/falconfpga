@@ -162,6 +162,8 @@
 --   2026-10-17 IC: 68030 instruction cache (WF68K30L_ICACHE) on the prefetch queue, unconditional; cache pins
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
+--   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
+--   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
 --
 
 library work;
@@ -383,6 +385,7 @@ signal HILOn                    : bit;
 signal IBUFFER                  : std_logic_vector(31 downto 0);
 signal INBUFFER                 : std_logic_vector(31 downto 0);
 signal INT_TRIG                 : bit;
+signal IRQ_HOT                  : bit; -- [F141]
 signal IPL                      : std_logic_vector(2 downto 0);
 signal ISP_DEC                  : bit;
 signal ISP_EARLY                : bit; -- [XT1]
@@ -415,6 +418,8 @@ signal MOVEP_PNTR               : integer range 0 to 3;
 signal MSP_RD                   : bit;
 signal MSP_WR                   : bit;
 signal OPCODE_RD                : bit;
+signal OPC_RD_NEXT              : bit; -- [F140]
+signal PIPE_FULL                : bit; -- [F140]
 signal OPCODE_RDY               : bit;
 signal OPCODE_VALID             : std_logic;
 signal OPCODE_TO_CORE           : std_logic_vector(15 downto 0);
@@ -1507,6 +1512,8 @@ begin
             RMC                 => RMC,
             BUSY_EXH            => BUSY_EXH,
             OPC_RD              => OPCODE_RD, -- [F62]
+            OPC_RD_NEXT         => OPC_RD_NEXT, -- [F140]
+            PIPE_FULL           => PIPE_FULL, -- [F140]
             OPC_ADR             => PC_L,
             OPC_FC              => OPC_FC,
             OPC_DISMISS         => OPC_DISMISS, -- [F62c]
@@ -1607,6 +1614,7 @@ begin
             BUSY_EXH                => BUSY_EXH,
             EXH_REQ                 => EXH_REQ,
             INT_TRIG                => INT_TRIG,
+            IRQ_HOT                 => IRQ_HOT, -- [F141]
             OW_REQ                  => OW_REQ_MAIN,
             OW_VALID                => OW_VALID,
             EW_REQ                  => EW_REQ_MAIN,
@@ -1833,6 +1841,7 @@ begin
             STATUSn                 => STATUSn_EXH,
     
             INT_TRIG                => INT_TRIG,
+            IRQ_HOT                 => IRQ_HOT, -- [F141]
             IRQ_IN                  => IPL,
             IRQ_PEND                => IRQ_PEND,
             AVECn                   => AVECn,
@@ -1890,6 +1899,8 @@ begin
             PC_OFFSET               => PC_OFFSET_OPD,
 
             OPCODE_RD               => OPCODE_RD,
+            OPC_RD_NEXT             => OPC_RD_NEXT, -- [F140]
+            PIPE_FULL               => PIPE_FULL, -- [F140]
             OPCODE_RDY              => OPCODE_RDY,
             OPCODE_VALID            => OPCODE_VALID,
             OPCODE_DATA             => OPCODE_TO_CORE,

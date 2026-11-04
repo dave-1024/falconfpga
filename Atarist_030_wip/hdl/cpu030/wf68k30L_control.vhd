@@ -157,6 +157,7 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-04 F141: early OW_REQ in INIT_EXEC_WB for register-only instructions (2-clock issue, MC68030UM 11.6).
 --
 
 use work.WF68K30L_PKG.all;
@@ -176,6 +177,7 @@ entity WF68K30L_CONTROL is
         BUSY_EXH            : in bit;
         EXH_REQ             : in bit;
         INT_TRIG            : out bit;
+        IRQ_HOT             : in bit; -- [F141] Interrupt may be taken after this instruction.
 
         OW_REQ              : out bit; -- Operation words request.
         OW_VALID            : in std_logic; -- Operation words is valid.
@@ -423,6 +425,7 @@ signal SR_WR_I              : bit := '0';  -- [F54] measured warm-boot value
 signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
 signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
+signal EARLY_OW             : bit; -- [F141]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
 signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
 signal ADR_MARK_USED_W      : bit; -- [C1]
@@ -472,7 +475,27 @@ begin
               '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' else -- [PMMU2] PMOVE to the MMU: no next opcode before its writeback (8.1.10).
               '0' when OPD_ACK = '1' or OW_RDY = '1' else
               '1' when NO_PIPELINE = true and FETCH_STATE = START_OP and ALU_BSY = '0' else
-              '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else '0';
+              '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else
+              '1' when NO_PIPELINE = false and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE = START_OP and EARLY_OW = '1' else '0'; -- [F141]
+
+    -- [F141] Early issue. A register-only instruction that leaves INIT_EXEC_WB for START_OP asks for the next
+    -- operation word in INIT_EXEC_WB already, so the decoder's (registered) acknowledge arrives in the START_OP
+    -- clock and the next instruction can initialise one clock later: two clocks per instruction as the 68030
+    -- (MC68030UM 11.6.6-11.6.12, I-cache case). Only instructions that cannot take an exception, change the
+    -- flow, touch the SR or memory; never with trace on or an interrupt that may be taken after this
+    -- instruction (IRQ_HOT, INT_TRIG is evaluated in INIT_EXEC_WB), so the stacked PC and the exception order
+    -- are those of the normal path.
+    EARLY_OW <= '0' when TRACE_MODE /= "00" or IRQ_HOT = '1' else
+                '1' when OP = MOVEQ or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB else
+                '1' when (OP = ADD or OP = ADDA or OP = ADDQ or OP = SUB or OP = SUBA or OP = SUBQ or OP = AND_B or OP = OR_B or
+                          OP = EOR or OP = CMP or OP = CLR or OP = NEG or OP = NEGX or OP = NOT_B or OP = TST) and
+                         (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") else
+                '1' when (OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = CMPI) and BIW_0(5 downto 3) = "000" else
+                '1' when (OP = MOVE or OP = MOVEA) and (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") and
+                         (BIW_0(8 downto 6) = "000" or BIW_0(8 downto 6) = "001") else
+                '1' when (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
+                         BIW_0(7 downto 6) /= "11" else
+                '1' when (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
 
     DATA_AVAILABLE: process
     -- These flip flops store the information whether the data required in the different
@@ -1956,7 +1979,9 @@ begin
                     case OP is
                         when ILLEGAL | RTE | TRAP | UNIMPLEMENTED =>
                             NEXT_FETCH_STATE <= START_OP;
-                        when DBcc | EXT | EXTB | MOVEQ | SWAP =>
+                        when MOVEQ => -- [F141] Overwrite only: no hazard wait (the newer mark wins in the register file).
+                            NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                        when DBcc | EXT | EXTB | SWAP =>
                             if DR_IN_USE = '1' then
                                 NEXT_FETCH_STATE <= START_OP; -- Wait, ADH.
                             else

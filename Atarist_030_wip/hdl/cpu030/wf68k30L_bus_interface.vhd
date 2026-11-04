@@ -87,6 +87,7 @@
 --   2026-10-17 IC: 68030 instruction cache on the prefetch queue: a queue long that hits is taken from the cache
 --     without a bus cycle; a bus prefetch long with CIIN negated on every portion and no bus error is filled
 --     (docs/ICACHE_DESIGN.md). Unconditional; with CIIN asserted on every cycle nothing is stored.
+--   2026-11-03 F140: Q_HIT also serves the next word in an OPCODE_RDY clock (OPC_RD_NEXT, Q_NMATCH): one opcode word per clock.
 -- 
 
 library work;
@@ -150,6 +151,8 @@ entity WF68K30L_BUS_INTERFACE is
         RMC                 : in bit; -- Indicates a read modify write operation.
         BUSY_EXH            : in bit;
         OPC_RD              : in bit; -- [F62] Raw decoder opcode request (not masked while the bus is busy).
+        OPC_RD_NEXT         : in bit; -- [F140] Request of the word after the one OPCODE_RDY delivers in this clock.
+        PIPE_FULL           : in bit; -- [F140] Decoder stages D, C, B all hold words.
         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62] Address of the requested opcode word (PC_L).
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62] Program space function code.
         OPC_DISMISS         : in bit; -- [F62c] The decoder's OPCODE_FLUSH: its next opcode ready is dismissed.
@@ -312,6 +315,7 @@ signal RMC_NR, RMC_NW       : integer range 0 to 7 := 0; -- [RMC1] Locked read /
 type QWORDS_T is array (0 to 3) of std_logic_vector(15 downto 0);
 signal Q_W                  : QWORDS_T;
 signal Q_F                  : bit_vector(0 to 3) := "0000";  -- Word fetched with a bus error.
+signal Q_C                  : bit_vector(0 to 3) := "0000";  -- [F140] Word taken from the instruction cache.
 signal Q_CNT                : integer range 0 to 4 := 0;
 signal Q_ADR                : std_logic_vector(31 downto 1) := (others => '0'); -- Address of Q_W(0).
 signal Q_FC                 : std_logic_vector(2 downto 0) := "110";
@@ -357,6 +361,7 @@ signal RA_TAKE              : bit; -- [F2] The held read-ahead is handed over on
 signal RA_DROP              : bit; -- [F2] Not requested as expected: dropped, the request runs its own cycle.
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
+signal Q_NMATCH             : bit; -- [F140]
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
 signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
 signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
@@ -904,11 +909,21 @@ begin
     OPC_LEGACY <= OPCODE_REQ and not RMC_HOLD when PREFETCH_Q = 0 else -- [RMC1] no opcode cycle inside the RMC sequence
                   OPCODE_REQ and To_Bit(OPC_ADR(0)) and not RMC_HOLD; -- [C3]
     Q_MATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) and Q_FC = OPC_FC else '0';
-    Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
+    -- [F140] Back to back: in a ready clock the decoder's PC_L still points at the word being delivered, so the
+    -- next word (PC_L + 2) is matched against the queue head (Q_NMATCH). Only a hit is served this way; a miss
+    -- waits for the next clock and goes through Q_MISS with the updated address as before. Only words the
+    -- instruction cache delivered (Q_C) are served back to back: a stream from the bus keeps the old pace, so the
+    -- queue's refill point and the bus prefetch placement (run_icache prefetch counts) do not change.
+    Q_NMATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) + '1' and Q_FC = OPC_FC else '0';
+    Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
+             '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
-    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and (Q_CNT <= 1 or (Q_CNT = 2 and BUSY_EXH = '0' and PF_NOEARLY = '0')) and PF_HOLD = '0' else '0'; -- [PFCOF]
+    PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and (Q_CNT <= 1 or (Q_CNT = 2 and BUSY_EXH = '0' and PF_NOEARLY = '0' and PIPE_FULL = '0')) and PF_HOLD = '0' and
+                       not (OPC_RD = '1' and Q_MATCH = '0') else '0'; -- [PFCOF] [F140] no stream fetch while the decoder waits for another address (after a flush)
+    -- [F140] Not with the decoder pipe full: three pipe words plus two queued words is the 68030's look-ahead
+    -- (stages B/C/D and the cache holding register); back-to-back delivery would otherwise run one long further.
     -- [XH1] A long is requested while the queue still holds two words (was Q_CNT <= 1), so the stream keeps the
     -- bus busy across operand cycles (W->R, R->R, MOVEM.W, stack). Exception processing keeps the old threshold.
     -- [IC] A long word the instruction cache holds is taken from the cache (P_QUEUE) and never starts a bus
@@ -1291,6 +1306,7 @@ begin
     P_QUEUE: process
     variable W      : QWORDS_T;
     variable F      : bit_vector(0 to 3);
+    variable C      : bit_vector(0 to 3); -- [F140]
     variable CNT    : integer range 0 to 4;
     variable F0, F1 : bit;
     variable WDIST  : std_logic_vector(31 downto 2);
@@ -1298,9 +1314,9 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         if PREFETCH_Q /= 0 then
-            W := Q_W; F := Q_F; CNT := Q_CNT;
+            W := Q_W; F := Q_F; C := Q_C; CNT := Q_CNT;
             if Q_HIT = '1' then
-                W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3);
+                W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3); C(0 to 2) := C(1 to 3);
                 CNT := CNT - 1;
                 Q_ADR <= Q_ADR + '1';
             end if;
@@ -1329,11 +1345,11 @@ begin
             -- into the queue in this clock without a bus cycle. PF_REQ_RAW needs Q_CNT <= 1, so at most 3 words.
             if IC_TAKE = '1' then
                 if F_ADR(1) = '0' then
-                    W(CNT) := IC_HIT_DATA(31 downto 16); F(CNT) := '0'; CNT := CNT + 1;
-                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    W(CNT) := IC_HIT_DATA(31 downto 16); F(CNT) := '0'; C(CNT) := '1'; CNT := CNT + 1;
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; C(CNT) := '1'; CNT := CNT + 1;
                     F_ADR <= F_ADR + "10";
                 else
-                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; CNT := CNT + 1;
+                    W(CNT) := IC_HIT_DATA(15 downto 0); F(CNT) := '0'; C(CNT) := '1'; CNT := CNT + 1;
                     F_ADR <= F_ADR + '1';
                 end if;
             end if;
@@ -1341,8 +1357,8 @@ begin
                 F0 := PF_FLT0 or (To_Bit(BUS_FLT) and not To_Bit(ADR_OFFSET(1)));
                 F1 := F0 or PF_FLT1 or (To_Bit(BUS_FLT) and To_Bit(ADR_OFFSET(1)));
                 if INFL_STALE = '0' then
-                    W(CNT) := DATA_INMUX(31 downto 16); F(CNT) := F0; CNT := CNT + 1;
-                    W(CNT) := DATA_INMUX(15 downto 0); F(CNT) := F1; CNT := CNT + 1;
+                    W(CNT) := DATA_INMUX(31 downto 16); F(CNT) := F0; C(CNT) := '0'; CNT := CNT + 1;
+                    W(CNT) := DATA_INMUX(15 downto 0); F(CNT) := F1; C(CNT) := '0'; CNT := CNT + 1;
                     if F1 = '1' then
                         S_FAULTED <= '1'; -- Words up to the fault are queued; refetch on demand only.
                     end if;
@@ -1397,7 +1413,7 @@ begin
                 INFL <= '0';
                 INFL_STALE <= '0';
             end if;
-            Q_W <= W; Q_F <= F; Q_CNT <= CNT;
+            Q_W <= W; Q_F <= F; Q_C <= C; Q_CNT <= CNT;
         end if;
     end process P_QUEUE;
 

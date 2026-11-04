@@ -40,6 +40,7 @@
 --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-03 F140: OPC_RD_NEXT ports (decoder out, bus interface in).
 -- 
 
 library ieee;
@@ -289,6 +290,8 @@ component WF68K30L_BUS_INTERFACE
         RMC                 : in bit;
         BUSY_EXH            : in bit;
         OPC_RD              : in bit; -- [F62]
+        OPC_RD_NEXT         : in bit; -- [F140]
+        PIPE_FULL           : in bit; -- [F140]
         OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
         OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
         OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
@@ -384,6 +387,7 @@ component WF68K30L_CONTROL
         BUSY_EXH            : in bit;
         EXH_REQ             : in bit;
         INT_TRIG            : out bit;
+        IRQ_HOT             : in bit; -- [F141]
         OW_REQ              : out bit;
         OW_VALID            : in std_logic;
         EW_REQ              : out bit;
@@ -600,6 +604,7 @@ component WF68K30L_EXCEPTION_HANDLER
         HALT_OUTn           : out std_logic;
         STATUSn             : out bit;
         INT_TRIG            : in bit;
+        IRQ_HOT             : out bit; -- [F141]
         IRQ_IN              : in std_logic_vector(2 downto 0);
         IRQ_PEND            : out std_logic_vector(2 downto 0);
         AVECn               : in std_logic;
@@ -653,6 +658,8 @@ component WF68K30L_OPCODE_DECODER
         PC_ADR_OFFSET       : out std_logic_vector(7 downto 0);
         PC_OFFSET           : out std_logic_vector(7 downto 0);
         OPCODE_RD           : out bit;
+        OPC_RD_NEXT         : out bit; -- [F140]
+        PIPE_FULL           : out bit; -- [F140]
         OPCODE_RDY          : in bit;
         OPCODE_VALID        : in std_logic;
         OPCODE_DATA         : in std_logic_vector(15 downto 0);

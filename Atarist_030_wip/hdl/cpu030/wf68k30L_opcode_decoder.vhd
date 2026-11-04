@@ -66,6 +66,7 @@
 --   2026-10-04 F57: explicit power-up values for set-type flops.
 --   2026-10-04 F59: pipe flush sets OP to NOP (loop-mode interrupt deadlock).
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
+--   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
 -- 
 
 library work;
@@ -104,6 +105,8 @@ entity WF68K30L_OPCODE_DECODER is
         PC_OFFSET           : out std_logic_vector(7 downto 0);
 
         OPCODE_RD           : out bit;
+        OPC_RD_NEXT         : out bit; -- [F140] In an OPCODE_RDY clock: the following word is wanted too (queue only).
+        PIPE_FULL           : out bit; -- [F140] Stages D, C and B hold words.
         OPCODE_RDY          : in bit;
         OPCODE_VALID        : in std_logic;
         OPCODE_DATA         : in std_logic_vector(15 downto 0);
@@ -252,6 +255,16 @@ begin
     end process P_OPCODE_FLUSH;
 
     OPCODE_RD <= OPCODE_RD_I;
+    PIPE_FULL <= '1' when IPIPE_PNTR = 3 else '0'; -- [F140]
+    -- [F140] OPCODE_RD_I is cleared by OPCODE_RDY, so a word could only be requested every other clock.
+    -- In the clock of a ready strobe, ask the prefetch queue for the next word as well when the pipe has
+    -- room for it after this one is loaded (pointer below 2), so a queue holding words (cache hits)
+    -- fills the pipe at one word per clock as the 68030 pipeline. Not during flush, dismissal,
+    -- exceptions or loop mode; the bus interface uses it only for queue hits, never to start a bus cycle.
+    -- Only on demand (the control unit waits for an operation or extension word), so the pipe does not run
+    -- further ahead of execution than before and the stream prefetch placement is unchanged.
+    OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
+                            IPIPE_PNTR < 2 and (OW_REQ = '1' or EW_REQ = '1') and LOOP_ATN = false and LOOP_BSY_I = false else '0';
     OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
 
     -- [PFCOF] The control unit executes a change of flow (COF_PEND): hold the stream fetches past it,

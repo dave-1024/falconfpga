@@ -33,6 +33,7 @@
 -- Changes are tagged Fnn in the code. Dates are from git history.
 -- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-11-04 F141: a new in-use mark wins over a release in the same clock.
 -- 
 
 library work;
@@ -107,14 +108,21 @@ begin
     P_IN_USE: process
     begin
         wait until CLK = '1' and CLK' event;
-        if RESET = '1' or UNMARK = '1' then
+        -- [F141] A new mark wins over the release of the previous write-back in the same clock (MOVEQ is
+        -- initialised without waiting for a pending write-back of its destination).
+        if RESET = '1' then
             DR_USED_1(3) <= '0';
             DR_USED_2(3) <= '0';
         elsif DR_MARK_USED = '1' then
             DR_USED_1 <= '1' & DR_SEL_WR_1;
             if USE_DPAIR = true then
                 DR_USED_2 <= '1' & DR_SEL_WR_2;
+            elsif UNMARK = '1' then
+                DR_USED_2(3) <= '0';
             end if;
+        elsif UNMARK = '1' then
+            DR_USED_1(3) <= '0';
+            DR_USED_2(3) <= '0';
         end if;
     end process P_IN_USE;
 

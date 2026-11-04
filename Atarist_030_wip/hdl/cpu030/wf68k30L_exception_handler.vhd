@@ -83,6 +83,7 @@
 --   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
 --   2026-10-03 F55: interrupt not taken when the new SR mask covers it.
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
+--   2026-11-04 F141: IRQ_HOT, an interrupt is or may become pending (early instruction issue is held off).
 -- 
 
 library work;
@@ -153,6 +154,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
 
         -- Interrupt controls:
         INT_TRIG            : in bit;
+        IRQ_HOT             : out bit; -- [F141] Interrupt pending or above the mask (no early OW_REQ).
         IRQ_IN              : in std_logic_vector(2 downto 0);
         IRQ_PEND            : out std_logic_vector(2 downto 0);
         AVECn               : in std_logic;
@@ -255,6 +257,9 @@ signal RR_FC                : std_logic_vector(2 downto 0) := "000";
 signal RR_ADR, RR_DATA      : std_logic_vector(31 downto 0) := (others => '0');
 signal SYS_INIT             : bit := '1';  -- [F54] measured warm-boot value
 begin
+    -- [F141] Conservative: any interrupt level above the mask, level 7, or an interrupt already latched.
+    IRQ_HOT <= '1' when STATUS_REG_IN(10 downto 8) < IRQ or IRQ = "111" or EX_P_INT = '1' else '0';
+
     -- F28/H22: see the port declaration.
     EX_IS_AERR <= '1' when EXCEPTION = EX_AERR else '0';
 
