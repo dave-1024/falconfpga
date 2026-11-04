@@ -359,3 +359,14 @@ Order: after the F141 An-involved early-issue fault is found and fixed. Every st
   Estimated 150-300 lines across 3 files, plus board risk like F141/F146 (early-issue bugs seen only on the board).
   Optional bench change: tb030 DSACK at 1+WS to model 3-clock async cycles. That would rebase all harness numbers,
   so do it as its own step.
+- 2026-11-04 18:10 UK, F147 refill rework, measured per clock (debug prints in a scratch copy, BSR.W+RTS loop, I-cache warm):
+  flush (INIT_EXEC_WB) at t; t+1 Q_MISS/IC_MISS_LK/IC_MTAKE loads the target long from the I-cache (step (a)
+  already done by F144); t+2 OPCODE_RDY (registered) to the decoder; t+3 IPIPE_PNTR 0->1; t+4 1->2, PIPE_RDY;
+  t+5 OPD_ACK (registered), START_OP decodes the target. So 5 clocks per change of flow, 2 per BSR+RTS pair.
+  RTS also waits about 6 clocks for BSR's push write-back before its stack read (bus serialisation, legitimate).
+  What is left (none of it a small contained change):
+  (b) the decoder takes one opcode word per clock (F140 OPC_RD_NEXT): take two queued words in the clock after a
+      restart (decoder IPIPE fill ~370-445, bus_interface Q_HIT/Q_NMATCH ~915-925). Saves 1 per COF.
+  (c) OPCODE_RDY from IC_MTAKE in the same clock, and/or OPD_ACK combinational from PIPE_RDY. Saves 1-2 per COF,
+      but adds a long combinational path (Fmax is 21.3 MHz against a 16 MHz floor) and is early-issue-like board risk.
+  Stopped here for the token budget; no RTL changed (F145 unchanged).
