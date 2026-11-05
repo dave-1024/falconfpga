@@ -90,6 +90,7 @@
 --   2026-11-03 F140: Q_HIT also serves the next word in an OPCODE_RDY clock (OPC_RD_NEXT, Q_NMATCH): one opcode word per clock.
 --   2026-11-04 F144: branch target from the instruction cache in the stream-restart clock (IC_MTAKE, IC_MISS_LK).
 --   2026-11-04 F147: two-word opcode delivery (OPCODE_RDY_2) on the first queue hit after an IC_MTAKE restart.
+--   2026-11-05 F148: Q_HIT2 double-pop from the original queue (no single-word shift first).
 -- 
 
 library work;
@@ -1336,12 +1337,14 @@ begin
         if PREFETCH_Q /= 0 then
             W := Q_W; F := Q_F; C := Q_C; CNT := Q_CNT;
             if Q_HIT = '1' then
-                W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3); C(0 to 2) := C(1 to 3);
-                if Q_HIT2 = '1' then -- [F147] Two words taken.
-                    W(0 to 1) := W(2 to 3); F(0 to 1) := F(2 to 3); C(0 to 1) := C(2 to 3); C(2) := '0'; C(3) := '0';
+                -- [F148] Two-word pop from the ORIGINAL queue (no single-word shift first).
+                if Q_HIT2 = '1' then
+                    W(0 to 1) := W(2 to 3); F(0 to 1) := F(2 to 3); C(0 to 1) := C(2 to 3);
+                    C(2) := '0'; C(3) := '0';
                     CNT := CNT - 2;
                     Q_ADR <= Q_ADR + "10";
                 else
+                    W(0 to 2) := W(1 to 3); F(0 to 2) := F(1 to 3); C(0 to 2) := C(1 to 3);
                     CNT := CNT - 1;
                     Q_ADR <= Q_ADR + '1';
                 end if;
