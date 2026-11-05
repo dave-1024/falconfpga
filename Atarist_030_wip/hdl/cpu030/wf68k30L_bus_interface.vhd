@@ -299,6 +299,7 @@ signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the 
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
 constant F147_TWO_WORD      : boolean := true; -- [F152] one-shot only when PIPE_FULL = 0
 signal Q_HIT2               : bit; -- [F147]
+signal ADR_SKEW             : std_logic := '0'; -- [F154] latched if Q_ADR and OPC_ADR diverge on two-word pop
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
 signal READ_ACCESS          : bit := '0';  -- [F54] measured warm-boot value
@@ -940,6 +941,8 @@ begin
     -- holds exactly the two words just loaded. It can fire only once per restart and is
     -- cleared on use or any other queue activity. Prevents the back-to-back hit race.
     -- (Combinational form removed; see P_Q_HIT2.)
+    -- [F154] Diagnostic: latch if the queue head after a two-word pop does not match
+    -- the decoder's OPC_ADR. Stays set once seen. Visible via DBG_QF bit or LED.
 
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
@@ -1472,7 +1475,7 @@ begin
     Q_COUNT <= Q_CNT;
     Q_HEAD <= Q_ADR; -- [FRM]
     DBG_IC <= F_ADR(7 downto 1) & F_CUR(7 downto 2) & IC_HIT & To_StdULogic(PF_DONE) & F_CUR(1); -- FalconFPGA DIAG STR
-    DBG_QF <= To_StdULogic(Q_HIT) & To_StdULogic(IC_TAKE) & To_StdULogic(PF_DONE) & To_StdULogic(Q_MISS); -- FalconFPGA DIAG STR
+    DBG_QF <= To_StdULogic(Q_HIT) & To_StdULogic(IC_TAKE) & ADR_SKEW & To_StdULogic(Q_MISS); -- [F154] bit 1 = ADR_SKEW
     Q_FAULT <= Q_F; -- [FRM]
 
     FC_OUT <= F_FC when PF_ACC = '1' else DC_OFC when FILL_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] [DC] registered, as ADR_OUT_I
@@ -1758,6 +1761,16 @@ begin
     OPCODE_RDY_2 <= OPCODE_RDY_2_I; -- [F147]
     OPCODE_VALID_2 <= OPCODE_VALID_2_I;
     OPCODE_TO_CORE_2 <= OBUFFER_2;
+
+    P_ADR_SKEW: process -- [F154]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET_CPU_I = '1' then
+            ADR_SKEW <= '0';
+        elsif Q_HIT2 = '1' and (Q_ADR + "10") /= OPC_ADR(31 downto 1) then
+            ADR_SKEW <= '1';
+        end if;
+    end process P_ADR_SKEW;
 
     P_Q_HIT2: process -- [F151]
     begin
