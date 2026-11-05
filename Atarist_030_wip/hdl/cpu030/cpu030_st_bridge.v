@@ -106,7 +106,6 @@ module cpu030_st_bridge #(
     output wire        FC2,
     output reg         BGn,
     output wire        oRESETn,
-    output wire        adr_skew,    // [F154]
     output wire        oHALTEDn,
     input  wire        DTACKn,
     input  wire        VPAn,
@@ -275,7 +274,6 @@ module cpu030_st_bridge #(
         .CBREQn    (               ),
         .CIOUTn    (               ),
 `ifndef WF030_NETLIST
-        .ADR_SKEW  ( adr_skew      ),   // [F154]
         .DBG_ADR   ( cpu_dbg_adr   ),   // FalconFPGA DIAG (RTL only)
 `ifdef TT_RING
         .DBG_STR   ( cpu_dbg_str   ),   // FalconFPGA DIAG STR

@@ -314,8 +314,7 @@ wire rom_fetch;
 // seen by the bridge in the last ~0.13-0.26 s); steady = no 030 bus cycles.
 // Same expression style as leds_n[0].
 wire diag_led_030;
-wire adr_skew; // [F154]
-assign leds_n = {~(diag_led_030 | adr_skew), ~rom_fetch}; // LED lights solid if ADR_SKEW latches
+assign leds_n = {~diag_led_030, ~rom_fetch};
 `else
 assign leds_n = {~leds_int_n[1], ~rom_fetch};
 `endif
@@ -987,7 +986,6 @@ diag_collect diag_collect (
     .hs_blink       ( diag_hs_blink       ),
     .rom_word0      ( diag_word           ),
     .led_030        ( diag_led_030        ),
-    .adr_skew       ( adr_skew            )  // [F154]
 );
 localparam DIAG_EN = 1;
 localparam DIAG_ST = `DIAG_FB_SELFTEST;
