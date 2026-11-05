@@ -37,6 +37,7 @@ module misterynano #(
   output [1:0]  diag_dump,    // [F77] DIAG_DUMP {own, tx}
   output [1:0]  fcal_rpt,     // [F85] FLASH_CAL report line {own, tx}
   input         diag_go,      // [F77]
+  output        adr_skew,     // [F154]
   output [23:0] diag_vbase,   // diag030w: {boot-path flags, cmdload word}
   output		ws2812,
   output		jtagsel,
@@ -719,6 +720,7 @@ wire [7:0] parallel_data_in_int = EXTERNAL_PARPORT?parallel_data_in:
 wire dbg_cpu_as_n, dbg_cpu_halted_n;   // FalconFPGA DIAG
 
 atarist atarist (
+	.adr_skew ( adr_skew ), // [F154]
     .clk_32(clk32),
     .clk_cpu(clk_cpu),
     .clk_cpu_n(clk_cpu_n),
