@@ -202,6 +202,7 @@ entity WF68K30L_TOP is
         DBG_EXC         : out std_logic_vector(104 downto 0); -- FalconFPGA DIAG: exception taken {strobe, vector, SR, PC, A5, BIW_0}
         DBG_ADR         : out std_logic_vector(31 downto 0); -- FalconFPGA DIAG: ADR_LATCH, ADR_P, PC_L, ADR_L bits 23:16
         DBG_STR         : out std_logic_vector(127 downto 0); -- FalconFPGA DIAG STR: decoder word stream + ISP
+        ADR_SKEW        : out std_logic; -- [F154]
         DBG_IDX         : out std_logic_vector(239 downto 0); -- [F100] IDX_DEBUG
         DBG_REGS        : out std_logic_vector(639 downto 0); -- [F77] DIAG_DUMP: {D7..D0, A0..A6, USP, ISP, MSP, PC, VBR}
         DBG_SR          : out std_logic_vector(15 downto 0);  -- [F77]
@@ -1531,6 +1532,7 @@ begin
             Q_COUNT             => Q_COUNT,
             Q_HEAD              => Q_HEAD, -- [FRM]
             DBG_QF              => DBG_QF_I,
+            ADR_SKEW_OUT        => ADR_SKEW,
             DBG_IC              => DBG_IC_I,
             Q_FAULT             => Q_FAULT, -- [FRM]
             OP_RD               => DATA_RD, -- [F65] not masked by BUS_BSY
