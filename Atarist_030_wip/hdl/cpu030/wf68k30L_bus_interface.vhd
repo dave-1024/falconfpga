@@ -294,7 +294,7 @@ signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
 signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
-constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour
+constant F147_TWO_WORD      : boolean := false; -- [F149] set false to restore F145 two-word behaviour
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
