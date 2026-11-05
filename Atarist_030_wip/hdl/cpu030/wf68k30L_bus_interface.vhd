@@ -173,6 +173,7 @@ entity WF68K30L_BUS_INTERFACE is
         Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
         DBG_IC              : out std_logic_vector(15 downto 0); -- FalconFPGA DIAG STR {lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, IC_FILL, FILL_MIS}
         DBG_QF              : out std_logic_vector(3 downto 0); -- FalconFPGA DIAG STR {Q_HIT, IC_TAKE, PF_DONE, Q_MISS}
+        ADR_SKEW_OUT        : out std_logic; -- [F154] latched address divergence on two-word pop
         Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM] Address of queued word 0.
         Q_FAULT             : out bit_vector(0 to 3); -- [FRM] Queued words fetched with a bus error.
         OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
@@ -1476,6 +1477,7 @@ begin
     Q_HEAD <= Q_ADR; -- [FRM]
     DBG_IC <= F_ADR(7 downto 1) & F_CUR(7 downto 2) & IC_HIT & To_StdULogic(PF_DONE) & F_CUR(1); -- FalconFPGA DIAG STR
     DBG_QF <= To_StdULogic(Q_HIT) & To_StdULogic(IC_TAKE) & ADR_SKEW & To_StdULogic(Q_MISS); -- [F154] bit 1 = ADR_SKEW
+    ADR_SKEW_OUT <= ADR_SKEW;
     Q_FAULT <= Q_F; -- [FRM]
 
     FC_OUT <= F_FC when PF_ACC = '1' else DC_OFC when FILL_ACC = '1' else FC_LAT; -- [F62] [PH2-FMAX] [DC] registered, as ADR_OUT_I
