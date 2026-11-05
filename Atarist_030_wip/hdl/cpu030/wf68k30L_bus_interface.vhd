@@ -93,6 +93,7 @@
 --   2026-11-05 F148: Q_HIT2 double-pop from the original queue (no single-word shift first).
 --   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
 --   2026-11-05 F150: Q_HIT2 only when Q_CNT = 2 and INFL = 0 (closes the back-to-back hit race).
+--   2026-11-05 F151: Q_HIT2 is a one-shot registered after IC_MTAKE (fires at most once per restart).
 -- 
 
 library work;
@@ -295,7 +296,7 @@ signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
 signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
-constant F147_TWO_WORD      : boolean := true; -- [F150] re-enabled with tighter Q_HIT2 (Q_CNT = 2, INFL = 0)
+constant F147_TWO_WORD      : boolean := true; -- [F151] re-enabled; Q_HIT2 is now a one-shot
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
@@ -934,11 +935,10 @@ begin
     Q_NMATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) + '1' and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
              '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
-    -- [F147] Two words in the first queue hit after an IC_MTAKE restart (pipe empty, word 1 present).
-    -- [F150] Only when the queue holds exactly the original restart pair (Q_CNT = 2), no fill in flight,
-    -- and the head address still matches. Prevents the CNT>2 misalignment that hung TT-RAM + I-cache.
-    Q_HIT2 <= '1' when F147_TWO_WORD and Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1'
-                   and Q_CNT = 2 and Q_C(1) = '1' and Q_ADR = RESTART_ADR and INFL = '0' else '0';
+    -- [F151] Q_HIT2 is a one-shot registered in the cycle after IC_MTAKE when the queue
+    -- holds exactly the two words just loaded. It can fire only once per restart and is
+    -- cleared on use or any other queue activity. Prevents the back-to-back hit race.
+    -- (Combinational form removed; see P_Q_HIT2.)
 
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
@@ -1757,6 +1757,17 @@ begin
     OPCODE_RDY_2 <= OPCODE_RDY_2_I; -- [F147]
     OPCODE_VALID_2 <= OPCODE_VALID_2_I;
     OPCODE_TO_CORE_2 <= OBUFFER_2;
+
+    P_Q_HIT2: process -- [F151]
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET_CPU_I = '1' or OPC_DISMISS = '1' or Q_HIT = '1' then
+            Q_HIT2 <= '0';
+        elsif IC_MTAKE = '1' and OPC_ADR(1) = '0' and F147_TWO_WORD then
+            -- Queue will hold exactly two words next cycle; arm the one-shot.
+            Q_HIT2 <= '1';
+        end if;
+    end process P_Q_HIT2;
 
     P_RESTART_PEND: process -- [F147]
     begin
