@@ -151,7 +151,6 @@ module atarist (
 	output wire [15:0] ext_io_wdata,
 	input  wire [15:0] ext_io_rdata,
 	input  wire        ext_io_dtack,
-	output wire        adr_skew // [F154]
 `endif
 );
 
@@ -630,7 +629,6 @@ wire mcu_dtack_n_adj =
 // WF68K30L 68030 with a 68000 bus cycle generator on the ST side. Same
 // connections as fx68k below; phi1/phi2 = mhz8_en1/en2 (the turbo path is
 // not supported by the bridge: cpu_16mhz_enable is 0).
-// adr_skew is now a port [F154]
 cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.clk        ( clk_32     ),
 	.clk_cpu    ( clk_cpu    ),
@@ -652,7 +650,6 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.FC2        ( cpu_fc2   ),
 	.BGn        ( blitter_bg_n  ),
 	.oRESETn    ( cpu_reset_n_o ),
-	.adr_skew   ( adr_skew   ), // [F154]
 	.oHALTEDn   ( dbg_cpu_halted_n ),   // FalconFPGA DIAG (was open)
 	.DTACKn     ( dtack_n    ),
 	.VPAn       ( vpa_n      ),
