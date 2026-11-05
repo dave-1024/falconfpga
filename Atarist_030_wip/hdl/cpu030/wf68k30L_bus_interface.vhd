@@ -91,6 +91,7 @@
 --   2026-11-04 F144: branch target from the instruction cache in the stream-restart clock (IC_MTAKE, IC_MISS_LK).
 --   2026-11-04 F147: two-word opcode delivery (OPCODE_RDY_2) on the first queue hit after an IC_MTAKE restart.
 --   2026-11-05 F148: Q_HIT2 double-pop from the original queue (no single-word shift first).
+--   2026-11-05 F149: RESTART_PEND cleared on flush; Q_HIT2 only while queue head is still the original restart pair.
 -- 
 
 library work;
@@ -292,6 +293,8 @@ signal OBUFFER_2            : std_logic_vector(15 downto 0); -- [F147]
 signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
 signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
+signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
+constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
@@ -931,7 +934,9 @@ begin
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
              '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
     -- [F147] Two words in the first queue hit after an IC_MTAKE restart (pipe empty, word 1 present).
-    Q_HIT2 <= '1' when Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1' and Q_CNT >= 2 and Q_C(1) = '1' else '0';
+    -- [F149] Only while the queue head is still the original restart pair. Fallback switch F147_TWO_WORD.
+    Q_HIT2 <= '1' when F147_TWO_WORD and Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1'
+                   and Q_CNT >= 2 and Q_C(1) = '1' and Q_ADR = RESTART_ADR else '0';
 
     Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
@@ -1754,8 +1759,9 @@ begin
     P_RESTART_PEND: process -- [F147]
     begin
         wait until CLK = '1' and CLK' event;
-        if IC_MTAKE = '1' then
+        if IC_MTAKE = '1' or IPIPE_FLUSH = '1' then -- [F149] also react to flush
             RESTART_PEND <= '1';
+            RESTART_ADR <= OPC_ADR(31 downto 1); -- [F149] capture the restart address
         elsif OPCODE_RDY_I = '1' or RESET_CPU_I = '1' then
             RESTART_PEND <= '0';
         end if;
