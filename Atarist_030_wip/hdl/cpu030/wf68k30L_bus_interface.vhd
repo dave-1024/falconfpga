@@ -94,6 +94,7 @@
 --   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
 --   2026-11-05 F150: Q_HIT2 only when Q_CNT = 2 and INFL = 0 (closes the back-to-back hit race).
 --   2026-11-05 F151: Q_HIT2 is a one-shot registered after IC_MTAKE (fires at most once per restart).
+--   2026-11-05 F152: one-shot only armed when PIPE_FULL = 0 (decoder will take the second word).
 -- 
 
 library work;
@@ -296,7 +297,7 @@ signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
 signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
-constant F147_TWO_WORD      : boolean := true; -- [F151] re-enabled; Q_HIT2 is now a one-shot
+constant F147_TWO_WORD      : boolean := true; -- [F152] one-shot only when PIPE_FULL = 0
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
@@ -1763,8 +1764,9 @@ begin
         wait until CLK = '1' and CLK' event;
         if RESET_CPU_I = '1' or OPC_DISMISS = '1' or Q_HIT = '1' then
             Q_HIT2 <= '0';
-        elsif IC_MTAKE = '1' and OPC_ADR(1) = '0' and F147_TWO_WORD then
-            -- Queue will hold exactly two words next cycle; arm the one-shot.
+        elsif IC_MTAKE = '1' and OPC_ADR(1) = '0' and F147_TWO_WORD and PIPE_FULL = '0' then
+            -- [F152] Only arm when the decoder pipe has room (PIPE_FULL = 0).
+            -- Guarantees the plain-fill branch will consume the second word.
             Q_HIT2 <= '1';
         end if;
     end process P_Q_HIT2;
