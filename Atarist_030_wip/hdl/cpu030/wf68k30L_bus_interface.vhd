@@ -91,7 +91,7 @@
 --   2026-11-04 F144: branch target from the instruction cache in the stream-restart clock (IC_MTAKE, IC_MISS_LK).
 --   2026-11-04 F147: two-word opcode delivery (OPCODE_RDY_2) on the first queue hit after an IC_MTAKE restart.
 --   2026-11-05 F148: Q_HIT2 double-pop from the original queue (no single-word shift first).
---   2026-11-05 F149: RESTART_PEND cleared on flush; Q_HIT2 only while queue head is still the original restart pair.
+--   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
 -- 
 
 library work;
@@ -1759,7 +1759,7 @@ begin
     P_RESTART_PEND: process -- [F147]
     begin
         wait until CLK = '1' and CLK' event;
-        if IC_MTAKE = '1' or IPIPE_FLUSH = '1' then -- [F149] also react to flush
+        if IC_MTAKE = '1' or OPC_DISMISS = '1' then -- [F149] also react to flush (OPC_DISMISS = decoder OPCODE_FLUSH)
             RESTART_PEND <= '1';
             RESTART_ADR <= OPC_ADR(31 downto 1); -- [F149] capture the restart address
         elsif OPCODE_RDY_I = '1' or RESET_CPU_I = '1' then
