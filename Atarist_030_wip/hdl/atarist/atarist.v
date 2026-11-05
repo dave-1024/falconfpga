@@ -150,7 +150,7 @@ module atarist (
 	output wire        ext_io_lds_n,
 	output wire [15:0] ext_io_wdata,
 	input  wire [15:0] ext_io_rdata,
-	input  wire        ext_io_dtack,
+	input  wire        ext_io_dtack
 `endif
 );
 
