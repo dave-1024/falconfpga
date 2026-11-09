@@ -15,7 +15,6 @@
 # Output: impl/pnr/st_helper.fs. See README "Build option: ST_HELPER".
 set fh [open hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define ST_HELPER"
-puts $fh "`define DIAG_HEARTBEAT"
 # Self-test cartridge ROM at $FA0000 (TOS runs it once at boot): OFF by default
 # since 22 Oct 2026. Its ttdiag calls EmuTOS 1.4 internals ($E00308/$E00C2E),
 # which hang plain TOS 2.06. Debug opt-in only: uncomment the next line.

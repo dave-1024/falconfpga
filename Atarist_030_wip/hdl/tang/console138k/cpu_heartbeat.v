@@ -1,8 +1,7 @@
 // ===========================================================================
 // cpu_heartbeat.v - [F72] debug: ST/68030 heartbeat on U15 (only with `define DIAG_HEARTBEAT)
 // Once a second, when the AE350's UART has been idle for 10 ms, it borrows U15 for one line:
-//   "H" ff c aaaa rrrrr wwww gi bbbbbbbb pppppp nnnn s CR LF   (hex)
-//   s     = ADR_SKEW (1 if two-word address divergence latched) [F154]
+//   "H" ff c aaaa rrrrr wwww gi bbbbbbbb pppppp nnnn CR LF   (hex)
 //   ff    = diag_flags {halted_n, as_n, rom_n, resb, ram_ready, flash_ready, sd_ready, bl616_reset}
 //   c     = diag_030 {berr, dsack, req, run}
 //   aaaa  = AS# falling edges in the last second (low 16 bits, saturating)
@@ -26,7 +25,6 @@ module cpu_heartbeat #(
     input  wire [15:0] rom_data,
     input  wire [167:0] trace,
     input  wire        ext_busy,     // [F77] the register dump (cpu_dump.v) has U15
-    input  wire        skew,         // [F154] ADR_SKEW latched
     output wire        go_ext,       // [F77] U15 free for the dump: AE350 idle 10 ms, heartbeat not sending
     output reg         own = 1'b0,   // 1 while this module drives U15
     output reg         tx  = 1'b1
@@ -59,11 +57,11 @@ module cpu_heartbeat #(
     assign start = pend && !own && !ext_busy && (idle >= IDLE) && !rst;
     assign go_ext = !own && (idle >= IDLE) && !rst;
     reg [7:0] ch;
-    wire [147:0] nibs = {fl_l, c_l, as_last, 3'b0, r_l, w0_l, g_l, b_l, p_l, nline, 3'b0, skew};   // 37 hex digits
+    wire [143:0] nibs = {fl_l, c_l, as_last, 3'b0, r_l, w0_l, g_l, b_l, p_l, nline};   // 36 hex digits
     always @(*) begin
         if (ci == 6'd0) ch = "H";
-        else if (ci <= 6'd37) ch = hx(nibs[147 - 4*(ci-1) -: 4]);
-        else if (ci == 6'd38) ch = 8'h0D;
+        else if (ci <= 6'd36) ch = hx(nibs[143 - 4*(ci-1) -: 4]);
+        else if (ci == 6'd37) ch = 8'h0D;
         else ch = 8'h0A;
     end
     always @(posedge clk) begin
@@ -74,7 +72,7 @@ module cpu_heartbeat #(
                 bd <= 0;
                 if (bi == 4'd9) begin
                     bi <= 0;
-                    if (ci == 6'd39) begin own <= 1'b0; tx <= 1'b1; nline <= nline + 1; end
+                    if (ci == 6'd38) begin own <= 1'b0; tx <= 1'b1; nline <= nline + 1; end
                     else begin ci <= ci + 1; end
                 end else bi <= bi + 1;
             end else bd <= bd + 1;

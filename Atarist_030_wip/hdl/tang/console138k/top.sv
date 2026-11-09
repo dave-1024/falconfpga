@@ -314,7 +314,6 @@ wire rom_fetch;
 // seen by the bridge in the last ~0.13-0.26 s); steady = no 030 bus cycles.
 // Same expression style as leds_n[0].
 wire diag_led_030;
-wire adr_skew; // [F154]
 assign leds_n = {~diag_led_030, ~rom_fetch};
 `else
 assign leds_n = {~leds_int_n[1], ~rom_fetch};
@@ -799,7 +798,6 @@ misterynano misterynano (
   .por_flash ( por_flash ), // the same, flash_clk-synchronous release
 
   .leds_n ( leds_int_n ),
-  .adr_skew ( adr_skew ), // [F154]
   .rom_fetch ( rom_fetch ),
   .ws2812 ( ),
 
@@ -987,7 +985,7 @@ diag_collect diag_collect (
     .vs_blink       ( diag_vs_blink       ),
     .hs_blink       ( diag_hs_blink       ),
     .rom_word0      ( diag_word           ),
-    .led_030        ( diag_led_030        ),
+    .led_030        ( diag_led_030        )
 );
 localparam DIAG_EN = 1;
 localparam DIAG_ST = `DIAG_FB_SELFTEST;
@@ -1085,7 +1083,7 @@ assign diag_go = 1'b0;   // [F77] no dump without the heartbeat's U15 arbitratio
 `ifdef DIAG_HEARTBEAT
 // [F72] instance here, after diag_flags/por32/sth_ae_run are declared
 cpu_heartbeat u_cpu_heartbeat ( .clk(clk32), .rst(por32 | ~sth_ae_run), .ae_tx(ae350_uart_tx),
-    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .ext_busy(diag_dump[1]), .go_ext(diag_go), .skew(adr_skew), .own(hb_own), .tx(hb_tx) );
+    .flags(diag_flags), .c030(diag_030), .rom_idx(diag_rom_idx), .rom_data(diag_rom_data), .trace(diag_trace), .ext_busy(diag_dump[1]), .go_ext(diag_go), .own(hb_own), .tx(hb_tx) );
 `endif
 
 endmodule

@@ -68,7 +68,6 @@
 --   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
 --   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
 --   2026-11-04 F147: two-word pipe fill 0->2 / 1->3 (OPCODE_RDY_2), fetch offset +2 words.
---   2026-11-05 F153: decoder consumes OPCODE_RDY_2 in every fill path (keeps queue and pipe in sync).
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 -- 
 
@@ -483,26 +482,6 @@ begin
                         IPIPE_PNTR <= 0;
                     end if;
                 when others => null;
-            end case;
-        elsif OPCODE_RDY_I = '1' and OPCODE_RDY_2_I = '1' then -- [F153] Two-word delivery: always consume both.
-            case IPIPE_PNTR is
-                when 0 =>
-                    IPIPE.D <= OPCODE_DATA;
-                    IPIPE.C <= OPCODE_DATA_2;
-                    IPIPE_D_FAULT <= not OPCODE_VALID;
-                    IPIPE_C_FAULT <= not OPCODE_VALID_2;
-                    IPIPE_PNTR <= 2;
-                when 1 =>
-                    IPIPE.C <= OPCODE_DATA;
-                    IPIPE.B <= OPCODE_DATA_2;
-                    IPIPE_C_FAULT <= not OPCODE_VALID;
-                    IPIPE_B_FAULT <= not OPCODE_VALID_2;
-                    IPIPE_PNTR <= 3;
-                when others =>
-                    -- Pipe full enough; fall back to single word (should not happen with F152 guard).
-                    IPIPE.B <= OPCODE_DATA;
-                    IPIPE_B_FAULT <= not OPCODE_VALID;
-                    IPIPE_PNTR <= 3;
             end case;
         elsif OPCODE_RDY_I = '1' then
             case IPIPE_PNTR is

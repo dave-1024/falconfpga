@@ -10,4 +10,3 @@
 `define ST_SD_WRITE_FIX
 `define ST_FLOPPY_MEDIACH
 `define ST_SD_HARDEN
-`define DIAG_HEARTBEAT

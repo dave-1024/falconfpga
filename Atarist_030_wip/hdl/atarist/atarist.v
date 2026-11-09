@@ -150,8 +150,7 @@ module atarist (
 	output wire        ext_io_lds_n,
 	output wire [15:0] ext_io_wdata,
 	input  wire [15:0] ext_io_rdata,
-	input  wire        ext_io_dtack,
-	output wire        adr_skew // [F154]
+	input  wire        ext_io_dtack
 `endif
 );
 
@@ -651,7 +650,6 @@ cpu030_st_bridge #(.CPU_DIV(2)) cpu030 (   // 16 MHz clk_cpu
 	.FC2        ( cpu_fc2   ),
 	.BGn        ( blitter_bg_n  ),
 	.oRESETn    ( cpu_reset_n_o ),
-	.adr_skew   ( adr_skew   ), // [F154]
 	.oHALTEDn   ( dbg_cpu_halted_n ),   // FalconFPGA DIAG (was open)
 	.DTACKn     ( dtack_n    ),
 	.VPAn       ( vpa_n      ),
