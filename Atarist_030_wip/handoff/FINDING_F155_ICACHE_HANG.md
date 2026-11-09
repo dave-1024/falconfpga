@@ -40,3 +40,10 @@ timer interrupt during LOOPTEST's cached TT-RAM loop is exactly that. ST-RAM is 
 No fix written (per brief).
 
 Debug: `VCD=1 run_lt_tt.sh` writes tw.vcd. `vcdt.py tw.vcd 23706 23722 i_exc_handler.pipe_cnt[1:0] i_exc_handler.pipe_full i_bus_if.opcode_rdy_i i_bus_if.opcode_rdy_2_i i_opcode_decoder.ipipe_pntr`
+
+## F155 checks (2026-11-09)
+- run_rtl.sh on F155: all pass except prog_mmut, which matched the F145 values exactly (blk1 15.12 ... blk12 15.25).
+  The expect_mmut.txt in the tree had been re-pinned for the two-word path (a8dd216), so it is restored to the F145 pin.
+- Build (Gowin V1.9.12.03, box): clk_cpu030 19.181 MHz, clk32_core 34.847 MHz, 46203 LUT + 5317 ALU, timing_pairs rc=0,
+  fs md5 93952080de86eebd6cff5aff20ea83a1 (linserver ~/fpga_bitstreams/st_helper_f155.fs).
+- Board, SRAM load: LOOPTEST ST 216684 x3, TT caches off 557103, TT I-cache on 1307189, TT I+D 1307189. Then flashed at 0 (op 53), boots to the desktop.
