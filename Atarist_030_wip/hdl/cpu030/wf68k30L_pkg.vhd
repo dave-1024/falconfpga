@@ -40,6 +40,7 @@
 --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-09 F156: OPCODE_RDY_2 into the exception handler (REFILL_PIPE word count).
 --   2026-11-04 F147: OPCODE_RDY_2/OPCODE_VALID_2/second opcode word ports (bus interface out, decoder in).
 --   2026-11-03 F140: OPC_RD_NEXT ports (decoder out, bus interface in).
 -- 
@@ -583,6 +584,7 @@ component WF68K30L_EXCEPTION_HANDLER
         DATA_RDY            : in bit;
         DATA_VALID          : in std_logic;
         OPCODE_RDY          : in bit;
+        OPCODE_RDY_2        : in bit; -- [F156]
         OPD_ACK             : in bit; -- Opword is available.
         OW_VALID            : in std_logic;
         STATUS_REG_IN       : in std_logic_vector(15 downto 0);

@@ -85,6 +85,7 @@
 --   2026-10-03 F55: interrupt not taken when the new SR mask covers it.
 --   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
 --   2026-11-04 F141: IRQ_HOT, an interrupt is or may become pending (early instruction issue is held off).
+--   2026-11-09 F156: REFILL_PIPE counts two words for an OPCODE_RDY_2 delivery (pipe full after 3 words, not 3 strobes).
 -- 
 
 library work;
@@ -122,6 +123,7 @@ entity WF68K30L_EXCEPTION_HANDLER is
         DATA_VALID          : in std_logic;
 
         OPCODE_RDY          : in bit; -- OPCODE is available.
+        OPCODE_RDY_2        : in bit; -- [F156] With OPCODE_RDY: a second opcode word in the same clock (F147).
         OPD_ACK             : in bit; -- Opword is available.
         OW_VALID            : in std_logic; -- Status from the opcode decoder.
 
@@ -857,6 +859,12 @@ begin
         if EX_STATE /= REFILL_PIPE then
             PIPE_FULL <= false;
             CNT := "00";
+        -- [F156] CNT = words received so far (0..2). Full on the clock the third word arrives;
+        -- an OPCODE_RDY_2 delivery brings two words in one strobe.
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and OPCODE_RDY_2 = '1' and CNT = "00" then
+            CNT := "10";
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and OPCODE_RDY_2 = '1' then
+            PIPE_FULL <= true;
         elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and CNT < "10" then
             CNT := CNT + '1';
         elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' then

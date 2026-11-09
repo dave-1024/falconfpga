@@ -163,6 +163,7 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
 --   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
 --
@@ -1817,6 +1818,7 @@ begin
             DATA_VALID              => DATA_VALID,
     
             OPCODE_RDY              => OPCODE_RDY,
+            OPCODE_RDY_2            => OPCODE_RDY_2, -- [F156]
             OPD_ACK                 => OPD_ACK_MAIN,
             OW_VALID                => OW_VALID,
     
