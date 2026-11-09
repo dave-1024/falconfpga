@@ -64,6 +64,7 @@
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
 --   2026-10-04 F57: explicit power-up values for set-type flops.
 --   2026-11-09 F157a: ALU_REQ re-armed when ALU_INIT overlaps ALU_ACK (INIT during WRITEBACK).
+--   2026-11-09 F157f: do not re-arm ALU_REQ on INIT for shifts/mul/div (EmuTOS memcpy lsr+dbf).
 -- 
 
 library work;
@@ -409,8 +410,18 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or F157_PHASE_A) then
-            ALU_REQ <= '1'; -- Option A / [F157a]: overlap, re-armed in the clock of the acknowledge.
+        -- [F157f] Re-arm on INIT+ACK only for single-cycle ops. Shifts/mul/div must wait for
+        -- SHFT_RDY/DIV_RDY (they never set ALU_REQ in the INIT clock). F157a re-armed every
+        -- OP_IN when PHASE_A, so lsr.l #8,d0 overlapping the previous ACK completed immediately
+        -- and wrote the unshifted operand; EmuTOS memcpy (move.b d0,d1; lsr.l #8,d0; dbf)
+        -- then copied for the byte count instead of count/256 and never reached video.
+        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
+            ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
+        elsif ALU_ACK = '1' and ALU_INIT = '1' and F157_PHASE_A and
+              OP_IN /= ASL and OP_IN /= ASR and OP_IN /= LSL and OP_IN /= LSR and
+              OP_IN /= ROTL and OP_IN /= ROTR and OP_IN /= ROXL and OP_IN /= ROXR and
+              OP_IN /= MULS and OP_IN /= MULU and OP_IN /= DIVS and OP_IN /= DIVU then
+            ALU_REQ <= '1'; -- [F157a/F157f] single-cycle overlap re-arm.
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
