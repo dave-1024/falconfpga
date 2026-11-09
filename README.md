@@ -84,6 +84,31 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
+## Currently working on (9 Nov 2026)
+The active work is making the 68030 core as close as possible to Motorola's MC68030 User's Manual
+cycle timing, running at 16 MHz. Nothing may finish *faster* than the manual: a later Falcon core
+has to match the real CPU's timing against the DSP56001, so every extra-early cycle here would
+break that pairing.
+
+On the current board build (F156, in flash): Linux reports 2.13 BogoMIPS, about 8.6 MHz-equivalent
+(a real 16 MHz 68030 is about 3.95 BogoMIPS), and LOOPTEST from TT-RAM with the instruction cache
+on runs at 1428571 loops/s.
+
+Next, in this order:
+
+1. The **issue loop**: register-to-register instructions currently take 3 clocks, against the
+   manual's 2.
+2. The **taken-branch restart**: change-of-flow used to take 11 clocks against the manual's 6.
+   BRA is now 7, but BSR+RTS is still 28 against 15, and JSR/RTS is similarly high.
+3. Then a **restart of the 64 MHz SDRAM / TT-RAM work** against the current core (see
+   [`Atarist_030_wip/docs/SDRAM64_NOTES.md`](Atarist_030_wip/docs/SDRAM64_NOTES.md)), rather than
+   rebasing the old tree.
+
+Also still open: the [SD card write-path bug](#what-doesnt-work-yet), and bringing up NetBSD as
+another CPU test.
+
+When an item is finished, it moves into [What works now](#what-works-now-9-nov-2026) below.
+
 ## What works now (9 Nov 2026)
 - **Speed overhaul merged** (F140-F156, tag `bank-2026-11-09-f156`): two-word opcode decode after an I-cache restart,
   with the TT-RAM I-cache hang it caused fixed in F156. Linux BogoMIPS 2.13 (was 1.79, about 8.6 MHz-equivalent),
