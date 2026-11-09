@@ -11,6 +11,13 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > **This is a personal workbench, not a product.** No support, no promises, no release dates. Please read
 > [This is not a product](#this-is-not-a-product) before you buy any hardware because of this repository.
 
+> **Build with Gowin EDA V1.9.12.03 (build 86714) only.** Gowin EDA **V1.9.12.04 (build 89079)** does not seem to
+> produce a working bitstream for this design: it builds without errors and meets timing, but the result gives a
+> black screen with no HDMI sync. On 9 Nov 2026 a V1.9.12.04 build of main `7896b55` was loaded on our board and
+> stayed black, while a V1.9.12.03 build of the same commit booted straight to the GEM desktop. Settings,
+> constraints and pins were identical; V1.9.12.04 synthesises and places the design differently. V1.9.12.03 is the
+> version this project is developed and tested with.
+
 ## The blitter, TT-RAM and BLITFIX: correct behaviour, not a fault
 
 If you run TOS 2.06 on this core and switch the blitter on, you also need BLITFIX. This is how a real Atari with a
@@ -187,7 +194,7 @@ window on the TeraDesk desktop.*
 - **One Tang SDRAM module** in slot **J9** (ST-RAM and TT-RAM share it). Never flash with J9 empty.
 - A microSD card (FAT) with `.st` floppy images, an HDMI screen, a USB keyboard and mouse.
 - Your own **TOS** image (TOS 2.06 or EmuTOS). Atari TOS is not in this repository.
-- **Gowin EDA V1.9.12.03** (Windows or Linux) to build; other versions, V1.9.12.04 included, are not supported (see
+- **Gowin EDA V1.9.12.03 (build 86714)** (Windows or Linux) to build; other versions, V1.9.12.04 included, are not supported (see
   [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md)), and for the helper firmware the Andes AST v5.1.1 toolchain.
   No ready-made bitstreams are published: this repository is source only.
 
@@ -280,7 +287,7 @@ This bench is **one person**. An AI assistant is used for engineering help: HDL 
 It does not replace the board, the real 68030, or the decision of what is known-good. Silicon results and the instruction audit are David’s. Commit volume is not a team. The cores listed under Credits were written by the people named there, not by the assistant.
 
 ### Toolchain
-Gowin IDE / gw_sh **V1.9.12.03** on Windows or headless Linux. V1.9.12.04 completes the build (thanks to the `syn_keep` on `ae350_flash_clk` in `top.sv`) but a friend's V1.9.12.04 bitstreams gave a black screen / no sync while V1.9.12.03 builds of the same source work (Nov 2026, suspected toolchain issue, unconfirmed), device **Version C**. The AE350 helper
+Gowin IDE / gw_sh **V1.9.12.03** on Windows or headless Linux. V1.9.12.04 (build 89079) completes the build (thanks to the `syn_keep` on `ae350_flash_clk` in `top.sv`) but its bitstreams give a black screen / no sync, while V1.9.12.03 (build 86714) builds of the same source work. Confirmed on 9 Nov 2026 by loading both builds of `7896b55` on the same board, device **Version C**. The AE350 helper
 firmware builds with **Andes AST v5.1.1** and the BSP from Gowin's **RiscV_AE350_SOC_V1.3**. This repository is
 **source only**: bitstreams, `impl/`, ROMs and disk images stay on the machine that built or flashed them.
 
