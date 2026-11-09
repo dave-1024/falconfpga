@@ -1040,7 +1040,9 @@ begin
                    BIW_0(2 downto 0) when OP = DBcc or OP = EOR or OP = EORI or OP = EXT or OP = EXTB or OP = NBCD or OP = NEG or OP = NEGX else
                    BIW_0(2 downto 0) when OP = NOT_B or OP = ORI or OP = SUBI or OP = SUBQ or OP = SWAP or OP = TAS or OP = TST else
                    BIW_0(2 downto 0) when OP = ASL or OP = ASR or OP = LSL or OP = LSR else
-                   BIW_0(2 downto 0) when OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR else "000";
+                   BIW_0(2 downto 0) when OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR else
+                   BIW_0(2 downto 0) when OP = MOVE else -- [F157b] source Dn (not the default D0). Dest WAW is not a hazard.
+                   "000";
 
     DR_SEL_WR_2 <= BIW_0(2 downto 0) when OP = EXG else BIW_1(2 downto 0); -- Default is for DIVS and DIVU, MULS, MULU.
 
@@ -2039,7 +2041,10 @@ begin
                             -- because the destination is an ALU operand and may cause data hazards.
                              case BIW_0(5 downto 3) is
                                 when "000" => -- Dn.
-                                    if DR_IN_USE = '0' then
+                                    -- [F157b] CLR writes zeros and does not read Dn: WAW is not a hazard (same as MOVEQ).
+                                    if OP = CLR then
+                                        NEXT_FETCH_STATE <= INIT_EXEC_WB;
+                                    elsif DR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
                                     else
                                         NEXT_FETCH_STATE <= START_OP;
