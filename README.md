@@ -16,7 +16,7 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > black screen with no HDMI sync. On 9 Nov 2026 a V1.9.12.04 build of main `7896b55` was loaded on our board and
 > stayed black, while a V1.9.12.03 build of the same commit booted straight to the GEM desktop. Settings,
 > constraints and pins were identical; V1.9.12.04 synthesises and places the design differently. V1.9.12.03 is the
-> version this project is developed and tested with.
+> version this project is developed and tested with. Thanks to **Łukasz Jokiel** for finding and reporting this.
 
 ## The blitter, TT-RAM and BLITFIX: correct behaviour, not a fault
 
@@ -243,6 +243,7 @@ in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 - **Individual Computers**: the ACA1230-55N used as the real-030 instruction oracle
 - **exxos**: GEMBENCH and the ST536 TOS 2.06 images used as test references
 - **agranlund**: `tftools` (fastram, maprom, blitfix) referenced for the ST536/TF536 TOS notes
+- **Łukasz Jokiel**: bug testing on his own Tang Console 138K, and finding that Gowin V1.9.12.04 builds give no HDMI sync
 
 If a name is missing or something is credited wrongly, please say so and it
 will be fixed.
