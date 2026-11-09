@@ -161,6 +161,9 @@
 --   2026-11-04 F143: F141 early issue disabled (EARLY_ISSUE = false) after the board AUTO failure; MOVEQ hazard change kept.
 --   2026-11-04 F142: CMPA Rn,An one clock longer (4, as the manual; it was faster).
 --   2026-11-04 F141: early OW_REQ in INIT_EXEC_WB for register-only instructions (2-clock issue, MC68030UM 11.6).
+--   2026-11-09 F157a: keep the opcode pipe two words deep (decoder/bus) and overlap the next
+--     INIT with WRITEBACK (ALU_TRIG during WRITEBACK, ALU_REQ re-arm, UNMARK, WRITEBACK->EXECUTE).
+--     Constant F157_PHASE_A. Writes stay in WRITEBACK. MOVEQ/NOP target: 2 clocks.
 --
 
 use work.WF68K30L_PKG.all;
@@ -430,6 +433,12 @@ signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
 constant EARLY_ISSUE        : boolean := true; -- [F145] on again; ADDQ/SUBQ #,An excluded below (F143 board failure).
+constant F157_PHASE_A       : boolean := true; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
+    -- [F157a] INIT may overlap the previous WRITEBACK: ALU_TRIG is open and the new
+    -- operation is accepted this clock, so INIT must not wait on ALU_BSY (or DBcc/MOVEQ
+    -- stay in INIT and re-issue themselves forever).
+    signal F157_ALU_FREE        : boolean;
+    signal F157_OLAP            : bit;
 signal CMPA_DLY             : bit := '0'; -- [F142]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
 signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
@@ -504,6 +513,13 @@ begin
                 '1' when (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
                          BIW_0(7 downto 6) /= "11" else
                 '1' when (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
+
+    -- [F157a] Only register-only ops (the F141 EARLY_OW set) may take INIT during the
+    -- previous WRITEBACK. Multi-phase MOVE/ORI to memory would otherwise ALU_INIT and
+    -- then WRITE_DEST with PHASE2 still false (wrong address; prog_mrmw).
+    F157_OLAP <= '1' when F157_PHASE_A and EXEC_WB_STATE = WRITEBACK and EARLY_OW = '1' else '0';
+    F157_ALU_FREE <= true when ALU_BSY = '0' else
+                     true when F157_OLAP = '1' else false;
 
     DATA_AVAILABLE: process
     -- These flip flops store the information whether the data required in the different
@@ -1348,7 +1364,9 @@ begin
     SP_ADD_DISPL_S <= '1' when OP = LINK and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else 
                     '1' when OP = RTD and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' else '0';
 
-    ALU_TRIG <= '0' when ALU_BSY_M = '1' or FETCH_STATE /= INIT_EXEC_WB else
+    -- [F157a] A new ALU_INIT may overlap the current WRITEBACK (ALU_BSY still set until this
+    -- clock's ALU_ACK). Without this, ALU_TRIG stays low and the next op never loads.
+    ALU_TRIG <= '0' when (ALU_BSY_M = '1' and F157_OLAP = '0') or FETCH_STATE /= INIT_EXEC_WB else
                 '0' when WR_FLT = '1' or WFLT = '1' else -- [FLT1] Nothing new after a data write fault.
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
                 '0' when OP = MOVE and PHASE2 = true else -- no ALU required after second portion of address calculation.
@@ -1526,7 +1544,8 @@ begin
                     '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else '0';
 
     UNMARK <= '1' when WR_FLT = '1' else -- [FLT1] The aborted write-back releases its address.
-              '1' when EXEC_WB_STATE /= IDLE and NEXT_EXEC_WB_STATE = IDLE else '0'; -- Release a pending write cycle when done.
+              '1' when EXEC_WB_STATE /= IDLE and NEXT_EXEC_WB_STATE = IDLE else -- Release a pending write cycle when done.
+              '1' when F157_PHASE_A and EXEC_WB_STATE = WRITEBACK and NEXT_EXEC_WB_STATE = EXECUTE else '0'; -- [F157a] WRITEBACK folded into the next EXECUTE.
 
     -- These signals indicates, that two registers are prepared to be written. In this case, the values
     -- in both of these registers are invalidated before the writeback.
@@ -1976,7 +1995,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2787,74 +2806,74 @@ begin
             when INIT_EXEC_WB =>
                 case OP is
                     when ANDI_TO_SR | EORI_TO_SR | MOVE_TO_SR | ORI_TO_SR =>
-                        if ALU_BSY = '0' and BRANCH_ATN = '1' then
+                        if F157_ALU_FREE and BRANCH_ATN = '1' then
                             NEXT_FETCH_STATE <= SLEEP; -- Wait for new processor context.
-                        elsif ALU_BSY = '0' then
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= START_OP; -- Proceed normally.
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when Bcc | CHK | DBcc | JMP | TRAPcc | TRAPV =>
-                        if ALU_BSY = '0' then
+                        if F157_ALU_FREE then
                             NEXT_FETCH_STATE <= SLEEP; -- Check conditions.
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when CAS | JSR | MOVEC | TAS =>
                         -- CAS, TAS provide a RMC operation so have to sleep a little bit ;-)
-                        if ALU_BSY = '0' then
+                        if F157_ALU_FREE then
                             NEXT_FETCH_STATE <= SLEEP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when BRA | BSR | RTD | RTS =>
-                        if ALU_BSY = '0' then
+                        if F157_ALU_FREE then
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when BFCHG | BFCLR | BFINS | BFSET =>
-                        if ALU_BSY = '0' and BF_BYTES < 5 then
+                        if F157_ALU_FREE and BF_BYTES < 5 then
                             NEXT_FETCH_STATE <= START_OP;
-                        elsif ALU_BSY = '0' then
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= SLEEP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Wait, ASH.
                         end if;
                     when CAS2 => -- RMC operation.
-                        if ALU_BSY = '0' and PHASE2 = false then
+                        if F157_ALU_FREE and PHASE2 = false then
                             NEXT_FETCH_STATE <= CALC_AEFF; -- Second compare.
-                        elsif ALU_BSY = '0' then
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= SLEEP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when CHK2 =>
-                        if ALU_BSY = '0' and PHASE2 = false then
+                        if F157_ALU_FREE and PHASE2 = false then
                             NEXT_FETCH_STATE <= FETCH_OPERAND; -- Second compare required?
-                        elsif ALU_BSY = '0' then -- ASH.
+                        elsif F157_ALU_FREE then -- ASH.
                             NEXT_FETCH_STATE <= SLEEP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when CMP2 | CMPM =>
-                        if ALU_BSY = '0' and PHASE2 = false then
+                        if F157_ALU_FREE and PHASE2 = false then
                             NEXT_FETCH_STATE <= FETCH_OPERAND; -- Second compare required?
-                        elsif ALU_BSY = '0' then -- ASH.
+                        elsif F157_ALU_FREE then -- ASH.
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVE_USP =>
-                        if ALU_BSY = '0' and BIW_0(3) = '0' then -- An to USP.
+                        if F157_ALU_FREE and BIW_0(3) = '0' then -- An to USP.
                             NEXT_FETCH_STATE <= SLEEP;
-                        elsif ALU_BSY = '0' then
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= START_OP; -- USP to An.
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVE =>
-                        if ALU_BSY = '0' and PHASE2 = false then -- Load the Operand into the ALU here.
+                        if F157_ALU_FREE and PHASE2 = false then -- Load the Operand into the ALU here.
                             case BIW_0(8 downto 6) is -- Destination operand.
                                 when "101" => 
                                     NEXT_FETCH_STATE <= FETCH_DISPL;
@@ -2886,49 +2905,53 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
                         end if;
                     when PMOVE => -- [PMMU1] CRP/SRP to memory: a second ALU load and write for the lower long.
-                        if ALU_BSY = '0' and PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false then
+                        if F157_ALU_FREE and PM_QUAD = '1' and MV_RW = '1' and PHASE2 = false then
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                        elsif ALU_BSY = '0' then
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when MOVEP =>
-                        if ALU_BSY = '0' and MOVEP_PNTR_I = 0 then
+                        if F157_ALU_FREE and MOVEP_PNTR_I = 0 then
                             NEXT_FETCH_STATE <= START_OP; -- Ready.
-                        elsif ALU_BSY = '0' and BIW_0(7 downto 6) < "10" then
+                        elsif F157_ALU_FREE and BIW_0(7 downto 6) < "10" then
                             NEXT_FETCH_STATE <= CALC_AEFF; -- Memory to register.
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Register to memory.
                         end if;
                     when NOP =>
-                        if ALU_BSY = '1' then -- ASH.
+                        if not F157_ALU_FREE then -- ASH.
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- Wait for all pending bus cycles to be completed.
                         else
                             NEXT_FETCH_STATE <= START_OP;
                         end if;
                     when RTR =>
-                        if ALU_BSY = '0' and PHASE2 = false then
+                        if F157_ALU_FREE and PHASE2 = false then
                             NEXT_FETCH_STATE <= CALC_AEFF;
-                        elsif ALU_BSY = '0' and PHASE2 = true then
+                        elsif F157_ALU_FREE and PHASE2 = true then
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when STOP =>
-                        if ALU_BSY = '0' then -- ASH.
+                        if F157_ALU_FREE then -- ASH.
                             NEXT_FETCH_STATE <= SLEEP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when UNLK =>
-                        if ALU_BSY = '0' and AR_IN_USE = '0' then -- ADH, ASH.
+                        if F157_ALU_FREE and AR_IN_USE = '0' then -- ADH, ASH.
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when others =>
-                        if ALU_BSY = '0' then -- ASH.
+                        if F157_ALU_FREE then -- ASH.
+                            NEXT_FETCH_STATE <= START_OP;
+                        elsif F157_OLAP = '1' then
+                            -- [F157a] INIT overlapped the previous WRITEBACK. Leave so this
+                            -- opcode is not re-inited forever.
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB; -- ASH.
@@ -3115,7 +3138,12 @@ begin
                             NEXT_EXEC_WB_STATE <= IDLE;
                         end if;
                     when others =>
-                        NEXT_EXEC_WB_STATE <= IDLE;
+                        -- [F157a] Next instruction already in INIT: go straight to its EXECUTE.
+                        if F157_OLAP = '1' and ALU_INIT_I = '1' then
+                            NEXT_EXEC_WB_STATE <= EXECUTE;
+                        else
+                            NEXT_EXEC_WB_STATE <= IDLE;
+                        end if;
                     end case;
             when WRITE_DEST =>
                 if WR_RDY = '1' then

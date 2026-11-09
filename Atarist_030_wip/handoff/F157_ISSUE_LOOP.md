@@ -1,6 +1,7 @@
 # F157: the 3-clock issue loop (9 Nov 2026)
 
-**Branch:** `speed` at `33ca26e` (F156). **No RTL change was committed.**
+**Branch:** `speed`. Phase A + the 2.25→2 pipe-rdy bubble are in RTL (`F157_PHASE_A`).
+Phase B (ADD/ADDQ/CLR/`MOVE.L Dn,Dn`) is not started.
 
 The goal was to issue register-to-register instructions in 2 clocks, matching
 MC68030UM section 11 (I-cache case). F145 already raises `OW_REQ` in
@@ -227,8 +228,67 @@ same `ALU_REQ` edge.
    constraints, or the board until the table, `run_rtl.sh`, `expect_mmut`
    and the irq cached-TT-RAM harness are clean.
 
-## What was not done
+## Phase A + bubble (implemented, sim-clean)
 
-- No RTL left in the tree (the dumps and both attempts were reverted).
-- No Gowin build, no `.fs`, no board load.
-- `origin/speed` gains only this note.
+`F157_PHASE_A` in control, ALU, decoder and bus interface:
+
+- Overlap next `INIT` with current `WRITEBACK` when `EARLY_OW` (`F157_OLAP`).
+  Writes stay in `WRITEBACK`. `F157_ALU_FREE` replaces `ALU_BSY` waits in
+  `INIT` so DBcc and the `others` arm cannot re-init. ALU_TRIG opens only
+  during that overlap. ALU_REQ re-arms when ACK and INIT (same as MOVEM).
+- After a level-D issue, `F157_NEED_REFILL` / `OPC_RD_NEXT` plus a Q_NMATCH
+  `Q_HIT` clause fetch the next word without waiting for another OPCODE_RDY.
+- **Bubble (2.25→2):** `PIPE_RDY` is true for a valid level-D opcode at
+  `IPIPE_PNTR > 0`, with a consume path at `pntr = 1`. Not used for F-line
+  (PMOVE vs UNIMPLEMENTED needs C) or MOVEC `4E7A`/`4E7B` (vs ILLEGAL needs C).
+  A faulted D still waits for `pntr > 1` so the BERR SSW keeps `RC` and `RB`
+  (`0x3005`). `P_STAGE` treats the next incoming word as stage C, not B.
+
+Without the F-line/MOVEC guard, `pmove CRP` at `pntr = 1` was issued as an
+F-line trap (`prog_slmmu` hung). Without the `P_STAGE` / faulted-D wait,
+`prog_branch` stacked SSW `0x1005`/`0x2005` instead of `0x3005`.
+
+### Speed table (I-cache, `/tmp/speed_f157a3.txt`)
+
+Nothing faster than the manual. `empty=20`.
+
+| op | manual | F156 | A+bubble |
+|---|---|---|---|
+| MOVEQ | 2 | 3.00 | **2.00** |
+| MOVEA.L Dn,An | 2 | 3.00 | **2.00** |
+| CMP.L Dn,Dn | 2 | 2.38 | **2.00** |
+| TST.L Dn | 2 | 2.38 | **2.00** |
+| NOP | 2 | 3.00 | 3.00 (no `EARLY_OW`) |
+| MOVE.L / ADD / ADDQ / AND / CLR / NEG / NOT Dn | 2 | 4.00 | 4.00 (Phase B) |
+| BSR+RTS | 15 | 28 | 28 |
+| JSR+RTS | 13 | 28.50 | 28 |
+| dbf_loop8 | 54 | 69.50 | 69 |
+| delay_loop8 | 72 | 90.50 | 90 |
+
+### Verification
+
+- `run_rtl.sh` (`/tmp/sim030rtl_f157c`): chk/branch/cas2/mrmw/slmmu/frame/spwb/loop
+  (DONE clk 40290), dcache, pmmu, mmucfg, xlate, pmop, xlate2, xlate3, df, prm all
+  matched. I-cache `$5000` results unchanged; unused prefetch of the 16-byte loop
+  line dropped 48→34 (same class of change as F144). Alternate lines in
+  `expect_icache_ci{1,0}_f157.txt`. `expect_mmut.txt` nop calibration only:
+  blk1 14.62→14.50, blk12 15.00→14.62; MMU blocks 2–11 unchanged.
+- IRQ TT-RAM `/tmp/lt_tt_f157a3.log`: all four (asis/tw × WS 0/1) `done=1`,
+  `d0=FFFFFFFF`.
+
+## Morning summary (9/10 Nov 2026, Europe/London)
+
+Phase A is in and the 2.25→2 bubble is closed for MOVEQ/MOVEA/CMP/TST (exact
+manual 2.00). ADD/ADDQ/CLR/`MOVE.L Dn,Dn` remain at 4.00 pending Phase B
+(write in EXECUTE once `RESULT` is valid there, or forwarding; plus the WAW
+`DR_IN_USE` stall). BSR/JSR/RTS (~28 vs 13–15) and DBF (69 vs 54) are the
+next largest gaps after that.
+
+Sim is clean as above. Gowin/board/Phase B were still pending when this
+section was written.
+
+## What was not done (at the time of this section)
+
+- Phase B RTL.
+- BSR/JSR/RTS and DBF speed work.
+- Gowin build / `.fs` / board (see later notes if present).

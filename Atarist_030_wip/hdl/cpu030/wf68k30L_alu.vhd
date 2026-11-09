@@ -63,6 +63,7 @@
 --   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
 --   2026-10-04 F57: explicit power-up values for set-type flops.
+--   2026-11-09 F157a: ALU_REQ re-armed when ALU_INIT overlaps ALU_ACK (INIT during WRITEBACK).
 -- 
 
 library work;
@@ -124,6 +125,7 @@ entity WF68K30L_ALU is
 end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
+    constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
@@ -407,8 +409,8 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
-            ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
+        if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or F157_PHASE_A) then
+            ALU_REQ <= '1'; -- Option A / [F157a]: overlap, re-armed in the clock of the acknowledge.
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then

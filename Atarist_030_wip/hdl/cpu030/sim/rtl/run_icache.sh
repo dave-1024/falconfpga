@@ -7,6 +7,9 @@
 # (the earlier prefetch request reads the jmp after bne.s once more); only a prefetch count, no cache result.
 # [F144] CIMODE=1 also accepts expect_icache_ci1_f144.txt: case 17 fetches one long less in the loop line with wait
 # states (no stream read behind the loop's change of flow); only a prefetch count, no cache result.
+# [F157] Level-D issue at IPIPE_PNTR=1 reduces unused prefetch of the same 16-byte loop line (48->34 when
+# uncached; an occasional extra long, 0->2, on a warm hit is padding past RTS). Result words at $5000 are
+# unchanged. Accepted lines are in expect_icache_ci{1,0}_f157.txt.
 # Usage: run_icache.sh <built tb030 scratch dir> (e.g. the one run_rtl.sh builds). Needs GHDL and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); W=$(cd "${1:-/tmp/sim030rtl}" && pwd)
@@ -21,7 +24,7 @@ for ci in 1 0; do for fh in 1 0; do for ws in 0 1 3 7; do
   (cd $W && $G -r $O tb030 -gROMFILE=$T/p.hex -gWS=$ws -gCIMODE=$ci -gFASTH=$fh -gSTOPDONE=1 -gMAXCLK=60000 2>/dev/null) > r.log || true
   r=$(python3 $H/check_icache.py r.log $la $lb)
   d=$(grep -o 'DONE.*clk [0-9]*' r.log | awk '{print $NF}' | head -1)
-  if { [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] || { [ $ci = 0 ] && [ "$r" = "$(cat $H/expect_icache_ci0_xh1.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f144.txt)" ]; }; } && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
+  if { [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] || { [ $ci = 0 ] && [ "$r" = "$(cat $H/expect_icache_ci0_xh1.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f144.txt)" ]; } || grep -qxF "$r" $H/expect_icache_ci${ci}_f157.txt; } && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
   else echo "FAIL CIMODE=$ci FASTH=$fh WS=$ws: $r"; fail=1; fi
 done; done; done
 rm -rf $T

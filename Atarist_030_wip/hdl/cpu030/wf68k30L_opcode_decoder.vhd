@@ -69,6 +69,7 @@
 --   2026-11-03 F140: OPC_RD_NEXT, back-to-back opcode words from the prefetch queue (one per clock).
 --   2026-11-04 F147: two-word pipe fill 0->2 / 1->3 (OPCODE_RDY_2), fetch offset +2 words.
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
+--   2026-11-09 F157a: OPC_RD_NEXT also when the pipe dropped to one word after an issue (PC still on the current opcode, queue head is the next word).
 -- 
 
 library work;
@@ -222,6 +223,8 @@ signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
 signal COF_BLK              : bit := '0'; -- [F144]
+constant F157_PHASE_A       : boolean := true; -- [F157a] keep pipe at two words after a level-D issue.
+signal F157_NEED_REFILL     : bit := '0'; -- [F157a] pulse: last clock issued a level-D word.
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
     -- This logic requires asynchronous reset. This flip flop is intended 
@@ -284,8 +287,30 @@ begin
     -- exceptions or loop mode; the bus interface uses it only for queue hits, never to start a bus cycle.
     -- Only on demand (the control unit waits for an operation or extension word), so the pipe does not run
     -- further ahead of execution than before and the stream prefetch placement is unchanged.
+    -- [F140] In a ready clock, ask for the following queue word when the pipe has room.
+    -- [F157a] After a level-D issue the pointer is 1 and PC_L still names the issued word, so the
+    -- next word sits at PC_L+2 (Q_NMATCH). Request it without waiting for another OPCODE_RDY, so
+    -- the pipe is back to two words in the following clock and the early OW_REQ sees PIPE_RDY.
     OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_RDY_2 = '0' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
-                            IPIPE_PNTR < 2 and (OW_REQ = '1' or EW_REQ = '1') and LOOP_ATN = false and LOOP_BSY_I = false else '0';
+                            IPIPE_PNTR < 2 and (OW_REQ = '1' or EW_REQ = '1') and LOOP_ATN = false and LOOP_BSY_I = false else
+                   '1' when F157_PHASE_A and F157_NEED_REFILL = '1' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
+                            IPIPE_PNTR = 1 and OPCODE_RDY = '0' and OPCODE_RD_I = '1' and
+                            LOOP_ATN = false and LOOP_BSY_I = false else '0';
+
+    -- [F157a] Only refill via Q_NMATCH after a one-word (level D) issue. Doing so after an
+    -- extension-word consume can reload PC+2 (an already-taken extension) and break
+    -- multi-word ops such as MOVE #<data>,(d8,An,Xn).
+    P_F157_REFILL: process
+    begin
+        wait until CLK = '1' and CLK'event;
+        if IPIPE_FLUSH = '1' or BUSY_EXH = '1' then
+            F157_NEED_REFILL <= '0';
+        elsif OW_REQ = '1' and PIPE_RDY = '1' and INSTR_LVL = D then
+            F157_NEED_REFILL <= '1';
+        else
+            F157_NEED_REFILL <= '0';
+        end if;
+    end process P_F157_REFILL;
     OPCODE_DISMISS <= OPCODE_FLUSH; -- [F62c]
 
     -- [PFCOF] The control unit executes a change of flow (COF_PEND): hold the stream fetches past it,
@@ -392,6 +417,19 @@ begin
             IPIPE.D <= BIW_0; -- Recycle the loop operations.
         elsif LOOP_BSY_I = true then
             null; -- Do not change the pipe during the loop.
+        elsif OW_REQ = '1' and INSTR_LVL = D and PIPE_RDY = '1' and IPIPE_PNTR = 1 then
+            -- [F157a] Issue a one-word op with only D valid (C not required for INSTR_LVL = D).
+            if OPCODE_RDY_I = '1' then
+                IPIPE.D <= OPCODE_DATA;
+                IPIPE_D_FAULT <= not OPCODE_VALID;
+                if OPCODE_RDY_2_I = '1' then -- [F147]
+                    IPIPE.C <= OPCODE_DATA_2;
+                    IPIPE_C_FAULT <= not OPCODE_VALID_2;
+                    IPIPE_PNTR <= 2;
+                end if;
+            else
+                IPIPE_PNTR <= 0;
+            end if;
         elsif OW_REQ = '1' and INSTR_LVL = D and PIPE_RDY = '1' and IPIPE_PNTR = 2 then
             if OPCODE_RDY_I = '1' then
                 IPIPE.D <= IPIPE.C;
@@ -563,16 +601,34 @@ begin
               (OW_REQ = '1' and PIPE_RDY = '1' and OP_I = DBcc and LOOP_OP = true and IPIPE.C = x"FFFC") or LOOP_BSY_I = true then
             null; -- Pipe unchanged (breakpoint, loop mode): keep the images.
         elsif OW_REQ = '1' and PIPE_RDY = '1' then -- Issue: D = PC, C = PC+2, B = PC+4.
-            STG_C <= IPIPE.C; STG_CF <= IPIPE_C_FAULT; STG_CA <= '1'; -- PIPE_RDY: IPIPE_PNTR >= 2.
-            if IPIPE_PNTR = 3 then
-                STG_B <= IPIPE.B; STG_BF <= IPIPE_B_FAULT; STG_BA <= '1';
-                NARR := 3;
-            elsif OPCODE_RDY_I = '1' then
-                STG_B <= OPCODE_DATA; STG_BF <= not OPCODE_VALID; STG_BA <= '1';
-                NARR := 3;
+            if IPIPE_PNTR >= 2 then
+                STG_C <= IPIPE.C; STG_CF <= IPIPE_C_FAULT; STG_CA <= '1';
+                if IPIPE_PNTR = 3 then
+                    STG_B <= IPIPE.B; STG_BF <= IPIPE_B_FAULT; STG_BA <= '1';
+                    NARR := 3;
+                elsif OPCODE_RDY_I = '1' then
+                    STG_B <= OPCODE_DATA; STG_BF <= not OPCODE_VALID; STG_BA <= '1';
+                    NARR := 3;
+                else
+                    STG_BA <= '0'; STG_BF <= '0';
+                    NARR := 2;
+                end if;
             else
-                STG_BA <= '0'; STG_BF <= '0';
-                NARR := 2;
+                -- [F157a] Level-D issue with only D valid: next incoming word is stage C (PC+2), not B.
+                if OPCODE_RDY_I = '1' then
+                    STG_C <= OPCODE_DATA; STG_CF <= not OPCODE_VALID; STG_CA <= '1';
+                    if OPCODE_RDY_2_I = '1' then
+                        STG_B <= OPCODE_DATA_2; STG_BF <= not OPCODE_VALID_2; STG_BA <= '1';
+                        NARR := 3;
+                    else
+                        STG_BA <= '0'; STG_BF <= '0';
+                        NARR := 2;
+                    end if;
+                else
+                    STG_CA <= '0'; STG_CF <= '0';
+                    STG_BA <= '0'; STG_BF <= '0';
+                    NARR := 1;
+                end if;
             end if;
             case INSTR_LVL is
                 when D => USED := 1;
@@ -701,6 +757,9 @@ begin
 
     PIPE_RDY <= '1' when OW_REQ = '1' and IPIPE_PNTR = 3 and INSTR_LVL = B else
                 '1' when OW_REQ = '1' and IPIPE_PNTR > 1 and INSTR_LVL = C else
+                '1' when F157_PHASE_A and OW_REQ = '1' and IPIPE_PNTR > 0 and INSTR_LVL = D and IPIPE_D_FAULT = '0'
+                         and IPIPE.D(15 downto 12) /= x"F" -- F-line: PMOVE/PFLUSH vs UNIMPLEMENTED needs C.
+                         and not (IPIPE.D(15 downto 12) = x"4" and IPIPE.D(11 downto 1) = "11100111101") else -- MOVEC vs ILLEGAL needs C.
                 '1' when OW_REQ = '1' and IPIPE_PNTR > 1 and INSTR_LVL = D else -- We need always pipe C and D to determine the INSTR_LVL.
                 '1' when EW_REQ = '1' and IPIPE_PNTR > 0 else '0';
  
@@ -1597,3 +1656,4 @@ begin
             end case;
     end process OP_DECODE;
 end BEHAVIOR;
+
