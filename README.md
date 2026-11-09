@@ -84,6 +84,12 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
+## What works now (9 Nov 2026)
+- **Speed overhaul merged** (F140-F156, tag `bank-2026-11-09-f156`): two-word opcode decode after an I-cache restart,
+  with the TT-RAM I-cache hang it caused fixed in F156. Linux BogoMIPS 2.13 (was 1.79, about 8.6 MHz-equivalent),
+  LOOPTEST from TT-RAM with the I-cache on 1428571 loops/s. Board build F156: clk_cpu030 20.401 / clk32_core
+  34.731 MHz. Build with Gowin V1.9.12.03. Details: `Atarist_030_wip/docs/SPEED_OVERHAUL.md`.
+
 ## What works now (3 Nov 2026)
 - **Linux/m68k 6.18 boots to a BusyBox shell** (BusyBox v1.37.0 ash, `#` prompt) on build **f131**, with the data
   cache on. Getting there found ten CPU bugs, F122-F131 ([`docs/BUGS.md`](docs/BUGS.md)). The kernel still needs one

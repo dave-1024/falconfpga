@@ -291,6 +291,68 @@ Values are clocks per instruction, WS0 bench, I-cache warm. ~ = manual figure es
 | `asl.w_Dx_Dn` | ~8 | 9.00 | 1.12 |
 | `bne.s_taken` | 6 | 7.00 | 1.17 |
 
+## F147-F156: two-word decode, the TT-RAM I-cache hang and its fix (2026-11-05 to 2026-11-09)
+
+- **F147/F148 (a8dd216, 40f939b): two-word opcode delivery.** After an I-cache restart (IC_MTAKE) the first queue hit
+  delivers two words in one clock (OPCODE_RDY_2, Q_HIT2, decoder pipe fill 0->2 / 1->3, fetch offset +2 words).
+  Every sim passed, but on the board LOOPTEST hung at the first TT-RAM I-cache-on test, and FrontBench from TT-RAM
+  gave a white screen. ST-RAM runs (cache-inhibited) and all caches-off runs were fine.
+- **F149-F154 (Grok chat, 2026-11-05): guard attempts, none fixed it.** F149 RESTART_PEND/RESTART_ADR guard plus the
+  `F147_TWO_WORD` switch (0f101e0 = F149 with the switch off: F145 numbers exactly). F150 Q_CNT=2/INFL=0, F151 one-shot
+  after IC_MTAKE, F152 one-shot only while PIPE_FULL=0, F153 decoder always takes both words. All still hung. F154 was
+  an ADR_SKEW diagnostic (LED, then UART heartbeat): black screen, silent serial. The address-skew theory was later
+  ruled out (the addresses are right in the waveform, see below).
+- **F155 (a356d19): known-good restore.** The HDL/build tree is back to 0f101e0 (two-word off), handoff docs kept.
+  Board: LOOPTEST ST 216684 x3, TT caches off 557103, TT I-cache 1307189, I+D 1307189. Build: clk_cpu030 19.181 MHz,
+  clk32_core 34.847 MHz, 46203 LUT + 5317 ALU.
+- **Root cause (db9354c, sim only).** New bench `sim/speed/irq/run_lt_tt.sh` + `lt_tt.s`: LOOPTEST's delay loop in the
+  cacheable TT port with periodic level 4/6 interrupts. With two-word on, it hangs exactly like the board. The
+  interrupt's RTE goes to REFILL_PIPE; the refill hits the I-cache and gets two words in one OPCODE_RDY strobe. The
+  exception handler's PIPE_STATUS (exception_handler.vhd ~850-870) counted strobes and needs 3, but 3 words came in 2
+  strobes, so PIPE_FULL never set: REFILL_PIPE forever, BUSY_EXH stuck, no OW_REQ, no interrupts, no bus cycles.
+  Older benches missed it: `f147_icache_stress.s` has no interrupts, `irqchk.s` never turns the I-cache on.
+  Details: `handoff/FINDING_F155_ICACHE_HANG.md`.
+- **F156 (a54a611): fix.** PIPE_STATUS counts words (OPCODE_RDY_2 = two), so the pipe is full on the clock the third
+  word arrives, same timing as before. PIPE_CNT (the refill ADR_OFFSET) follows. OPCODE_RDY_2 is wired to the
+  handler (pkg/top). `F147_TWO_WORD := true`. expect_mmut re-pinned to the two-word values (all above MC68030UM 11.7.2).
+  Sim: run_lt_tt all passes; run_rtl, irq/smc/loopmode and grpb same as F155.
+  Build (Gowin V1.9.12.03): clk_cpu030 20.401 MHz, clk32_core 34.731 MHz, 46537 LUT + 5352 ALU, timing_pairs rc=0.
+
+Harness clocks/instruction (I-cache warm, WS0):
+
+| Test | Manual | F155 | F156 |
+|---|---|---|---|
+| bsr_rts | 15 | 29 | 28 |
+| jsr_rts | 13 | 29 | 28.5 |
+| dbf_loop8 | 54 | 72 | 69.5 |
+| delay_loop8 | 72 | 94 | 90.5 |
+| beq.s / beq.w not taken | 6 | 9 | 7 |
+| bra.s / bra.w taken | 6 | 7 | 7 |
+
+Nothing is faster than the manual; every other harness test is unchanged from F155.
+
+Board (F156, flashed 2026-11-09):
+
+| Test | F155 | F156 |
+|---|---|---|
+| LOOPTEST ST-RAM (off / I / I+D) | 216684 | 216684 |
+| LOOPTEST TT caches off | 557103 | 557103 |
+| LOOPTEST TT I-cache on | 1307189 | 1428571 |
+| LOOPTEST TT I+D on | 1307189 | 1418439 |
+| FrontBench from TT-RAM (tts.st, frames) | 1234 | 1237 (level: run-to-run jitter is about +-6) |
+| Linux BogoMIPS | 1.79 (previous best) | 2.13 (about 8.6 MHz-equivalent: 2.13 / 3.95 x 16) |
+
+Board notes: build with Gowin V1.9.12.03 only. The programmer cable on linserver now scans at location 5777 (it
+changes; always rescan). HDMI capture is on Gaming-Laptop: `ffmpeg -rtbufsize 512M -f dshow -i video="C1-2 USB3 Video"
+-ss 3 -frames:v 1 -update 1` (the first frame without `-ss 3` is black). `lxa.st` on the SD card is the autoboot
+Linux image (AUTO\ZBOOT.PRG); BogoMIPS scrolls off, so record at 1 fps and pick the "Calibrating delay loop" frame.
+
+Next steps, in order:
+1. The issue loop: register-to-register ops take 3 clocks against the manual's 2 (MOVEQ, MOVE.L Dn,Dn, ADD...).
+2. The taken-branch / change-of-flow restart: 11 clocks against 6 before the speed work (BRA is 7 in the harness now;
+   BSR+RTS 28 against 15).
+Still open: the SD write path bug (F132 on branch `sd-write`, awaiting review), NetBSD, the `sdram64` rebase.
+
 ## Roadmap: future ground-up 030 core
 
 Decision (David, 2026-11-04): push the current WF68K30L core as far as possible first. Once a functioning Falcon exists, if the CPU still lags, a separate project will build a brand-new drop-in, cycle-exact 68030 core.

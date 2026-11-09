@@ -186,3 +186,13 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     restart (db13859). Result: Linux/m68k 6.18 boots to a BusyBox shell with the data cache on. Board build f131:
     clk_cpu030 21.230 / clk32_core 33.874 MHz, 45988 LUT + 5327 ALU, flashed 3 Nov 2026. Gowin V1.9.12.04 bitstreams
     reported black screen / no sync (friend, Nov 2026); build with V1.9.12.03. Details: docs/BUGS.md.
+
+27. **Speed overhaul (`speed`, 4-9 Nov 2026, merged to main 9 Nov 2026).** F140-F145 (back-to-back opcode reads,
+    early issue for register-only ops, branch refill from the I-cache), F147/F148 two-word opcode delivery after an
+    I-cache restart. The two-word path hung on the board from TT-RAM with the I-cache on; Grok chat's guards F149-F153
+    and the F154 address-skew diagnostic did not fix it (address skew ruled out). F155 (a356d19) restored the known-good
+    two-word-off tree. A new TT-RAM + I-cache + interrupt sim (`sim/speed/irq/run_lt_tt.sh`) found the cause: the
+    exception handler's REFILL_PIPE counted OPCODE_RDY strobes, not words. F156 (a54a611) counts words and turns the
+    two-word path back on. Board: LOOPTEST TT I-cache 1307189 -> 1428571 (I+D 1418439), FrontBench TT-RAM 1237 (level
+    with 1234), Linux BogoMIPS 2.13 (was 1.79). Build: clk_cpu030 20.401 / clk32_core 34.731 MHz, 46537 LUT + 5352 ALU.
+    Details: docs/SPEED_OVERHAUL.md, handoff/FINDING_F155_ICACHE_HANG.md, handoff/STATUS_F156.md.

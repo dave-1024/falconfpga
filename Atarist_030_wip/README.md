@@ -15,7 +15,14 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (31 Oct 2026, main)
+## Status (9 Nov 2026, main)
+
+Board build: **F156** (speed overhaul merged, tag `bank-2026-11-09-f156`): clk_cpu030 20.401 MHz, clk32_core
+34.731 MHz, 46537 LUT + 5352 ALU, timing_pairs passes. Two-word opcode decode after an I-cache restart is on, with the
+TT-RAM I-cache hang fixed (F156). LOOPTEST from TT-RAM with the I-cache on: 1428571 loops/s (F155 1307189). Linux
+BogoMIPS 2.13 (was 1.79). Build with Gowin V1.9.12.03. History: docs/SPEED_OVERHAUL.md, docs/HISTORY.md item 27.
+
+## Status (31 Oct 2026, history)
 
 Board build: **f121a** (main code with the F121 fix, merged into main as 9fe250b): clk_cpu030 20.19 MHz, clk32 34.21 MHz,
 45636 LUT + 5317 ALU, timing_pairs passes (no failing clock pair).

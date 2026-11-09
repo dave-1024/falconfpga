@@ -1,5 +1,14 @@
 # TODO (in priority order)
 
+## Status 9 Nov 2026
+main = speed + F156 (tag `bank-2026-11-09-f156`). Board: F156 in flash (clk_cpu030 20.401 / clk32_core 34.731 MHz,
+46537 LUT + 5352 ALU). Two-word decode is on; the TT-RAM I-cache hang is fixed (REFILL_PIPE word count). LOOPTEST TT
+I-cache 1428571, FrontBench TT-RAM 1237, Linux BogoMIPS 2.13. Details: SPEED_OVERHAUL.md.
+**Next, in order:** (1) the issue loop: register-to-register ops 3 clocks against the manual's 2; (2) the taken-branch /
+change-of-flow restart (11 against 6 before the speed work; BRA 7 and BSR+RTS 28 against 15 now).
+**Still open:** SD write path bug (F132 on `sd-write`, awaiting review), NetBSD, `sdram64` rebase. Build with Gowin
+V1.9.12.03 only.
+
 ## Status 31 Oct 2026
 main 8972091. The 68030 PMMU is done and merged (FreeMiNT with memory protection + XaAES 1.7.0 + TeraDesk 4.08 on
 EmuTOS 1.4, desktop menus working after F121). Board: f121a (clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU).
