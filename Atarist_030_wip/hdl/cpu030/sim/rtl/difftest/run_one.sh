@@ -21,16 +21,18 @@ open(sys.argv[2],'w').write('\n'.join('%04X'%(d[i]*256+d[i+1]) for i in range(0,
 " "$OUT/$TAG.bin" "$OUT/$TAG.hex"
 run_core() {
   local WD=$1 LOG=$2
-  ( cd "$WD" && $GHDL -r --std=08 -fsynopsys -frelaxed --workdir=work tb030       -gROMFILE="$OUT/$TAG.hex" -gCIMODE=1 -gWS=0 -gMAXCLK=$MAXCLK -gSTOPDONE=1       --ieee-asserts=disable-at-0 > "$LOG" 2>&1 )
+  ( cd "$WD" && $GHDL -r --std=08 -fsynopsys -frelaxed --workdir=work tb030       -gROMFILE="$OUT/$TAG.hex" -gCIMODE=1 -gWS=0 -gMAXCLK=$MAXCLK -gSTOPDONE=1 -gQUIET=1       ${GHDL_EXTRA:-} --ieee-asserts=disable-at-0 > "$LOG" 2>&1 )
 }
 run_core ${REF_W:-/tmp/w_f156} "$OUT/${TAG}_f156.log" &
 P1=$!
-run_core ${DUT_W:-/tmp/w_f157q} "$OUT/${TAG}_f157q.log" &
+run_core ${DUT_W:-/tmp/w_f157ot} "$OUT/${TAG}_f157q.log" &
 P2=$!
 wait $P1 || true
 wait $P2 || true
 python3 - "$OUT/${TAG}_f156.log" "$OUT/${TAG}_f157q.log" "$OUT/${TAG}.diff" << 'PY'
-import re, sys
+import os, re, sys
+IRQ_ARCH = os.environ.get("IRQ_ARCH", "0") != "0"
+IRQ_IGN = {0x2600, 0x2604, 0x2610, 0x3200, 0x3204}
 def arch(path):
     wr, dump, exc, done, timeout = [], {}, [], False, False
     for line in open(path, errors="replace"):
@@ -55,6 +57,17 @@ def arch(path):
 a, b = sys.argv[1], sys.argv[2]
 wr1, d1, e1, done1, t1 = arch(a)
 wr2, d2, e2, done2, t2 = arch(b)
+if IRQ_ARCH:
+    def irq_keep(rec):
+        a = rec[0] & 0xFFFFFF
+        if a in IRQ_IGN:
+            return False
+        # Ignore SSP/USP exception frames (IRQs land at different PCs because F157u is faster).
+        # Keep scratch data, the dump area, DONE markers, and the vector table.
+        return ((0x2000 <= a < 0x2600) or (0x5000 <= a <= 0x5100)
+                or a in (0x3300, 0x3400) or (0x0008 <= a < 0x0100))
+    wr1 = [r for r in wr1 if irq_keep(r)]
+    wr2 = [r for r in wr2 if irq_keep(r)]
 out = open(sys.argv[3], "w")
 ok = True
 def w(msg):
@@ -66,7 +79,7 @@ if (t1 or t2) and not (done1 and done2):
     w(f"TIMEOUT f156={t1} f157q={t2} done f156={done1} f157q={done2}")
 if done1 != done2:
     w(f"DONE mismatch f156={done1} f157q={done2}")
-if e1 != e2:
+if e1 != e2 and not IRQ_ARCH:
     w(f"EXC mismatch\n  f156={e1}\n  f157q={e2}")
 if wr1 != wr2:
     n = min(len(wr1), len(wr2))

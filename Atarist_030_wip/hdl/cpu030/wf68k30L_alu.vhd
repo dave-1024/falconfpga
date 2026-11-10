@@ -71,6 +71,11 @@
 --   2026-11-10 F157c: RESULT is combinational for single-cycle INT/LOG ops so it is valid in the ALU_REQ/EXECUTE clock.
 --   2026-11-10 F157t: ADDX/SUBX keep RESULT_REG. Combo RESULT recomputes with the
 --                     post-EXECUTE X (CC_UPDT at ALU_REQ) and drops the incoming extend bit.
+--   2026-11-10 F157v: Latch X at ALU_INIT. ALU_REQ stays asserted until ALU_ACK, and
+--                     P_OUT recaptures RESULT_REG every clock while it is high. CC_UPDT
+--                     is ALU_REQ, so an extra EXECUTE clock (IRQ pending during a memory
+--                     ABCD/SBCD/ADDX RMW) recomputed the result with the newly written X
+--                     (seed-style irq_abcd DLY 21/29: 00+00+X wrote 00 instead of 01).
 -- 
 
 library work;
@@ -197,6 +202,7 @@ signal SHFT_LOAD            : bit;
 signal SHFT_RDY             : bit;
 signal SHFT_EN              : bit;
 signal STATUS_REG           : Std_Logic_Vector(15 downto 0) := x"2700";  -- [F49]
+signal X_LATCH              : std_logic := '0'; -- [F157v] X sampled at ALU_INIT
 -- F46 forces the SREG_MEM VARIABLE to $2700 on RESET, but STATUS_REG is the
 -- SIGNAL driven from it at the end of P_STATUS_REG -- so until the first
 -- clock edge after reset it still holds power-up garbage.  ALU_COND is
@@ -322,6 +328,7 @@ begin
             OP1 <= OP1_BUFFER;
             OP2 <= OP2_BUFFER;
             OP3 <= OP3_BUFFER;
+            X_LATCH <= STATUS_REG(4); -- [F157v] freeze incoming X before CC_UPDT
         end if;
     end process OPERANDS;
 
@@ -516,7 +523,7 @@ begin
         end case;
     end process SIGNEXT;
 
-    P_BCDOP: process(OP, STATUS_REG, OP1, OP2)
+    P_BCDOP: process(OP, X_LATCH, OP1, OP2)
     -- The BCD operations are all byte wide and unsigned.
     variable X_IN_I         : unsigned(0 downto 0);
     variable TEMP0          : unsigned(4 downto 0);
@@ -528,7 +535,7 @@ begin
     variable S_0            : unsigned(3 downto 0);
     variable S_1            : unsigned(3 downto 0);
     begin
-        X_IN_I(0) := STATUS_REG(4); -- Inverted extended Flag.
+        X_IN_I(0) := X_LATCH; -- [F157v] incoming X, not live STATUS_REG
 
         case OP is
             when ABCD =>
@@ -821,12 +828,12 @@ begin
             end case;
     end process DIVISION;
 
-    P_INTOP: process(OP, OP1, OP1_SIGNEXT, OP2, OP2_SIGNEXT, ADR_MODE, STATUS_REG, RESULT_INTOP)
+    P_INTOP: process(OP, OP1, OP1_SIGNEXT, OP2, OP2_SIGNEXT, ADR_MODE, X_LATCH, RESULT_INTOP)
     -- The integer arithmetics ADD, SUB, NEG and CMP in their different variations are modelled here.
     variable X_IN_I         : Std_Logic_Vector(0 downto 0);
     variable RESULT         : unsigned(31 downto 0);
     begin
-        X_IN_I(0) := STATUS_REG(4); -- Extended Flag.
+        X_IN_I(0) := X_LATCH; -- [F157v] incoming X, not live STATUS_REG
         case OP is
             when ADDA => -- No sign extension for the destination.
                 RESULT := unsigned(OP2) + unsigned(OP1_SIGNEXT);

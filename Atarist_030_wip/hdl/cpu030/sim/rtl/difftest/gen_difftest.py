@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generate dense m68k sequences for F156 vs F157q architectural diffs."""
+"""Generate dense m68k sequences for F156 vs F157 architectural diffs.
+
+Also covers supervisor/IRQ-era ops (RTE/TRAP/SR/MOVEC/MOVES/CAS/bitfield/
+MULS.L/DIVS.L/LINK/UNLK/PEA and An-then-use) and optional IRQ unmask.
+"""
 import argparse
 import random
 import sys
@@ -39,14 +43,34 @@ start:  moveq #1,d7
         move.l #0x88888888,(a3)
         move.l #0x99999999,(a4)
         move.l #0xAAAAAAAA,(a5)
+        lea h4(pc),a6
+        move.l a6,0x70
+        lea h6(pc),a6
+        move.l a6,0x78
+        lea t0(pc),a6
+        move.l a6,0x80
+        clr.l 0x2600
+        clr.l 0x2604
+        clr.l 0x2610
+        lea 0x2500,a5
+        lea 0x2400,a6
 """
 
 FOOTER = f"""\
+        move.w #0x2700,sr
         movem.l d0-d7/a0-a6,0x{DUMP:04X}
         move.l a7,0x{DUMP+60:04X}
         move.w sr,0x{DUMP+64:04X}
         move.w #0xFFFF,0x{DONE:04X}
+        move.w #1,0x3300
 hang:   bra.s hang
+h4:     addq.l #1,0x2600
+        rte
+h6:     addq.l #1,0x2604
+        rte
+t0:     addq.l #1,0x2610
+        ori.w #0x2000,(sp)
+        rte
 """
 
 
@@ -198,6 +222,14 @@ class Gen:
             [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        lea 4(a{a}),a{a}", f"        move.l d{d},(a{a})"],
             [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        exg d{d},a{a}", f"        move.l a{a},d{d}",
              f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        move.l (a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        adda.l d{d},a{a}",
+             f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        move.l (a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]+16:04X},a{a}", f"        suba.l #4,a{a}", f"        move.l (a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        adda.w #4,a{a}", f"        move.l -(a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        movea.l a{a},a{(a+1)%6}",
+             f"        move.l (a{(a+1)%6})+,d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        lea 4(a{a}),a{a}", f"        move.l 4(a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]+8:04X},a{a}", f"        suba.w #4,a{a}", f"        move.l (a{a})+,d{d}"],
         ])
 
     def xmem(self):
@@ -264,11 +296,118 @@ class Gen:
             f"        dbf d7,.L{n}",
         ]
 
+
+    def priv_sr(self):
+        d = self.dn()
+        return self.rng.choice([
+            [f"        move.w sr,d{d}", f"        move.w d{d},sr"],
+            [f"        move.w sr,d{d}", f"        andi.w #0xF0FF,sr", f"        ori.w #0x0700,sr"],
+            [f"        move.w sr,d{d}", f"        move.w d{d},ccr"],
+            [f"        ori.w #0x0010,sr", f"        andi.w #0xFFEF,sr"],
+        ])
+
+    def movec_ops(self):
+        d = self.dn()
+        return self.rng.choice([
+            [f"        movec cacr,d{d}", f"        ori.l #1,d{d}", f"        movec d{d},cacr"],
+            [f"        movec vbr,d{d}", f"        movec d{d},vbr"],
+            [f"        move.l usp,a6", f"        addq.l #4,a6", f"        move.l a6,usp",
+             f"        subq.l #4,a6", f"        move.l a6,usp", f"        lea 0x2400,a6"],
+        ])
+
+    def moves_ops(self):
+        a = self.an()
+        d = self.dn()
+        return [
+            f"        lea 0x{SCRATCH[a]:04X},a{a}",
+            f"        move.l #1,d{d}",
+            f"        movec d{d},sfc",
+            f"        movec d{d},dfc",
+            f"        moves.l d{d},(a{a})",
+            f"        moves.l (a{a}),d{d}",
+        ]
+
+    def trap_rte(self):
+        d = self.dn()
+        return self.rng.choice([
+            [f"        trap #0", f"        addq.l #1,d{d}"],
+            [f"        lea 0x2C00,a6", f"        move.l a6,usp",
+             f"        move.w #0x0000,sr", f"        addq.l #1,d{d}", f"        trap #0",
+             f"        lea 0x2400,a6"],
+        ])
+
+    def cas_op(self):
+        a = self.an()
+        d, u = self.dn(), self.dn()
+        return [
+            f"        lea 0x{SCRATCH[a]:04X},a{a}",
+            f"        move.l (a{a}),d{d}",
+            f"        move.l d{d},d{u}",
+            f"        addq.l #1,d{u}",
+            self.rng.choice([
+                f"        cas.l d{d},d{u},(a{a})",
+                f"        cas.w d{d},d{u},(a{a})",
+            ]),
+        ]
+
+    def bitfield(self):
+        d, s = self.dn(), self.dn()
+        a = self.an()
+        off = self.rng.choice([0, 1, 4, 8])
+        wid = self.rng.choice([1, 2, 4, 8])
+        return self.rng.choice([
+            [f"        bfextu d{s}{{#{off}:#{wid}}},d{d}"],
+            [f"        bfins d{s},d{d}{{#{off}:#{wid}}}"],
+            [f"        bftst d{d}{{#{off}:#{wid}}}"],
+            [f"        bfchg d{d}{{#{off}:#{wid}}}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        bftst (a{a}){{#{off}:#{wid}}}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        bfextu (a{a}){{#{off}:#{wid}}},d{d}"],
+        ])
+
+    def muldiv_l(self):
+        s, d = self.dn(), self.dn()
+        if s == d:
+            s = (s + 1) & 7
+        return self.rng.choice([
+            [f"        muls.l d{s},d{d}"],
+            [f"        mulu.l d{s},d{d}"],
+            [f"        move.l d{d},d{d}", f"        ori.l #1,d{s}", f"        andi.l #0x7FFF,d{s}",
+             f"        ori.l #1,d{s}", f"        andi.l #0x00FFFFFF,d{d}", f"        divs.l d{s},d{d}"],
+            [f"        ori.l #2,d{s}", f"        andi.l #0x3FFF,d{s}", f"        ori.l #2,d{s}",
+             f"        andi.l #0x0000FFFF,d{d}", f"        divu.l d{s},d{d}"],
+        ])
+
+    def link_unlk(self):
+        d = self.dn()
+        return [
+            f"        link.w a6,#-16",
+            f"        move.l d{d},(a6)",
+            f"        pea (a6)",
+            f"        lea 8(a6),a6",
+            f"        unlk a6",
+        ]
+
+    def pea_lea(self):
+        a = self.an()
+        b = (a + 1) % 6
+        d = self.dn()
+        return [
+            f"        lea 0x{SCRATCH[a]:04X},a{a}",
+            f"        pea (a{a})",
+            f"        pea 4(a{a})",
+            f"        lea 8(a{a}),a{b}",
+            f"        move.l (a{b}),d{d}",
+            f"        addq.l #8,a7",
+        ]
+
     def chunk(self):
         k = self.rng.choice(
             ["alu"] * 3 + ["alu_ccr"] * 4 + ["shift"] * 2 + ["shift_ccr"] * 2
-            + ["mem"] * 3 + ["an"] * 2 + ["movem"] + ["mixed"] * 2
-            + ["xreg"] * 4 + ["xmem"] * 2 + ["muldiv"] * 2
+            + ["mem"] * 3 + ["an"] * 3 + ["movem"] + ["mixed"] * 2
+            + ["xreg"] * 3 + ["xmem"] * 2 + ["muldiv"] * 2
+            + ["priv"] * 2 + ["movec"] + ["moves"] + ["trap"] * 2
+            + ["cas"] * 2 + ["bf"] * 2 + ["muldivl"] * 2 + ["link"] * 2
+            + ["pealea"] * 2
         )
         if k == "alu":
             return [self.two_clock() for _ in range(self.rng.randint(2, 6))]
@@ -301,6 +440,24 @@ class Gen:
             return self.xmem()
         if k == "muldiv":
             return self.muldiv()
+        if k == "priv":
+            return self.priv_sr()
+        if k == "movec":
+            return self.movec_ops()
+        if k == "moves":
+            return self.moves_ops()
+        if k == "trap":
+            return self.trap_rte()
+        if k == "cas":
+            return self.cas_op()
+        if k == "bf":
+            return self.bitfield()
+        if k == "muldivl":
+            return self.muldiv_l()
+        if k == "link":
+            return self.link_unlk()
+        if k == "pealea":
+            return self.pea_lea()
         # mixed dense
         out = [self.two_clock(), self.shift()]
         out += self.follow_ccr()
@@ -450,7 +607,7 @@ def hand_xops():
 """
 
 
-def emit(kind, seed, nchunks):
+def emit(kind, seed, nchunks, irq=0):
     rng = random.Random(seed)
     g = Gen(rng)
     if kind == "hand_flags":
@@ -465,6 +622,10 @@ def emit(kind, seed, nchunks):
         body = hand_xops()
     else:
         lines = []
+        if irq:
+            lines.append("        move.w #0x2000,sr")
+        if irq == 2:
+            lines.append("        move.w #1,0x3400")
         for i in range(nchunks):
             if i % 8 == 7:
                 lines.extend(refresh_an(rng))
@@ -478,9 +639,10 @@ def main():
     ap.add_argument("--kind", default="random")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--nchunks", type=int, default=40)
+    ap.add_argument("--irq", type=int, default=0, help="0=masked, 2=one-shot after $3400, 3=unmask for periodic IPL")
     ap.add_argument("-o", required=True)
     args = ap.parse_args()
-    open(args.o, "w").write(emit(args.kind, args.seed, args.nchunks))
+    open(args.o, "w").write(emit(args.kind, args.seed, args.nchunks, args.irq))
 
 
 if __name__ == "__main__":
