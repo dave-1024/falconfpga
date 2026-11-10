@@ -16,7 +16,7 @@ HEADER = """\
         .text
         .long 0x00002F00
         .long 0x00FC0008
-start:  moveq #1,d7
+start:  move.l #{cacr},d7
         movec d7,cacr
         move.w #0x2700,sr
         lea 0x2000,a0
@@ -80,9 +80,10 @@ def refresh_an(rng):
 
 
 class Gen:
-    def __init__(self, rng):
+    def __init__(self, rng, memheavy=False):
         self.rng = rng
         self.lab = 0
+        self.memheavy = memheavy
 
     def L(self):
         self.lab += 1
@@ -400,6 +401,23 @@ class Gen:
             f"        addq.l #8,a7",
         ]
 
+    def line_fill(self):
+        """Memory-heavy: 16-byte line writes/reads in the CIMODE=1 cachable window."""
+        off = self.rng.choice([0x8000, 0x8010, 0x8020, 0x8032, 0x8040, 0x8102])
+        return [
+            f"        lea 0x{off:04X},a6",
+            f"        move.l d0,(a6)",
+            f"        move.l d1,4(a6)",
+            f"        move.l d2,8(a6)",
+            f"        move.l d3,12(a6)",
+            f"        move.l (a6),d4",
+            f"        move.l 4(a6),d5",
+            f"        move.l 2(a6),d6",
+            f"        movem.l d0-d3,0x20(a6)",
+            f"        movem.l 0x20(a6),d4-d7",
+            f"        lea 0x2400,a6",
+        ]
+
     def chunk(self):
         k = self.rng.choice(
             ["alu"] * 3 + ["alu_ccr"] * 4 + ["shift"] * 2 + ["shift_ccr"] * 2
@@ -408,6 +426,7 @@ class Gen:
             + ["priv"] * 2 + ["movec"] + ["moves"] + ["trap"] * 2
             + ["cas"] * 2 + ["bf"] * 2 + ["muldivl"] * 2 + ["link"] * 2
             + ["pealea"] * 2
+            + (["mem"] * 4 + ["movem"] * 2 + ["line"] * 4 if self.memheavy else [])
         )
         if k == "alu":
             return [self.two_clock() for _ in range(self.rng.randint(2, 6))]
@@ -458,6 +477,8 @@ class Gen:
             return self.link_unlk()
         if k == "pealea":
             return self.pea_lea()
+        if k == "line":
+            return self.line_fill()
         # mixed dense
         out = [self.two_clock(), self.shift()]
         out += self.follow_ccr()
@@ -607,9 +628,9 @@ def hand_xops():
 """
 
 
-def emit(kind, seed, nchunks, irq=0):
+def emit(kind, seed, nchunks, irq=0, cacr=1, memheavy=False):
     rng = random.Random(seed)
-    g = Gen(rng)
+    g = Gen(rng, memheavy=memheavy)
     if kind == "hand_flags":
         body = hand_flags()
     elif kind == "hand_icon":
@@ -631,7 +652,7 @@ def emit(kind, seed, nchunks, irq=0):
                 lines.extend(refresh_an(rng))
             lines.extend(flatten(g.chunk()))
         body = "\n".join(lines) + "\n"
-    return HEADER + body + FOOTER
+    return HEADER.format(cacr=cacr) + body + FOOTER
 
 
 def main():
@@ -641,8 +662,13 @@ def main():
     ap.add_argument("--nchunks", type=int, default=40)
     ap.add_argument("--irq", type=int, default=0, help="0=masked, 2=one-shot after $3400, 3=unmask for periodic IPL")
     ap.add_argument("-o", required=True)
+    ap.add_argument("--cacr", type=lambda x: int(x, 0), default=1,
+                    help="CACR reset value (1=I only, 0x101=I+D, 0x2101=I+D+WA)")
+    ap.add_argument("--memheavy", action="store_true",
+                    help="Weight memory/line-fill sequences in the cachable window")
     args = ap.parse_args()
-    open(args.o, "w").write(emit(args.kind, args.seed, args.nchunks, args.irq))
+    open(args.o, "w").write(emit(args.kind, args.seed, args.nchunks, args.irq,
+                                 cacr=args.cacr, memheavy=args.memheavy))
 
 
 if __name__ == "__main__":

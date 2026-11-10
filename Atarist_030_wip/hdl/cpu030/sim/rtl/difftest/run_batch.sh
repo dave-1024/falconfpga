@@ -12,6 +12,8 @@ export DUT_W=${DUT_W:-/tmp/w_f157ot}
 export REF_W=${REF_W:-/tmp/w_f156}
 OUT=${OUT:-/tmp/difftest_batch}
 IRQ=${IRQ:-0}
+CACR=${CACR:-1}
+MEMHEAVY=${MEMHEAVY:-0}
 mkdir -p "$OUT"
 sum=$OUT/summary.txt
 : > "$sum.tmp"
@@ -20,7 +22,9 @@ skip=0
 ok=0
 for s in $(seq $START $END); do
   src=$OUT/s$s.s
-  python3 $DT/gen_difftest.py --kind random --seed $s --nchunks $NCH --irq $IRQ -o "$src"
+  extra_gen=( )
+  [ "$MEMHEAVY" != 0 ] && extra_gen+=(--memheavy)
+  python3 $DT/gen_difftest.py --kind random --seed $s --nchunks $NCH --irq $IRQ --cacr "$CACR" "${extra_gen[@]}" -o "$src"
   extra=""
   export IRQ_ARCH=0
   export GHDL_EXTRA=""
@@ -46,7 +50,7 @@ for s in $(seq $START $END); do
   fi
 done
 {
-  echo "ok=$ok fail=$fail skip=$skip range=$START-$END nchunks=$NCH irq=$IRQ dut=$DUT_W"
+  echo "ok=$ok fail=$fail skip=$skip range=$START-$END nchunks=$NCH irq=$IRQ cacr=$CACR memheavy=$MEMHEAVY dut=$DUT_W"
   cat "$sum.tmp"
 } > "$sum"
 cat "$sum"

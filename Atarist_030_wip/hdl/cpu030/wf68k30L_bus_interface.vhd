@@ -96,6 +96,10 @@
 --   2026-11-10 F157q: pin address is a register loaded with the next combo ADR_OUT_I, so the
 --     ST bridge F61 live capture (first clk_32 after AS, 31.25 ns) sees ADR_OUT_Q instead of
 --     the ADR_LATCH+ADR_OFFSET adder (F157p: ADR_LATCH_13 -> r_dout_3 -0.179 ns).
+--   2026-11-10 F157w: P_ADR_OUT_Q next fill address uses the same DC_MISS mux as FILL_WADR,
+--     after the P_DCF update of FB_OK/FB_AB. Adding ADR_OFFSET assumed the next word (+2);
+--     a fill-only BERR sets FB_ABx, the miss mask goes to 0000, and FILL_WADR jumps to the
+--     mux default DC_OA1&'1' (run_dcache case 19: Q=$8044 vs I=$8046, c19:2/0 vs 4/0).
 --   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
 -- 
 
@@ -917,6 +921,11 @@ begin
     variable FCUR_N  : std_logic_vector(31 downto 1);
     variable ALAT_N  : std_logic_vector(31 downto 0);
     variable BASE    : std_logic_vector(31 downto 0);
+    variable AB0, AB1: std_logic;
+    variable OK0, OK1: std_logic_vector(1 downto 0);
+    variable OK      : std_logic_vector(1 downto 0);
+    variable E1      : boolean;
+    variable M3, M2, M1 : std_logic;
     begin
         wait until CLK = '1' and CLK' event;
         -- Same increment P_ADR_OFFS holds in OFFSET_VAR from S2/S3 through S5.
@@ -1010,12 +1019,50 @@ begin
 
         if PF_N = '1' then
             BASE := FCUR_N & '0';
+            ADR_OUT_Q <= BASE + OFF_N;
         elsif FILL_N = '1' then
-            BASE := FILL_WADR & '0';
+            -- [F157w] Next FILL_WADR: same mux as the combo, after this clock's P_DCF flags.
+            AB0 := FB_AB0; AB1 := FB_AB1; OK0 := FB_OK0; OK1 := FB_OK1;
+            if BUS_CTRL_STATE = DATA_C1C4 and ((READ_ACCESS = '1' and DC_TRK = '1') or FILL_ACC = '1') then
+                E1 := ADR_OUT_I(31 downto 2) /= DC_OA(31 downto 2);
+                if BUS_FLT = '1' and HALT_In = '1' then
+                    if E1 then AB1 := '1'; else AB0 := '1'; end if;
+                end if;
+                if BUS_CYC_RDY = '1' and BUS_FLT = '0' and FB_PF = '0' then
+                    if BUS_WIDTH = LONG_32 then
+                        OK := "11";
+                    elsif BUS_WIDTH = WORD and ADR_OUT_I(1) = '0' then
+                        OK := "10";
+                    elsif BUS_WIDTH = WORD then
+                        OK := "01";
+                    else
+                        OK := "00";
+                    end if;
+                    if CIIN_LAT = '1' and OK /= "00" then
+                        if E1 then OK1 := OK1 or OK; else OK0 := OK0 or OK; end if;
+                    else
+                        if FILL_ACC = '1' then
+                            if E1 then AB1 := '1'; else AB0 := '1'; end if;
+                        end if;
+                    end if;
+                end if;
+            end if;
+            M3 := not OK0(1) and not AB0;
+            M2 := not OK0(0) and not AB0;
+            M1 := DC_OX and not OK1(1) and not AB1;
+            if M3 = '1' then
+                ADR_OUT_Q <= DC_OA(31 downto 2) & "00";
+            elsif M2 = '1' then
+                ADR_OUT_Q <= DC_OA(31 downto 2) & "10";
+            elsif M1 = '1' then
+                ADR_OUT_Q <= DC_OA1 & "00";
+            else
+                ADR_OUT_Q <= DC_OA1 & "10";
+            end if;
         else
             BASE := ALAT_N;
+            ADR_OUT_Q <= BASE + OFF_N;
         end if;
-        ADR_OUT_Q <= BASE + OFF_N;
     end process P_ADR_OUT_Q;
 
     -- pragma translate_off
