@@ -87,6 +87,7 @@
 --   2026-11-04 F141: IRQ_HOT, an interrupt is or may become pending (early instruction issue is held off).
 --   2026-11-09 F156: REFILL_PIPE counts two words for an OPCODE_RDY_2 delivery (pipe full after 3 words, not 3 strobes).
 --   2026-11-10 F157l: decode IRQ_HOT / IRQ_GT_MASK / IRQ_LVL7 on CLK_F (same edge as IRQ_FILTER) so the rising-edge PENDING/EARLY_OW cone reads flags, not raw IRQ bits.
+--   2026-11-10 F157m: rising-edge register IRQ_HOT (from IRQ_HOT_N) so EARLY_OW is not in the half-cycle cone.
 -- 
 
 library work;
@@ -252,6 +253,7 @@ signal IB_PCINC             : boolean := false;  -- [F131]
 signal IRQ                  : std_logic_vector(2 downto 0);
 signal IRQ_GT_MASK          : bit := '0'; -- [F157l] CLK_F: STATUS_REG mask < IRQ
 signal IRQ_LVL7             : bit := '0'; -- [F157l] CLK_F: IRQ = level 7
+signal IRQ_HOT_N            : bit := '0'; -- [F157l] CLK_F: decoded IRQ_HOT
 signal IRQ_PEND_I           : std_logic_vector(2 downto 0);
 signal MBIT                 : std_logic;
 signal PIPE_CNT             : std_logic_vector(1 downto 0);
@@ -263,7 +265,16 @@ signal RR_FC                : std_logic_vector(2 downto 0) := "000";
 signal RR_ADR, RR_DATA      : std_logic_vector(31 downto 0) := (others => '0');
 signal SYS_INIT             : bit := '1';  -- [F54] measured warm-boot value
 begin
-    -- [F141/F157l] IRQ_HOT, IRQ_GT_MASK and IRQ_LVL7 are registered in IRQ_FILTER on CLK_F.
+    -- [F141/F157l] IRQ_GT_MASK, IRQ_LVL7 and IRQ_HOT_N are registered in IRQ_FILTER on CLK_F.
+    -- [F157m] IRQ_HOT to the control unit is a rising-edge copy of IRQ_HOT_N so
+    -- EARLY_OW does not sit on the clk_cpu030_n -> clk_cpu030 cone (F157l:
+    -- -1.096 ns IRQ_HOT -> EX_P_DIVZERO). PENDING still uses the CLK_F flags,
+    -- so interrupt latching stays at the F156 sample point.
+    IRQ_HOT_R_PROC: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        IRQ_HOT <= IRQ_HOT_N;
+    end process IRQ_HOT_R_PROC;
 
     -- F28/H22: see the port declaration.
     EX_IS_AERR <= '1' when EXCEPTION = EX_AERR else '0';
@@ -303,9 +314,9 @@ begin
             IRQ_GT_MASK <= '0';
         end if;
         if STATUS_REG_IN(10 downto 8) < IRQ_HELD or IRQ_HELD = "111" or EX_P_INT = '1' then
-            IRQ_HOT <= '1';
+            IRQ_HOT_N <= '1';
         else
-            IRQ_HOT <= '0';
+            IRQ_HOT_N <= '0';
         end if;
     end process IRQ_FILTER;
 
