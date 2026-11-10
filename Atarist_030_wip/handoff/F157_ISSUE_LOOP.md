@@ -757,12 +757,20 @@ Sim (off the board):
   ADD-type Dn stay 2.00. `bra.w`/`bra.s` stay 7 (UM 6). Nothing faster
   than the UM. `adda.l` still 4 (UM 2); `lsl.l #` still 6 (UM 4).
 
-Gowin V1.9.12.03 / `timing_pairs` not run: `ssh linserver` failed
-(SOCKS5 on localhost:1055 refused or returned general failure; direct
-Tailscale `100.97.139.11:22` timed out). Stay off the board. When the
-build host is reachable, build F157r, run `timing_pairs`, then SRAM
-GEM / LOOPTEST / a full GEMBENCH (especially display tests) — not
-FrontBench. Flash only if those three pass (F157q fallback).
+Gowin V1.9.12.03 finished 09:58 Europe/London on a clean worktree
+(`/home/dave/builds/f157r/Atarist_030_wip`, 809c10c).
+`/home/dave/builds/f157r/Atarist_030_wip/impl/pnr/st_helper.fs`
+SHA256 `f66846e8ac6c827aafa657c64db07f09299291e997355659ffa81db1f9b85de8`,
+archived `/home/dave/fpga_bitstreams/st_helper_f157r.fs`.
+LUT 46691 + ALU 5439 (F157o 46807 + 5436). Fmax clk_cpu030 17.184 /
+clk32_core 34.494 (F157o 20.135 / 34.464).
+
+`timing_pairs` FAIL (rc=1). setup `clk_cpu030_n` → `clk_cpu030`
+**-10.609 ns** (`RETRY_s6` → `ADR_OUT_Q_31_s0`). Do not SRAM-load.
+The F157o `clk_cpu030` → `clk32_core` pair is still positive
+(+7.449 ns `ADR_OUT_Q_25_s0` → `r_adr_6_s1`). Stay off the board.
+When free, SRAM-load F157o (not F157r) and run GEM / LOOPTEST / a
+full GEMBENCH (especially display tests) — not FrontBench.
 
 Remaining COF gap vs the UM is mostly the 16-bit extra half of the two
 long stack accesses plus a couple of decoder/control handshake clocks
