@@ -88,6 +88,9 @@
 --   2026-11-09 F156: REFILL_PIPE counts two words for an OPCODE_RDY_2 delivery (pipe full after 3 words, not 3 strobes).
 --   2026-11-10 F157l: decode IRQ_HOT / IRQ_GT_MASK / IRQ_LVL7 on CLK_F (same edge as IRQ_FILTER) so the rising-edge PENDING/EARLY_OW cone reads flags, not raw IRQ bits.
 --   2026-11-10 F157m: rising-edge register IRQ_HOT (from IRQ_HOT_N) so EARLY_OW is not in the half-cycle cone.
+--   2026-11-10 F157p: PENDING takes from the same rising-edge registered flags as EARLY_OW
+--     (IRQ_GT_MASK_R / IRQ_LVL7_R, sibling of IRQ_HOT). F157m left take on the CLK_F flags,
+--     so EX_P_INT could latch one rising edge before IRQ_HOT hid early OW_REQ (FrontBench hang).
 -- 
 
 library work;
@@ -254,6 +257,8 @@ signal IRQ                  : std_logic_vector(2 downto 0);
 signal IRQ_GT_MASK          : bit := '0'; -- [F157l] CLK_F: STATUS_REG mask < IRQ
 signal IRQ_LVL7             : bit := '0'; -- [F157l] CLK_F: IRQ = level 7
 signal IRQ_HOT_N            : bit := '0'; -- [F157l] CLK_F: decoded IRQ_HOT
+signal IRQ_GT_MASK_R        : bit := '0'; -- [F157p] rising-edge copy of IRQ_GT_MASK
+signal IRQ_LVL7_R           : bit := '0'; -- [F157p] rising-edge copy of IRQ_LVL7
 signal IRQ_PEND_I           : std_logic_vector(2 downto 0);
 signal MBIT                 : std_logic;
 signal PIPE_CNT             : std_logic_vector(1 downto 0);
@@ -268,12 +273,16 @@ begin
     -- [F141/F157l] IRQ_GT_MASK, IRQ_LVL7 and IRQ_HOT_N are registered in IRQ_FILTER on CLK_F.
     -- [F157m] IRQ_HOT to the control unit is a rising-edge copy of IRQ_HOT_N so
     -- EARLY_OW does not sit on the clk_cpu030_n -> clk_cpu030 cone (F157l:
-    -- -1.096 ns IRQ_HOT -> EX_P_DIVZERO). PENDING still uses the CLK_F flags,
-    -- so interrupt latching stays at the F156 sample point.
+    -- -1.096 ns IRQ_HOT -> EX_P_DIVZERO).
+    -- [F157p] PENDING uses rising-edge copies of the same CLK_F flags, so the take
+    -- and EARLY_OW see one view. Recognition is one rising edge later than F156/F157m
+    -- (never faster). IRQ_FILTER itself is unchanged.
     IRQ_HOT_R_PROC: process
     begin
         wait until CLK = '1' and CLK' event;
         IRQ_HOT <= IRQ_HOT_N;
+        IRQ_GT_MASK_R <= IRQ_GT_MASK; -- [F157p]
+        IRQ_LVL7_R <= IRQ_LVL7; -- [F157p]
     end process IRQ_HOT_R_PROC;
 
     -- F28/H22: see the port declaration.
@@ -404,9 +413,10 @@ begin
             EX_P_TRACE <= '0';
         end if;
         --
-        if IRQ_LVL7 = '1' and SR_VAR = "111" and STATUS_REG_IN(10 downto 8) /= "111" then
+        -- [F157p] Level-7 detect uses the rising-edge flag (IRQ_LVL7_R), same view as IRQ_HOT.
+        if IRQ_LVL7_R = '1' and SR_VAR = "111" and STATUS_REG_IN(10 downto 8) /= "111" then
             INT7_TRIG := true; -- Trigger by lowering the mask from 7 to any value.
-        elsif IRQ_LVL7 = '1' and INT_VAR < "111" then
+        elsif IRQ_LVL7_R = '1' and INT_VAR < "111" then
             INT7_TRIG := true; -- Trigger when level 7 is entered.
         else
             INT7_TRIG := false;
@@ -423,9 +433,17 @@ begin
         elsif INT7_TRIG = true then -- Level 7 is nonmaskable ...
             EX_P_INT <= '1';
             IRQ_PEND_I <= IRQ;
-        elsif INT_TRIG = '1' and IRQ_GT_MASK = '1' then
+            -- [F157p] IRQ_HOT is the same rising-edge view EARLY_OW uses; it must already
+            -- be '1' so the early OW_REQ term is held off in this take cycle.
+            assert IRQ_HOT = '1'
+                report "F157p: interrupt take while IRQ_HOT=0 (early OW_REQ not held)"
+                severity failure;
+        elsif INT_TRIG = '1' and IRQ_GT_MASK_R = '1' then -- [F157p] same rising-edge view as EARLY_OW
             EX_P_INT <= '1';
             IRQ_PEND_I <= IRQ;
+            assert IRQ_HOT = '1'
+                report "F157p: interrupt take while IRQ_HOT=0 (early OW_REQ not held)"
+                severity failure;
         elsif EX_STATE = IDLE and EX_P_INT = '1' and INT_REQ = '0' then
             EX_P_INT <= '0'; -- F55: the mask was raised (MOVE/ANDI/ORI/EORI to SR) before the interrupt was taken.
         end if;

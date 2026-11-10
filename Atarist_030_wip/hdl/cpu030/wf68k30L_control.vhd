@@ -2056,10 +2056,10 @@ begin
                             -- because the destination is an ALU operand and may cause data hazards.
                              case BIW_0(5 downto 3) is
                                 when "000" => -- Dn.
-                                    -- [F157o] Same-edge INIT during F157_WR_EXEC is safe: data_registers
-                                    -- forwards DR_IN onto the ALU/index read ports when the written Dn
-                                    -- matches. Without that forward, ALU_INIT latched the old Dn (C2/C4).
-                                    if DR_IN_USE = '0' or F157_WR_EXEC = '1' then
+                                    -- [F157c] Do not treat F157_WR_EXEC as "INIT now": FETCH may already
+                                    -- be entering INIT this same EXECUTE-write edge, so ALU_INIT latches
+                                    -- the old Dn (C2: add.l d1,d0 saw d0=2 not 3; LSL then wrote 0x10).
+                                    if DR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
                                     else
                                         NEXT_FETCH_STATE <= START_OP;
