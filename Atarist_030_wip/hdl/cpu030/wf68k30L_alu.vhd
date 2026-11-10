@@ -65,6 +65,7 @@
 --   2026-10-04 F57: explicit power-up values for set-type flops.
 --   2026-11-09 F157a: ALU_REQ re-armed when ALU_INIT overlaps ALU_ACK (INIT during WRITEBACK).
 --   2026-11-09 F157f: do not re-arm ALU_REQ on INIT for shifts/mul/div (EmuTOS memcpy lsr+dbf).
+--   2026-11-09 F157g: register that qualifier (IRQ_1 -> EX_P_RTE CE half-cycle).
 -- 
 
 library work;
@@ -127,6 +128,7 @@ end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
     constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
+    signal F157_REARM_OK : bit := '1'; -- [F157g] registered: incoming OP may re-arm ALU_REQ on INIT+ACK.
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
@@ -410,18 +412,13 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        -- [F157f] Re-arm on INIT+ACK only for single-cycle ops. Shifts/mul/div must wait for
-        -- SHFT_RDY/DIV_RDY (they never set ALU_REQ in the INIT clock). F157a re-armed every
-        -- OP_IN when PHASE_A, so lsr.l #8,d0 overlapping the previous ACK completed immediately
-        -- and wrote the unshifted operand; EmuTOS memcpy (move.b d0,d1; lsr.l #8,d0; dbf)
-        -- then copied for the byte count instead of count/256 and never reached video.
+        -- [F157f/F157g] Re-arm on INIT+ACK only for single-cycle ops (see P_F157_REARM).
+        -- F157f compared OP_IN here (12-way), which enlarged ALU_REQ's combo cone onto the
+        -- half-cycle IRQ_1 -> EX_P_RTE clock-enable path (-2.775 ns). The class is now a FF.
         if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
             ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
-        elsif ALU_ACK = '1' and ALU_INIT = '1' and F157_PHASE_A and
-              OP_IN /= ASL and OP_IN /= ASR and OP_IN /= LSL and OP_IN /= LSR and
-              OP_IN /= ROTL and OP_IN /= ROTR and OP_IN /= ROXL and OP_IN /= ROXR and
-              OP_IN /= MULS and OP_IN /= MULU and OP_IN /= DIVS and OP_IN /= DIVU then
-            ALU_REQ <= '1'; -- [F157a/F157f] single-cycle overlap re-arm.
+        elsif ALU_ACK = '1' and ALU_INIT = '1' and F157_PHASE_A and F157_REARM_OK = '1' then
+            ALU_REQ <= '1'; -- [F157a/F157g] single-cycle overlap re-arm (registered qualifier).
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
