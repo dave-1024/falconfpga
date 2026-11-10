@@ -401,6 +401,22 @@ begin
         end if;
     end process P_PAD;
 
+    -- [F157g] OP (OP_IN) is issued in START_OP, one clock before ALU_INIT (F141: early
+    -- OW_REQ is acknowledged in START_OP; INIT is the next clock). Register the
+    -- "may re-arm on INIT+ACK" class here so P_BUSY only sees a FF. Shifts/mul/div
+    -- must not re-arm (they wait for SHFT_RDY/DIV_RDY; F157f memcpy lsr.l #8,d0).
+    P_F157_REARM: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if OP_IN = ASL or OP_IN = ASR or OP_IN = LSL or OP_IN = LSR or
+           OP_IN = ROTL or OP_IN = ROTR or OP_IN = ROXL or OP_IN = ROXR or
+           OP_IN = MULS or OP_IN = MULU or OP_IN = DIVS or OP_IN = DIVU then
+            F157_REARM_OK <= '0';
+        else
+            F157_REARM_OK <= '1';
+        end if;
+    end process P_F157_REARM;
+
     P_BUSY: process
     variable REQ_SET : boolean;
     begin
