@@ -510,8 +510,9 @@ begin
                 '1' when (OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = CMPI) and BIW_0(5 downto 3) = "000" else
                 '1' when (OP = MOVE or OP = MOVEA) and (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") and
                          (BIW_0(8 downto 6) = "000" or BIW_0(8 downto 6) = "001") else
-                '1' when (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
-                         BIW_0(7 downto 6) /= "11" else
+                -- [F157i] Register shifts are not in EARLY_OW, so F157_OLAP does not
+                -- INIT them on the previous ACK (memcpy lsr.l #8,d0). Keeps the F157a
+                -- ALU_REQ re-arm condition free of extra compares (F157f/g/h timing).
                 '1' when (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
 
     -- [F157a] Only register-only ops (the F141 EARLY_OW set) may take INIT during the
