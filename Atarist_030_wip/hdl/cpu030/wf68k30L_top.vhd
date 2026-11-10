@@ -166,6 +166,7 @@
 --   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
 --   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
+--   2026-11-10 F157r: I-fetch address is the COF destination in the PC_LOAD/PC_ADD_DISPL clock.
 --
 
 library work;
@@ -1087,7 +1088,14 @@ begin
 
 
     PC_OFFSET <= PC_OFFSET_OPD;
-    PC_L <= PC + PC_ADR_OFFSET;
+    -- [F157r] The PC register updates on the edge of PC_LOAD / PC_ADD_DISPL, which is the
+    -- same clock as IPIPE_FLUSH. Present the destination on PC_L in that clock so the
+    -- instruction cache can look up the target instead of the old stream (PC+offset).
+    -- Main-controller loads only: an exception PC_LOAD_EXH must keep using the registered
+    -- PC until the handler finishes its own pipe fill.
+    PC_L <= AR_IN_1 when PC_LOAD_MAIN = '1' else
+            PC + DISPLACEMENT when PC_ADD_DISPL = '1' else
+            PC + PC_ADR_OFFSET;
 
     PC_INC_EXH_I <= PC_INC_EXH when LOOP_SPLIT = false else '0'; -- Suppress for a split loop.
 

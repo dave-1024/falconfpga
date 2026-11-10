@@ -3,9 +3,19 @@
 **Branch:** `speed`. Phase A + the 2.25→2 pipe-rdy bubble are in RTL (`F157_PHASE_A`).
 IRQ half-cycle cone is fixed and board-proven (`d353f03` F157m). Phase B is
 F157n: combo RESULT + write in EXECUTE for ADD/SUB/AND/OR/ADDQ/SUBQ/ADDI/SUBI/
-ANDI/ORI/EORI/EOR/CLR/NEG/NEGX/NOT Dn. ADD-type is 3 clocks (UM 2) because
-`F157_WR_EXEC` is not treated as “INIT now” (that same-edge ALU_INIT latched
-the old Dn and broke `prog_fidx` C2/C4). NOP / `MOVE.L Dn,Dn` / CLR are 2.
+ANDI/ORI/EORI/EOR/CLR/NEG/NEGX/NOT Dn (board-proven, flashed). F157o
+(`ae278ee`) adds same-edge operand forward so ADD-type is 2 clocks (UM 2):
+`data_registers` muxes `DR_IN` onto `DR_OUT`/`DR_IDX_OUT` when the write
+select matches, and START_OP may INIT on `F157_WR_EXEC`. NOP / `MOVE.L Dn,Dn`
+/ CLR stay 2. Gowin/board of F157o is still pending; flash 0 is now F157q (`7c6b5e0`, programmed 07:55 Europe/London).
+
+## Board gates (from F157o)
+
+From F157o onward, a board-ready bitstream is gated with GEM desktop,
+LOOPTEST (`lta1.st`), and a full GEMBENCH run (especially the display
+tests). Do not use FrontBench (`tts.st` / TTSEL) as a required gate;
+leave it for later. Flash only if those three pass. F157q is the
+current flash fallback.
 
 The goal was to issue register-to-register instructions in 2 clocks, matching
 MC68030UM section 11 (I-cache case). F145 already raises `OW_REQ` in
@@ -417,10 +427,344 @@ Focused speed: nothing faster than the UM. nop/moveq/move.l/cmp/clr 2.00;
 add/addq/subq/and/or/eor/neg/not 3.00 (were 4.00). The last ADD clock is
 a later operand-forward change, not the unsafe INIT bypass.
 
-## What was not done (at 03:08 Europe/London, 10 Nov 2026)
+The remaining `run_rtl` FAILs vs the old expect were timing-only (10 Nov
+2026, `50665d5`). `run_icache` CIMODE=1: `$5000` result words identical,
+only prefetch/fetch counts shifted (`expect_icache_ci1_f157.txt`).
+`prog_mmut`: blk1/12 −0.50 because NOP is now 2 clocks; MMU blocks 2–11
+each −2 clocks with identical inter-MMU deltas (`expect_mmut_f157n.txt`).
+Not a cache or PMMU functional fault.
 
-- F157n Gowin `.03`, `timing_pairs`, SRAM, LOOPTEST, flash (in progress
-  after this commit). F157m is the fallback.
-- Operand forward so ADD-type goes 3→2 without the START_OP INIT bypass.
-- FrontBench on the best flashed build.
-- BSR/JSR/RTS (~28 vs 13–15) and DBF (69 vs 54).
+## F157o operand forward (10 Nov 2026)
+
+`ae278ee` (pushed). `wf68k30L_data_registers.vhd` forwards `DR_IN_1/2`
+onto `DR_OUT_1/2` and `DR_IDX_OUT` on the write edge (LONG/WORD/Byte,
+using the registered write pointer `DR_SEL_WR_I*`). The ADD-type Dn
+START_OP arm again allows `INIT` when `F157_WR_EXEC = '1'`, now safe
+because ALU_INIT and the index path see the new value.
+
+Gates (GHDL): add/addq/subq/and/or/eor/neg/not 2.00; nothing faster than
+the UM; `lsl.l #2` still 6.00. `prog_fidx` all WS PASS. `run_rtl` PASS
+(`/tmp/run_rtl_o.log`, `prog_loop` 40290, mmut matches
+`expect_mmut_f157n.txt`). TOS boot exact F156/pb2 (8946 events). EmuTOS
+exact pb2 (34628 events); F156 has the same +6 tail writes as Phase B.
+lt_tt matches F157n (iack 161, ticks 22/13/12/13 and 248 / 3C/1B/1C/1B).
+
+Two Gowin V1.9.12.03 builds were not loaded (no seed sweep):
+
+- `ae278ee` (wide `DR_OUT` forward), finished 04:28 Europe/London:
+  `timing_pairs` FAIL setup `clk_cpu030` → `clk32_core` −0.224 ns
+  (`ADR_LATCH_0` → `r_adr_1`). F157n was +0.309 ns. LUT 46745 + ALU 5391.
+  `/home/dave/fpga_bitstreams/st_helper_f157o_wide.fs`.
+- `5bd3b10` (forward confined to `DR_FWD_1/2` ALU ports + `DR_IDX_OUT`),
+  finished 04:48 Europe/London: same pair FAIL −5.851 ns
+  (`ADR_LATCH_14` → `r_fc_2`). LUT 46784 + ALU 5394. Fmax clk_cpu030
+  18.288 / clk32_core 33.685 (F157n 19.217 / 35.186).
+  `/home/dave/fpga_bitstreams/st_helper_f157o_scoped.fs`.
+
+Board remains F157n (`st_helper_f157n.fs`). F157n is the fallback.
+
+FrontBench on flashed F157n (`tts.st`, TTSEL key 0 at 03:48): fresh
+capture `/tmp/f157n_tts8.png` at 04:26 Europe/London (38 minutes) still
+shows 65 frames / 0 lastcount — counters never advanced. F156 was
+~1237 ±6.
+
+COF speed on F157o RTL (04:50): `bsr_rts` 28.00 (UM 15), `jsr_rts`
+28.00 (UM 13), `dbf_loop8` 68.50 (UM 54).
+
+## What was not done (at 04:50 Europe/London, 10 Nov 2026)
+
+- A timing-clean F157o bitstream, so no SRAM/GEM/LOOPTEST/flash of F157o.
+- A finished FrontBench lastcount on F157n (stuck at 65 / 0).
+- BSR/JSR/RTS and DBF RTL changes (measurements only so far).
+
+
+## Morning summary (10 Nov 2026, ~06:33 Europe/London)
+
+**Flash 0 is F156** (`st_helper_f156.fs`, programmed 05:08 Europe/London).
+F157p was built but failed `timing_pairs` and was not SRAM-loaded and not
+flashed. The board’s persistent image is F156.
+
+### FrontBench hang (required board gate)
+
+Flashed F157n hung at 65 frames / 0 lastcount for 38 minutes (cube scene).
+SRAM `tts.st` / TTSEL key 0:
+
+| build | ~90 s / later | verdict |
+|---|---|---|
+| F156 | 433 city; finished 1237/1237 (`f156_fb*.png`) | good |
+| F157h | 436 | good |
+| F157j | 439 | good |
+| F157k | 431 factory (`/tmp/f157k_tts2.png`) | good |
+| F157l | 419 road; finished 304 frames / 1251 lastcount at 05:38 (`/tmp/f157l_tts3.png`) | good (SRAM only; timing_pairs historically −1.096 ns, not flashed) |
+| F157m | 24/0 space for ~7 min | hang |
+| F157n | 65/0 cube for 38 min (flashed) | hang |
+| F157q | 434 factory / 0; 419 road / 1266; finished 1257/1257 Frontier start (`/tmp/f157q_tts1.png`, `tts2`, `tts3`) | good (SRAM then flashed 07:55) |
+| F157a | black SRAM | unusable midpoint |
+
+The `tts.st` / TTSEL key 0 procedure itself is proven (F156/h/j/k/l run at
+F156 pace; F157l completed). First-bad: **F157m** (`d353f03`). LOOPTEST TT
+I-cache 1428571 on F157n did not see this.
+
+### Cause
+
+F157m registered `IRQ_HOT` from `IRQ_HOT_N` on the rising edge so `EARLY_OW`
+left the `clk_cpu030_n` → `clk_cpu030` cone (F157l was −1.096 ns
+`IRQ_HOT` → `EX_P_DIVZERO`). PENDING still sampled the CLK_F
+`IRQ_GT_MASK` / `IRQ_LVL7` flags. `EX_P_INT` could latch on the first
+rising edge where those flags were new, while clocked `EARLY_OW` still
+saw `IRQ_HOT=0` and raised an early `OW_REQ` in the same `INIT_EXEC_WB`.
+
+### F157p (`cb45333`, pushed) — F157n Phase B + coherence
+
+PENDING now uses `IRQ_GT_MASK_R` / `IRQ_LVL7_R`, registered in the same
+rising-edge process as `IRQ_HOT`. Take and `EARLY_OW` share one view.
+The core asserts `IRQ_HOT=1` in the take cycle (that holds early `OW_REQ`).
+The F157o operand-forward commits stay in history (`ae278ee`, `5bd3b10`)
+but are not in `cb45333`.
+
+Sim gates:
+
+- `run_irq_window.sh` (IPL_MODE=2, `IRQ_DLY` 0–31): PASS. F157m+Phase B
+  failed the same stimulus at DLY 3/14/17/24/27.
+- `run_rtl.sh` (`/tmp/run_rtl_p4`, 06:15 Europe/London): PASS.
+  `prog_loop` 40290.
+- lt_tt: asis/tw WS=0 iack=161 ticks **22/13/12/14** (F157n 22/13/12/**13**,
+  last I+D pass +1 tick). WS=1 iack=245 ticks 3C/1B/1B/1B (F157n
+  3C/1B/1C/1B). Not faster.
+- TOS 2.06 boot (`ST=1 QUIET=2 MAXCLK=250000`): write sequence identical
+  to F156 (8 writes); 8954 lines before TIMEOUT (`/tmp/boot_p_tos.log`).
+- EmuTOS: write/EXC prefix identical to F156; F156 has +6 tail writes
+  to `$FFFE04` (same Phase B / F157n delta; `/tmp/boot_p_etos2.log`).
+
+### Interrupt recognition vs MC68030UM §8.1.9
+
+Recognition is **one rising edge of `clk_cpu030` later than F156**.
+
+UM 8.1.9 (pp. 8-14–8-17): the processor “continuously samples the
+IPL0–IPL2 signals on consecutive falling edges of the processor clock to
+synchronize and debounce these signals. An interrupt request that is the
+same for two consecutive falling clock edges is considered a valid input.”
+A request “held for as short a period as two clock cycles could be
+recognized.” After IPL > mask, “the processor makes the request a pending
+interrupt” (Fig. 8-2) and asserts IPEND (Fig. 8-4: IPLs synchronized,
+compare with the SR mask, assert IPEND). IPEND “is internally checked by
+the processor once per instruction” (Fig. 8-4–8-6, STAT0/STAT1).
+
+F157p does **not** change the falling-edge sample/debounce: `IRQ_FILTER`
+on `CLK_F` still requires two matching falling edges (`IRQ_TMP_1/2`),
+which is the UM rule. F156 then let PENDING latch `EX_P_INT` on the
+immediately following rising edge if `INT_TRIG` (instruction boundary) —
+the earliest sensible synchronous “make pending” after that debounce.
+F157p copies the decoded flags on a rising edge and takes from those
+copies, so “make pending” is one CPU clock later than F156.
+
+That is **further from the earliest legal recognition** F156 implemented,
+and **the conservative side of “never faster than the manual”**: the
+two-falling-edge minimum pulse and the once-per-instruction boundary
+check are unchanged; we did not sample more aggressively than §8.1.9.
+The +1 tick on lt_tt’s last I+D pass (14 vs 13) is consistent with that
+extra clock of pending latency.
+
+### Gowin / timing (F157p not loaded)
+
+Gowin V1.9.12.03 finished 06:29 Europe/London
+(`/home/dave/builds/f157p/Atarist_030_wip/impl/pnr/st_helper.fs`,
+SHA256 `e32c55f377dc22164cc4cf3a7afbd393afbc57cdecf87abaeeac652c20e2768e`).
+LUT 46527 + ALU 5362. Fmax clk_cpu030 20.528 / clk32_core 32.327
+(F157n was 19.217 / 35.186).
+
+`timing_pairs` FAIL setup `clk_cpu030` → `clk32_core` **−0.179 ns**
+(`ADR_LATCH_13_s1` → `r_dout_3_s1`). No seed sweep. Because of that fail,
+F157p was not SRAM-loaded (no GEM, no LOOPTEST, no FrontBench on F157p)
+and was not flashed.
+
+### Not done
+
+- A timing-clean F157p (or later letter) bitstream, so no F157p board gate
+  and no flash of F157p.
+- F157o timing-clean forward (keep it off the address/AU paths; both
+  earlier F157o builds failed `timing_pairs` on `ADR_LATCH` → `r_adr`/`r_fc`).
+- BSR/JSR/RTS and DBF RTL (sim on F157o RTL: `bsr_rts` 28 vs UM 15;
+  `jsr_rts` 28 vs 13; `dbf_loop8` 68.50 vs 54).
+
+
+### F157q (`7c6b5e0`, pushed) — registered pin address (07:21 Europe/London)
+
+Flash 0 is **F157q** (programmed 07:53–07:55 Europe/London). F157p was not loaded.
+
+The recurring `clk_cpu030` → `clk32_core` pair (`ADR_LATCH` →
+`r_adr`/`r_fc`/`r_dout`) is the F61 live start in `cpu030_st_bridge.v`:
+on an `enPhi1` that coincides with the first `clk_32` after AS,
+`r_adr`/`r_fc`/`r_dout` load `q_* = cpu_adr/cpu_fc/cpu_dout`. `cpu_adr`
+was combo `ADR_LATCH + ADR_OFFSET` (or `F_CUR`/`FILL_WADR`). That 32-bit
+carry also feeds `can_start` (ROM/IACK decode), which is the CE of
+`r_dout` — matching F157p’s `ADR_LATCH_13` → `r_dout_3` (−0.179 ns).
+The live path is required for same-edge S0 (dropping it would add a
+`clk_32` and change bus timing).
+
+F157q keeps the live start and registers the pin: `ADR_OUT_P <= ADR_OUT_Q`,
+loaded each `clk_cpu030` with the next-state value of combo `ADR_OUT_I`.
+Internal sizing still uses the combo. A GHDL assert requires
+`ADR_OUT_Q = ADR_OUT_I` after reset. No SDC or seed changes.
+
+Sim (functionally identical to F157p; assert never fired):
+
+- `run_rtl` `/tmp/run_rtl_q` PASS 07:18 Europe/London. `prog_loop` 40290.
+- lt_tt `/tmp/lt_tt_q`: asis/tw WS=0 iack=161 ticks 22/13/12/14; WS=1
+  iack=245 ticks 3C/1B/1B/1B (same as F157p). Not faster.
+- TOS 2.06 writes identical to F157p and F156 (`/tmp/boot_q_tos.log`).
+- EmuTOS writes/EXC identical to F157p (`/tmp/boot_p_etos2.log`, 33564
+  events). F156 still has +6 tail writes to `$FFFE04`.
+
+Gowin V1.9.12.03 finished 07:34 Europe/London
+(`/home/dave/builds/f157q/Atarist_030_wip/impl/pnr/st_helper.fs`,
+SHA256 `80acc518b24c8e3f298aea46c46b2f67a776e054b7f156815fb69d6bef3172c2`).
+LUT 46648 + ALU 5421. Fmax clk_cpu030 20.563 / clk32_core 33.381
+(F157p 20.528 / 32.327).
+
+`timing_pairs` PASS (rc=0). setup `clk_cpu030` → `clk32_core` **+4.919 ns**
+(`PF_ACC_s1` → `r_adr_1_s1`). F157p’s failing pair was `ADR_LATCH_13` →
+`r_dout_3` (−0.179 ns); that adder is no longer the capture path.
+
+SRAM-loaded 07:36 Europe/London, cable 5777, `--run 2` EXIT 0 (28.37 s).
+Helper came up (`s`: link OK, id=00, FPGA cold boot, A: `/sd/gbref.st`
+from atarist.ini — mount not saved). HDMI capture is on Gaming-Laptop
+(`C1-2 USB3 Video`, machineId `d756c108-91d2-40fc-9a6c-3164120151de`),
+not linserver `/dev/video0`.
+
+SRAM visual gates (all passed; FrontBench did not hang):
+
+- GEM `/tmp/f157q_gem1.png` (257766 B, 07:40 Europe/London; laptop
+  `%TEMP%\f157q_gem1.png`): TOS desktop Desk/File/View/Options.
+- LOOPTEST `lta1.st` `/tmp/f157q_loop1.png` (07:42, plus `_crop` /
+  `_nums` / `_right`): complete, “Press a key”. 16 MHz, start
+  `$000003111`. ST-RAM caches-off / I / I+D all **325203**. TT-RAM
+  caches-off **557103**; I-cache on **1428571**; I+D on **1428571**.
+- FrontBench `tts.st`, TTSEL key 0 at 07:44. Menu
+  `/tmp/f157q_tts_menu.png`. Factory ~07:46 `/tmp/f157q_tts1.png`
+  **434 frames / 0 lastcount** (F156 pace). Road/hills 07:49:37
+  `/tmp/f157q_tts2.png` **419 frames / 1266 lastcount**. Finished
+  07:51:57 `/tmp/f157q_tts3.png` Frontier “Select Start Position”
+  **1257 frames / 1257 lastcount** (around the 1237–1251 expected
+  band).
+
+Flashed 07:53–07:55 Europe/London: `--run 53` location 5777 EXIT 0
+(135.25 s, ends at 0x04E0900), then `--run 1` EXIT 0 (0.42 s). A
+second `--run 1` at 08:00 plus helper `c` (`ST cold boot via sysctrl
+R=3`) after the first reload’s HDMI frames were black (8695 B).
+Post-flash GEM `/tmp/f157q_flash.png` (laptop `%TEMP%\f157q_flash4.png`,
+257772 B, 08:02) is TOS desktop Desk/File/View/Options. Copy saved as
+`/home/dave/fpga_bitstreams/st_helper_f157q.fs`.
+
+
+## Morning update (10 Nov 2026, 08:02 Europe/London)
+
+**Flash 0 is F157q** (`st_helper_f157q.fs`, programmed 07:55
+Europe/London, SHA256 `80acc518b24c8e3f298aea46c46b2f67a776e054b7f156815fb69d6bef3172c2`).
+
+F157q (`7c6b5e0`) registers the CPU pin address so the ST bridge F61
+live capture is flop-to-flop. Sims matched F157p (run_rtl PASS,
+`prog_loop` 40290; lt_tt ticks unchanged; TOS/EmuTOS writes unchanged).
+Gowin V1.9.12.03 `timing_pairs` PASS, +4.919 ns on `clk_cpu030` →
+`clk32_core` (`PF_ACC` → `r_adr`; was −0.179 ns `ADR_LATCH` → `r_dout`
+on F157p). SRAM GEM, LOOPTEST (325203 / 557103 / 1428571) and full
+FrontBench (finished 1257/1257, no hang) all passed on Gaming-Laptop
+HDMI capture, then the bitstream was flashed.
+
+### F157o retake (`3836a8a`, pushed) — ALU-only forward on F157q (08:53 Europe/London)
+
+On top of F157q (`7c6b5e0`). Same-edge operand forward is confined to
+`DR_FWD_1/2` and the ALU operand muxes in `top.vhd`. `DR_OUT` and
+`DR_IDX_OUT` stay plain register reads, so the address and AU/index
+paths are unchanged (the earlier `ae278ee` wide `DR_OUT` and `5bd3b10`
+`DR_IDX_OUT` forwards failed `timing_pairs` on `ADR_LATCH` →
+`r_adr`/`r_fc`). START_OP again allows `INIT` when `F157_WR_EXEC = '1'`
+for the ADD-type Dn arm. No SDC or seed changes.
+
+Sim:
+
+- `run_rtl` `/tmp/f157o_rtl` PASS. `prog_loop` 40290.
+- `run_irq_window.sh` PASS (`fail=0`, 32 iacks, DLY 0–31).
+- lt_tt `/tmp/lt_tt_o`: asis/tw WS=0 iack=161 ticks 22/13/12/14; WS=1
+  iack=245 ticks 3C/1B/1B/1B (same as F157q).
+- TOS 2.06 writes identical to F157q (`/tmp/boot_o_tos.log`, 8 WR).
+- EmuTOS writes/EXC identical to F157q (`/tmp/boot_o_etos.log`, 33566
+  events).
+- Speed `/tmp/f157o_speed.txt`: `add.l Dn,Dn` / `addq` / `subq` /
+  `and` / `or` / `eor` / `neg` / `not` / `clr` Dn all 2.00 (UM 2).
+  `nop` / `moveq` / `move.l Dn,Dn` stay 2.00. Nothing faster than the
+  UM. `lsl.l #,Dn` still 6.00 (UM 4). `bsr_rts` 28 (UM 15), `jsr_rts`
+  28 (UM 13), `dbf_loop8` 68.50 (UM 54). `adda.l Dn,An` still 4 (UM 2).
+- `prog_mmut` matched `expect_mmut.txt` (blk1 14.50 / blk12 14.62),
+  which `run_rtl` accepts as well as `expect_mmut_f157n.txt`
+  (14.00/14.12).
+
+Gowin V1.9.12.03 finished 08:52 Europe/London
+(`/home/dave/builds/f157o/Atarist_030_wip/impl/pnr/st_helper.fs`,
+SHA256 `0c707120f66116bb0aac2cf601077b79382512de095c4e8230352529e32b37b0`).
+LUT 46807 + ALU 5436 (F157q 46648 + 5421). Fmax clk_cpu030 20.135 /
+clk32_core 34.464 (F157q 20.563 / 33.381).
+
+`timing_pairs` PASS (rc=0). setup `clk_cpu030` → `clk32_core` **+8.222 ns**
+(`ADR_OUT_Q_26_s0` → `r_dout_4_s1`). F157q was +4.919 ns `PF_ACC` →
+`r_adr`. The failing path of the earlier F157o builds is gone.
+
+Flash 0 is still **F157q**. SRAM GEM / LOOPTEST / a full GEMBENCH
+run (especially the display tests) and any flash of F157o wait until
+the board is free. Do not use FrontBench as a board gate from F157o
+onward (David, 10 Nov 2026).
+
+### F157r (sim, off the board) — BSR/JSR/RTS COF refill
+
+On `3836a8a` (F157o). Warm `bsr.w`+RTS was 28 clocks (UM 15 = 6+9);
+`jsr (An)`+RTS was 28 (UM 13). The 16-bit port adds extra word cycles
+on each long stack access (cannot remove without beating a real 16-bit
+bus). The rest was post-`IPIPE_FLUSH` refill: the PC register and
+`OPCODE_RD_I` updated on the flush edge, so the I-cache target lookup
+started one clock later, and RTS spent an empty `INIT_EXEC_WB` after
+the return PC was already on `DATA_TO_CORE`.
+
+RTL (`wf68k30L_top.vhd`, `wf68k30L_opcode_decoder.vhd`,
+`wf68k30L_control.vhd`):
+
+- `PC_L` presents the destination in the `PC_LOAD_MAIN` /
+  `PC_ADD_DISPL` clock (exception `PC_LOAD_EXH` unchanged).
+- `OPCODE_RD` is asserted combinationally on `IPIPE_FLUSH` (not during
+  `BUSY_EXH`) so `IC_MTAKE` can look the target up in that clock.
+- `COF_BLK` also covers JMP/JSR/RTS/RTD/RTR (same stream-hold as F144
+  BRA/BSR).
+- RTS/RTD go `FETCH_OPERAND` → `START_OP` once `RD_RDY` (no ALU work
+  in INIT); `PC_LOAD` and `IPIPE_FLUSH` already fire on that
+  transition.
+
+Sim (off the board):
+
+- `run_rtl` `/tmp/f157r_rtl` PASS. `prog_loop` 40290 (same as F157o).
+- `run_irq_window.sh` PASS (`fail=0`, 32 iacks).
+- lt_tt `/tmp/f157r_lttt`: asis/tw WS=0 iack=153 ticks 20/13/13/12;
+  WS=1 iack=248 ticks 3B/1B/1C/1B. `done=1` and every pass `d0=FFFFFFFF`.
+  Tick counts moved vs F157o (22/13/12/14 iack=161) because COF/DBcc
+  refill is shorter; not a correctness fail.
+- TOS 2.06 writes identical to F157o (`/tmp/boot_r_tos.log`, 8 WR, vs
+  `/tmp/boot_o_tos.log`).
+- EmuTOS (`/tmp/etos256uk.hex`): write/EXC prefix identical to F157o
+  through all 33556 events (`/tmp/boot_r_etos.log` vs
+  `/tmp/boot_o_etos.log`); 146 extra `FFFE04`/`FFFE06` loop stores
+  after that because more work fits in `MAXCLK=250000`.
+- Speed `/tmp/f157r_speed.txt`: `bsr_rts` 26 (was 28, UM 15);
+  `jsr_rts` 26 (was 28, UM 13); `dbf_loop8` 61.50 (was 68.50, UM 54)
+  as a side-effect of the same early target lookup on DBcc flush.
+  ADD-type Dn stay 2.00. `bra.w`/`bra.s` stay 7 (UM 6). Nothing faster
+  than the UM. `adda.l` still 4 (UM 2); `lsl.l #` still 6 (UM 4).
+
+Gowin V1.9.12.03 / `timing_pairs` not run: `ssh linserver` failed
+(SOCKS5 on localhost:1055 refused or returned general failure; direct
+Tailscale `100.97.139.11:22` timed out). Stay off the board. When the
+build host is reachable, build F157r, run `timing_pairs`, then SRAM
+GEM / LOOPTEST / a full GEMBENCH (especially display tests) — not
+FrontBench. Flash only if those three pass (F157q fallback).
+
+Remaining COF gap vs the UM is mostly the 16-bit extra half of the two
+long stack accesses plus a couple of decoder/control handshake clocks
+after the target words arrive.
+

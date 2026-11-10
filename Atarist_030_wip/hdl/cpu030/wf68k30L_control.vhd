@@ -165,6 +165,8 @@
 --     INIT with WRITEBACK (ALU_TRIG during WRITEBACK, ALU_REQ re-arm, UNMARK, WRITEBACK->EXECUTE).
 --     Constant F157_PHASE_A. Writes stay in WRITEBACK. MOVEQ/NOP target: 2 clocks.
 --     [F157c] F157_PHASE_B: combo RESULT + write in EXECUTE for ADD/ADDQ/AND/NEG/NOT/CLR (reg dest).
+--   2026-11-10 F157r: RTS/RTD go START_OP from FETCH_OPERAND once the return PC is on DATA_TO_CORE
+--     (no ALU work in INIT); PC_LOAD and IPIPE_FLUSH already fire on that transition.
 --
 
 use work.WF68K30L_PKG.all;
@@ -2774,6 +2776,10 @@ begin
                             else
                                 NEXT_FETCH_STATE <= INIT_EXEC_WB;
                             end if;
+                        -- [F157r] Return PC is already on DATA_TO_CORE; skip the empty INIT
+                        -- so PC_LOAD / IPIPE_FLUSH (and the target I-cache lookup) start here.
+                        when RTS | RTD =>
+                            NEXT_FETCH_STATE <= START_OP;
                         when others => 
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                     end case;

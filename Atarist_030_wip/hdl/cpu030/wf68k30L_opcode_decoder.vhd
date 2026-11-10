@@ -70,6 +70,7 @@
 --   2026-11-04 F147: two-word pipe fill 0->2 / 1->3 (OPCODE_RDY_2), fetch offset +2 words.
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 --   2026-11-09 F157a: OPC_RD_NEXT also when the pipe dropped to one word after an issue (PC still on the current opcode, queue head is the next word).
+--   2026-11-10 F157r: request the target opcode in the IPIPE_FLUSH clock; COF_BLK also covers JMP/JSR/RTS/RTD/RTR.
 -- 
 
 library work;
@@ -255,12 +256,16 @@ begin
 
     -- [F144] BRA/BSR taken over by the control unit: its target replaces the stream, so the decoder starts
     -- no further stream read (it would be dismissed by the flush and delay the target request two clocks).
+    -- [F157r] Same hold for JMP/JSR/returns: they also flush and load a new PC; a stream read behind
+    -- them is dismissed and delays the target request.
     P_COF_BLK: process
     begin
         wait until CLK = '1' and CLK' event;
         if IPIPE_FLUSH = '1' or BUSY_EXH = '1' then
             COF_BLK <= '0';
-        elsif OW_REQ = '1' and PIPE_RDY = '1' and (OP_I = BRA or OP_I = BSR) and LOOP_BSY_I = false then
+        elsif OW_REQ = '1' and PIPE_RDY = '1' and LOOP_BSY_I = false and
+              (OP_I = BRA or OP_I = BSR or OP_I = JMP or OP_I = JSR or
+               OP_I = RTS or OP_I = RTD or OP_I = RTR) then
             COF_BLK <= '1';
         end if;
     end process P_COF_BLK;
@@ -278,7 +283,10 @@ begin
         end if;
     end process P_OPCODE_FLUSH;
 
-    OPCODE_RD <= OPCODE_RD_I;
+    -- [F157r] IPIPE_FLUSH already decides to refill; do not wait for the registered OPCODE_RD_I.
+    -- Gated off BUSY_EXH so exception pipe-fill keeps its own request timing.
+    OPCODE_RD <= '1' when OPCODE_RD_I = '1' else
+                 '1' when IPIPE_FLUSH = '1' and BUSY_EXH = '0' else '0';
     PIPE_FULL <= '1' when IPIPE_PNTR = 3 else '0'; -- [F140]
     -- [F140] OPCODE_RD_I is cleared by OPCODE_RDY, so a word could only be requested every other clock.
     -- In the clock of a ready strobe, ask the prefetch queue for the next word as well when the pipe has
