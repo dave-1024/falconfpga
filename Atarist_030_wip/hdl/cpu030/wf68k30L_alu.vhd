@@ -67,9 +67,7 @@
 --   2026-11-09 F157f: do not re-arm ALU_REQ on INIT for shifts/mul/div (EmuTOS memcpy lsr+dbf).
 --   2026-11-09 F157g: register that qualifier (IRQ_1 -> EX_P_RTE CE half-cycle).
 --   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
---   2026-11-10 F157i: restore F157a re-arm; exclude shifts from EARLY_OW instead of ALU_REQ CE.
---   2026-11-10 F157j: mask ALU_REQ output while shift/div not ready (keep EARLY_OW as F157a).
---   2026-11-10 F157k: registered F157_MC_HOLD from SHFT_LOAD/DIV INIT, not SHIFT_STATE combo.
+--   2026-11-10 F157l: pair with CLK_F IRQ flag decode (exception_handler); this is the memcpy re-arm.
 -- 
 
 library work;
@@ -132,8 +130,7 @@ end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
     constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
-    signal ALU_REQ_Q : bit := '0'; -- [F157j/k] P_BUSY copy; port is masked while F157_MC_HOLD.
-    signal F157_MC_HOLD : bit := '0'; -- [F157k] shift/div in progress (registered).
+    signal F157_REARM_OK : bit := '1'; -- [F157g] registered: incoming OP may re-arm ALU_REQ on INIT+ACK.
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
@@ -406,6 +403,22 @@ begin
         end if;
     end process P_PAD;
 
+    -- [F157g/F157h] OP (OP_IN) is issued in START_OP, one clock before ALU_INIT
+    -- (F141). Register the "may re-arm on INIT+ACK" class so P_BUSY can use it as
+    -- ALU_REQ's D value under the F157a ACK+INIT condition. Shifts/mul/div must
+    -- not re-arm (they wait for SHFT_RDY/DIV_RDY; F157f memcpy lsr.l #8,d0).
+    P_F157_REARM: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if OP_IN = ASL or OP_IN = ASR or OP_IN = LSL or OP_IN = LSR or
+           OP_IN = ROTL or OP_IN = ROTR or OP_IN = ROXL or OP_IN = ROXR or
+           OP_IN = MULS or OP_IN = MULU or OP_IN = DIVS or OP_IN = DIVU then
+            F157_REARM_OK <= '0';
+        else
+            F157_REARM_OK <= '1';
+        end if;
+    end process P_F157_REARM;
+
     P_BUSY: process
     variable REQ_SET : boolean;
     begin
@@ -417,11 +430,15 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        -- [F157a] Unqualified ACK+INIT re-arm (PHASE_A => always).
+        -- [F157h] Same write condition as F157a (ACK and INIT, or MOVEM) so the
+        -- shift/mul/div qualifier is ALU_REQ's D input, not extra AND/compare on
+        -- the CE. F157f put a 12-way OP_IN compare here (-2.775 ns IRQ_1->EX_P_RTE
+        -- CE). F157g registered the class but still ANDed it (and OP_IN=MOVEM)
+        -- into the condition; timing_pairs -1.582 ns IRQ_2->EX_P_TRAPcc CE.
         if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or F157_PHASE_A) then
-            ALU_REQ_Q <= '1'; -- Option A / [F157a]: overlap, re-armed in the clock of the acknowledge.
+            ALU_REQ <= F157_REARM_OK; -- '1' single-cycle/MOVEM; '0' shift/mul/div
         elsif ALU_ACK = '1' then
-            ALU_REQ_Q <= '0';
+            ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
             REQ_SET := true;
         elsif (OP = DIVS or OP = DIVU) and DIV_RDY = '1' then
@@ -445,32 +462,15 @@ begin
         elsif REQ_SET and ALU_INIT = '0' and PAD_EN = '1' and PAD_ZERO = '0' then
             PAD_PEND <= '1';
         elsif REQ_SET then
-            ALU_REQ_Q <= '1';
+            ALU_REQ <= '1';
         elsif PAD_PEND = '1' and (PAD_ZERO = '1' or (OP = CHK and CHK_CMP_COND = true)) then
             -- [T6b] A trapping CHK is not padded (the trap is decided at ALU_ACK; the 68030 table
             -- lists CHK-with-trap as exception processing); only the no-trap CHK is padded to 8.
             PAD_PEND <= '0';
-            ALU_REQ_Q <= '1';
+            ALU_REQ <= '1';
         end if;
     end process P_BUSY;
     ALU_BSY <= ALU_BSY_I; -- F57
-    -- [F157k] Registered hold, not a combo tap of SHIFT_STATE (F157j missed
-    -- timing_pairs -2.444 ns IRQ_1 -> P_SHFT_CTRL.BIT_CNT). Set from the
-    -- existing SHFT_LOAD (and DIV INIT); clear on SHFT_RDY/DIV_RDY, which
-    -- wins so a zero-count shift (SHFT_LOAD and SHFT_RDY in the same clock)
-    -- does not stick. EARLY_OW and P_BUSY's ACK+INIT CE stay as in F157a.
-    P_F157_HOLD: process
-    begin
-        wait until CLK = '1' and CLK' event;
-        if SHFT_RDY = '1' or DIV_RDY = '1' then
-            F157_MC_HOLD <= '0';
-        elsif SHFT_LOAD = '1' then
-            F157_MC_HOLD <= '1';
-        elsif ALU_INIT = '1' and (OP_IN = DIVS or OP_IN = DIVU) then
-            F157_MC_HOLD <= '1';
-        end if;
-    end process P_F157_HOLD;
-    ALU_REQ <= ALU_REQ_Q and not F157_MC_HOLD;
 
     with OP_IN select
         PAD_OP_A <= '1' when MULS | MULU | CHK | BFTST | BFEXTS | BFEXTU | BFFFO |
