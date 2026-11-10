@@ -10,6 +10,9 @@
 # [F157] Level-D issue at IPIPE_PNTR=1 reduces unused prefetch of the same 16-byte loop line (48->34 when
 # uncached; an occasional extra long, 0->2, on a warm hit is padding past RTS). Result words at $5000 are
 # unchanged. Accepted lines are in expect_icache_ci{1,0}_f157.txt.
+# [F157n] Phase B (EXECUTE write, NOP/MOVE at 2) only changes CIMODE=1 prefetch/fetch counts on the
+# same 16-byte loop lines (e.g. c2/c9/c10/c11/c21/c25 6->8, c8 4->2, c17 8->6; c16/c18 wait-state
+# variants). Result words at $5000 are still 0000 0001 0000 0001 0000 0002 0000 3313 0000 0002.
 # Usage: run_icache.sh <built tb030 scratch dir> (e.g. the one run_rtl.sh builds). Needs GHDL and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); W=$(cd "${1:-/tmp/sim030rtl}" && pwd)
