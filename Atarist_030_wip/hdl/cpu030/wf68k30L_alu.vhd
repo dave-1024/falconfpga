@@ -69,6 +69,7 @@
 --   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
 --   2026-11-10 F157i: restore F157a re-arm; exclude shifts from EARLY_OW instead of ALU_REQ CE.
 --   2026-11-10 F157j: mask ALU_REQ output while shift/div not ready (keep EARLY_OW as F157a).
+--   2026-11-10 F157k: registered F157_MC_HOLD from SHFT_LOAD/DIV INIT, not SHIFT_STATE combo.
 -- 
 
 library work;
@@ -131,7 +132,8 @@ end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
     constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
-    signal ALU_REQ_Q : bit := '0'; -- [F157j] P_BUSY copy; port is masked for in-progress shift/div.
+    signal ALU_REQ_Q : bit := '0'; -- [F157j/k] P_BUSY copy; port is masked while F157_MC_HOLD.
+    signal F157_MC_HOLD : bit := '0'; -- [F157k] shift/div in progress (registered).
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
@@ -452,15 +454,23 @@ begin
         end if;
     end process P_BUSY;
     ALU_BSY <= ALU_BSY_I; -- F57
-    -- [F157j] Hide a spurious F157a INIT+ACK re-arm from control while the
-    -- shifter or divider is in RUN/CALC. Do not use SHFT_RDY (a one-cycle
-    -- pulse); masking with "OP is shift and SHFT_RDY=0" deadlocks after the
-    -- pulse (ALU_REQ_Q is set on that edge, then SHFT_RDY drops and the mask
-    -- closes again). EARLY_OW is unchanged (F157i missed IRQ_1->OP_16 by
-    -- -4.726 ns because EARLY_OW already includes IRQ_HOT).
-    ALU_REQ <= '0' when SHIFT_STATE = RUN else
-               '0' when DIV_STATE = INIT or DIV_STATE = CALC else
-               ALU_REQ_Q;
+    -- [F157k] Registered hold, not a combo tap of SHIFT_STATE (F157j missed
+    -- timing_pairs -2.444 ns IRQ_1 -> P_SHFT_CTRL.BIT_CNT). Set from the
+    -- existing SHFT_LOAD (and DIV INIT); clear on SHFT_RDY/DIV_RDY, which
+    -- wins so a zero-count shift (SHFT_LOAD and SHFT_RDY in the same clock)
+    -- does not stick. EARLY_OW and P_BUSY's ACK+INIT CE stay as in F157a.
+    P_F157_HOLD: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if SHFT_RDY = '1' or DIV_RDY = '1' then
+            F157_MC_HOLD <= '0';
+        elsif SHFT_LOAD = '1' then
+            F157_MC_HOLD <= '1';
+        elsif ALU_INIT = '1' and (OP_IN = DIVS or OP_IN = DIVU) then
+            F157_MC_HOLD <= '1';
+        end if;
+    end process P_F157_HOLD;
+    ALU_REQ <= ALU_REQ_Q and not F157_MC_HOLD;
 
     with OP_IN select
         PAD_OP_A <= '1' when MULS | MULU | CHK | BFTST | BFEXTS | BFEXTU | BFFFO |
