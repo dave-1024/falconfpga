@@ -1,7 +1,11 @@
 # F157: the 3-clock issue loop (9 Nov 2026)
 
 **Branch:** `speed`. Phase A + the 2.25→2 pipe-rdy bubble are in RTL (`F157_PHASE_A`).
-Phase B (ADD/ADDQ/CLR/`MOVE.L Dn,Dn`) is not started.
+IRQ half-cycle cone is fixed and board-proven (`d353f03` F157m). Phase B is
+F157n: combo RESULT + write in EXECUTE for ADD/SUB/AND/OR/ADDQ/SUBQ/ADDI/SUBI/
+ANDI/ORI/EORI/EOR/CLR/NEG/NEGX/NOT Dn. ADD-type is 3 clocks (UM 2) because
+`F157_WR_EXEC` is not treated as “INIT now” (that same-edge ALU_INIT latched
+the old Dn and broke `prog_fidx` C2/C4). NOP / `MOVE.L Dn,Dn` / CLR are 2.
 
 The goal was to issue register-to-register instructions in 2 clocks, matching
 MC68030UM section 11 (I-cache case). F145 already raises `OW_REQ` in
@@ -278,17 +282,145 @@ Nothing faster than the manual. `empty=20`.
 
 ## Morning summary (9/10 Nov 2026, Europe/London)
 
-Phase A is in and the 2.25→2 bubble is closed for MOVEQ/MOVEA/CMP/TST (exact
-manual 2.00). ADD/ADDQ/CLR/`MOVE.L Dn,Dn` remain at 4.00 pending Phase B
-(write in EXECUTE once `RESULT` is valid there, or forwarding; plus the WAW
-`DR_IN_USE` stall). BSR/JSR/RTS (~28 vs 13–15) and DBF (69 vs 54) are the
-next largest gaps after that.
+Phase A + the pipe-rdy bubble are in (`1deaaf7` F157a, then `e0dd090` F157b
+MOVE dest WAW). MOVEQ/MOVEA/CMP/TST measure exact manual 2.00; NOP stays 3.00
+until Phase B adds it to `EARLY_OW`. ADD/ADDQ/CLR/`MOVE.L Dn,Dn` stay at 4.00
+until Phase B (implemented in the working tree, not committed).
 
-Sim is clean as above. Gowin/board/Phase B were still pending when this
-section was written.
+F157a SRAM on the board was solid black (helper alive, Gowin .03, timing_pairs
+clean, TMDS mapping unchanged). F156 SRAM immediately showed GEM; flash 0 was
+not written.
 
-## What was not done (at the time of this section)
+That black screen is a real CPU bug, not (yet) placement. EmuTOS boot traces
+diverge because `lsr.l #8,d0` in memcpy setup finished on the overlapping
+`ALU_ACK` and wrote the unshifted count, so `dbf` copied for the byte count
+instead of `count/256` and never reached video. Isolation: overlap-on hangs,
+overlap-off matches F156; the bubble only moves mmut nop-cal. TOS 2.06 traces
+were still in the timer-B poll and matched once `FFFA21` values were masked.
 
-- Phase B RTL.
-- BSR/JSR/RTS and DBF speed work.
-- Gowin build / `.fs` / board (see later notes if present).
+`7f06860` F157f (pushed to `origin/speed`) stops `ALU_REQ` re-arm on
+shift/mul/div INIT+ACK. The memcpy reproduction and the EmuTOS boot then follow
+the F156 path (E13AC2 18 writes, last PC E02E18). MOVEQ/CMP stay at 2.00.
+
+HDMI_TESTPATTERN+ST_VIDEO=1 has no helper OSD, so a black capture after
+`osd f12` does not prove missing HDMI sync. If F157f is still black on the
+board after SRAM, treat placement/DDR/`clk_pixel` next.
+
+`7f06860` was built on linserver in a clean worktree (`/home/dave/builds/f157f`)
+with Gowin V1.9.12.03. Result: 46465 LUT + 5356 ALU, clk_cpu030 18.003 MHz,
+clk32_core 35.063 MHz. `timing_pairs` failed (setup `clk_cpu030_n` →
+`clk_cpu030` −2.775 ns, `IRQ_1_s0` → `EX_P_RTE_s9`; F157a was +0.503 on that
+pair). The bitstream was **not** SRAM-loaded. The board stays on F156. No
+seed sweep.
+
+Phase B (uncommitted) boot traces match F156 (TOS identical; EmuTOS same path,
+memcpy loop exits). `F157_WR_EXEC` does not cover shifts/mul/div/bitfield/BCD/
+CHK2/CAS (those keep `RESULT_REG`). Isolated `prog_fidx` passes on F157f and
+fails on Phase B (brief-format index results 0). `prog_mdx` also failing in
+`run_rtl`. Do not commit Phase B until those are fixed.
+
+`0ff7d9b` F157g registered the shift/mul/div class as `F157_REARM_OK` (OP is
+issued in START_OP, one clock before ALU_INIT) so P_BUSY would not do the
+12-way `OP_IN` compare. Gowin V1.9.12.03 in `/home/dave/builds/f157g`: 46430
+LUT + 5364 ALU, clk_cpu030 19.654 MHz, clk32_core 37.128 MHz,
+SHA256 `e4ff5412c4eba78b58ddd3957c93c911c1b195c5881cddb3ca9f3f89e6d5bffc`.
+`timing_pairs` still failed (setup `clk_cpu030_n` → `clk_cpu030` −1.582 ns,
+`IRQ_2_s0` → `EX_P_TRAPcc_s9`/CE; F157f was −2.775 on IRQ_1 → EX_P_RTE).
+Detailed path: IRQ_2 → n113 → MOVEM_INH_WR → NEXT_FETCH_STATE → OP_SIZE →
+ALU_OP1_IN → n3083 → EX_P_TRAPcc CE. Not SRAM-loaded.
+
+`75a31c9` F157h (pushed) restores the F157a write condition (`ALU_ACK` and
+`ALU_INIT`, `PHASE_A` makes the MOVEM compare constant-true) and assigns
+`ALU_REQ <= F157_REARM_OK` so the qualifier is the D input, not extra AND on
+the CE. memcpy lsrdbf2 still writes `$3408=0`; `prog_fidx` still writes A001.
+Gowin of F157h (`/home/dave/builds/f157h`, 00:33 Europe/London, 10 Nov 2026):
+46413 LUT + 5353 ALU, clk_cpu030 19.690 MHz, clk32_core 34.436 MHz,
+SHA256 `af67b48f55358ed13ec8f53ee5afdd0d6e91811ae519d38be8386907120cc6d9`.
+`timing_pairs` failed (−1.289 ns `IRQ_1_s0` → `PC_I_29`; EX_P_* no longer the
+worst path on that pair). Not SRAM-loaded.
+
+`65ebf29` F157i restored the F157a `ALU_REQ` re-arm and took register shifts
+out of `EARLY_OW`. Gowin (`/home/dave/builds/f157i`, 00:53 Europe/London):
+46454 LUT + 5356 ALU, clk_cpu030 18.824 MHz, clk32_core 34.707 MHz,
+SHA256 `9c0fcff54347689f6a0d7ef46431bd2b16f6e43931f9946ac7ca6376af2aa9d5`.
+`timing_pairs` failed worse (−4.726 ns `IRQ_1_s0` → `OP_16`). `EARLY_OW`
+already includes `IRQ_HOT`; removing the shift term reshaped that cone. Not
+SRAM-loaded.
+
+`73e1533` F157j (pushed) puts shifts back in `EARLY_OW`, keeps the F157a
+P_BUSY re-arm (`ALU_REQ_Q`), and drives `ALU_REQ` low while `SHIFT_STATE=RUN`
+or `DIV_STATE` is INIT/CALC. memcpy `$3408=0`; `prog_fidx` A001. Gowin started
+in `/home/dave/builds/f157j` (~01:00 Europe/London, 10 Nov 2026). Board stays
+on F156.
+
+Gowin of F157j (01:11 Europe/London): 46256 LUT + 5360 ALU, clk_cpu030
+18.743 MHz, clk32_core 34.902 MHz, SHA256
+`3aa274b6d3c0d3412f8254c5510d82f3056f21cf837dfc50c6c61d9ecbc59ca5`.
+`timing_pairs` failed (−2.444 ns `IRQ_1_s0` → `P_SHFT_CTRL.BIT_CNT_0`).
+Tapping `SHIFT_STATE` on `ALU_REQ` pulled the shifter into the IRQ cone.
+Not SRAM-loaded.
+
+`73e1533` successor F157k (pushed; check `git log -1`) registers
+`F157_MC_HOLD` from `SHFT_LOAD`/DIV INIT and drives
+`ALU_REQ <= ALU_REQ_Q and not F157_MC_HOLD`. Gowin started in
+`/home/dave/builds/f157k` (~01:16). Board stays on F156.
+
+Gowin of F157k (`/home/dave/builds/f157k`, 01:27 Europe/London): 46370 LUT +
+5356 ALU, clk_cpu030 18.572 MHz, clk32_core 33.167 MHz, SHA256
+`9ff29fe4f0153e25d91c81675131e130b4425a6f6581657c70a594eb8a822c98`.
+`timing_pairs` failed (−2.733 ns `IRQ_1_s0` → `F_CUR_15`). Not SRAM-loaded.
+Closest fail so far is F157h (−1.289 ns). F157i showed `EARLY_OW` (it already
+includes `IRQ_HOT`) must not be edited to exclude shifts.
+
+`58dc31c` F157l decodes `IRQ_LVL7` / `IRQ_GT_MASK` / `IRQ_HOT` on the same
+`CLK_F` edge that loads `IRQ`. Gowin (`/home/dave/builds/f157l`, 01:52
+Europe/London): 46360 LUT + 5357 ALU, clk_cpu030 20.848 MHz, clk32_core
+35.617 MHz, SHA256
+`db8a2e074f437b6845521b91de7a79bb205236debac9116d423addeb61418d5f`.
+`timing_pairs` failed (−1.096 ns `IRQ_HOT` → `EX_P_DIVZERO`). Not loaded.
+
+`d353f03` F157m (pushed) is a rising-edge copy `IRQ_HOT <= IRQ_HOT_N`.
+PENDING still uses the `CLK_F` flags, so interrupt recognition stays
+cycle-identical to F156/F157a (lt_tt WS=0 iack=158, ticks 22/13/13/13).
+ALU remains F157h (`ALU_REQ <= F157_REARM_OK`). Gowin
+(`/home/dave/builds/f157m`, 02:08 Europe/London): 46361 LUT + 5357 ALU,
+clk_cpu030 19.845 MHz, clk32_core 35.231 MHz, SHA256
+`ee720b4ac2eaa6048b0ee371cafb37dd15ee4fc51440d07ec826c6662bf2ed26`.
+`timing_pairs` PASS; `clk_cpu030_n` → `clk_cpu030` +7.484 ns (was +0.503
+at F157a, negative on F157f–l). SRAM-loaded 02:10 (cable 5777, `--run 2`)
+and flashed 02:14 (`--run 53`, then `--run 1`). GEM desktop on both
+captures (`/tmp/f157m_sram.png`, `/tmp/f157m_flash.png`). Copy saved as
+`/home/dave/fpga_bitstreams/st_helper_f157m.fs`. F156 fallback kept.
+Phase-A-lite (olap_off + bubble only) was not needed.
+
+## F157n Phase B (10 Nov 2026)
+
+C2/C4 root cause was not F97 index UNMARK. With EXECUTE writes, `or
+F157_WR_EXEC` in START_OP Dn let the next `ALU_INIT` share the write edge,
+so the ALU latched the old Dn (`add.l d1,d0` saw 2 not 3; LSL wrote 0x10;
+EA 0x2010). The bypass is gone. `INDEX_LIVE` is used at `STORE_ADR_FORMAT`
+for a Dn index. Isolated `prog_fidx`/`prog_mdx` match on WS 0/1/3/7.
+
+`run_rtl` (`/tmp/run_rtl_pb2.log`): no new FAIL keys vs F157a/l. No
+fidx/mdx/chk/branch/shift FAILs. `prog_loop` WS=5 DONE at clk 40290.
+`FAIL run_icache` remains on CIMODE=1 (CIMODE=0 passed). `FAIL prog_mmut`
+blk1 14.00 … blk12 14.12 (same numbers as the earlier unfixed Phase B;
+F157c/expect is 14.50…14.62). Many PMMU/dcache keys that failed on F157a
+passed here.
+
+lt_tt vs F157m: I+D delay-loop ticks 18 vs 19 because SUBQ writes in
+EXECUTE (ticks are level-6 counts during `subq/bcc`, not IRQ latency).
+TOS/EmuTOS data-side match F156 (timer masked); EmuTOS memcpy E13AC2 n=18
+$7DC–$7FE, last PC E02E18.
+
+Focused speed: nothing faster than the UM. nop/moveq/move.l/cmp/clr 2.00;
+add/addq/subq/and/or/eor/neg/not 3.00 (were 4.00). The last ADD clock is
+a later operand-forward change, not the unsafe INIT bypass.
+
+## What was not done (at 03:08 Europe/London, 10 Nov 2026)
+
+- F157n Gowin `.03`, `timing_pairs`, SRAM, LOOPTEST, flash (in progress
+  after this commit). F157m is the fallback.
+- Operand forward so ADD-type goes 3→2 without the START_OP INIT bypass.
+- FrontBench on the best flashed build.
+- BSR/JSR/RTS (~28 vs 13–15) and DBF (69 vs 54).

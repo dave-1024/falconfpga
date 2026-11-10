@@ -164,6 +164,7 @@
 --   2026-11-09 F157a: keep the opcode pipe two words deep (decoder/bus) and overlap the next
 --     INIT with WRITEBACK (ALU_TRIG during WRITEBACK, ALU_REQ re-arm, UNMARK, WRITEBACK->EXECUTE).
 --     Constant F157_PHASE_A. Writes stay in WRITEBACK. MOVEQ/NOP target: 2 clocks.
+--     [F157c] F157_PHASE_B: combo RESULT + write in EXECUTE for ADD/ADDQ/AND/NEG/NOT/CLR (reg dest).
 --
 
 use work.WF68K30L_PKG.all;
@@ -434,11 +435,13 @@ signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
 constant EARLY_ISSUE        : boolean := true; -- [F145] on again; ADDQ/SUBQ #,An excluded below (F143 board failure).
 constant F157_PHASE_A       : boolean := true; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
+constant F157_PHASE_B       : boolean := true; -- [F157c] write ADD/ADDQ/AND/NEG/NOT/CLR (and siblings) in EXECUTE.
     -- [F157a] INIT may overlap the previous WRITEBACK: ALU_TRIG is open and the new
     -- operation is accepted this clock, so INIT must not wait on ALU_BSY (or DBcc/MOVEQ
     -- stay in INIT and re-issue themselves forever).
     signal F157_ALU_FREE        : boolean;
     signal F157_OLAP            : bit;
+    signal F157_WR_EXEC         : bit;
 signal CMPA_DLY             : bit := '0'; -- [F142]
 signal MEMADR_IN            : bit := '0'; -- [C2] FETCH_STATE was FETCH_MEMADR last clock.
 signal MEMADR_Q1, MEMADR_OK : bit := '0'; -- [F130] base/index register final for the pointer read.
@@ -503,7 +506,7 @@ begin
     -- ran; the same build with EARLY_OW = '0' runs them (board bisect 2026-11-04). Root cause not reproduced in sim yet.
     EARLY_OW <= '0' when EARLY_ISSUE = false or TRACE_MODE /= "00" or IRQ_HOT = '1' else
                 '0' when (OP = ADDQ or OP = SUBQ) and BIW_0(5 downto 3) = "001" else -- [F145] no early issue for ADDQ/SUBQ #,An (board AUTO failure, bld_aq).
-                '1' when OP = MOVEQ or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB else
+                '1' when OP = MOVEQ or OP = NOP or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB else -- [F157c] NOP: early OW_REQ
                 '1' when (OP = ADD or OP = ADDA or OP = ADDQ or OP = SUB or OP = SUBA or OP = SUBQ or OP = AND_B or OP = OR_B or
                           OP = EOR or OP = CMP or OP = CLR or OP = NEG or OP = NEGX or OP = NOT_B or OP = TST) and
                          (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") else
@@ -520,6 +523,17 @@ begin
     F157_OLAP <= '1' when F157_PHASE_A and EXEC_WB_STATE = WRITEBACK and EARLY_OW = '1' else '0';
     F157_ALU_FREE <= true when ALU_BSY = '0' else
                      true when F157_OLAP = '1' else false;
+
+    -- [F157c] Register-destination single-cycle INT/LOG ops: RESULT is valid
+    -- in the ALU_REQ/EXECUTE clock (combinational P_OUT path). Write then and
+    -- skip WRITEBACK so a following RAW ALU_INIT sees the new register.
+    -- ADDQ/SUBQ #,An stay on WRITEBACK (F145 board).
+    F157_WR_EXEC <= '1' when F157_PHASE_B and EXEC_WB_STATE = EXECUTE and ALU_REQ = '1' and
+                             (((OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B) and BIW_0_WB(8) = '0') or
+                              ((OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = ADDI or OP_WB_I = SUBI or
+                                OP_WB_I = ANDI or OP_WB_I = ORI or OP_WB_I = EORI or OP_WB_I = EOR or
+                                OP_WB_I = CLR or OP_WB_I = NEG or OP_WB_I = NEGX or OP_WB_I = NOT_B) and
+                               BIW_0_WB(5 downto 3) = "000")) else '0';
 
     DATA_AVAILABLE: process
     -- These flip flops store the information whether the data required in the different
@@ -987,6 +1001,7 @@ begin
                '0' when OP_WB_I = LEA and BIW_0_WB_MMU = '1' else -- [PMMU2b] PFLUSH/PLOAD/PTEST: no register at all
                                                                   -- (without this the AR lock is gone and Dn was written).
                '0' when OP_WB_I = STOP else -- SR is written but not DR.
+               '1' when F157_WR_EXEC = '1' else -- [F157c] valid RESULT in EXECUTE.
                '1' when EXEC_WB_STATE = WRITEBACK else '0';
 
     -- F56: the BFINS insertion pattern takes read port 2 at INIT_ENTRY (see F22/F24 below).
@@ -1997,7 +2012,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2041,10 +2056,10 @@ begin
                             -- because the destination is an ALU operand and may cause data hazards.
                              case BIW_0(5 downto 3) is
                                 when "000" => -- Dn.
-                                    -- [F157b] CLR writes zeros and does not read Dn: WAW is not a hazard (same as MOVEQ).
-                                    if OP = CLR then
-                                        NEXT_FETCH_STATE <= INIT_EXEC_WB;
-                                    elsif DR_IN_USE = '0' then
+                                    -- [F157c] Do not treat F157_WR_EXEC as "INIT now": FETCH may already
+                                    -- be entering INIT this same EXECUTE-write edge, so ALU_INIT latches
+                                    -- the old Dn (C2: add.l d1,d0 saw d0=2 not 3; LSL then wrote 0x10).
+                                    if DR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
                                     else
                                         NEXT_FETCH_STATE <= START_OP;
@@ -2230,7 +2245,9 @@ begin
                         when CLR | JMP | JSR | LEA | PEA | Scc => -- No read access required.
                             case BIW_0(5 downto 3) is
                                 when "000" => -- CLR, Scc.
-                                    if DR_IN_USE = '0' then
+                                    -- [F157c] CLR does not read Dn (overwrite-only). Scc still waits.
+                                    -- No F157_WR_EXEC bypass (same-edge RAW, see START_OP Dn arm).
+                                    if OP = CLR or DR_IN_USE = '0' then
                                         NEXT_FETCH_STATE <= INIT_EXEC_WB;
                                     else
                                         NEXT_FETCH_STATE <= START_OP;
@@ -3045,7 +3062,11 @@ begin
                             end if;
                         when ADD | SUB | AND_B | OR_B =>
                             if BIW_0_WB(8) = '0' then
-                                NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is register.
+                                if F157_PHASE_B then
+                                    NEXT_EXEC_WB_STATE <= IDLE; -- [F157c] write in EXECUTE (RESULT already valid).
+                                else
+                                    NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is register.
+                                end if;
                             else
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Destination is in memory.
                             end if;
@@ -3055,7 +3076,14 @@ begin
                         when ADDI | ADDQ | ANDI | BCHG | BCLR | BFCHG | BFCLR | BFINS | BFSET | BSET | CLR | EOR | EORI |
                                      MOVE_FROM_CCR | MOVE_FROM_SR | NBCD | NEG | NEGX | NOT_B | ORI | Scc | SUBI | SUBQ | TAS =>
                             if BIW_0_WB(5 downto 3) = "000" then
-                                NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is a data register.
+                                if F157_PHASE_B and (OP_WB_I = ADDI or OP_WB_I = ADDQ or OP_WB_I = ANDI or
+                                                     OP_WB_I = CLR or OP_WB_I = EOR or OP_WB_I = EORI or
+                                                     OP_WB_I = NEG or OP_WB_I = NEGX or OP_WB_I = NOT_B or
+                                                     OP_WB_I = ORI or OP_WB_I = SUBI or OP_WB_I = SUBQ) then
+                                    NEXT_EXEC_WB_STATE <= IDLE; -- [F157c] write in EXECUTE (RESULT already valid).
+                                else
+                                    NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is a data register.
+                                end if;
                             elsif BIW_0_WB(5 downto 3) = "001" then -- Valid for ADDQ and SUBQ.
                                 NEXT_EXEC_WB_STATE <= WRITEBACK; -- Destination is an address register.
                             else
