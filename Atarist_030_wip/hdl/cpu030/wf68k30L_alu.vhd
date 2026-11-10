@@ -69,6 +69,8 @@
 --   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
 --   2026-11-10 F157l: pair with CLK_F IRQ flag decode (exception_handler); this is the memcpy re-arm.
 --   2026-11-10 F157c: RESULT is combinational for single-cycle INT/LOG ops so it is valid in the ALU_REQ/EXECUTE clock.
+--   2026-11-10 F157t: ADDX/SUBX keep RESULT_REG. Combo RESULT recomputes with the
+--                     post-EXECUTE X (CC_UPDT at ALU_REQ) and drops the incoming extend bit.
 -- 
 
 library work;
@@ -1179,11 +1181,16 @@ begin
     -- them during and after ALU_REQ so a write in EXECUTE samples the new
     -- value, not the previous instruction's registered copy. Multi-cycle
     -- units (shift, mul, div, bit-field, BCD) keep RESULT_REG.
+    -- [F157t] ADDX/SUBX read X live from STATUS_REG in P_INTOP. CC_UPDT fires
+    -- at ALU_REQ (EXECUTE), one clock before their WRITEBACK, so a combinational
+    -- RESULT would recompute with the result X (often cleared) and drop the
+    -- incoming extend bit. NEGX stays combinational: it is written in EXECUTE
+    -- via F157_WR_EXEC, while STATUS_REG still holds the input X.
     RESULT <= x"00000000" & RESULT_INTOP when F157_PHASE_B and
-                  (OP = ADD or OP = ADDA or OP = ADDI or OP = ADDQ or OP = ADDX or
+                  (OP = ADD or OP = ADDA or OP = ADDI or OP = ADDQ or
                    OP = CLR or OP = CMP or OP = CMPA or OP = CMPI or OP = CMPM or
                    OP = DBcc or OP = NEG or OP = NEGX or OP = SUB or OP = SUBA or
-                   OP = SUBI or OP = SUBQ or OP = SUBX) else
+                   OP = SUBI or OP = SUBQ) else
               x"00000000" & RESULT_LOGOP when F157_PHASE_B and
                   (OP = AND_B or OP = ANDI or OP = EOR or OP = EORI or OP = NOT_B or
                    OP = OR_B or OP = ORI or OP = ANDI_TO_SR or OP = EORI_TO_SR or
