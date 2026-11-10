@@ -71,6 +71,8 @@ entity WF68K30L_DATA_REGISTERS is
         DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
         DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
         DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
+        DR_FWD_1            : out std_logic_vector(31 downto 0);        -- [F157o] same-edge forward for ALU operands only
+        DR_FWD_2            : out std_logic_vector(31 downto 0);
         UNMARK              : in bit;
         
         OP_SIZE             : in OP_SIZETYPE;
@@ -135,13 +137,26 @@ begin
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_2 else
                  '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_SEL_ADH_3 else '0';
 
-    -- [F97] Forwarding for the index register: a full-format ext word latches INDEX before the previous
-    -- instruction's write-back of that Dn; the address unit re-reads it here until the write-back has landed.
+    -- [F97] Index path stays a plain register read (no same-edge forward):
+    -- putting DR_IN on DR_IDX_OUT feeds the address/AU cone (ADR_LATCH) and
+    -- failed timing_pairs on both earlier F157o builds.
     DR_IDX_OUT <= DR(conv_integer(DR_IDX_SEL));
     DR_IDX_PEND <= '1' when DR_USED_1(3) = '1' and DR_USED_1(2 downto 0) = DR_IDX_SEL else
                    '1' when DR_USED_2(3) = '1' and DR_USED_2(2 downto 0) = DR_IDX_SEL else '0';
+    -- [F157o] Keep DR_OUT unforwarded (address/USE_DREG and other consumers).
+    -- Forwarded copies are only for the ALU operand muxes in top.vhd.
     DR_OUT_1 <= DR(DR_PNTR_RD_1);
     DR_OUT_2 <= DR(DR_PNTR_RD_2);
+    DR_FWD_1 <= DR_IN_1 when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_1 and OP_SIZE = LONG else
+                DR(DR_PNTR_RD_1)(31 downto 16) & DR_IN_1(15 downto 0) when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_1 and OP_SIZE = WORD else
+                DR(DR_PNTR_RD_1)(31 downto 8) & DR_IN_1(7 downto 0) when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_1 and OP_SIZE = Byte else
+                DR_IN_2 when DR_WR_2 = '1' and DR_SEL_WR_I2 = DR_SEL_RD_1 and OP_SIZE = LONG else
+                DR(DR_PNTR_RD_1);
+    DR_FWD_2 <= DR_IN_1 when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_2 and OP_SIZE = LONG else
+                DR(DR_PNTR_RD_2)(31 downto 16) & DR_IN_1(15 downto 0) when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_2 and OP_SIZE = WORD else
+                DR(DR_PNTR_RD_2)(31 downto 8) & DR_IN_1(7 downto 0) when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_2 and OP_SIZE = Byte else
+                DR_IN_2 when DR_WR_2 = '1' and DR_SEL_WR_I2 = DR_SEL_RD_2 and OP_SIZE = LONG else
+                DR(DR_PNTR_RD_2);
     DR_FC_OUT <= DR(conv_integer(DR_FC_SEL))(2 downto 0); -- [PMMU3] MC68030UM p. 9-64: FC = Dn bits 2-0
 
     REGISTERS: process
