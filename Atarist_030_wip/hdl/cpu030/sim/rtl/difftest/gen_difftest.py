@@ -125,6 +125,19 @@ class Gen:
             [f"        addx.l d{s},d{d}"],
             [f"        subx.l d{s},d{d}"],
             [f"        negx.l d{d}"],
+            [f"        addx.w d{s},d{d}"],
+            [f"        addx.b d{s},d{d}"],
+            [f"        subx.w d{s},d{d}"],
+            [f"        subx.b d{s},d{d}"],
+            [f"        negx.w d{d}"],
+            [f"        negx.b d{d}"],
+            [f"        abcd d{s},d{d}"],
+            [f"        sbcd d{s},d{d}"],
+            [f"        nbcd d{d}"],
+            [f"        roxl.l #1,d{d}"],
+            [f"        roxr.l #1,d{d}"],
+            [f"        roxl.w #1,d{d}"],
+            [f"        roxr.w #1,d{d}"],
         ])
 
     def shift(self):
@@ -166,6 +179,12 @@ class Gen:
             [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        and.l d{s},d{d}", f"        or.l d{d},(a{a})"],
             [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        move.l (a{a})+,d{d}",
              self.shift(), f"        and.l d{s},d{d}", f"        or.l d{d},(a{b})"],
+            [f"        lea 0x{SCRATCH[a]+16:04X},a{a}", f"        move.l -(a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        move.l d{d},-(a{a})"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        add.l (a{a})+,d{d}"],
+            [f"        lea 0x{SCRATCH[a]+16:04X},a{a}", f"        sub.l -(a{a}),d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        and.l (a{a})+,d{d}"],
+            [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        or.l (a{a})+,d{d}"],
         ])
 
     def an_use(self):
@@ -180,6 +199,54 @@ class Gen:
             [f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        exg d{d},a{a}", f"        move.l a{a},d{d}",
              f"        lea 0x{SCRATCH[a]:04X},a{a}", f"        move.l (a{a}),d{d}"],
         ])
+
+    def xmem(self):
+        a = self.an()
+        b = (a + 1) % 6
+        return [
+            f"        lea 0x{SCRATCH[a]+16:04X},a{a}",
+            f"        lea 0x{SCRATCH[b]+16:04X},a{b}",
+            self.rng.choice([
+                f"        addx.l -(a{a}),-(a{b})",
+                f"        addx.w -(a{a}),-(a{b})",
+                f"        subx.l -(a{a}),-(a{b})",
+                f"        subx.w -(a{a}),-(a{b})",
+                f"        abcd -(a{a}),-(a{b})",
+                f"        sbcd -(a{a}),-(a{b})",
+            ]),
+        ]
+
+    def muldiv(self):
+        s, d = self.dn(), self.dn()
+        return self.rng.choice([
+            [f"        mulu.w d{s},d{d}"],
+            [f"        muls.w d{s},d{d}"],
+            [f"        andi.l #0x0FFF,d{d}", f"        move.w d{s},d{s}",
+             f"        ori.w #1,d{s}", f"        andi.w #0x00FF,d{s}",
+             f"        ori.w #1,d{s}", f"        divu.w d{s},d{d}"],
+            [f"        andi.l #0x00FF,d{d}", f"        ori.w #2,d{s}",
+             f"        andi.w #0x007F,d{s}", f"        ori.w #2,d{s}",
+             f"        divs.w d{s},d{d}"],
+        ])
+
+    def xreg(self):
+        d, s = self.dn(), self.dn()
+        lines = [self.two_clock()]
+        lines.append(self.rng.choice([
+            f"        addx.l d{s},d{d}",
+            f"        subx.l d{s},d{d}",
+            f"        negx.l d{d}",
+            f"        abcd d{s},d{d}",
+            f"        sbcd d{s},d{d}",
+            f"        nbcd d{d}",
+            f"        roxl.l #1,d{d}",
+            f"        roxr.l #1,d{d}",
+            f"        roxl.w #2,d{d}",
+            f"        roxr.w #2,d{d}",
+            f"        roxl.b #1,d{d}",
+            f"        roxr.b #1,d{d}",
+        ]))
+        return lines
 
     def movem_dbf(self):
         n = self.L()
@@ -199,8 +266,9 @@ class Gen:
 
     def chunk(self):
         k = self.rng.choice(
-            ["alu"] * 4 + ["alu_ccr"] * 5 + ["shift"] * 2 + ["shift_ccr"] * 3
+            ["alu"] * 3 + ["alu_ccr"] * 4 + ["shift"] * 2 + ["shift_ccr"] * 2
             + ["mem"] * 3 + ["an"] * 2 + ["movem"] + ["mixed"] * 2
+            + ["xreg"] * 4 + ["xmem"] * 2 + ["muldiv"] * 2
         )
         if k == "alu":
             return [self.two_clock() for _ in range(self.rng.randint(2, 6))]
@@ -227,6 +295,12 @@ class Gen:
             return self.an_use()
         if k == "movem":
             return self.movem_dbf()
+        if k == "xreg":
+            return self.xreg()
+        if k == "xmem":
+            return self.xmem()
+        if k == "muldiv":
+            return self.muldiv()
         # mixed dense
         out = [self.two_clock(), self.shift()]
         out += self.follow_ccr()
@@ -345,6 +419,37 @@ def hand_shiftx():
 """
 
 
+def hand_xops():
+    return """\
+        add.l d0,d0
+        addx.l d1,d2
+        sub.l d3,d4
+        subx.l d5,d6
+        neg.l d0
+        negx.l d1
+        abcd d2,d3
+        sbcd d4,d5
+        nbcd d6
+        roxl.l #1,d0
+        roxr.l #1,d1
+        lea 0x2010,a0
+        lea 0x2110,a1
+        addx.l -(a0),-(a1)
+        lea 0x2210,a2
+        lea 0x2310,a3
+        subx.w -(a2),-(a3)
+        lea 0x2410,a4
+        lea 0x2510,a5
+        abcd -(a4),-(a5)
+        move.w #0x1234,d0
+        move.w #7,d1
+        mulu.w d1,d0
+        move.l #0x00000100,d2
+        move.w #5,d3
+        divu.w d3,d2
+"""
+
+
 def emit(kind, seed, nchunks):
     rng = random.Random(seed)
     g = Gen(rng)
@@ -356,6 +461,8 @@ def emit(kind, seed, nchunks):
         body = hand_an()
     elif kind == "hand_shiftx":
         body = hand_shiftx()
+    elif kind == "hand_xops":
+        body = hand_xops()
     else:
         lines = []
         for i in range(nchunks):
