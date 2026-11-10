@@ -66,6 +66,7 @@
 --   2026-11-09 F157a: ALU_REQ re-armed when ALU_INIT overlaps ALU_ACK (INIT during WRITEBACK).
 --   2026-11-09 F157f: do not re-arm ALU_REQ on INIT for shifts/mul/div (EmuTOS memcpy lsr+dbf).
 --   2026-11-09 F157g: register that qualifier (IRQ_1 -> EX_P_RTE CE half-cycle).
+--   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
 -- 
 
 library work;
@@ -401,10 +402,10 @@ begin
         end if;
     end process P_PAD;
 
-    -- [F157g] OP (OP_IN) is issued in START_OP, one clock before ALU_INIT (F141: early
-    -- OW_REQ is acknowledged in START_OP; INIT is the next clock). Register the
-    -- "may re-arm on INIT+ACK" class here so P_BUSY only sees a FF. Shifts/mul/div
-    -- must not re-arm (they wait for SHFT_RDY/DIV_RDY; F157f memcpy lsr.l #8,d0).
+    -- [F157g/F157h] OP (OP_IN) is issued in START_OP, one clock before ALU_INIT
+    -- (F141). Register the "may re-arm on INIT+ACK" class so P_BUSY can use it as
+    -- ALU_REQ's D value under the F157a ACK+INIT condition. Shifts/mul/div must
+    -- not re-arm (they wait for SHFT_RDY/DIV_RDY; F157f memcpy lsr.l #8,d0).
     P_F157_REARM: process
     begin
         wait until CLK = '1' and CLK' event;
@@ -428,13 +429,13 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        -- [F157f/F157g] Re-arm on INIT+ACK only for single-cycle ops (see P_F157_REARM).
-        -- F157f compared OP_IN here (12-way), which enlarged ALU_REQ's combo cone onto the
-        -- half-cycle IRQ_1 -> EX_P_RTE clock-enable path (-2.775 ns). The class is now a FF.
-        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
-            ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
-        elsif ALU_ACK = '1' and ALU_INIT = '1' and F157_PHASE_A and F157_REARM_OK = '1' then
-            ALU_REQ <= '1'; -- [F157a/F157g] single-cycle overlap re-arm (registered qualifier).
+        -- [F157h] Same write condition as F157a (ACK and INIT, or MOVEM) so the
+        -- shift/mul/div qualifier is ALU_REQ's D input, not extra AND/compare on
+        -- the CE. F157f put a 12-way OP_IN compare here (-2.775 ns IRQ_1->EX_P_RTE
+        -- CE). F157g registered the class but still ANDed it (and OP_IN=MOVEM)
+        -- into the condition; timing_pairs -1.582 ns IRQ_2->EX_P_TRAPcc CE.
+        if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or F157_PHASE_A) then
+            ALU_REQ <= F157_REARM_OK; -- '1' single-cycle/MOVEM; '0' shift/mul/div
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
