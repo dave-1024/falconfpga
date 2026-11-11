@@ -92,6 +92,14 @@
 --   2026-11-04 F147: two-word opcode delivery (OPCODE_RDY_2) on the first queue hit after an IC_MTAKE restart.
 --   2026-11-05 F148: Q_HIT2 double-pop from the original queue (no single-word shift first).
 --   2026-11-09 F156: F147_TWO_WORD on again (exception handler REFILL_PIPE now counts two-word deliveries).
+--   2026-11-09 F157a: Q_HIT also serves Q_NMATCH+OPC_RD_NEXT when OPCODE_RDY_I is 0 (pipe refill after issue).
+--   2026-11-10 F157q: pin address is a register loaded with the next combo ADR_OUT_I, so the
+--     ST bridge F61 live capture (first clk_32 after AS, 31.25 ns) sees ADR_OUT_Q instead of
+--     the ADR_LATCH+ADR_OFFSET adder (F157p: ADR_LATCH_13 -> r_dout_3 -0.179 ns).
+--   2026-11-10 F157w: P_ADR_OUT_Q next fill address uses the same DC_MISS mux as FILL_WADR,
+--     after the P_DCF update of FB_OK/FB_AB. Adding ADR_OFFSET assumed the next word (+2);
+--     a fill-only BERR sets FB_ABx, the miss mask goes to 0000, and FILL_WADR jumps to the
+--     mux default DC_OA1&'1' (run_dcache case 19: Q=$8044 vs I=$8046, c19:2/0 vs 4/0).
 --   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
 -- 
 
@@ -264,6 +272,7 @@ type TIME_SLICES is (IDLE, S0, S1, S2, S3, S4, S5);
 signal ADR_10               : std_logic_vector(1 downto 0);
 signal ADR_OFFSET           : std_logic_vector(5 downto 0);
 signal ADR_OUT_I            : std_logic_vector(31 downto 0);
+signal ADR_OUT_Q            : std_logic_vector(31 downto 0) := (others => '0'); -- [F157q] registered pin address
 signal BFLT_SSW_I           : std_logic_vector(8 downto 0) := (others => '0'); -- F1
 signal BFLT_ADR_I           : std_logic_vector(31 downto 0) := (others => '0'); -- F1
 signal BFLT_VALID_I         : bit := '0'; -- F1
@@ -296,6 +305,8 @@ signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
 constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour. [F156] on again
+constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
+-- [F157x] Phase A OFF with control and opcode_decoder (empty GEM desktop on the board).
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
 signal OPCODE_RDY_I         : bit := '0';  -- [F54] measured warm-boot value
@@ -894,7 +905,185 @@ begin
                  (FILL_WADR & '0') when FILL_ACC = '1' else ADR_LAT + ADR_OFFSET; -- [F62] [DC]
     -- [F68] A fill is one word cycle at FILL_WADR; ADR_OFFSET is 0 there (sim check over the run_rtl programs, CIMODE 0/1,
     -- WS 0/3), so the adder is dropped from the fill address (bus address -> bridge live start path).
-    ADR_OUT_P <= ADR_OUT_I;
+    -- [F157q] Drive the pins (and so the ST bridge live capture) from a register that is loaded
+    -- with the value ADR_OUT_I takes after this clock. Internal sizing still uses the combo.
+    -- Functionally identical once the flops settle; the clk_cpu030 -> clk32 path no longer
+    -- includes the 32-bit ADR_LATCH+ADR_OFFSET carry chain.
+    ADR_OUT_P <= ADR_OUT_Q;
+
+    P_ADR_OUT_Q: process
+    -- Next-state copy of ADR_OUT_I. Bases and OFFSET are the values the source
+    -- registers take on this edge (CHAIN_GO, BUS_CYC_RDY, PF_START, RA_GO, etc.).
+    variable STEP    : std_logic_vector(2 downto 0);
+    variable OFF_N   : std_logic_vector(5 downto 0);
+    variable PF_N    : bit;
+    variable FILL_N  : bit;
+    variable QCNT    : integer range 0 to 4;
+    variable FCUR_N  : std_logic_vector(31 downto 1);
+    variable ALAT_N  : std_logic_vector(31 downto 0);
+    variable BASE    : std_logic_vector(31 downto 0);
+    variable AB0, AB1: std_logic;
+    variable OK0, OK1: std_logic_vector(1 downto 0);
+    variable OK      : std_logic_vector(1 downto 0);
+    variable E1      : boolean;
+    variable M3, M2, M1 : std_logic;
+    begin
+        wait until CLK = '1' and CLK' event;
+        -- Same increment P_ADR_OFFS holds in OFFSET_VAR from S2/S3 through S5.
+        case BUS_WIDTH is
+            when LONG_32 =>
+                case ADR_OUT_I(1 downto 0) is
+                    when "11" => STEP := "001";
+                    when "10" => STEP := "010";
+                    when "01" => STEP := "011";
+                    when others => STEP := "100";
+                end case;
+            when WORD =>
+                case ADR_OUT_I(1 downto 0) is
+                    when "01" | "11" => STEP := "001";
+                    when others => STEP := "010";
+                end case;
+            when BYTE =>
+                STEP := "001";
+        end case;
+        if RESET_CPU_I = '1' then
+            OFF_N := (others => '0');
+        elsif RETRY = '1' then
+            OFF_N := ADR_OFFSET;
+        elsif CHAIN_GO = '1' then
+            OFF_N := (others => '0');
+        elsif BUS_CTRL_STATE /= IDLE and NEXT_BUS_CTRL_STATE = IDLE then
+            OFF_N := (others => '0');
+        elsif BUS_CYC_RDY = '1' then
+            OFF_N := ADR_OFFSET + STEP;
+        else
+            OFF_N := ADR_OFFSET;
+        end if;
+
+        PF_N := PF_ACC;
+        FILL_N := FILL_ACC;
+        if BUS_CTRL_STATE = START_CYCLE then
+            if READ_ACCESS = '1' or WRITE_ACCESS = '1' or OPCODE_ACCESS = '1' or FILL_ACC = '1' then
+                null;
+            elsif FILL_START = '1' then
+                FILL_N := '1';
+            elsif RD_REQ = '1' or WR_REQ = '1' or OPC_LEGACY = '1' then
+                null;
+            elsif PF_START = '1' then
+                PF_N := '1';
+            end if;
+        elsif OP_CHAIN_GO = '1' then
+            PF_N := '0';
+            FILL_N := '0';
+        elsif RA_GO = '1' then
+            PF_N := '0';
+            FILL_N := '0';
+        elsif DP_CHAIN_GO = '1' then
+            PF_N := '1';
+        elsif AERR = '1' then
+            PF_N := '0';
+            FILL_N := '0';
+        elsif BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE and SIZE_N = "000" then
+            PF_N := '0';
+            FILL_N := '0';
+        end if;
+
+        QCNT := Q_CNT;
+        if Q_HIT = '1' then
+            if Q_HIT2 = '1' then
+                if QCNT >= 2 then
+                    QCNT := QCNT - 2;
+                else
+                    QCNT := 0;
+                end if;
+            elsif QCNT >= 1 then
+                QCNT := QCNT - 1;
+            end if;
+        end if;
+        if PF_START = '1' or DP_CHAIN_GO = '1' or (PF_CHAIN_GO = '1' and PF_DONE = '1' and QCNT <= 2) then
+            FCUR_N := F_ADR;
+        else
+            FCUR_N := F_CUR;
+        end if;
+
+        if BUS_CTRL_STATE = IDLE or OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
+            ALAT_N := ADR_NXT;
+        elsif RA_GO = '1' then
+            case OP_SIZE is
+                when LONG => ALAT_N := ADR_LAT + x"4";
+                when WORD => ALAT_N := ADR_LAT + x"2";
+                when others => ALAT_N := ADR_LAT + x"1";
+            end case;
+        else
+            ALAT_N := ADR_LAT;
+        end if;
+
+        if PF_N = '1' then
+            BASE := FCUR_N & '0';
+            ADR_OUT_Q <= BASE + OFF_N;
+        elsif FILL_N = '1' then
+            -- [F157w] Next FILL_WADR: same mux as the combo, after this clock's P_DCF flags.
+            AB0 := FB_AB0; AB1 := FB_AB1; OK0 := FB_OK0; OK1 := FB_OK1;
+            if BUS_CTRL_STATE = DATA_C1C4 and ((READ_ACCESS = '1' and DC_TRK = '1') or FILL_ACC = '1') then
+                E1 := ADR_OUT_I(31 downto 2) /= DC_OA(31 downto 2);
+                if BUS_FLT = '1' and HALT_In = '1' then
+                    if E1 then AB1 := '1'; else AB0 := '1'; end if;
+                end if;
+                if BUS_CYC_RDY = '1' and BUS_FLT = '0' and FB_PF = '0' then
+                    if BUS_WIDTH = LONG_32 then
+                        OK := "11";
+                    elsif BUS_WIDTH = WORD and ADR_OUT_I(1) = '0' then
+                        OK := "10";
+                    elsif BUS_WIDTH = WORD then
+                        OK := "01";
+                    else
+                        OK := "00";
+                    end if;
+                    if CIIN_LAT = '1' and OK /= "00" then
+                        if E1 then OK1 := OK1 or OK; else OK0 := OK0 or OK; end if;
+                    else
+                        if FILL_ACC = '1' then
+                            if E1 then AB1 := '1'; else AB0 := '1'; end if;
+                        end if;
+                    end if;
+                end if;
+            end if;
+            M3 := not OK0(1) and not AB0;
+            M2 := not OK0(0) and not AB0;
+            M1 := DC_OX and not OK1(1) and not AB1;
+            if M3 = '1' then
+                ADR_OUT_Q <= DC_OA(31 downto 2) & "00";
+            elsif M2 = '1' then
+                ADR_OUT_Q <= DC_OA(31 downto 2) & "10";
+            elsif M1 = '1' then
+                ADR_OUT_Q <= DC_OA1 & "00";
+            else
+                ADR_OUT_Q <= DC_OA1 & "10";
+            end if;
+        else
+            BASE := ALAT_N;
+            ADR_OUT_Q <= BASE + OFF_N;
+        end if;
+    end process P_ADR_OUT_Q;
+
+    -- pragma translate_off
+    -- Checked after the edge so ADR_OUT_Q has this clock's load and ADR_OUT_I
+    -- reflects the updated source registers. Skip reset and the first released clock.
+    P_ADR_OUT_Q_CHK: process
+        variable SEEN_RUN : boolean := false;
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET_CPU_I = '1' then
+            SEEN_RUN := false;
+        elsif SEEN_RUN = false then
+            SEEN_RUN := true;
+        else
+            assert ADR_OUT_Q = ADR_OUT_I
+                report "F157q: registered ADR_OUT_Q disagrees with combo ADR_OUT_I"
+                severity failure;
+        end if;
+    end process P_ADR_OUT_Q_CHK;
+    -- pragma translate_on
 
     P_ADR_10: process
     -- This logic is registered to enhance the system performance concerning fmax.
@@ -933,7 +1122,8 @@ begin
     -- queue's refill point and the bus prefetch placement (run_icache prefetch counts) do not change.
     Q_NMATCH <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and Q_ADR = OPC_ADR(31 downto 1) + '1' and Q_FC = OPC_FC else '0';
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
-             '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0';
+             '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else
+             '1' when F157_PHASE_A and Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and OPC_RD = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0'; -- [F157a]
     -- [F147] Two words in the first queue hit after an IC_MTAKE restart (pipe empty, word 1 present).
     -- [F149] Only while the queue head is still the original restart pair. Fallback switch F147_TWO_WORD.
     Q_HIT2 <= '1' when F147_TWO_WORD and Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1'

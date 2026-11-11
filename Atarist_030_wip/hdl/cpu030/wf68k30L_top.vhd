@@ -364,6 +364,8 @@ signal DR_IN_1                  : std_logic_vector(31 downto 0);
 signal DR_IN_2                  : std_logic_vector(31 downto 0);
 signal DR_OUT_2                 : std_logic_vector(31 downto 0);
 signal DR_OUT_1                 : std_logic_vector(31 downto 0);
+signal DR_FWD_1                 : std_logic_vector(31 downto 0); -- [F157o] ALU operands only
+signal DR_FWD_2                 : std_logic_vector(31 downto 0);
 signal DR_SEL_WR_1              : std_logic_vector(2 downto 0);
 signal DR_SEL_WR_2              : std_logic_vector(2 downto 0);
 signal DR_SEL_RD_1              : std_logic_vector(2 downto 0);
@@ -982,23 +984,23 @@ begin
 
     ALU_OP1_IN <= DATA_TO_CORE when SR_WR_EXH = '1' else
                   DATA_IMMEDIATE when OP = DBcc or OP = PACK or OP = UNPK else
-                  DR_OUT_1 when (OP = ABCD or OP = SBCD) and BIW_0(3) = '0' else
+                  DR_FWD_1 when (OP = ABCD or OP = SBCD) and BIW_0(3) = '0' else
                   DATA_TO_CORE when OP = ABCD or OP = SBCD else
-                  DR_OUT_1 when (OP = ADD or OP = SUB) and BIW_0(8) = '1' else
-                  DR_OUT_1 when (OP = AND_B or OP = EOR or  OP = OR_B) and BIW_0(8) = '1' else
-                  DR_OUT_1 when (OP = ADDX or OP = SUBX) and BIW_0(3) = '0' else
+                  DR_FWD_1 when (OP = ADD or OP = SUB) and BIW_0(8) = '1' else
+                  DR_FWD_1 when (OP = AND_B or OP = EOR or  OP = OR_B) and BIW_0(8) = '1' else
+                  DR_FWD_1 when (OP = ADDX or OP = SUBX) and BIW_0(3) = '0' else
                   DATA_TO_CORE when OP = ADDX or OP = SUBX else
-                  DR_OUT_1 when OP = ASL or OP = ASR or OP = LSL or OP = LSR else
-                  DR_OUT_1 when OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR else
-                  DR_OUT_2 when OP = BFINS else -- The pattern.                  
-                  DR_OUT_1 when OP = CAS or OP = CAS2 else -- Compare operand.
+                  DR_FWD_1 when OP = ASL or OP = ASR or OP = LSL or OP = LSR else
+                  DR_FWD_1 when OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR else
+                  DR_FWD_2 when OP = BFINS else -- The pattern.                  
+                  DR_FWD_1 when OP = CAS or OP = CAS2 else -- Compare operand.
                   DATA_TO_CORE when OP = CMPM else
                   PC + PC_EW_OFFSET when OP = BSR or OP = JSR else
                   ADR_EFF when OP = LEA or OP = PEA else
                   AR_OUT_2 when OP = MOVE and BIW_0(5 downto 3) = "001" else -- An to any location.
                   AR_OUT_1 when OP = MOVE_USP else
                   AR_OUT_1 when OP = EXG and BIW_0(7 downto 3) = "01001" else -- Two address registers.
-                  DR_OUT_1 when OP = EXG else -- Two data registers.
+                  DR_FWD_1 when OP = EXG else -- Two data registers.
                   VBR when OP = MOVEC and VBR_RD = '1' else
                   CACR when OP = MOVEC and CACR_RD = '1' else
                   PMMU_RD_DATA when OP = PMOVE and BIW_1(9) = '1' else -- [PMMU1] PMOVE MRn,<ea>.
@@ -1007,23 +1009,23 @@ begin
                   x"0000000" & '0' & DFC when OP = MOVEC and DFC_RD = '1' else
                   AR_OUT_1 when OP = MOVEC and (ISP_RD = '1' or MSP_RD = '1' or USP_RD = '1') else
                   AR_OUT_1 when OP = MOVEC and BIW_1(15) = '1' else
-                  DR_OUT_1 when OP = MOVEC else
-                  DR_OUT_1 when OP = MOVEM and BIW_0(10) = '0' and ADn = '0' else -- Register to memory.
+                  DR_FWD_1 when OP = MOVEC else
+                  DR_FWD_1 when OP = MOVEM and BIW_0(10) = '0' and ADn = '0' else -- Register to memory.
                   AR_OUT_2 when OP = MOVEM and BIW_0(10) = '0' else -- Register to memory.
-                  DR_OUT_1 when OP = MOVES and BIW_1(11) = '1' and BIW_1(15) = '0' else -- Register to memory.
+                  DR_FWD_1 when OP = MOVES and BIW_1(11) = '1' and BIW_1(15) = '0' else -- Register to memory.
                   AR_OUT_2 when OP = MOVES and BIW_1(11) = '1' else -- Register to memory.
-                  x"000000" & DR_OUT_1(31 downto 24) when OP = MOVEP and MOVEP_PNTR = 3 and BIW_0(7 downto 6) > "01" else
-                  x"000000" & DR_OUT_1(23 downto 16) when OP = MOVEP and MOVEP_PNTR = 2 and BIW_0(7 downto 6) > "01"  else
-                  x"000000" & DR_OUT_1(15 downto 8) when OP = MOVEP and MOVEP_PNTR = 1 and BIW_0(7 downto 6) > "01"  else
-                  x"000000" & DR_OUT_1(7 downto 0) when OP = MOVEP and BIW_0(7 downto 6) > "01"  else
-                  DATA_TO_CORE(7 downto 0) & DR_OUT_1(23 downto 0) when OP = MOVEP and MOVEP_PNTR = 3 else
-                  DR_OUT_1(31 downto 24) & DATA_TO_CORE(7 downto 0) & DR_OUT_1(15 downto 0)  when OP = MOVEP and MOVEP_PNTR = 2 else
-                  DR_OUT_1(31 downto 16) & DATA_TO_CORE(7 downto 0) & DR_OUT_1(7 downto 0)  when OP = MOVEP and MOVEP_PNTR = 1 else
-                  DR_OUT_1(31 downto 8) & DATA_TO_CORE(7 downto 0) when OP = MOVEP else
-                  x"0000" & STATUS_REG(15 downto 8) & DR_OUT_1(7 downto 0) when OP = MOVE_TO_CCR and BIW_0(5 downto 3) = "000" else
+                  x"000000" & DR_FWD_1(31 downto 24) when OP = MOVEP and MOVEP_PNTR = 3 and BIW_0(7 downto 6) > "01" else
+                  x"000000" & DR_FWD_1(23 downto 16) when OP = MOVEP and MOVEP_PNTR = 2 and BIW_0(7 downto 6) > "01"  else
+                  x"000000" & DR_FWD_1(15 downto 8) when OP = MOVEP and MOVEP_PNTR = 1 and BIW_0(7 downto 6) > "01"  else
+                  x"000000" & DR_FWD_1(7 downto 0) when OP = MOVEP and BIW_0(7 downto 6) > "01"  else
+                  DATA_TO_CORE(7 downto 0) & DR_FWD_1(23 downto 0) when OP = MOVEP and MOVEP_PNTR = 3 else
+                  DR_FWD_1(31 downto 24) & DATA_TO_CORE(7 downto 0) & DR_FWD_1(15 downto 0)  when OP = MOVEP and MOVEP_PNTR = 2 else
+                  DR_FWD_1(31 downto 16) & DATA_TO_CORE(7 downto 0) & DR_FWD_1(7 downto 0)  when OP = MOVEP and MOVEP_PNTR = 1 else
+                  DR_FWD_1(31 downto 8) & DATA_TO_CORE(7 downto 0) when OP = MOVEP else
+                  x"0000" & STATUS_REG(15 downto 8) & DR_FWD_1(7 downto 0) when OP = MOVE_TO_CCR and BIW_0(5 downto 3) = "000" else
                   x"0000" & STATUS_REG(15 downto 8) & DATA_IMMEDIATE(7 downto 0) when OP = MOVE_TO_CCR and BIW_0(5 downto 0) = "111100" else
                   x"0000" & STATUS_REG(15 downto 8) & DATA_TO_CORE(7 downto 0) when OP = MOVE_TO_CCR else
-                  x"0000" & DR_OUT_1(15 downto 0) when OP = MOVE_TO_SR and BIW_0(5 downto 3) = "000" else
+                  x"0000" & DR_FWD_1(15 downto 0) when OP = MOVE_TO_SR and BIW_0(5 downto 3) = "000" else
                   x"0000" & DATA_IMMEDIATE(15 downto 0) when OP = MOVE_TO_SR and BIW_0(5 downto 0) = "111100" else
                   x"0000" & DATA_TO_CORE(15 downto 0) when OP = MOVE_TO_SR else
                   x"000000" & "000" & STATUS_REG(4 downto 0) when OP = MOVE_FROM_CCR else
@@ -1036,49 +1038,49 @@ begin
                   DATA_IMMEDIATE when OP = ANDI_TO_CCR or OP = ANDI_TO_SR else
                   DATA_IMMEDIATE when OP = EORI_TO_CCR or OP = EORI_TO_SR else 
                   DATA_IMMEDIATE when OP = ORI_TO_CCR or OP = ORI_TO_SR else 
-                  DR_OUT_1 when BIW_0(5 downto 3) = "000" else
+                  DR_FWD_1 when BIW_0(5 downto 3) = "000" else
                   AR_OUT_1 when BIW_0(5 downto 3) = "001" else
                   DATA_IMMEDIATE when BIW_0(5 downto 0) = "111100" else DATA_TO_CORE;
 
-    ALU_OP2_IN <= DR_OUT_2 when (OP = ABCD or OP = SBCD) and BIW_0(3) = '0' else
+    ALU_OP2_IN <= DR_FWD_2 when (OP = ABCD or OP = SBCD) and BIW_0(3) = '0' else
                   DATA_TO_CORE when OP = ABCD or OP = SBCD else
-                  DR_OUT_2 when (OP = ADDX or OP = SUBX) and BIW_0(3) = '0' else
+                  DR_FWD_2 when (OP = ADDX or OP = SUBX) and BIW_0(3) = '0' else
                   DATA_TO_CORE when OP = ADDX or OP = SUBX else
-                  DR_OUT_2 when (OP = ADD or OP = CMP or OP = SUB) and BIW_0(8) = '0' else
-                  DR_OUT_2 when (OP = AND_B or OP = OR_B) and BIW_0(8) = '0' else
+                  DR_FWD_2 when (OP = ADD or OP = CMP or OP = SUB) and BIW_0(8) = '0' else
+                  DR_FWD_2 when (OP = AND_B or OP = OR_B) and BIW_0(8) = '0' else
                   AR_OUT_2 when (OP = ADDA or OP = CMPA or OP = SUBA) else
-                  DR_OUT_2 when OP = EXG and  BIW_0(7 downto 3) = "01000" else -- Two data registers.
+                  DR_FWD_2 when OP = EXG and  BIW_0(7 downto 3) = "01000" else -- Two data registers.
                   AR_OUT_2 when OP = EXG else
-                  DR_OUT_2 when (OP = ASL or OP = ASR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
-                  DR_OUT_2 when (OP = LSL or OP = LSR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
-                  DR_OUT_2 when (OP = ROTL or OP = ROTR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
-                  DR_OUT_2 when (OP = ROXL or OP = ROXR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
+                  DR_FWD_2 when (OP = ASL or OP = ASR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
+                  DR_FWD_2 when (OP = LSL or OP = LSR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
+                  DR_FWD_2 when (OP = ROTL or OP = ROTR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
+                  DR_FWD_2 when (OP = ROXL or OP = ROXR) and BIW_0(7 downto 6) /= "11" else -- Register shifts.
                   x"0000" & STATUS_REG when(OP = ANDI_TO_CCR or OP = ANDI_TO_SR) else
                   x"0000" & STATUS_REG when(OP = EORI_TO_CCR or OP = EORI_TO_SR) else
                   x"0000" & STATUS_REG when(OP = ORI_TO_CCR or OP = ORI_TO_SR) else 
                   DATA_TO_CORE when OP = CAS or OP = CAS2 else -- Destination operand.
-                  DR_OUT_2 when (OP = CHK2 or OP = CMP2) and USE_DREG = '1' else
+                  DR_FWD_2 when (OP = CHK2 or OP = CMP2) and USE_DREG = '1' else
                   -- F60: CHK compares the DATA register Dn (BIW_0(11:9), DR port 2 per
                   -- DR_SEL_ADH_2_I) against the <ea> bound (M68000PM CHK). The original
                   -- arm fed CHK from AR port 2, whose select defaults to "000" for CHK,
                   -- so every CHK tested A0.W: no trap for a bad index when A0.W was in
                   -- range, and a spurious trap ("Subscript out of range" in HiSoft
                   -- BASIC / GEMBENCH 6) when A0.W was negative or above the bound.
-                  DR_OUT_2 when OP = CHK else
+                  DR_FWD_2 when OP = CHK else
                   AR_OUT_2 when OP = CHK2 or OP = CMP2 else
                   DATA_TO_CORE when OP = CMPM else
-                  DR_OUT_2 when OP = DBcc or OP = SWAP else
-                  DR_OUT_2 when OP = DIVS or OP = DIVU else
-                  DR_OUT_2 when OP = MULS or OP = MULU else
-                  DR_OUT_1 when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else -- Register direct.
+                  DR_FWD_2 when OP = DBcc or OP = SWAP else
+                  DR_FWD_2 when OP = DIVS or OP = DIVU else
+                  DR_FWD_2 when OP = MULS or OP = MULU else
+                  DR_FWD_1 when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else -- Register direct.
                   DATA_TO_CORE when OP = PACK or OP = UNPK else
                   AR_OUT_1 when OP = LINK else
-                  DR_OUT_2 when BIW_0(5 downto 3) = "000" else
+                  DR_FWD_2 when BIW_0(5 downto 3) = "000" else
                   AR_OUT_2 when BIW_0(5 downto 3) = "001" else DATA_TO_CORE;
 
     ALU_OP3_IN <= DATA_TO_CORE when (OP = BFCHG or OP = BFCLR or OP = BFEXTS or OP = BFEXTU) and BIW_0(5 downto 3) /= "000" else 
                   DATA_TO_CORE when (OP = BFFFO or OP = BFINS or OP = BFSET or OP = BFTST) and BIW_0(5 downto 3) /= "000" else 
-                  DATA_TO_CORE when OP = CAS2 or OP = CHK2 or OP = CMP2 else DR_OUT_1;
+                  DATA_TO_CORE when OP = CAS2 or OP = CHK2 or OP = CMP2 else DR_FWD_1;
 
     OP_SIZE <= OP_SIZE_EXH when BUSY_EXH = '1' else OP_SIZE_MAIN;
     OP_SIZE_BUS <= OP_SIZE_WB when DATA_WR_MAIN = '1' else OP_SIZE;
@@ -1769,6 +1771,8 @@ begin
             DR_IN_2                 => DR_IN_2,
             DR_OUT_2                => DR_OUT_2,
             DR_OUT_1                => DR_OUT_1,
+            DR_FWD_1                => DR_FWD_1,
+            DR_FWD_2                => DR_FWD_2,
             DR_SEL_WR_1             => DR_SEL_WR_1,
             DR_SEL_WR_2             => DR_SEL_WR_2,
             DR_SEL_RD_1             => DR_SEL_RD_1,

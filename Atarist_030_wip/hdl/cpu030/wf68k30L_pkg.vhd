@@ -556,6 +556,8 @@ component WF68K30L_DATA_REGISTERS
         DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
         DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
         DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
+        DR_FWD_1            : out std_logic_vector(31 downto 0);        -- [F157o]
+        DR_FWD_2            : out std_logic_vector(31 downto 0);
         UNMARK              : in bit;
         OP_SIZE             : in OP_SIZETYPE;
         DBG_DR              : out std_logic_vector(255 downto 0) -- [F77]

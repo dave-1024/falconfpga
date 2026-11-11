@@ -97,9 +97,13 @@ cycle timing, running at 16 MHz. Nothing may finish *faster* than the manual: a 
 has to match the real CPU's timing against the DSP56001, so every extra-early cycle here would
 break that pairing.
 
-On the current board build (F156, in flash): Linux reports 2.13 BogoMIPS, about 8.6 MHz-equivalent
-(a real 16 MHz 68030 is about 3.95 BogoMIPS), and LOOPTEST from TT-RAM with the instruction cache
-on runs at 1428571 loops/s.
+On the current board build (F157x `3ff7c63`, in flash, 11 Nov 2026): Linux reports 2.13 BogoMIPS,
+about 8.6 MHz-equivalent (a real 16 MHz 68030 is about 3.95 BogoMIPS), and LOOPTEST from TT-RAM with
+the instruction cache on runs at 1428571 loops/s (same as F156). F157x keeps the F157 fixes but turns
+Phase A (2-clock paths) off pending a fix: with it on, GEM desktop icons were empty and clicks failed.
+clk_cpu030 Fmax 22.079 MHz (16 MHz target), LUT 46633 + ALU 5464. GEMBench 4.03 (EmuTOS 1.4,
+ST Medium, STE reference, Blitter/FPU off): Display 73 / CPU 198 / Average 107%. Earlier 132-135%
+results were on the TOS 2.06 ROM, so they are not like-for-like.
 
 Next, in this order:
 

@@ -65,6 +65,22 @@ architecture sim of tb030 is
   -- [TT] 64 KB 32-bit port at $01000000 (DSACK1:0 = 00), cachable (CIIN negated), as the TTRAM bridge
   type tt_t is array (0 to 16383) of std_logic_vector(31 downto 0);
   shared variable ttm : tt_t := (others => (others => '0'));
+  -- [F157v] SRAM is 0/1 only. numeric_std.to_integer of a vector that contains
+  -- '-' (BCD undefined N/V) or 'X' returns 0 for the whole word, so an IRQ
+  -- stacked right after ABCD/SBCD/NBCD lost S in GHDL and RTE entered user
+  -- mode (seed 8 death spiral). Coerce metavalues bit-wise to 0.
+  function bits_to_nat(v : std_logic_vector) return integer is
+    variable u : std_logic_vector(v'length - 1 downto 0) := (others => '0');
+    variable src : std_logic_vector(v'length - 1 downto 0);
+  begin
+    src := v;
+    for i in src'range loop
+      if src(i) = '1' then
+        u(i) := '1';
+      end if;
+    end loop;
+    return to_integer(unsigned(u));
+  end;
 begin
   clk <= not clk after 62.5 ns when not done;
   dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => FASTH) port map (
@@ -184,12 +200,12 @@ begin
         end if;
         if rwn = '0' and isram then
           if siz = "01" or a(0) = '1' then -- [TT] odd address: one byte (UDS/LDS), any SIZ
-            if a(0) = '0' then ram(wi) := to_integer(unsigned(dout(31 downto 24))) * 256 + (ram(wi) mod 256);
-            else ram(wi) := (ram(wi) / 256) * 256 + to_integer(unsigned(dout(23 downto 16))); end if;
-          else ram(wi) := to_integer(unsigned(dout(31 downto 16))); end if;
+            if a(0) = '0' then ram(wi) := bits_to_nat(dout(31 downto 24)) * 256 + (ram(wi) mod 256);
+            else ram(wi) := (ram(wi) / 256) * 256 + bits_to_nat(dout(23 downto 16)); end if;
+          else ram(wi) := bits_to_nat(dout(31 downto 16)); end if;
           if a = x"00003500" then cdisn <= not dout(16); end if; -- [IC]
           if a = x"00003502" then ciforce <= dout(16); end if; -- [IC]
-          if a = x"00003504" then berrw <= to_integer(unsigned(dout(31 downto 16))); end if; -- [DC]
+          if a = x"00003504" then berrw <= bits_to_nat(dout(31 downto 16)); end if; -- [DC]
           if a = x"00003400" then
             if IPL_MODE = 2 then trig_at <= clkn + IRQ_DLY; end if;
           end if;

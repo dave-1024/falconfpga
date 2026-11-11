@@ -63,6 +63,19 @@
 --   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
 --   2026-10-04 F57: explicit power-up values for set-type flops.
+--   2026-11-09 F157a: ALU_REQ re-armed when ALU_INIT overlaps ALU_ACK (INIT during WRITEBACK).
+--   2026-11-09 F157f: do not re-arm ALU_REQ on INIT for shifts/mul/div (EmuTOS memcpy lsr+dbf).
+--   2026-11-09 F157g: register that qualifier (IRQ_1 -> EX_P_RTE CE half-cycle).
+--   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
+--   2026-11-10 F157l: pair with CLK_F IRQ flag decode (exception_handler); this is the memcpy re-arm.
+--   2026-11-10 F157c: RESULT is combinational for single-cycle INT/LOG ops so it is valid in the ALU_REQ/EXECUTE clock.
+--   2026-11-10 F157t: ADDX/SUBX keep RESULT_REG. Combo RESULT recomputes with the
+--                     post-EXECUTE X (CC_UPDT at ALU_REQ) and drops the incoming extend bit.
+--   2026-11-10 F157v: Latch X at ALU_INIT. ALU_REQ stays asserted until ALU_ACK, and
+--                     P_OUT recaptures RESULT_REG every clock while it is high. CC_UPDT
+--                     is ALU_REQ, so an extra EXECUTE clock (IRQ pending during a memory
+--                     ABCD/SBCD/ADDX RMW) recomputed the result with the newly written X
+--                     (seed-style irq_abcd DLY 21/29: 00+00+X wrote 00 instead of 01).
 -- 
 
 library work;
@@ -124,6 +137,9 @@ entity WF68K30L_ALU is
 end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
+    constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
+    constant F157_PHASE_B : boolean := true; -- [F157c] combo RESULT for ADD/ADDQ/AND/NEG/NOT/CLR and siblings.
+    signal F157_REARM_OK : bit := '1'; -- [F157g] registered: incoming OP may re-arm ALU_REQ on INIT+ACK.
 type DIV_STATES is (IDLE, INIT, CALC);
 type SHIFT_STATES is (IDLE, RUN);
 signal ALU_COND_I           : boolean;
@@ -178,6 +194,7 @@ signal RESULT_LOGOP         : Std_Logic_Vector(31 downto 0);
 signal RESULT_MUL           : Std_Logic_Vector(63 downto 0);
 signal RESULT_SHIFTOP       : Std_Logic_Vector(31 downto 0);
 signal RESULT_OTHERS        : Std_Logic_Vector(31 downto 0);
+signal RESULT_REG           : Std_Logic_Vector(63 downto 0);
 signal SHIFT_STATE          : SHIFT_STATES;
 signal SHIFT_WIDTH          : Std_Logic_Vector(5 downto 0) := "000000"; -- F57: explicit power-up value (Gowin drops the implicit one on set-type flops)
 signal SHIFT_WIDTH_IN       : Std_Logic_Vector(5 downto 0);
@@ -185,6 +202,7 @@ signal SHFT_LOAD            : bit;
 signal SHFT_RDY             : bit;
 signal SHFT_EN              : bit;
 signal STATUS_REG           : Std_Logic_Vector(15 downto 0) := x"2700";  -- [F49]
+signal X_LATCH              : std_logic := '0'; -- [F157v] X sampled at ALU_INIT
 -- F46 forces the SREG_MEM VARIABLE to $2700 on RESET, but STATUS_REG is the
 -- SIGNAL driven from it at the end of P_STATUS_REG -- so until the first
 -- clock edge after reset it still holds power-up garbage.  ALU_COND is
@@ -310,6 +328,7 @@ begin
             OP1 <= OP1_BUFFER;
             OP2 <= OP2_BUFFER;
             OP3 <= OP3_BUFFER;
+            X_LATCH <= STATUS_REG(4); -- [F157v] freeze incoming X before CC_UPDT
         end if;
     end process OPERANDS;
 
@@ -396,6 +415,22 @@ begin
         end if;
     end process P_PAD;
 
+    -- [F157g/F157h] OP (OP_IN) is issued in START_OP, one clock before ALU_INIT
+    -- (F141). Register the "may re-arm on INIT+ACK" class so P_BUSY can use it as
+    -- ALU_REQ's D value under the F157a ACK+INIT condition. Shifts/mul/div must
+    -- not re-arm (they wait for SHFT_RDY/DIV_RDY; F157f memcpy lsr.l #8,d0).
+    P_F157_REARM: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if OP_IN = ASL or OP_IN = ASR or OP_IN = LSL or OP_IN = LSR or
+           OP_IN = ROTL or OP_IN = ROTR or OP_IN = ROXL or OP_IN = ROXR or
+           OP_IN = MULS or OP_IN = MULU or OP_IN = DIVS or OP_IN = DIVU then
+            F157_REARM_OK <= '0';
+        else
+            F157_REARM_OK <= '1';
+        end if;
+    end process P_F157_REARM;
+
     P_BUSY: process
     variable REQ_SET : boolean;
     begin
@@ -407,8 +442,9 @@ begin
         end if;
         -- This signal requests the control state machine to proceed when the ALU is ready.
         REQ_SET := false;
-        if ALU_ACK = '1' and ALU_INIT = '1' and OP_IN = MOVEM then
-            ALU_REQ <= '1'; -- Option A: MOVEM overlap, re-armed in the clock of the acknowledge.
+        -- [F157h] Same write condition as F157a (ACK and INIT, or MOVEM); qualifier is D, not CE.
+        if ALU_ACK = '1' and ALU_INIT = '1' and (OP_IN = MOVEM or F157_PHASE_A) then
+            ALU_REQ <= F157_REARM_OK; -- '1' single-cycle/MOVEM; '0' shift/mul/div
         elsif ALU_ACK = '1' then
             ALU_REQ <= '0';
         elsif (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and SHFT_RDY = '1' then
@@ -443,7 +479,6 @@ begin
         end if;
     end process P_BUSY;
     ALU_BSY <= ALU_BSY_I; -- F57
-
     with OP_IN select
         PAD_OP_A <= '1' when MULS | MULU | CHK | BFTST | BFEXTS | BFEXTU | BFFFO |
                              ANDI_TO_CCR | ANDI_TO_SR | EORI_TO_CCR | EORI_TO_SR | ORI_TO_CCR | ORI_TO_SR,
@@ -488,7 +523,7 @@ begin
         end case;
     end process SIGNEXT;
 
-    P_BCDOP: process(OP, STATUS_REG, OP1, OP2)
+    P_BCDOP: process(OP, X_LATCH, OP1, OP2)
     -- The BCD operations are all byte wide and unsigned.
     variable X_IN_I         : unsigned(0 downto 0);
     variable TEMP0          : unsigned(4 downto 0);
@@ -500,7 +535,7 @@ begin
     variable S_0            : unsigned(3 downto 0);
     variable S_1            : unsigned(3 downto 0);
     begin
-        X_IN_I(0) := STATUS_REG(4); -- Inverted extended Flag.
+        X_IN_I(0) := X_LATCH; -- [F157v] incoming X, not live STATUS_REG
 
         case OP is
             when ABCD =>
@@ -793,12 +828,12 @@ begin
             end case;
     end process DIVISION;
 
-    P_INTOP: process(OP, OP1, OP1_SIGNEXT, OP2, OP2_SIGNEXT, ADR_MODE, STATUS_REG, RESULT_INTOP)
+    P_INTOP: process(OP, OP1, OP1_SIGNEXT, OP2, OP2_SIGNEXT, ADR_MODE, X_LATCH, RESULT_INTOP)
     -- The integer arithmetics ADD, SUB, NEG and CMP in their different variations are modelled here.
     variable X_IN_I         : Std_Logic_Vector(0 downto 0);
     variable RESULT         : unsigned(31 downto 0);
     begin
-        X_IN_I(0) := STATUS_REG(4); -- Extended Flag.
+        X_IN_I(0) := X_LATCH; -- [F157v] incoming X, not live STATUS_REG
         case OP is
             when ADDA => -- No sign extension for the destination.
                 RESULT := unsigned(OP2) + unsigned(OP1_SIGNEXT);
@@ -1115,38 +1150,59 @@ begin
         if ALU_REQ = '1' then
             case OP is
                 when ABCD | NBCD | SBCD => 
-                    RESULT <= x"00000000000000" & RESULT_BCDOP; -- Byte only.
+                    RESULT_REG <= x"00000000000000" & RESULT_BCDOP; -- Byte only.
                 when BFCHG | BFCLR | BFEXTS | BFEXTU | BFFFO | BFINS | BFSET | BFTST => 
                     case HILOn is
-                        when '1' => RESULT <= x"00000000" & BF_RESULT; -- F23/H29-C.
-                        when others => RESULT <= x"00000000000000" & RESULT_BITFIELD(7 downto 0);
+                        when '1' => RESULT_REG <= x"00000000" & BF_RESULT; -- F23/H29-C.
+                        when others => RESULT_REG <= x"00000000000000" & RESULT_BITFIELD(7 downto 0);
                     end case;
                 when BCHG | BCLR | BSET | BTST =>
-                    RESULT <= x"00000000" & RESULT_BITOP;
+                    RESULT_REG <= x"00000000" & RESULT_BITOP;
                 when ADD | ADDA | ADDI | ADDQ | ADDX | CLR | CMP | CMPA | CMPI =>
-                    RESULT <= x"00000000" & RESULT_INTOP;
+                    RESULT_REG <= x"00000000" & RESULT_INTOP;
                 when CMPM | DBcc | NEG | NEGX | SUB | SUBA | SUBI | SUBQ | SUBX =>
-                    RESULT <= x"00000000" & RESULT_INTOP;
+                    RESULT_REG <= x"00000000" & RESULT_INTOP;
                 when AND_B | ANDI | EOR | EORI | NOT_B | OR_B | ORI =>
-                    RESULT <= x"00000000" & RESULT_LOGOP;
+                    RESULT_REG <= x"00000000" & RESULT_LOGOP;
                 when ANDI_TO_SR | EORI_TO_SR | ORI_TO_SR => -- Used for branch prediction.
-                    RESULT <= x"00000000" & RESULT_LOGOP;
+                    RESULT_REG <= x"00000000" & RESULT_LOGOP;
                 when ASL | ASR | LSL | LSR | ROTL | ROTR | ROXL | ROXR =>
-                    RESULT <= x"00000000" & RESULT_SHIFTOP;
+                    RESULT_REG <= x"00000000" & RESULT_SHIFTOP;
                 when DIVS | DIVU =>
                     case OP_SIZE is
-                        when LONG => RESULT <= Std_Logic_Vector(REMAINDER) & Std_Logic_Vector(QUOTIENT);
-                        when others => RESULT <= x"00000000" & Std_Logic_Vector(REMAINDER(15 downto 0)) & Std_Logic_Vector(QUOTIENT(15 downto 0));
+                        when LONG => RESULT_REG <= Std_Logic_Vector(REMAINDER) & Std_Logic_Vector(QUOTIENT);
+                        when others => RESULT_REG <= x"00000000" & Std_Logic_Vector(REMAINDER(15 downto 0)) & Std_Logic_Vector(QUOTIENT(15 downto 0));
                     end case;
                 when MULS | MULU =>
-                    RESULT <= RESULT_MUL;
+                    RESULT_REG <= RESULT_MUL;
                 when PACK =>
-                    RESULT <= x"00000000000000" & RESULT_OTHERS(11 downto 8) & RESULT_OTHERS (3 downto 0);
+                    RESULT_REG <= x"00000000000000" & RESULT_OTHERS(11 downto 8) & RESULT_OTHERS (3 downto 0);
                 when others =>
-                    RESULT <= OP2 & RESULT_OTHERS; -- OP2 is used for EXG.
+                    RESULT_REG <= OP2 & RESULT_OTHERS; -- OP2 is used for EXG.
             end case;
         end if;
     end process P_OUT;
+
+    -- [F157c] Single-cycle integer/logical results are already combinational
+    -- (P_INTOP / P_LOGOP, operands latched at ALU_INIT). Drive RESULT from
+    -- them during and after ALU_REQ so a write in EXECUTE samples the new
+    -- value, not the previous instruction's registered copy. Multi-cycle
+    -- units (shift, mul, div, bit-field, BCD) keep RESULT_REG.
+    -- [F157t] ADDX/SUBX read X live from STATUS_REG in P_INTOP. CC_UPDT fires
+    -- at ALU_REQ (EXECUTE), one clock before their WRITEBACK, so a combinational
+    -- RESULT would recompute with the result X (often cleared) and drop the
+    -- incoming extend bit. NEGX stays combinational: it is written in EXECUTE
+    -- via F157_WR_EXEC, while STATUS_REG still holds the input X.
+    RESULT <= x"00000000" & RESULT_INTOP when F157_PHASE_B and
+                  (OP = ADD or OP = ADDA or OP = ADDI or OP = ADDQ or
+                   OP = CLR or OP = CMP or OP = CMPA or OP = CMPI or OP = CMPM or
+                   OP = DBcc or OP = NEG or OP = NEGX or OP = SUB or OP = SUBA or
+                   OP = SUBI or OP = SUBQ) else
+              x"00000000" & RESULT_LOGOP when F157_PHASE_B and
+                  (OP = AND_B or OP = ANDI or OP = EOR or OP = EORI or OP = NOT_B or
+                   OP = OR_B or OP = ORI or OP = ANDI_TO_SR or OP = EORI_TO_SR or
+                   OP = ORI_TO_SR) else
+              RESULT_REG;
 
     -- Out of bounds condition:
     -- F29/H35 + H37: CHK2/CMP2 operand selection, M68000PM CHK2:

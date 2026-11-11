@@ -50,6 +50,10 @@
 --   2026-09-30 F16/F17/F19/F20: full-format EA base/index suppress (An and PC).
 --   2026-09-30 COLD: MSBIT reset; single ISP write chain.
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-10 F157c: at STORE_ADR_FORMAT, latch a Dn index from INDEX_LIVE (that
+--     Dn) rather than INDEX_IN (DR read port 1). Phase B writes in EXECUTE and
+--     UNMARKs without WRITEBACK, so brief/(bd,Dn.w*SCALE) STORE can happen after
+--     INDEX_PEND has already dropped; port 1 is no longer the index.
 -- 
 
 use work.WF68K30L_PKG.all;
@@ -306,12 +310,12 @@ begin
             -- In case of a long word operation, no extension is required. The index is 
             -- multiplied by 1, 2, 4 or 8.
             if STORE_ADR_FORMAT = '1' and EXT_WORD(15) = '0' and EXT_WORD(11) = '1' then
-                INDEX := INDEX_IN; -- Long data register.
+                INDEX := INDEX_LIVE; -- [F157c] Long index Dn (not DR read port 1).
             elsif STORE_ADR_FORMAT = '1' and EXT_WORD(15) = '0' then
                 for i in 31 downto 16 loop
-                    INDEX(i) := INDEX_IN(15);
+                    INDEX(i) := INDEX_LIVE(15);
                 end loop;
-                INDEX(15 downto 0) := INDEX_IN(15 downto 0); -- Sign extended data register;
+                INDEX(15 downto 0) := INDEX_LIVE(15 downto 0); -- [F157c] Sign-extended index Dn.
             elsif STORE_ADR_FORMAT = '1' and EXT_WORD(11) = '1' then -- Long address register.
                 if EXT_WORD(14 downto 12) = "111" and SBIT = '1' and MBIT = '1' then
                     INDEX := MSP_REG;

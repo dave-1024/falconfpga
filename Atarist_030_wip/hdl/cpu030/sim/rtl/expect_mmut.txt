@@ -1,1 +1,1 @@
-blk1 14.62 blk2 32.62 blk3 29.75 blk4 33.75 blk5 34.62 blk6 40.62 blk7 71.12 blk8 84.62 blk9 29.75 blk10 74.62 blk11 77.62 blk12 15.00
+blk1 14.50 blk2 32.62 blk3 29.75 blk4 33.75 blk5 34.62 blk6 40.62 blk7 71.12 blk8 84.62 blk9 29.75 blk10 74.62 blk11 77.62 blk12 14.62
