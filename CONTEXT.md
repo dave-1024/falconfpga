@@ -44,7 +44,12 @@ with the DSP56001.
 - Main tcl = board build; variants in `debug_builds/`, retired in `build_legacy/`.
 - Bulk erase, BL616, other flash areas: check with David first (writing the helper at 0x600000 to restore it is fine).
 
-## Current state (summary, 31 Oct 2026)
+## Current state (summary, 11 Nov 2026)
+main = speed merged (F140-F157x). Flash 0 holds **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU.
+EmuTOS desktop and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 (EmuTOS, ST Medium) 107%. Phase A
+(F157a) is off pending a fix. Build with Gowin V1.9.12.03 only. Status and open items: front [`README.md`](README.md).
+
+## State (summary, 31 Oct 2026, history)
 main = 8972091 (9fe250b merged `pmmu`; 8972091 restored the `syn_keep` on `ae350_flash_clk` for Gowin V1.9.12.04).
 The 68030 PMMU is done. FreeMiNT with memory protection + XaAES 1.7.0 + TeraDesk 4.08 run on EmuTOS 1.4 from the ACSI
 image; desktop menus work after F121. Flash 0 holds **f121a**: clk_cpu030 20.19 / clk32 34.21 MHz, 45636 LUT + 5317 ALU.

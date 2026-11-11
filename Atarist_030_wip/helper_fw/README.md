@@ -33,5 +33,8 @@ BL616 USB serial (Linux `/dev/ttyUSB1`), 115200 8N1. `help` lists the commands: 
 (`key`, `type`, `mouse`, `click`), SD status (`sd`, `sdlog on`) and, with a `SD_WRITE_DEBUG` core, `sdwlog`,
 `sdstate`, `sdrw` ([../docs/SD_WRITE_DEBUG.md](../docs/SD_WRITE_DEBUG.md)).
 
+The console has no mkdir, rename, move or delete commands. To reorganise the SD card, take it out with the board
+off and do it on a PC.
+
 Note: contiguous images are read/written by the core directly (sd_card.v direct mapping), so `sdlog` shows only
 helper-handled requests; use the core-side `sdwlog` for those.

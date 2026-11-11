@@ -106,6 +106,14 @@ the SDC line change. For a truly asynchronous CPU clock:
   with its own falling-edge flops);
 - keep SYNC_STAGES >= 2.
 
+## Current status (11 Nov 2026)
+
+Board build F157x (`3ff7c63`). The F157 issue-loop changes (WAW for MOVE/CLR Dn, ADD-type 2-clock forward,
+ALU_REQ re-arm guards, rising-edge interrupt flags, registered pin address ADR_OUT_Q, X-flag fixes, D-cache fill
+BERR address) are on; **Phase A** (F157a INIT/WRITEBACK overlap, `F157_PHASE_A` in control, decoder and bus interface)
+is off pending a fix. GHDL differential tests against F156: `sim/rtl/difftest/`. Details: front
+[`README.md`](../../../README.md#what-works-now-11-nov-2026), [`docs/BUGS.md`](../../../docs/BUGS.md).
+
 ## Known limitations of this first version
 
 - Every 030 bus cycle costs about 1.3 to 1.5 us on the 8 MHz ST bus (a 68000

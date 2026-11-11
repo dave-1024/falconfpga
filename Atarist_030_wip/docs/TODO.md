@@ -1,6 +1,15 @@
 # TODO (in priority order)
 
-## Status 9 Nov 2026
+## Status 11 Nov 2026
+main = speed + F157x (`3ff7c63`). Board: F157x in flash (clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU). EmuTOS
+desktop icons and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 EmuTOS ST Medium 107%.
+**Next, in order:** (1) fix Phase A (F157a): split into OLAP / PIPE / QREF switches, find which empties the EmuTOS
+desktop, difftest vs F156 on the icon code, fix, re-gate; (2) redo the change-of-flow refill (F157r failed
+timing_pairs); (3) other gaps: `adda.l Dn,An` 4 vs 2, `lsl #n` ~4.9 vs 4.
+**Still open:** SD write path bug, [P1] dialogs ignoring clicks, NetBSD, `sdram64` restart. FrontBench left for now.
+**Pinned:** credits cartridge (application cart, switchable in `atarist.ini`). Build with Gowin V1.9.12.03 only.
+
+## Status 9 Nov 2026 (history)
 main = speed + F156 (tag `bank-2026-11-09-f156`). Board: F156 in flash (clk_cpu030 20.401 / clk32_core 34.731 MHz,
 46537 LUT + 5352 ALU). Two-word decode is on; the TT-RAM I-cache hang is fixed (REFILL_PIPE word count). LOOPTEST TT
 I-cache 1428571, FrontBench TT-RAM 1237, Linux BogoMIPS 2.13. Details: SPEED_OVERHAUL.md.

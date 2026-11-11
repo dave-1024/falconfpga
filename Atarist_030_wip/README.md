@@ -15,7 +15,15 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (9 Nov 2026, main)
+## Status (11 Nov 2026, main)
+
+Board build: **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU, Gowin V1.9.12.03. EmuTOS 1.4
+GEM with icons and working clicks; LOOPTEST TT-RAM I+D 1428571 loops/s (same as F156); Linux to BusyBox, 2.13 BogoMIPS;
+GEMBench 4.03 (EmuTOS, ST Medium) Display 73% / CPU 198% / Average 107%. Phase A (F157a 2-clock MOVEQ/MOVEA/CMP/TST)
+is off pending a fix (it emptied the desktop and broke clicks). What each F157 change does and fixes: front
+[`README.md`](../README.md#what-works-now-11-nov-2026) and [`docs/BUGS.md`](../docs/BUGS.md).
+
+## Status (9 Nov 2026, history)
 
 Board build: **F156** (speed overhaul merged, tag `bank-2026-11-09-f156`): clk_cpu030 20.401 MHz, clk32_core
 34.731 MHz, 46537 LUT + 5352 ALU, timing_pairs passes. Two-word opcode decode after an I-cache restart is on, with the
