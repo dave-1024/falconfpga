@@ -38,10 +38,14 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   5464 ALU, timing_pairs pass. Fallback: F156 (`~/fpga_bitstreams/st_helper_f156.fs` on linserver).
 - Checks passed: EmuTOS desktop icons and clicks, LOOPTEST (= F156), Linux to BusyBox 2.13 BogoMIPS, GEMBench 4.03
   EmuTOS ST Medium 107% (Display 73 / CPU 198).
-- Open: Phase A (F157a) off pending a fix; F157r change of flow to redo; SD write path; [P1] dialog clicks; EmuTOS
-  boots ST Low (switch to Medium for GEMBench, lost at a cold boot). The helper has no mkdir/rename/delete, so SD card
-  tidy-ups are done on a PC (planned renames in the front README).
-- Next: Phase A split and fix (plan in the front README and `docs/BUGS.md`).
+- Open: Phase A (F157a) off pending a fix; BogoMIPS / taken-branch (Linux delay loop 10.98 clocks per pass in sim
+  against 8 in the manual; board ~15, 2.13 BogoMIPS) including the F157r change-of-flow refill; SD write path;
+  [P1] dialog clicks; EmuTOS boots ST Low (switch to Medium for GEMBench, lost at a cold boot). The helper has no
+  mkdir/rename/delete, so SD card tidy-ups are done on a PC (planned renames in the front README).
+- Next (Monday 16 Nov 2026): fix and re-enable Phase A, then the BogoMIPS / taken-branch speedup (Bcc condition at
+  issue, I-cache lookup in the flush clock, optional same-clock hit; apply the refill fix to bra.s, DBcc, JMP, JSR,
+  RTS, BSR). About 4 clocks per pass are still unexplained on the board. Notes:
+  `Atarist_030_wip/docs/BOGOMIPS_LOOP.md`.
 
 ## State on 2026-11-03 (history)
 - `main` = db13859: `cmpm-fix` fast-forwarded (F122-F131 CPU fixes). `sdram64` untouched.
@@ -61,9 +65,16 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   arbitration), F112 (MFP transmitter), F116 and F121 (indexed EA hazards). List: `docs/BUGS.md`.
 
 ## Next steps
-1. Branch `sdram64` (64 MHz SDRAM / TT-RAM speedup, based on d270586): rebase onto main first (F110 changed
+1. Monday 16 Nov 2026: fix and re-enable Phase A (split into OLAP / PIPE / QREF, find which empties the EmuTOS
+   desktop, difftest vs F156, fix, re-gate).
+2. Then the BogoMIPS / taken-branch speedup: evaluate the Bcc condition from the CCR at issue when there is no
+   flag hazard; start the I-cache lookup in the flush clock, registering the displacement add (F157r failed
+   timing_pairs); optional same-clock I-cache hit. Never faster than the manual. The same refill path also
+   affects bra.s, DBcc, JMP, JSR, RTS and BSR. Investigate the ~4-clock board-vs-sim gap (sim with the ST memory
+   model and timer interrupts, ST=1, IPL_MODE=3). Notes: `Atarist_030_wip/docs/BOGOMIPS_LOOP.md`.
+3. Branch `sdram64` (64 MHz SDRAM / TT-RAM speedup, based on d270586): rebase onto main first (F110 changed
    `sdram.v`; expect conflicts in `sdram.v`, `top.sv`, the SDC, `build_sel.vh`). Notes in `docs/sdram64/` there.
-2. Retest TOS 2.06 after a real power-cycle (TODO 8).
+4. Retest TOS 2.06 after a real power-cycle (TODO 8).
 
 ## State on 2026-10-23 (history)
 - `main` = 38870e4. Main build `build_st_helper.tcl` (`ST_HELPER_CART` off, no SD debug); debug variants in

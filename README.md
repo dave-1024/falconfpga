@@ -102,9 +102,24 @@ In progress and known issues:
 1. **Phase A (F157a) is off in F157x.** With it on, the EmuTOS desktop has no icons and menu clicks fail. Plan
    (not started): split it into three switches (INIT/WRITEBACK overlap, decoder pipe depth, bus refill), build
    each half to find which one empties the desktop, compare against F156 in the GHDL difftest on the EmuTOS icon
-   code, fix it in RTL, then repeat the click, LOOPTEST and Linux checks before flashing.
-2. **Change of flow (F157r) is to be redone.** The earlier BSR/JSR/RTS refill (26 clocks against 28; the manual
-   says 15) failed timing_pairs (clk_cpu030 17.184 MHz, -10.6 ns), so it was left out of F157u/x.
+   code, fix it in RTL, then repeat the click, LOOPTEST and Linux checks before flashing. This is also the first
+   step of the BogoMIPS plan below: with Phase A off, SUBQ in the delay loop is 3 clocks instead of the manual's 2.
+2. **BogoMIPS / taken-branch timing (sim of F157x, 11 Nov 2026).** The Linux delay loop (`subq.l #1,Dn; bcc`) is
+   10.98 clocks per pass in sim with the I-cache on, against 8 in MC68030UM Section 11 (caches off, 0 wait: 26.08;
+   3 wait: 44.14). The board measures about 15 clocks (2.13 BogoMIPS at 16 MHz; a 16 MHz 030 at the manual's 8
+   clocks would be about 4). Where the extra clocks go: SUBQ 3 instead of 2 (Phase A off); the Bcc condition is
+   evaluated after the ALU handshake (`wf68k30L_control.vhd` around 1348, 1370-1376 and 1398); the refill request
+   starts a clock late after the flush (`wf68k30L_opcode_decoder.vhd` around 244-246 and 875-889); an I-cache hit
+   takes 2 clocks to deliver (`wf68k30L_bus_interface.vhd` around 1143-1149 and 1570-1630). Plan for Monday
+   16 Nov 2026, in order (never faster than the manual): (1) fix and re-enable Phase A (-1 on SUBQ); (2) evaluate
+   the Bcc condition from the CCR at issue when there is no flag hazard (-1); (3) start the I-cache lookup in the
+   flush clock, registering the displacement add, because the earlier F157r BSR/JSR/RTS refill (26 clocks against
+   the manual's 15) failed timing_pairs (clk_cpu030 17.184 MHz, -10.6 ns) and was left out of F157u/x (-1);
+   (4) optional same-clock I-cache hit (-1). The same late-refill path also costs `bra.s` (8.3 against 6), taken
+   DBcc (+2 each), JMP, JSR, RTS and BSR, so the fix applies to those too. Open: about 4 clocks per pass are lost
+   only on the board (sim 11 against board ~15); possible causes are interrupts during calibration, I-cache state,
+   or ST/TT-RAM or bridge delays; next step is a sim with the ST memory model and timer interrupts (ST=1,
+   IPL_MODE=3). Notes: [`Atarist_030_wip/docs/BOGOMIPS_LOOP.md`](Atarist_030_wip/docs/BOGOMIPS_LOOP.md).
 3. **Remaining timing gaps** against the manual, for example `adda.l Dn,An` 4 clocks against 2, and immediate
    shifts `lsl/lsr/asr #n` about 4.9 against 4.
 4. **FrontBench** is left for now (not a required check for F157).
@@ -398,7 +413,9 @@ This tree is **not yet a proven desktop on David’s Console**. Companion firmwa
 
 ### Where it is headed
 1. ~~Clone MiSTeryNano, splice the wf68k30L via a TF534-style bridge, 16 MHz+ CPU on the 8 MHz ST bus, AE350 helper~~ (done, October 2026); ~~caches~~, ~~TT-RAM~~ (done).
-2. ~~The 68030 PMMU~~ (done, October 2026: FreeMiNT runs with memory protection). **Now:** faster memory (64 MHz SDRAM
+2. ~~The 68030 PMMU~~ (done, October 2026: FreeMiNT runs with memory protection). **Now:** fix and re-enable
+   Phase A, then the BogoMIPS / taken-branch speedup (and apply what it shows to other change-of-flow
+   instructions; see [In progress](#currently-working-on-11-nov-2026)), then faster memory (64 MHz SDRAM
    for faster TT-RAM and cache burst fills, branch `sdram64`), then the rest of [`TODO.md`](Atarist_030_wip/docs/TODO.md).
 3. Then move the same core onto **Falcon** glue (VIDEL, IDE, DSP56001).
 

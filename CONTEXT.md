@@ -47,7 +47,10 @@ with the DSP56001.
 ## Current state (summary, 11 Nov 2026)
 main = speed merged (F140-F157x). Flash 0 holds **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU.
 EmuTOS desktop and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 (EmuTOS, ST Medium) 107%. Phase A
-(F157a) is off pending a fix. Build with Gowin V1.9.12.03 only. Status and open items: front [`README.md`](README.md).
+(F157a) is off pending a fix. Next (Monday 16 Nov 2026): fix and re-enable Phase A, then the BogoMIPS / taken-branch
+speedup (sim: 10.98 clocks per pass against the manual's 8; board ~15). Notes:
+[`Atarist_030_wip/docs/BOGOMIPS_LOOP.md`](Atarist_030_wip/docs/BOGOMIPS_LOOP.md). Build with Gowin V1.9.12.03 only.
+Status and open items: front [`README.md`](README.md).
 
 ## State (summary, 31 Oct 2026, history)
 main = 8972091 (9fe250b merged `pmmu`; 8972091 restored the `syn_keep` on `ae350_flash_clk` for Gowin V1.9.12.04).

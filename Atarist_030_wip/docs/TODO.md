@@ -3,9 +3,17 @@
 ## Status 11 Nov 2026
 main = speed + F157x (`3ff7c63`). Board: F157x in flash (clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU). EmuTOS
 desktop icons and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 EmuTOS ST Medium 107%.
-**Next, in order:** (1) fix Phase A (F157a): split into OLAP / PIPE / QREF switches, find which empties the EmuTOS
-desktop, difftest vs F156 on the icon code, fix, re-gate; (2) redo the change-of-flow refill (F157r failed
-timing_pairs); (3) other gaps: `adda.l Dn,An` 4 vs 2, `lsl #n` ~4.9 vs 4.
+**Next, in order (Monday 16 Nov 2026):** (1) fix Phase A (F157a): split into OLAP / PIPE / QREF switches, find which
+empties the EmuTOS desktop, difftest vs F156 on the icon code, fix, re-gate (also recovers the extra clock on SUBQ
+in the BogoMIPS loop); (2) BogoMIPS / taken-branch: with the I-cache on, the Linux `subq.l #1,Dn; bcc` loop is 10.98
+clocks per pass in sim against 8 in MC68030UM Section 11 (caches off, 0 wait: 26.08; 3 wait: 44.14). The board
+measures about 15 clocks (2.13 BogoMIPS at 16 MHz; about 4 expected). After Phase A: evaluate the Bcc condition from
+the CCR at issue when there is no flag hazard; start the I-cache lookup in the flush clock, registering the
+displacement add (the earlier F157r BSR/JSR/RTS refill failed timing_pairs at clk_cpu030 17.184 MHz, -10.6 ns);
+optional same-clock I-cache hit. Never faster than the manual. The same late-refill path also affects `bra.s` (8.3
+vs 6), taken DBcc (+2 each), JMP, JSR, RTS and BSR. Open: about 4 clocks per pass are lost only on the board (sim 11
+vs board ~15); next step a sim with the ST memory model and timer interrupts (ST=1, IPL_MODE=3). Notes:
+[`BOGOMIPS_LOOP.md`](BOGOMIPS_LOOP.md). (3) other gaps: `adda.l Dn,An` 4 vs 2, `lsl #n` ~4.9 vs 4.
 **Still open:** SD write path bug, [P1] dialogs ignoring clicks, NetBSD, `sdram64` restart. FrontBench left for now.
 **Pinned:** credits cartridge (application cart, switchable in `atarist.ini`). Build with Gowin V1.9.12.03 only.
 

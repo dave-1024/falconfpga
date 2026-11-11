@@ -23,6 +23,14 @@ GEMBench 4.03 (EmuTOS, ST Medium) Display 73% / CPU 198% / Average 107%. Phase A
 is off pending a fix (it emptied the desktop and broke clicks). What each F157 change does and fixes: front
 [`README.md`](../README.md#what-works-now-11-nov-2026) and [`docs/BUGS.md`](../docs/BUGS.md).
 
+Known issues / next (order of work in [docs/TODO.md](docs/TODO.md)): Phase A first, then the BogoMIPS /
+taken-branch speedup. The Linux `subq.l #1,Dn; bcc` loop is 10.98 clocks per pass in sim with the I-cache on,
+against 8 in MC68030UM Section 11; the board measures about 15 clocks (2.13 BogoMIPS at 16 MHz, about 4 expected).
+After Phase A: evaluate the Bcc condition at issue when there is no flag hazard; start the I-cache lookup in the
+flush clock, registering the displacement add (F157r failed timing_pairs); optional same-clock I-cache hit. Never
+faster than the manual. The same refill path also affects bra.s, DBcc, JMP, JSR, RTS and BSR. About 4 clocks per
+pass are lost only on the board. Notes: [docs/BOGOMIPS_LOOP.md](docs/BOGOMIPS_LOOP.md).
+
 ## Status (9 Nov 2026, history)
 
 Board build: **F156** (speed overhaul merged, tag `bank-2026-11-09-f156`): clk_cpu030 20.401 MHz, clk32_core

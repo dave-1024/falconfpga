@@ -111,8 +111,13 @@ the SDC line change. For a truly asynchronous CPU clock:
 Board build F157x (`3ff7c63`). The F157 issue-loop changes (WAW for MOVE/CLR Dn, ADD-type 2-clock forward,
 ALU_REQ re-arm guards, rising-edge interrupt flags, registered pin address ADR_OUT_Q, X-flag fixes, D-cache fill
 BERR address) are on; **Phase A** (F157a INIT/WRITEBACK overlap, `F157_PHASE_A` in control, decoder and bus interface)
-is off pending a fix. GHDL differential tests against F156: `sim/rtl/difftest/`. Details: front
-[`README.md`](../../../README.md#what-works-now-11-nov-2026), [`docs/BUGS.md`](../../../docs/BUGS.md).
+is off pending a fix. A sim of the Linux BogoMIPS loop (`subq.l #1,Dn; bcc`) on F157x measured 10.98 clocks per
+pass with the I-cache on, against 8 in MC68030UM Section 11 (board ~15). The extra clocks are Phase A off (SUBQ 3
+vs 2), the Bcc condition going through the ALU handshake, a late refill after the flush, and a 2-clock I-cache hit
+delivery. Plan (Monday 16 Nov 2026): fix Phase A, then those taken-branch / refill paths; never faster than the
+manual. The same refill path also affects bra.s, DBcc, JMP, JSR, RTS and BSR. Notes:
+[`docs/BOGOMIPS_LOOP.md`](../../docs/BOGOMIPS_LOOP.md). GHDL differential tests against F156: `sim/rtl/difftest/`.
+Details: front [`README.md`](../../../README.md#what-works-now-11-nov-2026), [`docs/BUGS.md`](../../../docs/BUGS.md).
 
 ## Known limitations of this first version
 
