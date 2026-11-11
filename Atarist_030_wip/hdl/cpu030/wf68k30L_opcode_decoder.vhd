@@ -223,7 +223,8 @@ signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
 signal COF_BLK              : bit := '0'; -- [F144]
-constant F157_PHASE_A       : boolean := true; -- [F157a] keep pipe at two words after a level-D issue.
+constant F157_PHASE_A       : boolean := false; -- [F157a] keep pipe at two words after a level-D issue.
+-- [F157x] Phase A OFF with control and bus_interface (empty GEM desktop on the board).
 signal F157_NEED_REFILL     : bit := '0'; -- [F157a] pulse: last clock issued a level-D word.
 begin
     P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)

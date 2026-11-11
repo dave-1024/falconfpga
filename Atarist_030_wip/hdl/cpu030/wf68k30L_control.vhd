@@ -434,7 +434,8 @@ signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
 constant EARLY_ISSUE        : boolean := true; -- [F145] on again; ADDQ/SUBQ #,An excluded below (F143 board failure).
-constant F157_PHASE_A       : boolean := true; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
+constant F157_PHASE_A       : boolean := false; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
+-- [F157x] Phase A OFF: with it on, the EmuTOS 1.4 desktop has no icons and GEM clicks fail (board). Re-enable after the fix.
 constant F157_PHASE_B       : boolean := true; -- [F157c] write ADD/ADDQ/AND/NEG/NOT/CLR (and siblings) in EXECUTE.
     -- [F157a] INIT may overlap the previous WRITEBACK: ALU_TRIG is open and the new
     -- operation is accepted this clock, so INIT must not wait on ALU_BSY (or DBcc/MOVEQ
