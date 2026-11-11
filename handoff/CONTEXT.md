@@ -33,7 +33,17 @@ CERN OHL v1.2) via the TF534-based bridge, plus the AE350 RISC-V helper (OSD, SD
   sends helper commands over linserver's `/dev/ttyUSB1` (115200) via ssh/SOCKS and prints the reply.
 - **Box**: repo clone `/workspace/falconfpga`, GHDL 6 at `/workspace/tools/ghdl/bin/ghdl`, m68k binutils `/workspace/tools/m68k-binutils/bin`.
 
-## Current state (2026-11-03, UK)
+## Current state (2026-11-11, UK)
+- `main` = `speed` merged (F140-F157x). Board: flash 0 = **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT +
+  5464 ALU, timing_pairs pass. Fallback: F156 (`~/fpga_bitstreams/st_helper_f156.fs` on linserver).
+- Checks passed: EmuTOS desktop icons and clicks, LOOPTEST (= F156), Linux to BusyBox 2.13 BogoMIPS, GEMBench 4.03
+  EmuTOS ST Medium 107% (Display 73 / CPU 198).
+- Open: Phase A (F157a) off pending a fix; F157r change of flow to redo; SD write path; [P1] dialog clicks; EmuTOS
+  boots ST Low (switch to Medium for GEMBench, lost at a cold boot). The helper has no mkdir/rename/delete, so SD card
+  tidy-ups are done on a PC (planned renames in the front README).
+- Next: Phase A split and fix (plan in the front README and `docs/BUGS.md`).
+
+## State on 2026-11-03 (history)
 - `main` = db13859: `cmpm-fix` fast-forwarded (F122-F131 CPU fixes). `sdram64` untouched.
 - Board: flash 0 = **f131**: clk_cpu030 21.230 / clk32_core 33.874 MHz, 45988 LUT + 5327 ALU, timing_pairs pass.
   Linux/m68k 6.18 boots to a BusyBox shell (dcache on; kernel workaround for user prefetch fault frames without FC/FB).

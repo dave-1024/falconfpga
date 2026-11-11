@@ -91,34 +91,71 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
-## Currently working on (9 Nov 2026)
+## Currently working on (11 Nov 2026)
 The active work is making the 68030 core as close as possible to Motorola's MC68030 User's Manual
 cycle timing, running at 16 MHz. Nothing may finish *faster* than the manual: a later Falcon core
 has to match the real CPU's timing against the DSP56001, so every extra-early cycle here would
 break that pairing.
 
-On the current board build (F157x `3ff7c63`, in flash, 11 Nov 2026): Linux reports 2.13 BogoMIPS,
-about 8.6 MHz-equivalent (a real 16 MHz 68030 is about 3.95 BogoMIPS), and LOOPTEST from TT-RAM with
-the instruction cache on runs at 1428571 loops/s (same as F156). F157x keeps the F157 fixes but turns
-Phase A (2-clock paths) off pending a fix: with it on, GEM desktop icons were empty and clicks failed.
-clk_cpu030 Fmax 22.079 MHz (16 MHz target), LUT 46633 + ALU 5464. GEMBench 4.03 (EmuTOS 1.4,
-ST Medium, STE reference, Blitter/FPU off): Display 73 / CPU 198 / Average 107%. Earlier 132-135%
-results were on the TOS 2.06 ROM, so they are not like-for-like.
+In progress and known issues:
 
-Next, in this order:
+1. **Phase A (F157a) is off in F157x.** With it on, the EmuTOS desktop has no icons and menu clicks fail. Plan
+   (not started): split it into three switches (INIT/WRITEBACK overlap, decoder pipe depth, bus refill), build
+   each half to find which one empties the desktop, compare against F156 in the GHDL difftest on the EmuTOS icon
+   code, fix it in RTL, then repeat the click, LOOPTEST and Linux checks before flashing.
+2. **Change of flow (F157r) is to be redone.** The earlier BSR/JSR/RTS refill (26 clocks against 28; the manual
+   says 15) failed timing_pairs (clk_cpu030 17.184 MHz, -10.6 ns), so it was left out of F157u/x.
+3. **Remaining timing gaps** against the manual, for example `adda.l Dn,An` 4 clocks against 2, and immediate
+   shifts `lsl/lsr/asr #n` about 4.9 against 4.
+4. **FrontBench** is left for now (not a required check for F157).
+5. The **SD card write-path bug** (see [What doesn't work yet](#what-doesnt-work-yet)).
+6. **Dialogs that ignore clicks**: [P1] in [`docs/BUGS.md`](docs/BUGS.md) (TOS 2.06 Set Preferences). Something
+   similar was seen once on F157x in EmuTOS's Desktop configuration dialog (Cancel ignored, 11 Nov; not reproduced).
+7. **EmuTOS boots in ST Low.** Switch with Options > Change resolution > Medium; the change is lost at a cold boot
+   unless saved with Save desktop. GEMBench needs Medium (640x200).
+8. **GEMBench versions**: `gbref.st` is GEMBench 4.03 (the reference used throughout); `gb608.st` is GEMBENCH 6
+   (6.08 build, title 6.31), and its ratios are not comparable with 4.03.
+9. Later: the **64 MHz SDRAM / TT-RAM** restart (see
+   [`Atarist_030_wip/docs/SDRAM64_NOTES.md`](Atarist_030_wip/docs/SDRAM64_NOTES.md)), **NetBSD** as another CPU
+   test, and a pinned **credits cartridge** (an application cart that prints credits at startup, switchable in
+   `atarist.ini`).
+10. **SD card tidy-up (planned, David by hand):** the keepers are to be renamed to readable names
+   (`frontbench_stram.st`, `frontbench_ttram.st`, `linux.st`, `gembench6.st`, `ttram_bliton_blitfix.st`,
+   `looptest.st`, `gembench403_boot.st`), with the rest archived or moved to `unsure/`. Until that is done, the
+   docs use the current names.
 
-1. The **issue loop**: register-to-register instructions currently take 3 clocks, against the
-   manual's 2.
-2. The **taken-branch restart**: change-of-flow used to take 11 clocks against the manual's 6.
-   BRA is now 7, but BSR+RTS is still 28 against 15, and JSR/RTS is similarly high.
-3. Then a **restart of the 64 MHz SDRAM / TT-RAM work** against the current core (see
-   [`Atarist_030_wip/docs/SDRAM64_NOTES.md`](Atarist_030_wip/docs/SDRAM64_NOTES.md)), rather than
-   rebasing the old tree.
+When an item is finished, it moves into [What works now](#what-works-now-11-nov-2026) below.
 
-Also still open: the [SD card write-path bug](#what-doesnt-work-yet), and bringing up NetBSD as
-another CPU test.
-
-When an item is finished, it moves into [What works now](#what-works-now-9-nov-2026) below.
+## What works now (11 Nov 2026)
+- **Board build F157x (`3ff7c63`) in flash**: clk_cpu030 Fmax 22.079 MHz (16 MHz target, worst setup slack
+  +3.256 ns), 46633 LUT + 5464 ALU, timing_pairs pass, Gowin V1.9.12.03. EmuTOS 1.4 GEM desktop with labelled
+  icons; DISK A opens the A: window; menu and close clicks work.
+- **LOOPTEST** (`lta1.st`): ST-RAM 216684, TT-RAM caches off 557103, I-cache 1418439, I+D 1428571 loops/s (same as
+  F156). **Linux** (`lxa.st`) reaches the BusyBox shell, 2.13 BogoMIPS.
+- **GEMBench 4.03** (`gbref.st`, EmuTOS 1.4, ST Medium, STE reference, Blitter and FPU off): Display 73%, CPU 198%,
+  Average 107%. The earlier 132-135% results were on the TOS 2.06 ROM, so they are not like-for-like; no F156
+  EmuTOS run exists to compare against (unverified whether F157x is slower than F156 here).
+- **F157 issue-loop work (F157a-F157x, 10-11 Nov 2026)**, each change kept only if nothing runs faster than the
+  MC68030 User's Manual:
+  - F157a: 2-clock MOVEQ/MOVEA/CMP/TST by overlapping the next INIT with WRITEBACK ("Phase A"). **Disabled in F157x**
+    (see In progress), so these ops are back at F156 timing (not re-measured on the board).
+  - F157b: MOVE.L Dn,Dn and CLR Dn treat a destination-only write as WAW, not a source hazard
+    (`move.l d1,d0` 4 -> 2 clocks in sim; `move.l d0,d0` stays 4, a true RAW).
+  - F157f-F157k (REARM): ALU_REQ is not re-armed on shift/mul/div INIT+ACK and is held while the shifter/divider runs,
+    with a registered qualifier so timing_pairs passes.
+  - F157l/m/p: interrupt flags taken on one rising edge. Fixes the FrontBench hang seen after F157l (an interrupt
+    could latch one edge before early writeback was hidden). Recognition is one clock later than F156, never earlier.
+  - F157n/o: ADD-type (ADD/ADDQ/SUBQ/AND/OR/EOR/NEG/NOT) issues in 2 clocks via an operand forward confined to the
+    ALU ports (sim), so the address path timing is unchanged.
+  - F157q: the CPU pin address comes from a register (ADR_OUT_Q), so the ST bridge capture is flop-to-flop. Fixes the
+    recurring clk_cpu030 -> clk32_core timing pair.
+  - F157t/F157v (X flag): ADDX/SUBX keep the incoming extend bit at WRITEBACK, and X is sampled at ALU_INIT so an
+    interrupt during memory ABCD/SBCD/ADDX does not store with the updated X. Found with a new GHDL differential
+    test against F156 (`hdl/cpu030/sim/rtl/difftest/`).
+  - F157w: after a fill-only bus error, ADR_OUT_Q predicts the next D-cache fill address correctly (sim run_dcache
+    case 19 mismatch since F157q).
+  - F157x: Phase A switched off (`F157_PHASE_A=false` in control, decoder and bus interface). This fixes the
+    empty EmuTOS desktop (no icons) and the menu clicks that failed with Phase A on.
 
 ## What works now (9 Nov 2026)
 - **Speed overhaul merged** (F140-F156, tag `bank-2026-11-09-f156`): two-word opcode decode after an I-cache restart,
