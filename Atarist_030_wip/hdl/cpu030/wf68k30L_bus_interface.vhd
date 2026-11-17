@@ -101,6 +101,11 @@
 --     a fill-only BERR sets FB_ABx, the miss mask goes to 0000, and FILL_WADR jumps to the
 --     mux default DC_OA1&'1' (run_dcache case 19: Q=$8044 vs I=$8046, c19:2/0 vs 4/0).
 --   2026-11-05 F149: RESTART_PEND cleared on OPC_DISMISS; Q_HIT2 only while queue head is still the original restart pair.
+--   2026-11-17 F157y: do not take IC_HIT_DATA in the Q_MISS clock (F144 IC_MISS_LK mux of IC_LK_ADR
+--     to OPC_ADR). Gowin retimes the I-cache DATA_RAM read address ([C10]); that same-clock take
+--     can queue a stale long and hung Linux at tinit: busybox runs (bisect F143 PASS / F144 FAIL,
+--     17 Nov 2026). The following-clock IC_TAKE fills the restart long (F_ADR already updated).
+--     IC_MTAKE is now that safe-clock strobe so F147 RESTART_PEND / Q_HIT2 still see a restart take.
 -- 
 
 library work;
@@ -302,8 +307,8 @@ signal OBUFFER              : std_logic_vector(15 downto 0);
 signal OBUFFER_2            : std_logic_vector(15 downto 0); -- [F147]
 signal OPCODE_RDY_2_I       : bit := '0'; -- [F147]
 signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
-signal RESTART_PEND         : bit := '0'; -- [F147] IC_MTAKE restart, until the first OPCODE_RDY.
-signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at IC_MTAKE
+signal RESTART_PEND         : bit := '0'; -- [F147] restart I-cache take, until the first OPCODE_RDY.
+signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at the restart take
 constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour. [F156] on again
 constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
 -- [F157x] Phase A OFF with control and opcode_decoder (empty GEM desktop on the board).
@@ -388,8 +393,8 @@ signal RA_DROP              : bit; -- [F2] Not requested as expected: dropped, t
 signal OPC_LEGACY           : bit; -- Opcode request handled by an ordinary opcode cycle.
 signal PF_REQ_RAW           : bit; -- [IC] The queue wants the long word at F_ADR (cache or bus).
 signal Q_NMATCH             : bit; -- [F140]
-signal IC_MISS_LK           : bit; -- [F144]
-signal IC_MTAKE             : bit; -- [F144]
+signal IC_RESTART_WAIT      : bit := '0'; -- [F157y] Q_MISS with no prefetch in flight; fill on the next IC_TAKE
+signal IC_MTAKE             : bit; -- [F157y] safe-clock restart fill (IC_RESTART_WAIT and IC_TAKE); was F144 same-clock take
 signal IC_TAKE              : bit; -- [IC] ... and takes it from the instruction cache in this clock.
 signal CIIN_LAT             : std_logic := '0'; -- [IC] CIINn of the running portion (sampled at S4, P_CIIN).
 signal PF_CI0               : std_logic := '0'; -- [IC] CIIN was asserted on the finished portion of word 0 / word 1
@@ -1124,7 +1129,7 @@ begin
     Q_HIT <= '1' when Q_MATCH = '1' and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and Q_CNT /= 0 else
              '1' when Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else
              '1' when F157_PHASE_A and Q_NMATCH = '1' and Q_C(0) = '1' and OPC_RD_NEXT = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and OPC_RD = '1' and Q_DISMISS = '0' and Q_CNT /= 0 else '0'; -- [F157a]
-    -- [F147] Two words in the first queue hit after an IC_MTAKE restart (pipe empty, word 1 present).
+    -- [F147] Two words in the first queue hit after a restart I-cache take (pipe empty, word 1 present).
     -- [F149] Only while the queue head is still the original restart pair. Fallback switch F147_TWO_WORD.
     Q_HIT2 <= '1' when F147_TWO_WORD and Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1'
                    and Q_CNT >= 2 and Q_C(1) = '1' and Q_ADR = RESTART_ADR else '0';
@@ -1142,13 +1147,15 @@ begin
     -- cycle. With nothing cached (CIIN asserted on every cycle) IC_HIT is 0 and PF_REQ is the old request.
     PF_REQ <= PF_REQ_RAW and not To_Bit(IC_HIT) and not RMC_HOLD; -- [RMC1] no prefetch between the locked read and its write
     IC_TAKE <= PF_REQ_RAW and To_Bit(IC_HIT) and not Q_MISS and not RESET_CPU_I;
-    -- [F144] Stream restart (branch target, Q_MISS) with no prefetch in flight: look the requested long up in the
-    -- instruction cache in the restart clock and queue it at once (IC_MTAKE), one clock earlier than the IC_TAKE
-    -- of the next clock. The 68030 starts the target fetch from the cache when the branch resolves.
-    IC_MISS_LK <= '1' when Q_MISS = '1' and INFL = '0' and RMC_HOLD = '0' and RESET_CPU_I = '0' else '0';
-    IC_MTAKE <= IC_MISS_LK and To_Bit(IC_HIT);
-    IC_LK_ADR <= OPC_ADR(31 downto 2) when IC_MISS_LK = '1' else F_ADR(31 downto 2);
-    IC_LK_FC2 <= OPC_FC(2) when IC_MISS_LK = '1' else Q_FC(2); -- [F144]
+    -- [F157y] IC_LK_ADR is always the F_ADR register (F143). F144 muxed it to OPC_ADR in the Q_MISS
+    -- clock and filled from IC_HIT_DATA in that same clock (IC_MISS_LK / IC_MTAKE). That is unsafe
+    -- on Gowin: the I-cache DATA_RAM is a registered-address block RAM ([C10]), so TAG/VALID can
+    -- report a hit on OPC_ADR while HIT_DATA is still the previous F_ADR long. Q_MISS already
+    -- loads F_ADR, Q_ADR and Q_FC with the restart target; the next clock IC_TAKE fills from the
+    -- cache. IC_MTAKE is the strobe for that fill (F147 RESTART_PEND / Q_HIT2).
+    IC_LK_ADR <= F_ADR(31 downto 2);
+    IC_LK_FC2 <= Q_FC(2);
+    IC_MTAKE <= IC_RESTART_WAIT and IC_TAKE;
     -- [IC] Fill: every bus prefetch long reports its end with, per word, "no bus error and CIIN negated on its
     -- portion" (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache fills aligned longs whose two words are
     -- OK, assembles the longs of a misaligned stream (4n+2 start) from consecutive fetches, and checks EI, FI
@@ -1620,17 +1627,8 @@ begin
                     INFL_STALE <= '1';
                 end if;
             end if;
-            -- [F144] The restart long from the instruction cache (IC_MTAKE, see above).
-            if IC_MTAKE = '1' then
-                if OPC_ADR(1) = '0' then
-                    W(0) := IC_HIT_DATA(31 downto 16); F(0) := '0'; C(0) := '1';
-                    W(1) := IC_HIT_DATA(15 downto 0); F(1) := '0'; C(1) := '1'; CNT := 2;
-                    F_ADR <= OPC_ADR(31 downto 1) + "10";
-                else
-                    W(0) := IC_HIT_DATA(15 downto 0); F(0) := '0'; C(0) := '1'; CNT := 1;
-                    F_ADR <= OPC_ADR(31 downto 1) + '1';
-                end if;
-            end if;
+            -- [F157y] No same-clock IC_MTAKE fill. The following-clock IC_TAKE (above) queues
+            -- the restart long once F_ADR holds the target loaded by Q_MISS.
             -- [F65] Same decision as the FSM. A cancel that sends the bus to
             -- IDLE must not leave INFL set, or PF_REQ never fires again.
             if PF_CHAIN_GO = '1' and PF_DONE = '1' and CNT <= 2 then
@@ -1946,6 +1944,19 @@ begin
     OPCODE_RDY_2 <= OPCODE_RDY_2_I; -- [F147]
     OPCODE_VALID_2 <= OPCODE_VALID_2_I;
     OPCODE_TO_CORE_2 <= OBUFFER_2;
+
+    -- [F157y] Remember a Q_MISS with no prefetch in flight so the next IC_TAKE (F_ADR already
+    -- the restart target) can raise IC_MTAKE / RESTART_PEND. Cleared if the target is taken
+    -- from the cache, a bus prefetch starts, or a live prefetch completes instead.
+    P_IC_RESTART_WAIT: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if Q_MISS = '1' and INFL = '0' and RMC_HOLD = '0' and RESET_CPU_I = '0' then
+            IC_RESTART_WAIT <= '1';
+        elsif IC_TAKE = '1' or PF_START = '1' or RESET_CPU_I = '1' or (PF_DONE = '1' and INFL_STALE = '0') then
+            IC_RESTART_WAIT <= '0';
+        end if;
+    end process P_IC_RESTART_WAIT;
 
     P_RESTART_PEND: process -- [F147]
     begin
