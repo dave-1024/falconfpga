@@ -70,6 +70,7 @@
 --   2026-11-04 F147: two-word pipe fill 0->2 / 1->3 (OPCODE_RDY_2), fetch offset +2 words.
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 --   2026-11-09 F157a: OPC_RD_NEXT also when the pipe dropped to one word after an issue (PC still on the current opcode, queue head is the next word).
+--   2026-11-17 F158: revert F144 COF_BLK and the OPCODE_RD_I hold-off (Linux first-bad F144; F144a isolation reached ash).
 -- 
 
 library work;
@@ -222,7 +223,6 @@ signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
-signal COF_BLK              : bit := '0'; -- [F144]
 constant F157_PHASE_A       : boolean := false; -- [F157a] keep pipe at two words after a level-D issue.
 -- [F157x] Phase A OFF with control and bus_interface (empty GEM desktop on the board).
 signal F157_NEED_REFILL     : bit := '0'; -- [F157a] pulse: last clock issued a level-D word.
@@ -246,25 +246,11 @@ begin
                 OPCODE_RD_I <= '1';
             elsif (LOOP_ATN = true and OPCODE_RD_I = '0') or LOOP_BSY_I = true then
                 OPCODE_RD_I <= '0';
-            elsif ((COF_PEND = '1' or COF_BLK = '1') and PF_DEMAND = '0') and BUSY_EXH = '0' then
-                OPCODE_RD_I <= '0'; -- [F144] No stream read behind a pending change of flow (it would be dismissed).
             elsif IPIPE_PNTR < 3 then
                 OPCODE_RD_I <= '1';
             end if;
         end if;
     end process P_BSY;
-
-    -- [F144] BRA/BSR taken over by the control unit: its target replaces the stream, so the decoder starts
-    -- no further stream read (it would be dismissed by the flush and delay the target request two clocks).
-    P_COF_BLK: process
-    begin
-        wait until CLK = '1' and CLK' event;
-        if IPIPE_FLUSH = '1' or BUSY_EXH = '1' then
-            COF_BLK <= '0';
-        elsif OW_REQ = '1' and PIPE_RDY = '1' and (OP_I = BRA or OP_I = BSR) and LOOP_BSY_I = false then
-            COF_BLK <= '1';
-        end if;
-    end process P_COF_BLK;
 
     P_OPCODE_FLUSH: process
     -- If there is a pending opcode cycle during a pipe flush,
