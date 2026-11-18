@@ -157,6 +157,15 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F166: the F165 write overlap again for a following MOVE (F166_MV_OLAP). The operation part of WR_OLAP
+--     (which write-back operation, which waiting operation) is now a flip flop (WR_OLAP_Q) computed in the clock
+--     before from the same registered OP/BIW_0/OP_WB_I (they cannot change while the operation waits in INIT_EXEC_WB),
+--     so the acknowledge clock only ANDs WR_OLAP_Q with WR_RDY/DATA_VALID and the state flags (as the F157 REARM
+--     qualifier). MOVE's INIT terms use ALU_BSY_MV (ALU_BSY or WR_OLAP; no F3_EARLY/WR_EARLY MOVEM term), and the
+--     MOVE destination address mode is selected for the whole INIT_EXEC_WB stay (F166_MV_AMODE, not only once the
+--     ALU is free): AR_SEL_RD_1/AMODE_SEL already point at the destination there and nothing else reads the
+--     address unit while the operation waits, so the acknowledge is not in the ADR_MODE -> address chain.
+--     MOVE Dn,(An)/-(An)/(An)+ 6 -> 5, Dn,d16(An) 8 -> 7, Dn,abs.L 9 -> 8 clocks (back to back).
 --   2026-11-18 F165: memory-source operations with a data register destination (MOVE <ea>,Dn, ADD/SUB/AND/OR/CMP
 --     <ea>,Dn, TST <ea>, CMPI/BTST #,<ea>) ask for the next operation word in INIT_EXEC_WB (F165_MEM_EI, as the
 --     F141 register-only early issue): the operand read is complete and valid (RD_OK), so nothing can fault any
@@ -509,6 +518,11 @@ constant F165_MEM_FAST      : boolean := true; -- [F165] mem-source ops to Dn: A
     signal MEM_FAST             : bit; -- [F165]
 constant F165_WR_OLAP       : boolean := true; -- [F165] next op loads in the write-acknowledge clock (Option A, generalised).
     signal WR_OLAP              : bit; -- [F165]
+constant F166_MV_OLAP       : boolean := true; -- [F166] WR_OLAP for a following MOVE, registered operation qualifier.
+constant F166_MV_AMODE      : boolean := true; -- [F166] MOVE destination address mode for the whole INIT_EXEC_WB stay.
+    signal WR_OLAP_Q            : bit := '0'; -- [F166] registered WR_OLAP operation qualifier.
+    signal WR_OLAP_OPS          : bit; -- [F166] its input (operation lists).
+    signal ALU_BSY_MV           : bit; -- [F166] ALU busy as seen by MOVE's INIT terms.
 constant F165_EW_B2B        : boolean := true; -- [F165] back-to-back extension word requests.
 constant F162_BCC_INIT      : boolean := true; -- [F162] taken Bcc.B that missed the OPD_ACK clock (ALU busy) flushes in INIT.
     signal BCC_INIT             : bit; -- [F162]
@@ -556,15 +570,35 @@ begin
                  '0' when F3_EARLY = '1' else
                  '0' when WR_OLAP = '1' else '1'; -- [F165]
     -- [F165] Write acknowledged without a fault (posted S3 or S5): the next operation may load now.
-    WR_OLAP <= '1' when F165_WR_OLAP and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' and
-                        WFLT = '0' and FETCH_STATE = INIT_EXEC_WB and
-                        (OP_WB_I = MOVE or OP_WB_I = CLR or OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B or
+    -- [F166] Registered operation qualifier: OP/BIW_0 (waiting operation) and OP_WB_I (write in WRITE_DEST) are
+    -- flip flops that do not change while the operation waits in INIT_EXEC_WB and its predecessor is in WRITE_DEST
+    -- (OP is final before FETCH_DEC enters INIT_EXEC_WB, OP_WB_I loads with ALU_INIT), so their value of the clock
+    -- before is the value of the acknowledge clock (checked by P_WO_CHK in simulation).
+    WR_OLAP_OPS <= '1' when (OP_WB_I = MOVE or OP_WB_I = CLR or OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B or
                          OP_WB_I = EOR or OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = ADDI or OP_WB_I = SUBI or
                          OP_WB_I = ANDI or OP_WB_I = ORI or OP_WB_I = EORI or OP_WB_I = NEG or OP_WB_I = NOT_B) and
-                        (OP = CLR or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR or -- not MOVE (its INIT terms see ALU_BSY: timing)
+                        ((F166_MV_OLAP and OP = MOVE) or -- [F166]
+                         OP = CLR or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR or
                          OP = CMP or OP = TST or OP = CMPI or OP = MOVEQ or OP = EXT or OP = SWAP or
                          ((OP = ADDQ or OP = SUBQ) and BIW_0(5 downto 3) /= "001") or
                          OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = NEG or OP = NOT_B) else '0';
+    P_WO_Q: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        WR_OLAP_Q <= WR_OLAP_OPS;
+    end process P_WO_Q;
+    -- synthesis translate_off
+    P_WO_CHK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        assert not (WR_OLAP = '1' and WR_OLAP_OPS = '0')
+            report "F166: WR_OLAP_Q set but the operation lists are not met" severity failure;
+    end process P_WO_CHK;
+    -- synthesis translate_on
+    WR_OLAP <= '1' when F165_WR_OLAP and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' and
+                        WFLT = '0' and FETCH_STATE = INIT_EXEC_WB and WR_OLAP_Q = '1' else '0';
+    -- [F166] MOVE's INIT terms: no MOVEM (F3_EARLY, WR_EARLY) term.
+    ALU_BSY_MV <= '0' when ALU_BSY = '0' or WR_OLAP = '1' else '1';
     -- [F3] Back-to-back MOVEM register-to-memory writes. The outcome of a posted write is final in the S3 clock
     -- of its last portion (WR_EARLY = WP_GO: DSACK, no bus error, no retry), and its data and address are in the
     -- bus latches. The next register is loaded there (the same set-up as in the DATA_RDY clock, one clock earlier,
@@ -929,7 +963,7 @@ begin
                   "101" when OP = MOVEP else -- (d16, An).
                   -- The following two conditions change the address mode right in the end of the fetch phase. 
                   "010" when (OP = JSR or OP = PEA) and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else -- (A7).
-                  BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else
+                  BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and (F166_MV_AMODE or ALU_BSY = '0') else -- [F166]
                   BIW_0(8 downto 6) when OP = MOVE and PHASE2 = true else
                   BIW_0(5 downto 3); 
 
@@ -2120,7 +2154,7 @@ begin
             PHASE2 <= true; -- One clock cycle delay for address calculation.
         elsif OP = RTR and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE = CALC_AEFF then
             PHASE2 <= true; -- Used as a control flow switch.
-        elsif OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' and BIW_0(8 downto 6) > "100" then
+        elsif OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY_MV = '0' and BIW_0(8 downto 6) > "100" then -- [F166] _MV
             PHASE2 <= true; -- Indicate destination address calculation is in progress.
         end if;
     end process PHASE2_CONTROL;
