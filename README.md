@@ -93,57 +93,78 @@ there is a proven open-source ST/STE core to build on (MiSTeryNano), lots of kno
 against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards (TerribleFire) to compare with. So the
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
-## Currently working on (11 Nov 2026)
-The active work is making the 68030 core as close as possible to Motorola's MC68030 User's Manual
-cycle timing, running at 16 MHz. Nothing may finish *faster* than the manual: a later Falcon core
-has to match the real CPU's timing against the DSP56001, so every extra-early cycle here would
-break that pairing.
+## What's working now (18 Nov 2026)
+Everything below has been checked on the real board (Tang Console 138K) with the build in flash, F163 (main `fb91331`).
 
-In progress and known issues:
+- **TOS 2.06** boots to the GEM desktop with the menu bar spaced correctly, and the A: floppy window opens.
+- **EmuTOS 1.4** boots to the GEM desktop with its icons; double-clicking DISK A opens the A: window and menus work.
+- **Linux/m68k 6.18** boots from a floppy image (`linux68k30.st`) to the BusyBox `ash` prompt, and `uname` prints
+  `Linux`. It reports 2.94 BogoMIPS.
+- **FreeMiNT with memory protection**, XaAES and TeraDesk (last checked 31 Oct 2026, see below).
+- **The 68030 PMMU** (memory management unit): address translation, the translation cache, transparent translation
+  and all the MMU instructions.
+- **Instruction and data caches** inside the 68030, and **16 MB of TT-RAM** (fast RAM only the 68030 sees).
+- **Floppy and hard disk images on the SD card**, USB keyboard and mouse, the on-screen menu, and HDMI video.
+- **Blitter** with TOS 2.06 (switched on with BLITON; use BLITFIX together with TT-RAM).
+- The CPU runs at 16 MHz. The work now is making each instruction take the same number of clock cycles as
+  Motorola's MC68030 User's Manual says. Where an exact match isn't possible, slightly faster is preferred to slower.
 
-1. **Phase A (F157a) is off in F157x.** With it on, the EmuTOS desktop has no icons and menu clicks fail. Plan
-   (not started): split it into three switches (INIT/WRITEBACK overlap, decoder pipe depth, bus refill), build
-   each half to find which one empties the desktop, compare against F156 in the GHDL difftest on the EmuTOS icon
-   code, fix it in RTL, then repeat the click, LOOPTEST and Linux checks before flashing. This is also the first
-   step of the BogoMIPS plan below: with Phase A off, SUBQ in the delay loop is 3 clocks instead of the manual's 2.
-2. **BogoMIPS / taken-branch timing (sim of F157x, 11 Nov 2026).** The Linux delay loop (`subq.l #1,Dn; bcc`) is
-   10.98 clocks per pass in sim with the I-cache on, against 8 in MC68030UM Section 11 (caches off, 0 wait: 26.08;
-   3 wait: 44.14). The board measures about 15 clocks (2.13 BogoMIPS at 16 MHz; a 16 MHz 030 at the manual's 8
-   clocks would be about 4). Where the extra clocks go: SUBQ 3 instead of 2 (Phase A off); the Bcc condition is
-   evaluated after the ALU handshake (`wf68k30L_control.vhd` around 1348, 1370-1376 and 1398); the refill request
-   starts a clock late after the flush (`wf68k30L_opcode_decoder.vhd` around 244-246 and 875-889); an I-cache hit
-   takes 2 clocks to deliver (`wf68k30L_bus_interface.vhd` around 1143-1149 and 1570-1630). Plan for Monday
-   16 Nov 2026, in order (never faster than the manual): (1) fix and re-enable Phase A (-1 on SUBQ); (2) evaluate
-   the Bcc condition from the CCR at issue when there is no flag hazard (-1); (3) start the I-cache lookup in the
-   flush clock, registering the displacement add, because the earlier F157r BSR/JSR/RTS refill (26 clocks against
-   the manual's 15) failed timing_pairs (clk_cpu030 17.184 MHz, -10.6 ns) and was left out of F157u/x (-1);
-   (4) optional same-clock I-cache hit (-1). The same late-refill path also costs `bra.s` (8.3 against 6), taken
-   DBcc (+2 each), JMP, JSR, RTS and BSR, so the fix applies to those too. Open: about 4 clocks per pass are lost
-   only on the board (sim 11 against board ~15); possible causes are interrupts during calibration, I-cache state,
-   or ST/TT-RAM or bridge delays; next step is a sim with the ST memory model and timer interrupts (ST=1,
-   IPL_MODE=3). Notes: [`Atarist_030_wip/docs/BOGOMIPS_LOOP.md`](Atarist_030_wip/docs/BOGOMIPS_LOOP.md).
-3. **Remaining timing gaps** against the manual, for example `adda.l Dn,An` 4 clocks against 2, and immediate
-   shifts `lsl/lsr/asr #n` about 4.9 against 4.
-4. **FrontBench** is left for now (not a required check for F157).
-5. The **SD card write-path bug** (see [What doesn't work yet](#what-doesnt-work-yet)).
-6. **Dialogs that ignore clicks**: [P1] in [`docs/BUGS.md`](docs/BUGS.md) (TOS 2.06 Set Preferences). Something
-   similar was seen once on F157x in EmuTOS's Desktop configuration dialog (Cancel ignored, 11 Nov; not reproduced).
-7. **EmuTOS boots in ST Low.** Switch with Options > Change resolution > Medium; the change is lost at a cold boot
-   unless saved with Save desktop. GEMBench needs Medium (640x200).
-8. **GEMBench versions**: `gbref.st` is GEMBench 4.03 (the reference used throughout); `gb608.st` is GEMBENCH 6
-   (6.08 build, title 6.31), and its ratios are not comparable with 4.03.
-9. Later: the **64 MHz SDRAM / TT-RAM** restart (see
-   [`Atarist_030_wip/docs/SDRAM64_NOTES.md`](Atarist_030_wip/docs/SDRAM64_NOTES.md)), **NetBSD** as another CPU
-   test, and a pinned **credits cartridge** (an application cart that prints credits at startup, switchable in
-   `atarist.ini`).
-10. **SD card tidy-up (planned, David by hand):** the keepers are to be renamed to readable names
-   (`frontbench_stram.st`, `frontbench_ttram.st`, `linux.st`, `gembench6.st`, `ttram_bliton_blitfix.st`,
-   `looptest.st`, `gembench403_boot.st`), with the rest archived or moved to `unsure/`. Until that is done, the
-   docs use the current names.
+## Being worked on now
+- **Calls to code at an odd word address.** When a subroutine starts halfway into a 4-byte block (address 4n+2,
+  about half of all subroutines, because compilers only align to 2 bytes), the instruction cache never kept the first
+  word. So every call to it went back to memory for that word, and a call plus return took about 32 clocks instead of
+  the manual's 15 to 17. The fix (F164, on the `speed` branch) lets the cache keep each word on its own, so those
+  calls hit the cache like a real 68030 does. In simulation a call plus return drops from 32-33 to 18-22 clocks.
+  It still has to pass the board tests before it goes into flash.
 
-When an item is finished, it moves into [What works now](#what-works-now-11-nov-2026) below.
+## Identified to-do
+From a survey of 95 instructions against the manual (`f163` cycle survey, 18 Nov 2026), the biggest remaining gaps:
 
-## What works now (11 Nov 2026)
+1. **Calls and returns**: the odd-address case above, then about 3 to 4 clocks over the manual even when the
+   subroutine is aligned.
+2. **Instructions that read memory** (for example `MOVE (An),Dn`, `ADD`, `CMP`, `TST` from memory): 4 to 7 clocks over.
+   The steps after the data arrives run one after another instead of overlapping.
+3. **Instructions that write memory**, and read-modify-write ones (`ADD Dn,(An)`): 2 to 7 clocks over.
+4. **Large `MOVEM` lists** (8 registers: 21 clocks over) and the **`LINK`/`UNLK`** pair (20 against 9).
+5. **Small register and branch gaps**: `MOVE.L Dn,Dn` 3 against 2, `ADDA.L` 4 against 2, shifts by a number 6
+   against 4, `BRA.S` 7 against 6, a taken word-size branch 9 against 6.
+
+Other known problems:
+- **Medium resolution bug**: under TOS 2.06, the Set Preferences dialog stops taking clicks when choosing ST Medium,
+  and a medium-res `DESKTOP.INF` crashed earlier. Probably one fault, still to be found ([P1] in
+  [`docs/BUGS.md`](docs/BUGS.md)).
+- **Trace bug**: turning on instruction tracing (the T1 bit) from supervisor mode just before a `BSR` loops forever.
+- **FrontBench** is to be re-run once the speed work is done.
+- The SD card write-path bug and the rest of [What doesn't work yet](#what-doesnt-work-yet).
+- Later: the 64 MHz SDRAM / TT-RAM restart ([`Atarist_030_wip/docs/SDRAM64_NOTES.md`](Atarist_030_wip/docs/SDRAM64_NOTES.md)),
+  NetBSD as another CPU test, a credits cartridge, and the SD card tidy-up (readable image names).
+
+Tips: EmuTOS boots in ST Low; GEMBench needs ST Medium (Options > Change resolution). `gbref.st` is GEMBench 4.03 and
+`gb608.st` is GEMBENCH 6 (title 6.31); their scores can't be compared with each other.
+
+## Speedups so far (F158 -> F163, 16-18 Nov 2026)
+Measured on the board at 16 MHz, except the clock counts, which come from simulation against the manual.
+
+| Test | F158 (16 Nov) | F163 (18 Nov) | Change |
+|---|---|---|---|
+| LOOPTEST, TT-RAM with the instruction cache on (loops/s) | 1,418,439 | 1,960,784 | +38% |
+| LOOPTEST, ST-RAM (loops/s) | 216,684 | 325,203 | +50% |
+| Linux BogoMIPS | 2.11 | 2.94 | +39% |
+
+| Instruction (clock cycles) | F163 | Manual |
+|---|---|---|
+| Simple register maths (`ADD`, `SUB`, `ADDQ`, `MOVEQ`, `CMP`, `TST` on registers) | same as manual | 2 |
+| Count-down loop `subq.l #1,d0; bcc.s` (Linux delay loop) | 8 | 8 |
+| `DBF` loop of 8 passes | 59.5 | 54 |
+| `BSR` + `RTS`, subroutine aligned | 18 | 15 |
+| `BSR` + `RTS`, subroutine at an odd word (being fixed) | 32 | 15 |
+| `MOVE.L (An),Dn` | 9 | 5 |
+| `LINK` + `UNLK` | 20 | 9 |
+
+Details: [`Atarist_030_wip/docs/HISTORY.md`](Atarist_030_wip/docs/HISTORY.md) item 28 and
+[`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md).
+
+## What worked on 11 Nov 2026 (history)
 - **Board build F157x (`3ff7c63`) in flash**: clk_cpu030 Fmax 22.079 MHz (16 MHz target, worst setup slack
   +3.256 ns), 46633 LUT + 5464 ALU, timing_pairs pass, Gowin V1.9.12.03. EmuTOS 1.4 GEM desktop with labelled
   icons; DISK A opens the A: window; menu and close clicks work.
@@ -301,7 +322,8 @@ in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 - **Individual Computers**: the ACA1230-55N used as the real-030 instruction oracle
 - **exxos**: GEMBENCH and the ST536 TOS 2.06 images used as test references
 - **agranlund**: `tftools` (fastram, maprom, blitfix) referenced for the ST536/TF536 TOS notes
-- **Łukasz Jokiel**: bug testing on his own Tang Console 138K, and finding that Gowin V1.9.12.04 builds give no HDMI sync
+- **Łukasz Jokiel**: bug testing on his own Tang Console 138K, finding that Gowin V1.9.12.04 builds give no HDMI sync,
+  and finding the bug where the TOS 2.06 menu bar text was squashed up (stacked)
 
 If a name is missing or something is credited wrongly, please say so and it
 will be fixed.
