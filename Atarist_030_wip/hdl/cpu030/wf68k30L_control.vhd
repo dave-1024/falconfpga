@@ -157,6 +157,24 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F165: memory-source operations with a data register destination (MOVE <ea>,Dn, ADD/SUB/AND/OR/CMP
+--     <ea>,Dn, TST <ea>, CMPI/BTST #,<ea>) ask for the next operation word in INIT_EXEC_WB (F165_MEM_EI, as the
+--     F141 register-only early issue): the operand read is complete and valid (RD_OK), so nothing can fault any
+--     more. No address register destination (F145/F159 An early-issue race); (An)+/-(An) are updated before INIT.
+--     F165_MEM_FAST: the same operations skip INIT_EXEC_WB when the ALU is idle: in the FETCH_OPERAND clock their
+--     read ends (RD_RDY with DATA_VALID; DATA_TO_CORE = DBUFFER) the operand goes straight into the ALU (ALU_INIT),
+--     the destination Dn is marked and the next operation word is requested, and the state goes to START_OP (as
+--     the F161 RTS). Not with trace, an interrupt hot, an exception request, loop mode, an MMU operation or a
+--     write fault (INT_TRIG needs INIT/SLEEP; those cases keep the INIT path). MOVE/ADD (An),Dn 9 -> 7 clocks.
+--     F165_WR_OLAP: Option A (MOVEM) for single-write operations: the next operation waiting in INIT_EXEC_WB is
+--     loaded in the clock the write is acknowledged without a fault (WR_RDY with DATA_VALID; data and address are
+--     in the bus latches), WRITE_DEST -> EXECUTE. Old: MOVE/CLR/ADD/SUB/AND/OR/EOR/ADDQ/SUBQ/ADDI/SUBI/ANDI/ORI/
+--     EORI/NEG/NOT to memory. New: those except MOVE, plus CMP/TST/CMPI, MOVEQ, EXT, SWAP (no address register
+--     destination, no padded ALU operation). Not a following MOVE: making MOVE's INIT terms (ADR_MODE, PHASE2) see
+--     the write acknowledge put WR_EARLY in front of the PHASE2/DR_SEL/NEXT_FETCH_STATE chain (14.2 MHz). One clock.
+--     F165_EW_B2B: the next extension word is requested in the clock the previous one is acknowledged in
+--     FETCH_ABS_HI, FETCH_IDATA_B2, FETCH_D_HI and FETCH_OD_HI (decoded from FETCH_STATE, not NEXT_FETCH_STATE,
+--     for timing), so the low word is there on entry: abs.L, #.L and 32-bit displacements one clock shorter.
 --   2026-11-18 F163: CCR_IN is forwarded from the ALU on its ALU_ACK clock, so a taken Bcc.B may decide early (BCC_EARLY)
 --     while ADDQ/SUBQ/CMP/TST/ADD/SUB/AND/OR/EOR/MOVEQ (register destination) finishes (F163_CCR_FWD).
 --     subq/bcc.s loop 9 -> 8 clocks (MC68030UM 8).
@@ -483,6 +501,15 @@ constant EI_G3_ADDI         : boolean := true; -- ADDI..CMPI #,Dn
 constant EI_G4_MOVE         : boolean := true; -- MOVE/MOVEA reg-reg
 constant EI_G5_SHIFT        : boolean := true; -- ASL..ROXR register (size /= "11")
 constant EI_G6_BIT          : boolean := true; -- BTST/BCHG/BCLR/BSET Dn
+constant F165_MEM_EI        : boolean := true; -- [F165] early OW_REQ for memory-source ops to Dn (operand read done).
+    signal RD_OK                : bit := '0'; -- [F165] this instruction's operand read(s) completed without a bus error.
+    signal MEM_EI               : bit; -- [F165]
+constant F165_MEM_FAST      : boolean := true; -- [F165] mem-source ops to Dn: ALU_INIT in the read-ready clock, no INIT.
+    signal MEM_OPS              : bit; -- [F165] operation/mode qualifies for MEM_EI / MEM_FAST.
+    signal MEM_FAST             : bit; -- [F165]
+constant F165_WR_OLAP       : boolean := true; -- [F165] next op loads in the write-acknowledge clock (Option A, generalised).
+    signal WR_OLAP              : bit; -- [F165]
+constant F165_EW_B2B        : boolean := true; -- [F165] back-to-back extension word requests.
 constant F162_BCC_INIT      : boolean := true; -- [F162] taken Bcc.B that missed the OPD_ACK clock (ALU busy) flushes in INIT.
     signal BCC_INIT             : bit; -- [F162]
 constant F162_MQ            : boolean := true; -- [F162] MOVEQ written in EXECUTE like the F157c ops.
@@ -526,7 +553,18 @@ begin
     ALU_BSY_M <= '0' when ALU_BSY = '0' else
                  '0' when OP = MOVEM and OP_WB_I = MOVEM and BIW_0(10) = '0' and BIW_0_WB(10) = '0' and
                           EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' else
-                 '0' when F3_EARLY = '1' else '1';
+                 '0' when F3_EARLY = '1' else
+                 '0' when WR_OLAP = '1' else '1'; -- [F165]
+    -- [F165] Write acknowledged without a fault (posted S3 or S5): the next operation may load now.
+    WR_OLAP <= '1' when F165_WR_OLAP and EXEC_WB_STATE = WRITE_DEST and WR_RDY = '1' and DATA_VALID = '1' and
+                        WFLT = '0' and FETCH_STATE = INIT_EXEC_WB and
+                        (OP_WB_I = MOVE or OP_WB_I = CLR or OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B or
+                         OP_WB_I = EOR or OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = ADDI or OP_WB_I = SUBI or
+                         OP_WB_I = ANDI or OP_WB_I = ORI or OP_WB_I = EORI or OP_WB_I = NEG or OP_WB_I = NOT_B) and
+                        (OP = CLR or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR or -- not MOVE (its INIT terms see ALU_BSY: timing)
+                         OP = CMP or OP = TST or OP = CMPI or OP = MOVEQ or OP = EXT or OP = SWAP or
+                         ((OP = ADDQ or OP = SUBQ) and BIW_0(5 downto 3) /= "001") or
+                         OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = NEG or OP = NOT_B) else '0';
     -- [F3] Back-to-back MOVEM register-to-memory writes. The outcome of a posted write is final in the S3 clock
     -- of its last portion (WR_EARLY = WP_GO: DSACK, no bus error, no retry), and its data and address are in the
     -- bus latches. The next register is loaded there (the same set-up as in the DATA_RDY clock, one clock earlier,
@@ -561,7 +599,8 @@ begin
               '0' when OPD_ACK = '1' or OW_RDY = '1' else
               '1' when NO_PIPELINE = true and FETCH_STATE = START_OP and ALU_BSY = '0' else
               '1' when NO_PIPELINE = false and FETCH_STATE = START_OP else
-              '1' when NO_PIPELINE = false and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE = START_OP and EARLY_OW = '1' else '0'; -- [F141]
+              '1' when NO_PIPELINE = false and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE = START_OP and EARLY_OW = '1' else -- [F141]
+              '1' when NO_PIPELINE = false and MEM_FAST = '1' else '0'; -- [F165]
 
     -- [F141] Early issue. A register-only instruction that leaves INIT_EXEC_WB for START_OP asks for the next
     -- operation word in INIT_EXEC_WB already, so the decoder's (registered) acknowledge arrives in the START_OP
@@ -584,13 +623,52 @@ begin
                          (BIW_0(8 downto 6) = "000" or BIW_0(8 downto 6) = "001") else
                 '1' when EI_G5_SHIFT and (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
                          BIW_0(7 downto 6) /= "11" else
-                '1' when EI_G6_BIT and (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
+                '1' when EI_G6_BIT and (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else
+                MEM_EI; -- [F165]
+
+    -- [F165] Memory source, data register destination: in INIT_EXEC_WB the operand is in the ALU and its read
+    -- ended without a bus error (RD_OK), so the instruction cannot fault and the next operation word may be
+    -- requested now. Immediate sources (#) have no read and are always final. Never an address register
+    -- destination (F145/F159 An early-issue race).
+    MEM_OPS <= '0' when BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001" else -- Register source: F141 groups.
+               '1' when OP = MOVE and BIW_0(8 downto 6) = "000" else
+               '1' when (OP = ADD or OP = SUB or OP = AND_B or OP = OR_B) and BIW_0(8) = '0' else
+               '1' when OP = CMP or OP = TST else
+               '1' when (OP = CMPI or OP = BTST) else '0';
+    MEM_EI <= '0' when not F165_MEM_EI or LOOP_BSY = '1' else
+              '0' when RD_OK = '0' and not (BIW_0(5 downto 0) = "111100") else -- Read not done / bus error.
+              MEM_OPS;
+
+    -- [F165] Read-ready clock: load the ALU from DATA_TO_CORE (DBUFFER, registered with DATA_RDY) and leave for
+    -- START_OP. The Dn operand of ADD/SUB/AND/OR/CMP/BTST must be final (DR_IN_USE), as in the FETCH_OPERAND
+    -- decision of the INIT path. MOVE/TST/CMPI read no data register. ALU_BSY = '0': no operation in EXECUTE,
+    -- WRITEBACK or WRITE_DEST.
+    MEM_FAST <= '0' when not F165_MEM_FAST or FETCH_STATE /= FETCH_OPERAND or RD_RDY = '0' or DATA_VALID /= '1' else
+                '0' when MEM_OPS = '0' or ALU_BSY = '1' or LOOP_BSY = '1' or OP = BTST else -- BTST: bit number path not checked.
+                '0' when TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' else
+                '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' or WR_FLT = '1' or WFLT = '1' else
+                '0' when DR_IN_USE = '1' and OP /= MOVE and OP /= TST and OP /= CMPI else '1';
+
+    P_RD_OK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE = START_OP then
+            RD_OK <= '0';
+        elsif FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' then
+            if DATA_VALID = '1' then
+                RD_OK <= '1';
+            else
+                RD_OK <= '0';
+            end if;
+        end if;
+    end process P_RD_OK;
 
     -- [F157a] Only register-only ops (the F141 EARLY_OW set) may take INIT during the
     -- previous WRITEBACK. Multi-phase MOVE/ORI to memory would otherwise ALU_INIT and
     -- then WRITE_DEST with PHASE2 still false (wrong address; prog_mrmw).
     F157_OLAP <= '1' when F157_PHASE_A and EXEC_WB_STATE = WRITEBACK and EARLY_OW = '1' else '0';
     F157_ALU_FREE <= true when ALU_BSY = '0' else
+                     true when WR_OLAP = '1' else -- [F165]
                      true when F157_OLAP = '1' else false;
 
     -- [F157c] Register-destination single-cycle INT/LOG ops: RESULT is valid
@@ -649,7 +727,10 @@ begin
         end if;
     end process DATA_AVAILABLE;
 
-    EW_REQ <= '0' when EW_ACK = '1' or EW_RDY = '1' else
+    -- [F165] Decoded from FETCH_STATE only (not NEXT_FETCH_STATE: timing): these states always go on to the low word on EW_ACK.
+    EW_REQ <= '1' when F165_EW_B2B and EW_ACK = '1' and (FETCH_STATE = FETCH_ABS_HI or FETCH_STATE = FETCH_IDATA_B2 or
+                       FETCH_STATE = FETCH_D_HI or FETCH_STATE = FETCH_OD_HI) else
+              '0' when EW_ACK = '1' or EW_RDY = '1' else
               '1' when FETCH_STATE = FETCH_DISPL or FETCH_STATE = FETCH_EXWORD_1 else 
               '1' when FETCH_STATE = FETCH_D_HI or FETCH_STATE = FETCH_D_LO else 
               '1' when FETCH_STATE = FETCH_OD_HI or FETCH_STATE = FETCH_OD_LO else
@@ -791,7 +872,8 @@ begin
                 '0' when OP = PEA and ADR_MODE_I = "001" and BIW_0(2 downto 0) = "111" else
                 '1' when ALU_INIT_I = '1' else '0';
 
-    LOAD_OP2 <= '1' when (OP = ABCD or OP = SBCD) and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and PHASE2 = false else
+    LOAD_OP2 <= '1' when MEM_FAST = '1' else -- [F165] no INIT_ENTRY on the fast path: Dn / memory operand now.
+                '1' when (OP = ABCD or OP = SBCD) and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and PHASE2 = false else
                 '1' when (OP = ADDX or OP = SUBX) and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and PHASE2 = false else
                 '1' when (OP = ABCD or OP = SBCD) and FETCH_STATE = INIT_EXEC_WB and BIW_0(3) = '0' else -- Register direct.
                 '1' when (OP = ADDX or OP = SUBX) and FETCH_STATE = INIT_EXEC_WB and BIW_0(3) = '0' else -- Register direct.
@@ -1558,7 +1640,8 @@ begin
 
     -- [F157a] A new ALU_INIT may overlap the current WRITEBACK (ALU_BSY still set until this
     -- clock's ALU_ACK). Without this, ALU_TRIG stays low and the next op never loads.
-    ALU_TRIG <= '0' when (ALU_BSY_M = '1' and F157_OLAP = '0') or FETCH_STATE /= INIT_EXEC_WB else
+    ALU_TRIG <= '1' when MEM_FAST = '1' else -- [F165] read-ready clock, ALU idle.
+                '0' when (ALU_BSY_M = '1' and F157_OLAP = '0') or FETCH_STATE /= INIT_EXEC_WB else
                 '0' when WR_FLT = '1' or WFLT = '1' else -- [FLT1] Nothing new after a data write fault.
                 '0' when BCC_INIT = '1' else -- [F162] decided from the live CCR, no ALU.
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
@@ -1708,6 +1791,7 @@ begin
     DR_MARK_USED <= '1' when OP_WB_I = CAS and EXEC_WB_STATE = EXECUTE and ALU_COND = false else
                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = EXECUTE and ALU_COND = false else
                     '1' when OP_WB_I = CAS2 and EXEC_WB_STATE = WRITEBACK and PHASE2 = false else
+                    '1' when MEM_FAST = '1' and (OP = MOVE or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B) else -- [F165] Dn destination.
                     '0' when FETCH_STATE /= INIT_EXEC_WB or NEXT_FETCH_STATE = INIT_EXEC_WB else -- Deactivate except in the end of INIT_EXEC_WB.
                     '1' when (OP = ABCD or OP = SBCD) and BIW_0(3) = '0' else
                     '1' when (OP = ADDX or OP = SUBX) and BIW_0(3) = '0' else
@@ -2188,7 +2272,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, BCC_INIT, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, BCC_INIT, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, MEM_FAST, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2916,6 +3000,8 @@ begin
             when FETCH_OPERAND =>
                 if RTS_EARLY then
                     NEXT_FETCH_STATE <= START_OP; -- [F161] PC_LOAD from DATA_TO_CORE and flush now.
+                elsif MEM_FAST = '1' then
+                    NEXT_FETCH_STATE <= START_OP; -- [F165] ALU loaded from DATA_TO_CORE now, next opword requested.
                 elsif RD_RDY = '1' then
                     case OP is
                         when ABCD | ADDX | SBCD | SUBX =>
@@ -3224,7 +3310,7 @@ begin
         end case;
     end process FETCH_DEC;
 
-    EXEC_WB_DEC: process(ALU_COND, ALU_INIT_I, ALU_REQ, BIW_0_WB, BIW_1_WB, BF_BYTES, EXEC_WB_STATE, FETCH_STATE, MOVEM_INH_WR, OP_WB_I, PHASE2, WR_RDY, MV_RW_WB) -- [F145] MV_RW_WB
+    EXEC_WB_DEC: process(ALU_COND, ALU_INIT_I, ALU_REQ, BIW_0_WB, BIW_1_WB, BF_BYTES, EXEC_WB_STATE, FETCH_STATE, MOVEM_INH_WR, OP_WB_I, PHASE2, WR_RDY, MV_RW_WB, WR_OLAP) -- [F145] MV_RW_WB [F165] WR_OLAP
     begin
         case EXEC_WB_STATE is
             when IDLE =>
@@ -3387,7 +3473,12 @@ begin
                             else
                                 NEXT_EXEC_WB_STATE <= IDLE;
                             end if;
-                        when others => NEXT_EXEC_WB_STATE <= IDLE;
+                        when others =>
+                            if WR_OLAP = '1' and ALU_INIT_I = '1' then
+                                NEXT_EXEC_WB_STATE <= EXECUTE; -- [F165] next operation loaded in the acknowledge clock.
+                            else
+                                NEXT_EXEC_WB_STATE <= IDLE;
+                            end if;
                     end case;
                 else
                     NEXT_EXEC_WB_STATE <= WRITE_DEST;
