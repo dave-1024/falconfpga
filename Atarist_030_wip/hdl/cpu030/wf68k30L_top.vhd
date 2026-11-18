@@ -163,6 +163,7 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-18 F160: STATUS_REG(4 downto 0) to the control unit (CCR_IN, early taken Bcc.B).
 --   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
 --   2026-11-03 F140: OPC_RD_NEXT from the decoder to the bus interface (back-to-back opcode words).
@@ -1748,6 +1749,7 @@ begin
             CC_UPDT                 => CC_UPDT,
             TRACE_MODE              => STATUS_REG(15 downto 14),
             VBIT                    => STATUS_REG(1),
+            CCR_IN                  => STATUS_REG(4 downto 0), -- [F160]
             ALU_COND                => ALU_COND,
             DBcc_COND               => DBcc_COND,
             BRANCH_ATN              => BRANCH_ATN,

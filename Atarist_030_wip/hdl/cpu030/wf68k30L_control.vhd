@@ -157,6 +157,13 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F160: taken Bcc.B decided and flushed in its OPD_ACK (START_OP) clock (F160_BCC_EARLY).
+--     When the condition codes are settled (ALU idle, no SR writer in write-back), trace off, no
+--     interrupt hot, no exception request, no loop mode, no MMU operation and the operation word is
+--     valid, a Bcc with an 8-bit displacement whose condition (live CCR, CCR_IN) is true flushes the
+--     pipe and loads PC + 2 + d8 in the acknowledge clock and stays in START_OP (OW_RDY cleared), like
+--     a BRA without the INIT_EXEC_WB clock and the ALU handshake. Taken Bcc.B 8 -> 6 clocks
+--     (MC68030UM 6). Not taken and .W/.L keep the ALU_COND path (not taken never below the UM 4).
 --   2026-11-18 F159: EARLY_ISSUE on again (stopgap): all F145 register-only
 --     groups except ADDA/SUBA. Board bisect of the TOS 2.06 stacked-menu /
 --     same-X icon bug (F145 first-bad) pinned it on early issue of ADDA/SUBA
@@ -341,6 +348,7 @@ entity WF68K30L_CONTROL is
         TRACE_MODE          : in std_logic_vector(1 downto 0);
         VBIT                : in std_logic;
         ALU_COND            : in boolean;
+        CCR_IN              : in std_logic_vector(4 downto 0); -- [F160] live X N Z V C for the early Bcc.
         DBcc_COND           : in boolean;
         BRANCH_ATN          : in bit;
         RESET_STRB          : out bit;
@@ -450,6 +458,11 @@ constant EI_G3_ADDI         : boolean := true; -- ADDI..CMPI #,Dn
 constant EI_G4_MOVE         : boolean := true; -- MOVE/MOVEA reg-reg
 constant EI_G5_SHIFT        : boolean := true; -- ASL..ROXR register (size /= "11")
 constant EI_G6_BIT          : boolean := true; -- BTST/BCHG/BCLR/BSET Dn
+constant F160_BCC_EARLY     : boolean := true; -- [F160] taken Bcc.B flushes in its OPD_ACK clock.
+    signal BCC_EARLY            : bit; -- [F160]
+    signal BCC_LCOND            : boolean; -- [F160] Bcc condition from CCR_IN.
+    signal DISPLACEMENT_R       : std_logic_vector(31 downto 0); -- [F160] registered displacement.
+    signal DISPL_EARLY          : std_logic_vector(31 downto 0); -- [F160] PC offset of the early Bcc.B (d8 + 2).
 constant F157_PHASE_A       : boolean := false; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
 -- [F157x] Phase A OFF: with it on, the EmuTOS 1.4 desktop has no icons and GEM clicks fail (board). Re-enable after the fix.
 constant F157_PHASE_B       : boolean := true; -- [F157c] write ADD/ADDQ/AND/NEG/NOT/CLR (and siblings) in EXECUTE.
@@ -565,6 +578,8 @@ begin
             OW_RDY <= '0'; -- Reset.
         elsif FETCH_STATE = START_OP and (OP = ILLEGAL or OP = RTE or OP = TRAP or OP = UNIMPLEMENTED) and BUSY_EXH = '1' then
             OW_RDY <= '0'; -- Done.
+        elsif BCC_EARLY = '1' then
+            OW_RDY <= '0'; -- [F160] The early Bcc is done in its acknowledge clock.
         elsif OPD_ACK = '1' then
             OW_RDY <= '1'; -- Set.
         end if;
@@ -1356,13 +1371,47 @@ begin
         end case;
         --
         case OP is
-            when LINK | MOVEP => DISPLACEMENT <= DISPL_VAR;
-            when others => DISPLACEMENT <= DISPL_VAR + "10";
+            when LINK | MOVEP => DISPLACEMENT_R <= DISPL_VAR;
+            when others => DISPLACEMENT_R <= DISPL_VAR + "10";
         end case;
     end process P_DISPLACEMENT;
 
+    -- [F160] Early Bcc.B. In the OPD_ACK clock OP and BIW_0 are the new (registered) operation word, but the
+    -- registered DISPLACEMENT still belongs to the previous one: the early branch uses d8 + 2 from BIW_0.
+    -- CC_UPDT and the ALU_BSY clear happen on the same ALU_ACK edge (STATUS_REG is registered there), so with
+    -- ALU_BSY = '0' CCR_IN holds the last result. The SR writers in WRITEBACK are excluded explicitly.
+    BCC_LCOND <= true when BIW_0(11 downto 8) = x"0" else
+                 true when BIW_0(11 downto 8) = x"2" and (CCR_IN(2) nor CCR_IN(0)) = '1' else
+                 true when BIW_0(11 downto 8) = x"3" and (CCR_IN(2) or CCR_IN(0)) = '1' else
+                 true when BIW_0(11 downto 8) = x"4" and CCR_IN(0) = '0' else
+                 true when BIW_0(11 downto 8) = x"5" and CCR_IN(0) = '1' else
+                 true when BIW_0(11 downto 8) = x"6" and CCR_IN(2) = '0' else
+                 true when BIW_0(11 downto 8) = x"7" and CCR_IN(2) = '1' else
+                 true when BIW_0(11 downto 8) = x"8" and CCR_IN(1) = '0' else
+                 true when BIW_0(11 downto 8) = x"9" and CCR_IN(1) = '1' else
+                 true when BIW_0(11 downto 8) = x"A" and CCR_IN(3) = '0' else
+                 true when BIW_0(11 downto 8) = x"B" and CCR_IN(3) = '1' else
+                 true when BIW_0(11 downto 8) = x"C" and (CCR_IN(3) xnor CCR_IN(1)) = '1' else
+                 true when BIW_0(11 downto 8) = x"D" and (CCR_IN(3) xor CCR_IN(1)) = '1' else
+                 true when BIW_0(11 downto 8) = x"E" and CCR_IN(3 downto 1) = "101" else
+                 true when BIW_0(11 downto 8) = x"E" and CCR_IN(3 downto 1) = "000" else
+                 true when BIW_0(11 downto 8) = x"F" and CCR_IN(2) = '1' else
+                 true when BIW_0(11 downto 8) = x"F" and (CCR_IN(3) xor CCR_IN(1)) = '1' else false;
+    BCC_EARLY <= '0' when not F160_BCC_EARLY or OP /= Bcc or FETCH_STATE /= START_OP or OPD_ACK = '0' or OW_VALID /= '1' else
+                 '0' when BIW_0(7 downto 0) = x"00" or BIW_0(7 downto 0) = x"FF" else -- Byte displacement only.
+                 '0' when BCC_LCOND = false else -- Not taken: ALU_COND path (UM 4, never faster).
+                 '0' when ALU_BSY = '1' or TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' or LOOP_BSY = '1' else
+                 '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' or WR_FLT = '1' or WFLT = '1' else
+                 '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
+                                                     OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or
+                                                     OP_WB_I = ANDI_TO_CCR or OP_WB_I = EORI_TO_CCR or OP_WB_I = ORI_TO_CCR) else '1';
+    DISPL_EARLY(31 downto 8) <= (others => '1') when BIW_0(7) = '1' else (others => '0');
+    DISPL_EARLY(7 downto 0) <= BIW_0(7 downto 0);
+    DISPLACEMENT <= DISPL_EARLY + "10" when F160_BCC_EARLY and OP = Bcc and FETCH_STATE = START_OP else DISPLACEMENT_R; -- [F160]
+
     PC_ADD_DISPL <= PC_ADD_DISPL_I;
-    PC_ADD_DISPL_I <= '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
+    PC_ADD_DISPL_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                      '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                       '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else 
                       '1' when OP = DBcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = false and DBcc_COND = false else '0';
     
@@ -1387,7 +1436,8 @@ begin
                          ((OP = BRA or OP = BSR or OP = JMP or OP = JSR or OP = RTS or OP = RTD or OP = RTR) or
                           (OP = Bcc and FETCH_STATE = SLEEP and ALU_COND = true) or -- Condition valid in SLEEP only.
                           (OP = DBcc and FETCH_STATE = SLEEP and LOOP_BSY = '0' and ALU_COND = false and DBcc_COND = false)) else '0';
-    IPIPE_FLUSH_I <= '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else
+    IPIPE_FLUSH_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                     '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else
                      '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                      '1' when OP = DBcc and LOOP_BSY = '0' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = false and DBcc_COND = false else
                      '1' when OP = DBcc and LOOP_EXIT_I = '1' and (ALU_COND = true or DBcc_COND = true) else -- Flush the pipe after a finished loop.
@@ -2030,7 +2080,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2041,6 +2091,8 @@ begin
             when START_OP =>
                 if OPD_ACK = '0' and OW_RDY = '0' then
                     NEXT_FETCH_STATE <= START_OP;
+                elsif BCC_EARLY = '1' then
+                    NEXT_FETCH_STATE <= START_OP; -- [F160] Taken Bcc.B flushed in this clock.
                 elsif PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' then -- [PMMU2b] also an MMU operation (PLOAD/PTEST walk)
                     -- [PMMU2] A PMOVE to an MMU register finishes its writeback before the next instruction
                     -- starts, so the post-instruction MMU configuration exception (8.1.10) is taken before it.
