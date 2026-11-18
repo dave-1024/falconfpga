@@ -69,6 +69,7 @@
 --   2026-11-10 F157h: put F157_REARM_OK on ALU_REQ D, not on the ACK+INIT CE (IRQ half-cycle).
 --   2026-11-10 F157l: pair with CLK_F IRQ flag decode (exception_handler); this is the memcpy re-arm.
 --   2026-11-10 F157c: RESULT is combinational for single-cycle INT/LOG ops so it is valid in the ALU_REQ/EXECUTE clock.
+--   2026-11-18 F162: combinational RESULT for MOVEQ too (written in EXECUTE, F162_MQ).
 --   2026-11-10 F157t: ADDX/SUBX keep RESULT_REG. Combo RESULT recomputes with the
 --                     post-EXECUTE X (CC_UPDT at ALU_REQ) and drops the incoming extend bit.
 --   2026-11-10 F157v: Latch X at ALU_INIT. ALU_REQ stays asserted until ALU_ACK, and
@@ -138,6 +139,7 @@ end entity WF68K30L_ALU;
     
 architecture BEHAVIOUR of WF68K30L_ALU is
     constant F157_PHASE_A : boolean := true; -- [F157a] overlap ALU_INIT with ALU_ACK. Set false with the control/decoder switches.
+    constant F162_MQ : boolean := true; -- [F162] combinational MOVEQ RESULT (written in EXECUTE).
     constant F157_PHASE_B : boolean := true; -- [F157c] combo RESULT for ADD/ADDQ/AND/NEG/NOT/CLR and siblings.
     signal F157_REARM_OK : bit := '1'; -- [F157g] registered: incoming OP may re-arm ALU_REQ on INIT+ACK.
 type DIV_STATES is (IDLE, INIT, CALC);
@@ -1198,6 +1200,7 @@ begin
                    OP = CLR or OP = CMP or OP = CMPA or OP = CMPI or OP = CMPM or
                    OP = DBcc or OP = NEG or OP = NEGX or OP = SUB or OP = SUBA or
                    OP = SUBI or OP = SUBQ) else
+              OP2 & RESULT_OTHERS when F162_MQ and OP = MOVEQ else -- [F162] MOVEQ written in EXECUTE.
               x"00000000" & RESULT_LOGOP when F157_PHASE_B and
                   (OP = AND_B or OP = ANDI or OP = EOR or OP = EORI or OP = NOT_B or
                    OP = OR_B or OP = ORI or OP = ANDI_TO_SR or OP = EORI_TO_SR or

@@ -157,6 +157,9 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F162: MOVEQ written in EXECUTE (F162_MQ, as the F157c ops), so a dependent op issues 2 clocks later
+--     (straight-line register code at the MC68030UM 2 clocks per op). A taken Bcc.B that missed its OPD_ACK clock
+--     (ALU still busy with the previous op) flushes in INIT_EXEC_WB from the live CCR (F162_BCC_INIT), like BRA.
 --   2026-11-18 F161: RTS leaves FETCH_OPERAND for START_OP in the clock its return address is ready (RD_RDY with
 --     DATA_VALID, DATA_TO_CORE = DBUFFER): PC_LOAD and the flush one clock earlier, no INIT_EXEC_WB pass (the
 --     RTS ALU pass writes nothing; SP was already incremented in FETCH_OPERAND). Only with the ALU idle (AR_IN_1
@@ -477,6 +480,9 @@ constant EI_G3_ADDI         : boolean := true; -- ADDI..CMPI #,Dn
 constant EI_G4_MOVE         : boolean := true; -- MOVE/MOVEA reg-reg
 constant EI_G5_SHIFT        : boolean := true; -- ASL..ROXR register (size /= "11")
 constant EI_G6_BIT          : boolean := true; -- BTST/BCHG/BCLR/BSET Dn
+constant F162_BCC_INIT      : boolean := true; -- [F162] taken Bcc.B that missed the OPD_ACK clock (ALU busy) flushes in INIT.
+    signal BCC_INIT             : bit; -- [F162]
+constant F162_MQ            : boolean := true; -- [F162] MOVEQ written in EXECUTE like the F157c ops.
 constant F160_BCC_EARLY     : boolean := true; -- [F160] taken Bcc.B flushes in its OPD_ACK clock.
     signal BCC_EARLY            : bit; -- [F160]
 constant F161_DBCC_EARLY    : boolean := true; -- [F161] taken DBcc completes in its OPD_ACK clock.
@@ -588,6 +594,7 @@ begin
     -- ADDQ/SUBQ #,An stay on WRITEBACK (F145 board).
     F157_WR_EXEC <= '1' when F157_PHASE_B and EXEC_WB_STATE = EXECUTE and ALU_REQ = '1' and
                              (((OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B) and BIW_0_WB(8) = '0') or
+                              (F162_MQ and OP_WB_I = MOVEQ) or -- [F162]
                               ((OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = ADDI or OP_WB_I = SUBI or
                                 OP_WB_I = ANDI or OP_WB_I = ORI or OP_WB_I = EORI or OP_WB_I = EOR or
                                 OP_WB_I = CLR or OP_WB_I = NEG or OP_WB_I = NEGX or OP_WB_I = NOT_B) and
@@ -1432,6 +1439,19 @@ begin
                  '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
                                                      OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or
                                                      OP_WB_I = ANDI_TO_CCR or OP_WB_I = EORI_TO_CCR or OP_WB_I = ORI_TO_CCR) else '1';
+    -- [F162] Taken Bcc.B whose OPD_ACK clock still had the ALU busy (typically SUBQ/CMP right before it): in its
+    -- INIT_EXEC_WB clock the ALU is idle, so CCR_IN holds the result (CC_UPDT and the ALU_BSY clear share the ALU_ACK
+    -- edge) and DISPLACEMENT_R is this Bcc's. Leave like BRA (flush + PC + d8 + 2) without the ALU handshake and SLEEP.
+    -- Not taken keeps the ALU path (UM 4, never faster). Same exclusions as BCC_EARLY. F160a tried this and lost the
+    -- clock to the stale OPCODE_RDY after the flush; F162_DQ removes that.
+    BCC_INIT <= '0' when not F162_BCC_INIT or OP /= Bcc or FETCH_STATE /= INIT_EXEC_WB else
+                '0' when BIW_0(7 downto 0) = x"00" or BIW_0(7 downto 0) = x"FF" else -- Byte displacement only.
+                '0' when BCC_LCOND = false else
+                '0' when ALU_BSY = '1' or TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' or LOOP_BSY = '1' else
+                '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' or WR_FLT = '1' or WFLT = '1' else
+                '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
+                                                    OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or
+                                                    OP_WB_I = ANDI_TO_CCR or OP_WB_I = EORI_TO_CCR or OP_WB_I = ORI_TO_CCR) else '1';
     -- [F161] Early taken DBcc in its OPD_ACK clock. OP, BIW_0 and BIW_1 (d16) are the new registered words;
     -- read port 2 already selects Dn (DR_SEL_ADH_2_I = BIW_0(2 downto 0) for DBcc), PC still points at the DBcc.
     DBCC_EARLY <= '0' when not F161_DBCC_EARLY or OP /= DBcc or FETCH_STATE /= START_OP or OPD_ACK = '0' or OW_VALID /= '1' else
@@ -1480,6 +1500,7 @@ begin
 
     PC_ADD_DISPL <= PC_ADD_DISPL_I;
     PC_ADD_DISPL_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                      '1' when BCC_INIT = '1' else -- [F162]
                       '1' when DBCC_EARLY = '1' else -- [F161]
                       '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                       '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else 
@@ -1505,8 +1526,10 @@ begin
     COF_PEND <= '1' when FETCH_STATE /= START_OP and
                          ((OP = BRA or OP = BSR or OP = JMP or OP = JSR or OP = RTS or OP = RTD or OP = RTR) or
                           (OP = Bcc and FETCH_STATE = SLEEP and ALU_COND = true) or -- Condition valid in SLEEP only.
+                          (BCC_INIT = '1') or -- [F162]
                           (OP = DBcc and FETCH_STATE = SLEEP and LOOP_BSY = '0' and ALU_COND = false and DBcc_COND = false)) else '0';
     IPIPE_FLUSH_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                     '1' when BCC_INIT = '1' else -- [F162]
                      '1' when DBCC_EARLY = '1' else -- [F161]
                      '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else
                      '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
@@ -1524,6 +1547,7 @@ begin
     -- clock's ALU_ACK). Without this, ALU_TRIG stays low and the next op never loads.
     ALU_TRIG <= '0' when (ALU_BSY_M = '1' and F157_OLAP = '0') or FETCH_STATE /= INIT_EXEC_WB else
                 '0' when WR_FLT = '1' or WFLT = '1' else -- [FLT1] Nothing new after a data write fault.
+                '0' when BCC_INIT = '1' else -- [F162] decided from the live CCR, no ALU.
                 '0' when (OP = CHK2 or OP = CMP2 or OP = CMPM) and PHASE2 = false else
                 '0' when OP = MOVE and PHASE2 = true else -- no ALU required after second portion of address calculation.
                 '0' when OP = MOVEM and MOVEM_COND = false else
@@ -2151,7 +2175,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, BCC_INIT, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2979,7 +3003,9 @@ begin
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
                         end if;
                     when Bcc | CHK | DBcc | JMP | TRAPcc | TRAPV =>
-                        if F157_ALU_FREE then
+                        if BCC_INIT = '1' then
+                            NEXT_FETCH_STATE <= START_OP; -- [F162] taken Bcc.B from the live CCR (like BRA).
+                        elsif F157_ALU_FREE then
                             NEXT_FETCH_STATE <= SLEEP; -- Check conditions.
                         else
                             NEXT_FETCH_STATE <= INIT_EXEC_WB;
@@ -3213,8 +3239,14 @@ begin
                             else
                                 NEXT_EXEC_WB_STATE <= WRITE_DEST; -- Destination is in memory.
                             end if;
+                        when MOVEQ => -- [F162] written in EXECUTE (combinational RESULT).
+                            if F162_MQ then
+                                NEXT_EXEC_WB_STATE <= IDLE;
+                            else
+                                NEXT_EXEC_WB_STATE <= WRITEBACK;
+                            end if;
                         when ADDA | SUBA | ANDI_TO_SR | BFEXTS | BFEXTU | BFFFO | DIVS | DIVU | EORI_TO_SR | EXG | EXT | EXTB | 
-                             LEA | MOVE_TO_CCR | MOVE_TO_SR | MOVE_USP | MOVEA | MOVEC | MOVEQ | MULS | MULU | ORI_TO_SR | STOP | SWAP | UNLK =>
+                             LEA | MOVE_TO_CCR | MOVE_TO_SR | MOVE_USP | MOVEA | MOVEC | MULS | MULU | ORI_TO_SR | STOP | SWAP | UNLK =>
                             NEXT_EXEC_WB_STATE <= WRITEBACK;
                         when ADDI | ADDQ | ANDI | BCHG | BCLR | BFCHG | BFCLR | BFINS | BFSET | BSET | CLR | EOR | EORI |
                                      MOVE_FROM_CCR | MOVE_FROM_SR | NBCD | NEG | NEGX | NOT_B | ORI | Scc | SUBI | SUBQ | TAS =>

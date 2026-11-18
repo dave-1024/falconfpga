@@ -106,6 +106,8 @@
 --     can queue a stale long and hung Linux at tinit: busybox runs (bisect F143 PASS / F144 FAIL,
 --     17 Nov 2026). The following-clock IC_TAKE fills the restart long (F_ADR already updated).
 --     IC_MTAKE is now that safe-clock strobe so F147 RESTART_PEND / Q_HIT2 still see a restart take.
+--   2026-11-18 F162: Q_MISS (stream restart) also in the clock of a dismissed opcode ready (F162_DQ), so the
+--     refill after a flush with a queue read in flight starts one or two clocks earlier.
 -- 
 
 library work;
@@ -310,6 +312,7 @@ signal OPCODE_VALID_2_I     : std_logic := '1'; -- [F147]
 signal RESTART_PEND         : bit := '0'; -- [F147] restart I-cache take, until the first OPCODE_RDY.
 signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); -- [F149] address captured at the restart take
 constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour. [F156] on again
+constant F162_DQ            : boolean := true; -- [F162] restart (Q_MISS) in the clock of a dismissed opcode ready.
 constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
 -- [F157x] Phase A OFF with control and opcode_decoder (empty GEM desktop on the board).
 signal Q_HIT2               : bit; -- [F147]
@@ -1134,7 +1137,8 @@ begin
     Q_HIT2 <= '1' when F147_TWO_WORD and Q_HIT = '1' and OPCODE_RDY_I = '0' and RESTART_PEND = '1'
                    and Q_CNT >= 2 and Q_C(1) = '1' and Q_ADR = RESTART_ADR else '0';
 
-    Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and OPCODE_RDY_I = '0' and Q_DISMISS = '0' and
+    Q_MISS <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPC_ADR(0) = '0' and
+                       ((OPCODE_RDY_I = '0' and Q_DISMISS = '0') or (F162_DQ and OPCODE_RDY_I = '1' and Q_DISMISS = '1')) and -- [F162]
                        not (Q_MATCH = '1' and (Q_CNT /= 0 or (INFL = '1' and INFL_STALE = '0') or S_FAULTED = '0')) else '0';
     Q_DUMMY <= '1' when PREFETCH_Q /= 0 and OPC_RD = '1' and OPCODE_RDY_I = '0' and Q_DISMISS = '1' else '0';
     PF_REQ_RAW <= '1' when PREFETCH_Q /= 0 and S_VALID = '1' and S_FAULTED = '0' and INFL = '0' and (Q_CNT <= 1 or (Q_CNT = 2 and BUSY_EXH = '0' and PF_NOEARLY = '0' and PIPE_FULL = '0')) and PF_HOLD = '0' and

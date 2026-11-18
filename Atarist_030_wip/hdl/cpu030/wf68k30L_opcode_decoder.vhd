@@ -72,6 +72,8 @@
 --   2026-11-09 F157a: OPC_RD_NEXT also when the pipe dropped to one word after an issue (PC still on the current opcode, queue head is the next word).
 --   2026-11-17 F158: revert F144 COF_BLK and the OPCODE_RD_I hold-off (Linux first-bad F144; F144a isolation reached ash).
 --   2026-11-18 F159a: IPIPE_FLUSH wins over the OPCODE_RDY async clear in P_BSY (early issue + taken Bcc refill).
+--   2026-11-18 F162: a dismissed (stale) OPCODE_RDY after a flush no longer clears the restart request (F162_DQ);
+--     OPC_RD_NEXT also after a level-D issue from a two-word pipe and with room in the pipe without demand (F162_RDN).
 -- 
 
 library work;
@@ -226,9 +228,11 @@ signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
 constant F157_PHASE_A       : boolean := false; -- [F157a] keep pipe at two words after a level-D issue.
 -- [F157x] Phase A OFF with control and bus_interface (empty GEM desktop on the board).
+constant F162_RDN           : boolean := true; -- [F162] back-to-back word request after a level-D issue from a two-word pipe.
+constant F162_DQ            : boolean := true; -- [F162] a dismissed ready does not clear the restart request.
 signal F157_NEED_REFILL     : bit := '0'; -- [F157a] pulse: last clock issued a level-D word.
 begin
-    P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY, IPIPE_FLUSH)
+    P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY, IPIPE_FLUSH, OPCODE_FLUSH)
     -- This logic requires asynchronous reset. This flip flop is intended 
     -- to break combinatorial loops. If an opcode cycle in the bus controller 
     -- unit is currently running, the actual PC address is stored during this 
@@ -243,7 +247,7 @@ begin
     -- branch (LOOPTEST TT I-cache 12 vs 11). Not the F144 OPCODE_RD_I hold-off
     -- (that blocked stream reads behind COF_PEND).
     begin
-        if OPCODE_RDY = '1' and IPIPE_FLUSH = '0' then
+        if OPCODE_RDY = '1' and IPIPE_FLUSH = '0' and (F162_DQ = false or OPCODE_FLUSH = '0') then -- [F162]
             OPCODE_RD_I <= '0';
         elsif BUSY_EXH = '1' and IPIPE_FILL = '0' then
             OPCODE_RD_I <= '0';
@@ -286,6 +290,16 @@ begin
     -- the pipe is back to two words in the following clock and the early OW_REQ sees PIPE_RDY.
     OPC_RD_NEXT <= '1' when OPCODE_RDY = '1' and OPCODE_RDY_2 = '0' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
                             IPIPE_PNTR < 2 and (OW_REQ = '1' or EW_REQ = '1') and LOOP_ATN = false and LOOP_BSY_I = false else
+                   -- [F162] Also when a one-word (level D) op is issued from a two-word pipe in this ready clock:
+                   -- the pipe stays at two words, so ask for the following word now (straight-line register code at
+                   -- one op per two clocks needs one word per two clocks; the request-ready-request rhythm gave one per three).
+                   '1' when F162_RDN and OPCODE_RDY = '1' and OPCODE_RDY_2 = '0' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
+                            IPIPE_PNTR = 2 and OW_REQ = '1' and PIPE_RDY = '1' and INSTR_LVL = D and OP_I /= DBcc and
+                            BKPT_INSERT = '0' and BKPT_REQ = '0' and LOOP_ATN = false and LOOP_BSY_I = false else
+                   -- [F162] And with room in the pipe also without a pending OW_REQ/EW_REQ (the clocked request would
+                   -- follow one clock later anyway; this only removes the dead clock after each ready).
+                   '1' when F162_RDN and OPCODE_RDY = '1' and OPCODE_RDY_2 = '0' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
+                            IPIPE_PNTR < 2 and BKPT_INSERT = '0' and BKPT_REQ = '0' and LOOP_ATN = false and LOOP_BSY_I = false else
                    '1' when F157_PHASE_A and F157_NEED_REFILL = '1' and OPCODE_FLUSH = '0' and IPIPE_FLUSH = '0' and BUSY_EXH = '0' and
                             IPIPE_PNTR = 1 and OPCODE_RDY = '0' and OPCODE_RD_I = '1' and
                             LOOP_ATN = false and LOOP_BSY_I = false else '0';
