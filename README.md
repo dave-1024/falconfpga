@@ -109,7 +109,9 @@ Everything below has been checked on the real board (Tang Console 138K) with the
 - **GEMBENCH 6.31 on F164** (18 Nov 2026, TOS 2.06 with BLITON and BLITFIX, ST Medium, against a blitter STE):
   average 123%, CPU 169%, display 90%, RAM access 101%, ROM access 104%, ALT RAM 153%, Integer Division 510%.
   VDI Text Effects (55%) is the one low result. Under EmuTOS the scores are lower (average 72% against a blitter
-  STE) because EmuTOS reports no blitter and its VDI is slower, so use TOS 2.06 to compare.
+  STE) because EmuTOS leaves the blitter off when TT-RAM is fitted and BLITON can't switch it on (see
+  [The blitter, TT-RAM and BLITFIX](#the-blitter-tt-ram-and-blitfix-correct-behaviour-not-a-fault)), so use TOS 2.06
+  to compare.
 - The CPU runs at 16 MHz. The work now is making each instruction take the same number of clock cycles as
   Motorola's MC68030 User's Manual says. Where an exact match isn't possible, slightly faster is preferred to slower.
 
