@@ -40,6 +40,7 @@
 --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-18 F164: LK_HALF on the I-cache, IC_LK_HALF on the bus interface (per-word I-cache valid bits).
 --   2026-11-18 F163: XNZVC_OUT port on the ALU (CCR forwarded to the early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ / DR_DEC ports (control, data registers) for the early taken DBcc.
 --   2026-11-18 F160: CCR_IN port on the control unit (taken Bcc.B in its OPD_ACK clock).
@@ -97,6 +98,7 @@ component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
         CLR_IDX   : in std_logic_vector(7 downto 2);
         LK_ADR    : in std_logic_vector(31 downto 2);
         LK_FC2    : in std_logic;
+        LK_HALF   : in std_logic := '0'; -- [F164]
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
         FILL      : in std_logic;
@@ -324,6 +326,7 @@ component WF68K30L_BUS_INTERFACE
         RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
+        IC_LK_HALF          : out std_logic; -- [F164]
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
         IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
         IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).

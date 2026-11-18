@@ -98,7 +98,8 @@ start:
         movec   cacr,d1
         move.l  d1,(a4)+                | $3313
 | 16: loop at 4n+2, entered by a branch (F62 misaligned stream): its first long word
-| is never read in full, so each pass refetches it (2 cycles); the rest hits
+| is never read in full. Up to F163 each pass refetched it (2 cycles); [F164] per-word
+| valid bits keep its 4n+2 word, so later passes hit (as a 68030, which fills the long)
         moveq   #9,d0
         movec   d0,cacr
         move.w  #16,0x3600

@@ -108,6 +108,7 @@
 --     IC_MTAKE is now that safe-clock strobe so F147 RESTART_PEND / Q_HIT2 still see a restart take.
 --   2026-11-18 F162: Q_MISS (stream restart) also in the clock of a dismissed opcode ready (F162_DQ), so the
 --     refill after a flush with a queue read in flight starts one or two clocks earlier.
+--   2026-11-18 F164: IC_LK_HALF = F_ADR(1) to the I-cache (per-word valid bits, a 4n+2 stream start hits).
 -- 
 
 library work;
@@ -199,6 +200,7 @@ entity WF68K30L_BUS_INTERFACE is
         RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
+        IC_LK_HALF          : out std_logic; -- [F164] F_ADR(1): the stream needs only the low word of the long.
         IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
         IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
         IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
@@ -1159,6 +1161,7 @@ begin
     -- cache. IC_MTAKE is the strobe for that fill (F147 RESTART_PEND / Q_HIT2).
     IC_LK_ADR <= F_ADR(31 downto 2);
     IC_LK_FC2 <= Q_FC(2);
+    IC_LK_HALF <= F_ADR(1); -- [F164] Per-word I-cache valid bits: a 4n+2 lookup hits on the low word alone.
     IC_MTAKE <= IC_RESTART_WAIT and IC_TAKE;
     -- [IC] Fill: every bus prefetch long reports its end with, per word, "no bus error and CIIN negated on its
     -- portion" (MC68030UM 5.7.1, 6.1.3.1 single entry mode). The cache fills aligned longs whose two words are

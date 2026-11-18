@@ -9,7 +9,7 @@
 --------------------------------------------
 -- [IC] 68030 on-chip instruction cache, MC68030UM chapter 6 (docs/ICACHE_DESIGN.md).
 -- 256 bytes: 16 lines x 4 long words, direct-mapped. Index A7:4, long select A3:2.
--- Tag per line: A31:8 and FC2. One valid bit per long word.
+-- Tag per line: A31:8 and FC2. One valid bit per word ([F164]; was per long word).
 -- The bus interface's prefetch queue looks up the long word it is about to fetch
 -- (LK_ADR) and reports every bus prefetch long (FILL) with, per word, "no bus error
 -- and CIIN negated" (FILL_OK). An aligned long with both words OK is stored. A stream
@@ -17,6 +17,11 @@
 -- fetch is kept (PH_*) and stored with the first word of the next fetch, so every
 -- long word the bus read in full is cached, as on a 68030 (its first, half-read long
 -- is not; docs/ICACHE_DESIGN.md Q1).
+-- [F164] 2026-11-18: one valid bit per WORD (VALID_H / VALID_L) and the data split into high and low word
+-- arrays. The first fetch of a stream that starts at 4n+2 now stores its first word (the low word of long 4n)
+-- with only VALID_L set, so later entries at that 4n+2 (calls, branch targets) hit, as on a 68030, which
+-- fills the whole aligned long on that miss (MC68030UM 6.1.1). A lookup at 4n+2 (LK_HALF = 1) needs only the
+-- low word; a lookup at 4n needs both. This closes ICACHE_DESIGN Q1 for the steady state (warm cache).
 -- EI enables hits and fills, FI freezes (hits only), CDIS (pin) disables both and
 -- keeps the contents. CLR_ALL (CACR CI) clears every valid bit, CLR_ENT (CACR CEI)
 -- the long word at CLR_IDX (CAAR 7:2), both whatever EI and FI are. Reset clears
@@ -40,6 +45,7 @@ entity WF68K30L_ICACHE is
         CLR_IDX   : in std_logic_vector(7 downto 2);
         LK_ADR    : in std_logic_vector(31 downto 2);
         LK_FC2    : in std_logic;
+        LK_HALF   : in std_logic := '0'; -- [F164] Lookup address bit 1: '1' = only the low word is needed.
         HIT       : out std_logic;
         HIT_DATA  : out std_logic_vector(31 downto 0);
         FILL      : in std_logic;
@@ -53,14 +59,22 @@ entity WF68K30L_ICACHE is
 end entity WF68K30L_ICACHE;
 
 architecture RTL of WF68K30L_ICACHE is
-    type data_t is array (0 to 63) of std_logic_vector(31 downto 0);
+    type data_t is array (0 to 63) of std_logic_vector(15 downto 0); -- [F164] Word arrays.
     type tag_t is array (0 to 15) of std_logic_vector(24 downto 0);
-    signal DATA_RAM : data_t := (others => (others => '0'));
+    signal DATA_H   : data_t := (others => (others => '0')); -- [F164] Word at 4n.
+    signal DATA_L   : data_t := (others => (others => '0')); -- [F164] Word at 4n+2.
     signal TAG_RAM  : tag_t := (others => (others => '0'));
-    signal VALID    : std_logic_vector(63 downto 0) := (others => '0'); -- Bit line*4 + long word.
-    signal FW_V     : std_logic := '0';
+    signal VALID_H  : std_logic_vector(63 downto 0) := (others => '0'); -- [F164] Bit line*4 + long word.
+    signal VALID_L  : std_logic_vector(63 downto 0) := (others => '0'); -- [F164]
+    signal FW_VH    : std_logic := '0';
+    signal FW_VL    : std_logic := '0';
     signal FW_IDX   : integer range 0 to 63 := 0;
     signal FW_DATA  : std_logic_vector(31 downto 0) := (others => '0');
+    signal LK_IDX   : integer range 0 to 63;
+    signal FL_IDX   : integer range 0 to 63;
+    signal FL_GOH   : std_logic; -- [F164] Write the high word (aligned long or assembled misaligned long).
+    signal FL_GOL   : std_logic; -- [F164] Write the low word (also the first word of a stream at 4n+2).
+    signal FH_GO    : std_logic; -- [F164] Misaligned fetch whose first word (4n+2) is OK.
     signal LK_LINE  : integer range 0 to 15;
     signal LK_LW    : integer range 0 to 3;
     signal FL_LINE  : integer range 0 to 15;
@@ -78,10 +92,13 @@ architecture RTL of WF68K30L_ICACHE is
     -- (syn_keep on the storage nets, syn_preserve on the registers).
     attribute syn_keep : integer;
     attribute syn_preserve : integer;
-    attribute syn_keep of DATA_RAM : signal is 1;
+    attribute syn_keep of DATA_H : signal is 1;
+    attribute syn_keep of DATA_L : signal is 1;
     attribute syn_keep of TAG_RAM : signal is 1;
-    attribute syn_keep of VALID : signal is 1;
-    attribute syn_preserve of VALID : signal is 1;
+    attribute syn_keep of VALID_H : signal is 1;
+    attribute syn_keep of VALID_L : signal is 1;
+    attribute syn_preserve of VALID_H : signal is 1;
+    attribute syn_preserve of VALID_L : signal is 1;
     attribute syn_preserve of PH_V : signal is 1;
     attribute syn_preserve of PH_W : signal is 1;
     attribute syn_preserve of PH_L : signal is 1;
@@ -95,11 +112,16 @@ begin
     FA_GO   <= '1' when FILL = '1' and FILL_MIS = '0' and FILL_OK = "11" else '0';
     FM_GO   <= '1' when FILL = '1' and FILL_MIS = '1' and FILL_OK(0) = '1' and PH_V = '1' and
                         PH_L = FILL_ADR and PH_FC2 = FILL_FC2 else '0';
-    FL_GO   <= (FA_GO or FM_GO) and EI and not FI and not CDIS;
+    FH_GO   <= '1' when FILL = '1' and FILL_MIS = '1' and FILL_OK(0) = '1' else '0'; -- [F164]
+    FL_GO   <= (FA_GO or FM_GO or FH_GO) and EI and not FI and not CDIS; -- [F164] Any word stored.
+    FL_GOH  <= (FA_GO or FM_GO) and EI and not FI and not CDIS; -- [F164]
+    FL_GOL  <= FL_GO; -- [F164] FA_GO, FM_GO (FILL_OK(0)) and FH_GO all carry a good low word.
     FL_DATA <= PH_W & FILL_DATA(31 downto 16) when FILL_MIS = '1' else FILL_DATA;
+    LK_IDX  <= LK_LINE * 4 + LK_LW;
+    FL_IDX  <= FL_LINE * 4 + FL_LW;
 
-    HIT <= '1' when EI = '1' and CDIS = '0' and VALID(LK_LINE * 4 + LK_LW) = '1' and
-                    TAG_RAM(LK_LINE) = LK_ADR(31 downto 8) & LK_FC2 else '0';
+    HIT <= '1' when EI = '1' and CDIS = '0' and VALID_L(LK_IDX) = '1' and (LK_HALF = '1' or VALID_H(LK_IDX) = '1') and
+                    TAG_RAM(LK_LINE) = LK_ADR(31 downto 8) & LK_FC2 else '0'; -- [F164]
     -- [C10] Write-to-read forwarding. Gowin maps DATA_RAM to a block RAM (SDPB) and retimes the
     -- read address onto the F_ADR register input, so the read is sampled at the clock edge. A
     -- fill at edge E and a lookup of the same long right after E (branch to 4n+2 inside the long
@@ -107,13 +129,16 @@ begin
     -- hit: a stale long from another tag reached the decoder on the board (TTM1 T1: 3F3C at
     -- 010001CE, the SP -2 slip). RTL (asynchronous read) never showed it. The forwarding register
     -- gives the RTL semantics for any RAM mapping.
-    HIT_DATA <= FW_DATA when FW_V = '1' and FW_IDX = LK_LINE * 4 + LK_LW else DATA_RAM(LK_LINE * 4 + LK_LW);
+    -- [F164] Per word: the high and low word arrays are written separately.
+    HIT_DATA(31 downto 16) <= FW_DATA(31 downto 16) when FW_VH = '1' and FW_IDX = LK_IDX else DATA_H(LK_IDX);
+    HIT_DATA(15 downto 0) <= FW_DATA(15 downto 0) when FW_VL = '1' and FW_IDX = LK_IDX else DATA_L(LK_IDX);
 
     P_FWD: process(CLK)
     begin
         if CLK = '1' and CLK'event then
-            FW_V <= FL_GO;
-            FW_IDX <= FL_LINE * 4 + FL_LW;
+            FW_VH <= FL_GOH;
+            FW_VL <= FL_GOL;
+            FW_IDX <= FL_IDX;
             FW_DATA <= FL_DATA;
         end if;
     end process P_FWD;
@@ -122,8 +147,13 @@ begin
     P_RAM: process(CLK)
     begin
         if CLK = '1' and CLK'event then
+            if FL_GOH = '1' then
+                DATA_H(FL_IDX) <= FL_DATA(31 downto 16);
+            end if;
+            if FL_GOL = '1' then
+                DATA_L(FL_IDX) <= FL_DATA(15 downto 0);
+            end if;
             if FL_GO = '1' then
-                DATA_RAM(FL_LINE * 4 + FL_LW) <= FL_DATA;
                 TAG_RAM(FL_LINE) <= FL_TAG;
             end if;
         end if;
@@ -153,18 +183,26 @@ begin
         if CLK = '1' and CLK'event then
             CI := to_integer(unsigned(CLR_IDX(7 downto 2)));
             if RESET = '1' or CLR_ALL = '1' then
-                VALID <= (others => '0');
+                VALID_H <= (others => '0');
+                VALID_L <= (others => '0');
             else
                 for i in 0 to 63 loop
                     if FL_GO = '1' and i / 4 = FL_LINE then
                         if i mod 4 = FL_LW then
-                            VALID(i) <= '1';
+                            VALID_L(i) <= '1';
+                            if FL_GOH = '1' then
+                                VALID_H(i) <= '1';
+                            elsif TAG_RAM(FL_LINE) /= FL_TAG then
+                                VALID_H(i) <= '0'; -- [F164] Low word only under a new tag.
+                            end if;
                         elsif TAG_RAM(FL_LINE) /= FL_TAG then
-                            VALID(i) <= '0'; -- New tag: the other long words of the line are not valid.
+                            VALID_H(i) <= '0'; -- New tag: the other long words of the line are not valid.
+                            VALID_L(i) <= '0';
                         end if;
                     end if;
                     if CLR_ENT = '1' and i = CI then -- After the fill: a clear in the same clock wins.
-                        VALID(i) <= '0';
+                        VALID_H(i) <= '0';
+                        VALID_L(i) <= '0';
                     end if;
                 end loop;
             end if;

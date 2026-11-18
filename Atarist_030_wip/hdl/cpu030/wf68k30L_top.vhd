@@ -163,6 +163,7 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-18 F164: IC_LK_HALF from the bus interface to the I-cache LK_HALF (per-word valid bits).
 --   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
 --   2026-11-18 F160: STATUS_REG(4 downto 0) to the control unit (CCR_IN, early taken Bcc.B).
@@ -478,6 +479,7 @@ signal CDIS_R                   : std_logic := '0'; -- [IC] Registered CDIS (ass
 signal CDIS_I, CDIS_D           : std_logic; -- [F90] per cache, with NOCACHE
 signal IC_LK_ADR                : std_logic_vector(31 downto 2); -- [IC]
 signal IC_LK_FC2                : std_logic;
+signal IC_LK_HALF               : std_logic; -- [F164]
 signal IC_HIT                   : std_logic;
 signal IC_HIT_DATA              : std_logic_vector(31 downto 0);
 signal IC_FILL                  : std_logic;
@@ -1308,6 +1310,7 @@ begin
             CLR_IDX   => CAAR(7 downto 2),
             LK_ADR    => IC_LK_ADR,
             LK_FC2    => IC_LK_FC2,
+            LK_HALF   => IC_LK_HALF, -- [F164]
             HIT       => IC_HIT,
             HIT_DATA  => IC_HIT_DATA,
             FILL      => IC_FILL,
@@ -1556,6 +1559,7 @@ begin
             RA_LD               => RA_LD, -- [F2]
             IC_LK_ADR           => IC_LK_ADR, -- [IC]
             IC_LK_FC2           => IC_LK_FC2,
+            IC_LK_HALF          => IC_LK_HALF, -- [F164]
             IC_HIT              => IC_HIT,
             IC_HIT_DATA         => IC_HIT_DATA,
             IC_FILL             => IC_FILL,
