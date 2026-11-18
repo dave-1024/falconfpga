@@ -74,6 +74,7 @@
 --   2026-11-18 F159a: IPIPE_FLUSH wins over the OPCODE_RDY async clear in P_BSY (early issue + taken Bcc refill).
 --   2026-11-18 F162: a dismissed (stale) OPCODE_RDY after a flush no longer clears the restart request (F162_DQ);
 --     OPC_RD_NEXT also after a level-D issue from a two-word pipe and with room in the pipe without demand (F162_RDN).
+--   2026-11-18 F163: PIPE_RDY with one word for Bcc.B/BRA.B (not BSR, d8 /= 00/FF): the length is known from word D (F163_BCC1W).
 -- 
 
 library work;
@@ -226,6 +227,7 @@ signal PC_INC_I             : bit;
 signal PIPE_RDY             : bit;
 signal PF_DEMAND            : bit; -- [PFCOF]
 signal COF_Q                : bit; -- [PFCOF2]
+constant F163_BCC1W         : boolean := true; -- [F163] Bcc.B/BRA.B issue with only word D in the pipe.
 constant F157_PHASE_A       : boolean := false; -- [F157a] keep pipe at two words after a level-D issue.
 -- [F157x] Phase A OFF with control and bus_interface (empty GEM desktop on the board).
 constant F162_RDN           : boolean := true; -- [F162] back-to-back word request after a level-D issue from a two-word pipe.
@@ -764,6 +766,8 @@ begin
 
     PIPE_RDY <= '1' when OW_REQ = '1' and IPIPE_PNTR = 3 and INSTR_LVL = B else
                 '1' when OW_REQ = '1' and IPIPE_PNTR > 1 and INSTR_LVL = C else
+                '1' when F163_BCC1W and OW_REQ = '1' and IPIPE_PNTR > 0 and INSTR_LVL = D and IPIPE_D_FAULT = '0' and -- [F163] Bcc.B/BRA.B: length known from D.
+                         IPIPE.D(15 downto 12) = x"6" and IPIPE.D(11 downto 8) /= x"1" and IPIPE.D(7 downto 0) /= x"00" and IPIPE.D(7 downto 0) /= x"FF" else
                 '1' when F157_PHASE_A and OW_REQ = '1' and IPIPE_PNTR > 0 and INSTR_LVL = D and IPIPE_D_FAULT = '0'
                          and IPIPE.D(15 downto 12) /= x"F" -- F-line: PMOVE/PFLUSH vs UNIMPLEMENTED needs C.
                          and not (IPIPE.D(15 downto 12) = x"4" and IPIPE.D(11 downto 1) = "11100111101") else -- MOVEC vs ILLEGAL needs C.

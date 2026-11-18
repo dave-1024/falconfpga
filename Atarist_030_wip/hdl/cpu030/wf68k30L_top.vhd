@@ -163,6 +163,7 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
 --   2026-11-18 F160: STATUS_REG(4 downto 0) to the control unit (CCR_IN, early taken Bcc.B).
 --   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
@@ -559,6 +560,8 @@ signal SR_WR_MAIN               : bit;
 signal STACK_FORMAT             : std_logic_vector(3 downto 0);
 signal STACK_POS                : integer range 0 to 46;
 signal STATUS_REG               : std_logic_vector(15 downto 0);
+signal XNZVC_ALU                : std_logic_vector(4 downto 0); -- [F163]
+signal CCR_FWD                  : std_logic_vector(4 downto 0); -- [F163]
 signal STATUSn_MAIN             : bit;
 signal STATUSn_EXH              : bit;
 signal STORE_ADR_FORMAT         : bit;
@@ -661,6 +664,7 @@ attribute syn_preserve of CACR : signal is 1;
 attribute syn_preserve of CAAR : signal is 1;
 attribute syn_preserve of CDIS_R : signal is 1;
 begin
+    CCR_FWD <= XNZVC_ALU when CC_UPDT = '1' else STATUS_REG(4 downto 0); -- [F163]
     IDATA_BUFFER : process
     -- This register stores the immediate data.
     begin
@@ -1478,6 +1482,7 @@ begin
             CC_UPDT                 => CC_UPDT,
             STATUS_REG_OUT	        => STATUS_REG,
             ALU_COND                => ALU_COND,
+            XNZVC_OUT               => XNZVC_ALU,
             ALU_INIT                => ALU_INIT,
             ALU_BSY                 => ALU_BSY,
             ALU_REQ                 => ALU_REQ,
@@ -1752,7 +1757,7 @@ begin
             CC_UPDT                 => CC_UPDT,
             TRACE_MODE              => STATUS_REG(15 downto 14),
             VBIT                    => STATUS_REG(1),
-            CCR_IN                  => STATUS_REG(4 downto 0), -- [F160]
+            CCR_IN                  => CCR_FWD, -- [F163] forwarded
             DBCC_DNZ                => DBCC_DNZ, -- [F161]
             DR_DEC                  => DR_DEC, -- [F161]
             ALU_COND                => ALU_COND,

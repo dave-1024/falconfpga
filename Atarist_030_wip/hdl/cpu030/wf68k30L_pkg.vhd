@@ -40,6 +40,7 @@
 --   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
 --   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
 --   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-18 F163: XNZVC_OUT port on the ALU (CCR forwarded to the early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ / DR_DEC ports (control, data registers) for the early taken DBcc.
 --   2026-11-18 F160: CCR_IN port on the control unit (taken Bcc.B in its OPD_ACK clock).
 --   2026-11-09 F156: OPCODE_RDY_2 into the exception handler (REFILL_PIPE word count).
@@ -251,6 +252,7 @@ component WF68K30L_ALU
         CC_UPDT             : in bit;
         STATUS_REG_OUT	    : out std_logic_vector(15 downto 0);
         ALU_COND            : out boolean;
+        XNZVC_OUT           : out std_logic_vector(4 downto 0); -- [F163]
         ALU_INIT            : in bit;
         ALU_BSY             : out bit;
         ALU_REQ             : out bit;

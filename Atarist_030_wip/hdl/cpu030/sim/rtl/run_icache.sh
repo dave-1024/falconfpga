@@ -20,6 +20,10 @@
 # stream longs are read behind the loop branch (c2/c9/c10/c11/c21/c25 8->6, as the original expect_ci1), and in case 8
 # (CEI cleared loop A's first long) the first pass reads that long twice (c8 2->4): the early flush dismisses the
 # still-running fill of the branch target and the restart fetches it again. Result words at $5000 unchanged.
+# [F163] CIMODE=1 also accepts expect_icache_ci1_f163.txt: Bcc.B/BRA.B issue with one word in the pipe (F163_BCC1W),
+# so the subq/bne.s loop lines stop prefetching past the loop as with the F157 level-D-at-PNTR=1 rule (c1/c4/c6/c12/c23/c24
+# 48->34, c16/c18 49->35 or 24->22), with the F160 early-flush loop-line counts (c2/c9/c10/c11/c21/c25=6) and c8=2.
+# Only prefetch counts change. Result words at $5000 are unchanged.
 # Usage: run_icache.sh <built tb030 scratch dir> (e.g. the one run_rtl.sh builds). Needs GHDL and m68k binutils.
 set -e
 H=$(cd "$(dirname "$0")" && pwd); W=$(cd "${1:-/tmp/sim030rtl}" && pwd)
@@ -34,7 +38,7 @@ for ci in 1 0; do for fh in 1 0; do for ws in 0 1 3 7; do
   (cd $W && $G -r $O tb030 -gROMFILE=$T/p.hex -gWS=$ws -gCIMODE=$ci -gFASTH=$fh -gSTOPDONE=1 -gMAXCLK=60000 2>/dev/null) > r.log || true
   r=$(python3 $H/check_icache.py r.log $la $lb)
   d=$(grep -o 'DONE.*clk [0-9]*' r.log | awk '{print $NF}' | head -1)
-  if { [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] || { [ $ci = 0 ] && [ "$r" = "$(cat $H/expect_icache_ci0_xh1.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f144.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f157y.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f160.txt)" ]; } || grep -qxF "$r" $H/expect_icache_ci${ci}_f157.txt; } && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
+  if { [ "$r" = "$(cat $H/expect_icache_ci$ci.txt)" ] || { [ $ci = 0 ] && [ "$r" = "$(cat $H/expect_icache_ci0_xh1.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f144.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f157y.txt)" ]; } || { [ $ci = 1 ] && [ "$r" = "$(cat $H/expect_icache_ci1_f160.txt)" ]; } || { [ $ci = 1 ] && grep -qxF "$r" $H/expect_icache_ci1_f163.txt; } || grep -qxF "$r" $H/expect_icache_ci${ci}_f157.txt; } && grep -q "W=600DC0DE" r.log; then echo "ok   CIMODE=$ci FASTH=$fh WS=$ws DONE $d"
   else echo "FAIL CIMODE=$ci FASTH=$fh WS=$ws: $r"; fail=1; fi
 done; done; done
 rm -rf $T

@@ -157,6 +157,9 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F163: CCR_IN is forwarded from the ALU on its ALU_ACK clock, so a taken Bcc.B may decide early (BCC_EARLY)
+--     while ADDQ/SUBQ/CMP/TST/ADD/SUB/AND/OR/EOR/MOVEQ (register destination) finishes (F163_CCR_FWD).
+--     subq/bcc.s loop 9 -> 8 clocks (MC68030UM 8).
 --   2026-11-18 F162: MOVEQ written in EXECUTE (F162_MQ, as the F157c ops), so a dependent op issues 2 clocks later
 --     (straight-line register code at the MC68030UM 2 clocks per op). A taken Bcc.B that missed its OPD_ACK clock
 --     (ALU still busy with the previous op) flushes in INIT_EXEC_WB from the live CCR (F162_BCC_INIT), like BRA.
@@ -485,6 +488,8 @@ constant F162_BCC_INIT      : boolean := true; -- [F162] taken Bcc.B that missed
 constant F162_MQ            : boolean := true; -- [F162] MOVEQ written in EXECUTE like the F157c ops.
 constant F160_BCC_EARLY     : boolean := true; -- [F160] taken Bcc.B flushes in its OPD_ACK clock.
     signal BCC_EARLY            : bit; -- [F160]
+constant F163_CCR_FWD       : boolean := true; -- [F163] early Bcc.B also in the ALU_ACK clock of a CC op (CCR forwarded).
+    signal CCR_FWD_OK           : bit; -- [F163] CC op (register destination) ends EXECUTE this clock: CCR forwarded.
 constant F161_DBCC_EARLY    : boolean := true; -- [F161] taken DBcc completes in its OPD_ACK clock.
     signal DBCC_EARLY           : bit; -- [F161]
     signal DISPL_DBCC           : std_logic_vector(31 downto 0); -- [F161]
@@ -1431,10 +1436,18 @@ begin
                  true when BIW_0(11 downto 8) = x"E" and CCR_IN(3 downto 1) = "000" else
                  true when BIW_0(11 downto 8) = x"F" and CCR_IN(2) = '1' else
                  true when BIW_0(11 downto 8) = x"F" and (CCR_IN(3) xor CCR_IN(1)) = '1' else false;
+    -- [F163] Same clock as ALU_ACK (EXECUTE -> IDLE) for these ops, decoded from registers only: ALU_ACK itself goes
+    -- through NEXT_EXEC_WB_STATE and the [F3] WR_EARLY term (half-cycle path WP_NEG -> EX_P_*, -1.8 ns in the first build).
+    CCR_FWD_OK <= '0' when not F163_CCR_FWD or EXEC_WB_STATE /= EXECUTE or ALU_REQ = '0' else
+                  '1' when OP_WB_I = MOVEQ or OP_WB_I = CMP or OP_WB_I = TST else
+                  '1' when (OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B) and BIW_0_WB(8) = '0' else
+                  '1' when (OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = EOR) and BIW_0_WB(5 downto 3) = "000" else '0';
+
     BCC_EARLY <= '0' when not F160_BCC_EARLY or OP /= Bcc or FETCH_STATE /= START_OP or OPD_ACK = '0' or OW_VALID /= '1' else
                  '0' when BIW_0(7 downto 0) = x"00" or BIW_0(7 downto 0) = x"FF" else -- Byte displacement only.
                  '0' when BCC_LCOND = false else -- Not taken: ALU_COND path (UM 4, never faster).
-                 '0' when ALU_BSY = '1' or TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' or LOOP_BSY = '1' else
+                 '0' when ALU_BSY = '1' and CCR_FWD_OK = '0' else -- [F163] CCR forwarded.
+                 '0' when TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' or LOOP_BSY = '1' else
                  '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' or WR_FLT = '1' or WFLT = '1' else
                  '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
                                                      OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or

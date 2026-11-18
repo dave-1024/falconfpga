@@ -70,6 +70,7 @@
 --   2026-11-10 F157l: pair with CLK_F IRQ flag decode (exception_handler); this is the memcpy re-arm.
 --   2026-11-10 F157c: RESULT is combinational for single-cycle INT/LOG ops so it is valid in the ALU_REQ/EXECUTE clock.
 --   2026-11-18 F162: combinational RESULT for MOVEQ too (written in EXECUTE, F162_MQ).
+--   2026-11-18 F163: XNZVC_OUT (the CCR value written on this clock) for the forwarded early Bcc.B.
 --   2026-11-10 F157t: ADDX/SUBX keep RESULT_REG. Combo RESULT recomputes with the
 --                     post-EXECUTE X (CC_UPDT at ALU_REQ) and drops the incoming extend bit.
 --   2026-11-10 F157v: Latch X at ALU_INIT. ALU_REQ stays asserted until ALU_ACK, and
@@ -123,6 +124,7 @@ entity WF68K30L_ALU is
 
         STATUS_REG_OUT      : out std_logic_vector(15 downto 0);
         ALU_COND            : out boolean;
+        XNZVC_OUT           : out std_logic_vector(4 downto 0); -- [F163] next CCR for the early Bcc.
         
         -- Status and Control:
         ALU_INIT            : in bit; -- Strobe.
@@ -236,6 +238,7 @@ begin
     if L < R then return L; else return R; end if;
 end function IMIN;
 begin
+    XNZVC_OUT <= XNZVC; -- [F163]
     PARAMETER_BUFFER: process
     begin
         wait until CLK = '1' and CLK' event;
