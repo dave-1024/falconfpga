@@ -169,11 +169,12 @@
 --     F165_WR_OLAP: Option A (MOVEM) for single-write operations: the next operation waiting in INIT_EXEC_WB is
 --     loaded in the clock the write is acknowledged without a fault (WR_RDY with DATA_VALID; data and address are
 --     in the bus latches), WRITE_DEST -> EXECUTE. Old: MOVE/CLR/ADD/SUB/AND/OR/EOR/ADDQ/SUBQ/ADDI/SUBI/ANDI/ORI/
---     EORI/NEG/NOT to memory. New: those, CMP/TST/CMPI, MOVEQ, EXT, SWAP (no address register destination, no
---     padded ALU operation). MOVE's INIT terms (ADR_MODE, PHASE2) see ALU_BSY_M. One clock per write.
---     F165_EW_B2B: the next extension word is requested in the clock the previous one is acknowledged when the
---     state moves on to another extension word state (ABS_HI -> ABS_LO, IDATA_B2 -> B1, D_HI -> D_LO, ...), so the
---     second word is there on entry: abs.L, #.L and 32-bit displacements one clock shorter.
+--     EORI/NEG/NOT to memory. New: those except MOVE, plus CMP/TST/CMPI, MOVEQ, EXT, SWAP (no address register
+--     destination, no padded ALU operation). Not a following MOVE: making MOVE's INIT terms (ADR_MODE, PHASE2) see
+--     the write acknowledge put WR_EARLY in front of the PHASE2/DR_SEL/NEXT_FETCH_STATE chain (14.2 MHz). One clock.
+--     F165_EW_B2B: the next extension word is requested in the clock the previous one is acknowledged in
+--     FETCH_ABS_HI, FETCH_IDATA_B2, FETCH_D_HI and FETCH_OD_HI (decoded from FETCH_STATE, not NEXT_FETCH_STATE,
+--     for timing), so the low word is there on entry: abs.L, #.L and 32-bit displacements one clock shorter.
 --   2026-11-18 F163: CCR_IN is forwarded from the ALU on its ALU_ACK clock, so a taken Bcc.B may decide early (BCC_EARLY)
 --     while ADDQ/SUBQ/CMP/TST/ADD/SUB/AND/OR/EOR/MOVEQ (register destination) finishes (F163_CCR_FWD).
 --     subq/bcc.s loop 9 -> 8 clocks (MC68030UM 8).
@@ -560,7 +561,7 @@ begin
                         (OP_WB_I = MOVE or OP_WB_I = CLR or OP_WB_I = ADD or OP_WB_I = SUB or OP_WB_I = AND_B or OP_WB_I = OR_B or
                          OP_WB_I = EOR or OP_WB_I = ADDQ or OP_WB_I = SUBQ or OP_WB_I = ADDI or OP_WB_I = SUBI or
                          OP_WB_I = ANDI or OP_WB_I = ORI or OP_WB_I = EORI or OP_WB_I = NEG or OP_WB_I = NOT_B) and
-                        (OP = MOVE or OP = CLR or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR or
+                        (OP = CLR or OP = ADD or OP = SUB or OP = AND_B or OP = OR_B or OP = EOR or -- not MOVE (its INIT terms see ALU_BSY: timing)
                          OP = CMP or OP = TST or OP = CMPI or OP = MOVEQ or OP = EXT or OP = SWAP or
                          ((OP = ADDQ or OP = SUBQ) and BIW_0(5 downto 3) /= "001") or
                          OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = NEG or OP = NOT_B) else '0';
@@ -726,9 +727,9 @@ begin
         end if;
     end process DATA_AVAILABLE;
 
-    EW_REQ <= '1' when F165_EW_B2B and EW_ACK = '1' and NEXT_FETCH_STATE /= FETCH_STATE and -- [F165] next word right behind.
-                       (NEXT_FETCH_STATE = FETCH_ABS_LO or NEXT_FETCH_STATE = FETCH_IDATA_B1 or NEXT_FETCH_STATE = FETCH_D_LO or
-                        NEXT_FETCH_STATE = FETCH_D_HI or NEXT_FETCH_STATE = FETCH_OD_HI or NEXT_FETCH_STATE = FETCH_OD_LO) else
+    -- [F165] Decoded from FETCH_STATE only (not NEXT_FETCH_STATE: timing): these states always go on to the low word on EW_ACK.
+    EW_REQ <= '1' when F165_EW_B2B and EW_ACK = '1' and (FETCH_STATE = FETCH_ABS_HI or FETCH_STATE = FETCH_IDATA_B2 or
+                       FETCH_STATE = FETCH_D_HI or FETCH_STATE = FETCH_OD_HI) else
               '0' when EW_ACK = '1' or EW_RDY = '1' else
               '1' when FETCH_STATE = FETCH_DISPL or FETCH_STATE = FETCH_EXWORD_1 else 
               '1' when FETCH_STATE = FETCH_D_HI or FETCH_STATE = FETCH_D_LO else 
@@ -928,7 +929,7 @@ begin
                   "101" when OP = MOVEP else -- (d16, An).
                   -- The following two conditions change the address mode right in the end of the fetch phase. 
                   "010" when (OP = JSR or OP = PEA) and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else -- (A7).
-                  BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY_M = '0' else -- [F165] _M (WR_OLAP)
+                  BIW_0(8 downto 6) when OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' else
                   BIW_0(8 downto 6) when OP = MOVE and PHASE2 = true else
                   BIW_0(5 downto 3); 
 
@@ -2119,7 +2120,7 @@ begin
             PHASE2 <= true; -- One clock cycle delay for address calculation.
         elsif OP = RTR and FETCH_STATE = INIT_EXEC_WB and NEXT_FETCH_STATE = CALC_AEFF then
             PHASE2 <= true; -- Used as a control flow switch.
-        elsif OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY_M = '0' and BIW_0(8 downto 6) > "100" then -- [F165] _M (WR_OLAP)
+        elsif OP = MOVE and FETCH_STATE = INIT_EXEC_WB and ALU_BSY = '0' and BIW_0(8 downto 6) > "100" then
             PHASE2 <= true; -- Indicate destination address calculation is in progress.
         end if;
     end process PHASE2_CONTROL;
