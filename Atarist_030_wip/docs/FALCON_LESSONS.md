@@ -608,3 +608,20 @@ do not reset the board.
   ST slot gaps of 8..15 clocks). On the fixed 8-clock grid both the old and new controllers pass; off-grid the
   old one shows exactly the board bug ("RD on idle bank 1"), plus REFRESH with a busy bank, swallowed commands,
   DQ contention and lost ST writes. A bench that keeps failing for a known reason is worse than none: fix it.
+
+## Cycle-accuracy work: measuring cycles honestly (F158-F163, 16-18 Nov 2026)
+1. **A cycle-harness gain can come from code alignment.** The sim delay_loop went 87 -> 75 clocks with Phase A (F162),
+   but the gain was only on the copies split across a 4n+2 longword boundary; the aligned `subq/bcc` loop the board
+   runs did not move (LOOPTEST and BogoMIPS unchanged). Always run cycle tests both longword-aligned and at 4n+2.
+2. **Benchmark with the real loops, not synthetic proxies:** LOOPTEST's `subq.l #1,d0; bcc.s` and the kernel's
+   `__delay`. LOOPTEST's resolution is one 200 Hz tick (about 0.87%), so smaller differences are noise.
+3. **ST-RAM is cache-inhibited**, so every wasted prefetch there costs a full ST bus cycle. The F163 short-branch fix
+   (no fetch of an unneeded word before a short branch) gave +50% LOOPTEST in ST-RAM against +12.7% cached.
+4. **Early issue of An-writing ops races the next instruction's An use.** EARLY_ISSUE on ADDA/SUBA (and
+   ADDQ/SUBQ #,An) let the next instruction read the old An; that was the TOS 2.06 squashed (stacked) menu text found
+   by Łukasz Jokiel. Same family as F62d and F145: any early issue needs an An hazard check, not a blanket guess.
+5. **When timing_pairs fails, restructure the logic off the critical path** (F163a moved the flag check out of the
+   Bcc decision path). Never relax constraints or seed-sweep to get a pass.
+6. **Record the test conditions with every cycle figure.** The earlier "BSR/RTS 28 clocks" (against the manual's 15)
+   was measured with the subroutine at 4n+2 and the stack in 16-bit low RAM; with an aligned subroutine and a 32-bit
+   stack it is 18. Write down alignment, bus width/wait states, cache state and stack location next to each number.
