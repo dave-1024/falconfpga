@@ -163,6 +163,7 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
 --   2026-11-18 F160: STATUS_REG(4 downto 0) to the control unit (CCR_IN, early taken Bcc.B).
 --   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
@@ -361,6 +362,8 @@ signal DISPLACEMENT_MAIN        : std_logic_vector(31 downto 0);
 signal DISPLACEMENT_EXH         : std_logic_vector(7 downto 0);
 signal DATA_BUFFER              : std_logic_vector(31 downto 0);
 signal DBcc_COND                : boolean;
+signal DBCC_DNZ                 : bit; -- [F161]
+signal DR_DEC                   : bit; -- [F161]
 signal DR_IN_1                  : std_logic_vector(31 downto 0);
 signal DR_IN_2                  : std_logic_vector(31 downto 0);
 signal DR_OUT_2                 : std_logic_vector(31 downto 0);
@@ -1750,6 +1753,8 @@ begin
             TRACE_MODE              => STATUS_REG(15 downto 14),
             VBIT                    => STATUS_REG(1),
             CCR_IN                  => STATUS_REG(4 downto 0), -- [F160]
+            DBCC_DNZ                => DBCC_DNZ, -- [F161]
+            DR_DEC                  => DR_DEC, -- [F161]
             ALU_COND                => ALU_COND,
             DBcc_COND               => DBcc_COND,
             BRANCH_ATN              => BRANCH_ATN,
@@ -1785,6 +1790,8 @@ begin
             DR_FC_OUT               => MMU_DN_FC,
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
+            DR_DEC                  => DR_DEC, -- [F161]
+            DR_DNZ                  => DBCC_DNZ, -- [F161] Count will not expire (Dn.W /= 0 before the decrement).
             DR_MARK_USED            => DR_MARK_USED,
             USE_DPAIR               => USE_DPAIR,
             DR_IN_USE               => DR_IN_USE,

@@ -157,6 +157,23 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F161: RTS leaves FETCH_OPERAND for START_OP in the clock its return address is ready (RD_RDY with
+--     DATA_VALID, DATA_TO_CORE = DBUFFER): PC_LOAD and the flush one clock earlier, no INIT_EXEC_WB pass (the
+--     RTS ALU pass writes nothing; SP was already incremented in FETCH_OPERAND). Only with the ALU idle (AR_IN_1
+--     = DATA_TO_CORE), trace off, no interrupt hot (INT_TRIG needs INIT/SLEEP), no exception request, no MMU
+--     operation or write fault (F161_RTS_EARLY). Bus-errored reads keep the old path. RTS -1 clock.
+--   2026-11-18 F161: taken DBcc completes in its OPD_ACK (START_OP) clock (F161_DBCC_EARLY), as the F160
+--     early Bcc.B. Condition false from the live CCR (BCC_LCOND), count not expiring (Dn.W /= 0, DBCC_DNZ
+--     from the unforwarded register file with no data register write this clock), ALU idle, Dn not in
+--     use, no SR writer in write-back, trace off, no interrupt hot, no exception request, no loop mode
+--     and d16 /= -4 (68010 loop-mode entry), no MMU operation or write fault: the pipe is flushed, PC
+--     loads PC + 2 + d16 and Dn.W - 1 is written by the register file's DR_DEC port (no ALU pass).
+--     DBF (cc = F, no CCR use) may also complete while the ALU finishes a simple register operation
+--     (no trap possible, EXECUTE/WRITEBACK only, no memory destination); other DBcc need the ALU idle.
+--     Taken DBcc 10 -> 6/7 clocks (MC68030UM 6; 7 when the target is a two-word instruction). Expired / cc
+--     true keep the ALU path. Expired DBcc (count -1, not loop mode) is padded in SLEEP (F161_DBCC_XPAD;
+--     unpadded it took 5, below the MC68030UM 10) so the dbf_expired harness is at or just under the UM 14
+--     (leave SLEEP at DBCC_CNT = 5). Prefer slightly faster than over the manual when 10 exactly is not hit.
 --   2026-11-18 F160: taken Bcc.B decided and flushed in its OPD_ACK (START_OP) clock (F160_BCC_EARLY).
 --     When the condition codes are settled (ALU idle, no SR writer in write-back), trace off, no
 --     interrupt hot, no exception request, no loop mode, no MMU operation and the operation word is
@@ -349,6 +366,8 @@ entity WF68K30L_CONTROL is
         VBIT                : in std_logic;
         ALU_COND            : in boolean;
         CCR_IN              : in std_logic_vector(4 downto 0); -- [F160] live X N Z V C for the early Bcc.
+        DBCC_DNZ            : in bit; -- [F161] Dn.W /= 0 (unforwarded, no data register write this clock).
+        DR_DEC              : out bit; -- [F161] Dn.W - 1 (early taken DBcc, register file port).
         DBcc_COND           : in boolean;
         BRANCH_ATN          : in bit;
         RESET_STRB          : out bit;
@@ -460,6 +479,14 @@ constant EI_G5_SHIFT        : boolean := true; -- ASL..ROXR register (size /= "1
 constant EI_G6_BIT          : boolean := true; -- BTST/BCHG/BCLR/BSET Dn
 constant F160_BCC_EARLY     : boolean := true; -- [F160] taken Bcc.B flushes in its OPD_ACK clock.
     signal BCC_EARLY            : bit; -- [F160]
+constant F161_DBCC_EARLY    : boolean := true; -- [F161] taken DBcc completes in its OPD_ACK clock.
+    signal DBCC_EARLY           : bit; -- [F161]
+    signal DISPL_DBCC           : std_logic_vector(31 downto 0); -- [F161]
+constant F161_RTS_EARLY     : boolean := true; -- [F161] RTS: PC load in the FETCH_OPERAND ready clock.
+    signal RTS_EARLY            : boolean; -- [F161]
+constant F161_DBCC_XPAD     : boolean := true; -- [F161] expired DBcc padded so dbf_expired is at or under the UM 14.
+    signal DBCC_CNT             : integer range 0 to 15 := 0; -- [F161] clocks since the DBcc left START_OP.
+    signal DBCC_XHOLD           : boolean; -- [F161] hold an expired DBcc in SLEEP.
     signal BCC_LCOND            : boolean; -- [F160] Bcc condition from CCR_IN.
     signal DISPLACEMENT_R       : std_logic_vector(31 downto 0); -- [F160] registered displacement.
     signal DISPL_EARLY          : std_logic_vector(31 downto 0); -- [F160] PC offset of the early Bcc.B (d8 + 2).
@@ -578,8 +605,8 @@ begin
             OW_RDY <= '0'; -- Reset.
         elsif FETCH_STATE = START_OP and (OP = ILLEGAL or OP = RTE or OP = TRAP or OP = UNIMPLEMENTED) and BUSY_EXH = '1' then
             OW_RDY <= '0'; -- Done.
-        elsif BCC_EARLY = '1' then
-            OW_RDY <= '0'; -- [F160] The early Bcc is done in its acknowledge clock.
+        elsif BCC_EARLY = '1' or DBCC_EARLY = '1' then
+            OW_RDY <= '0'; -- [F160] The early Bcc is done in its acknowledge clock. [F161] Early DBcc too.
         elsif OPD_ACK = '1' then
             OW_RDY <= '1'; -- Set.
         end if;
@@ -1405,12 +1432,55 @@ begin
                  '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
                                                      OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or
                                                      OP_WB_I = ANDI_TO_CCR or OP_WB_I = EORI_TO_CCR or OP_WB_I = ORI_TO_CCR) else '1';
+    -- [F161] Early taken DBcc in its OPD_ACK clock. OP, BIW_0 and BIW_1 (d16) are the new registered words;
+    -- read port 2 already selects Dn (DR_SEL_ADH_2_I = BIW_0(2 downto 0) for DBcc), PC still points at the DBcc.
+    DBCC_EARLY <= '0' when not F161_DBCC_EARLY or OP /= DBcc or FETCH_STATE /= START_OP or OPD_ACK = '0' or OW_VALID /= '1' else
+                  '0' when BCC_LCOND = true or DBCC_DNZ = '0' else -- cc true or the count expires: ALU path.
+                  '0' when BIW_1 = x"FFFC" or LOOP_BSY = '1' else -- 68010 loop-mode entry / loop mode: unchanged.
+                  '0' when DR_IN_USE = '1' or TRACE_MODE /= "00" or IRQ_HOT = '1' or EXH_REQ = '1' else
+                  '0' when ALU_BSY = '1' and BIW_0(11 downto 8) /= x"1" else -- cc /= F: CCR must be settled.
+                  '0' when ALU_BSY = '1' and EXEC_WB_STATE /= EXECUTE and EXEC_WB_STATE /= WRITEBACK else -- No memory destination.
+                  '0' when ALU_BSY = '1' and not (OP_WB_I = ADD or OP_WB_I = ADDA or OP_WB_I = ADDI or OP_WB_I = ADDQ or OP_WB_I = ADDX or
+                                                  OP_WB_I = AND_B or OP_WB_I = ANDI or OP_WB_I = ASL or OP_WB_I = ASR or OP_WB_I = BCHG or
+                                                  OP_WB_I = BCLR or OP_WB_I = BSET or OP_WB_I = BTST or OP_WB_I = CLR or OP_WB_I = CMP or
+                                                  OP_WB_I = CMPA or OP_WB_I = CMPI or OP_WB_I = EOR or OP_WB_I = EORI or OP_WB_I = EXG or
+                                                  OP_WB_I = EXT or OP_WB_I = EXTB or OP_WB_I = LEA or OP_WB_I = LSL or OP_WB_I = LSR or
+                                                  OP_WB_I = MOVE or OP_WB_I = MOVEA or OP_WB_I = MOVEQ or OP_WB_I = NEG or OP_WB_I = NEGX or
+                                                  OP_WB_I = NOT_B or OP_WB_I = OR_B or OP_WB_I = ORI or OP_WB_I = ROTL or OP_WB_I = ROTR or
+                                                  OP_WB_I = ROXL or OP_WB_I = ROXR or OP_WB_I = Scc or OP_WB_I = SUB or OP_WB_I = SUBA or
+                                                  OP_WB_I = SUBI or OP_WB_I = SUBQ or OP_WB_I = SUBX or OP_WB_I = SWAP or OP_WB_I = TST) else
+                  '0' when PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' or WR_FLT = '1' or WFLT = '1' else
+                  '0' when EXEC_WB_STATE /= IDLE and (OP_WB_I = MOVE_TO_CCR or OP_WB_I = MOVE_TO_SR or OP_WB_I = ANDI_TO_SR or
+                                                      OP_WB_I = EORI_TO_SR or OP_WB_I = ORI_TO_SR or OP_WB_I = STOP or
+                                                      OP_WB_I = ANDI_TO_CCR or OP_WB_I = EORI_TO_CCR or OP_WB_I = ORI_TO_CCR) else '1';
+    DR_DEC <= DBCC_EARLY; -- [F161]
+    RTS_EARLY <= true when F161_RTS_EARLY and OP = RTS and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and
+                           ALU_BSY = '0' and TRACE_MODE = "00" and IRQ_HOT = '0' and EXH_REQ = '0' and PM_INFL = '0' and
+                           PMMU_WR_D = '0' and MMU_BUSY = '0' and WR_FLT = '0' and WFLT = '0' else false;
+    -- [F161] Expired DBcc: OA, INIT, SLEEP ... START_OP, next OA. Leaving SLEEP at DBCC_CNT = 5 puts the
+    -- dbf_expired harness at the MC68030UM 14 (or just under). The unpadded instruction was 5 (UM 10);
+    -- CNT < 7 gave the harness 16, 2 over the UM 14, so the hold is CNT < 5. Prefer at or below the UM.
+    P_DBCC_CNT: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE = START_OP or OP /= DBcc then
+            DBCC_CNT <= 0;
+        elsif DBCC_CNT < 15 then
+            DBCC_CNT <= DBCC_CNT + 1;
+        end if;
+    end process P_DBCC_CNT;
+    DBCC_XHOLD <= true when F161_DBCC_XPAD and OP = DBcc and FETCH_STATE = SLEEP and LOOP_BSY = '0' and ALU_COND = false and
+                            DBcc_COND = true and DBCC_CNT < 5 else false;
+    DISPL_DBCC(31 downto 16) <= (others => BIW_1(15));
+    DISPL_DBCC(15 downto 0) <= BIW_1;
     DISPL_EARLY(31 downto 8) <= (others => '1') when BIW_0(7) = '1' else (others => '0');
     DISPL_EARLY(7 downto 0) <= BIW_0(7 downto 0);
-    DISPLACEMENT <= DISPL_EARLY + "10" when F160_BCC_EARLY and OP = Bcc and FETCH_STATE = START_OP else DISPLACEMENT_R; -- [F160]
+    DISPLACEMENT <= DISPL_EARLY + "10" when F160_BCC_EARLY and OP = Bcc and FETCH_STATE = START_OP else -- [F160]
+                    DISPL_DBCC + "10" when F161_DBCC_EARLY and OP = DBcc and FETCH_STATE = START_OP else DISPLACEMENT_R; -- [F161]
 
     PC_ADD_DISPL <= PC_ADD_DISPL_I;
     PC_ADD_DISPL_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                      '1' when DBCC_EARLY = '1' else -- [F161]
                       '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                       '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else 
                       '1' when OP = DBcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = false and DBcc_COND = false else '0';
@@ -1437,6 +1507,7 @@ begin
                           (OP = Bcc and FETCH_STATE = SLEEP and ALU_COND = true) or -- Condition valid in SLEEP only.
                           (OP = DBcc and FETCH_STATE = SLEEP and LOOP_BSY = '0' and ALU_COND = false and DBcc_COND = false)) else '0';
     IPIPE_FLUSH_I <= '1' when BCC_EARLY = '1' else -- [F160]
+                     '1' when DBCC_EARLY = '1' else -- [F161]
                      '1' when (OP = BRA or OP = BSR) and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP else
                      '1' when OP = Bcc and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = true else
                      '1' when OP = DBcc and LOOP_BSY = '0' and FETCH_STATE /= START_OP and NEXT_FETCH_STATE = START_OP and ALU_COND = false and DBcc_COND = false else
@@ -2080,7 +2151,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2091,8 +2162,8 @@ begin
             when START_OP =>
                 if OPD_ACK = '0' and OW_RDY = '0' then
                     NEXT_FETCH_STATE <= START_OP;
-                elsif BCC_EARLY = '1' then
-                    NEXT_FETCH_STATE <= START_OP; -- [F160] Taken Bcc.B flushed in this clock.
+                elsif BCC_EARLY = '1' or DBCC_EARLY = '1' then
+                    NEXT_FETCH_STATE <= START_OP; -- [F160] Taken Bcc.B flushed in this clock. [F161] Taken DBcc.
                 elsif PM_INFL = '1' or PMMU_WR_D = '1' or MMU_BUSY = '1' then -- [PMMU2b] also an MMU operation (PLOAD/PTEST walk)
                     -- [PMMU2] A PMOVE to an MMU register finishes its writeback before the next instruction
                     -- starts, so the post-instruction MMU configuration exception (8.1.10) is taken before it.
@@ -2806,7 +2877,9 @@ begin
             when CALC_AEFF =>
                 NEXT_FETCH_STATE <= FETCH_OPERAND; -- One CLK calculation delay.
             when FETCH_OPERAND =>
-                if RD_RDY = '1' then
+                if RTS_EARLY then
+                    NEXT_FETCH_STATE <= START_OP; -- [F161] PC_LOAD from DATA_TO_CORE and flush now.
+                elsif RD_RDY = '1' then
                     case OP is
                         when ABCD | ADDX | SBCD | SUBX =>
                             if PHASE2 = false then
@@ -3087,8 +3160,8 @@ begin
                     when CHK | DBcc =>
                         -- [T6b] CHK: the ALU may be padded to the 68030 time; wait for its acknowledge
                         -- (trap decision) before the next instruction starts.
-                        -- DBcc: evaluate conditions.
-                        if NEXT_EXEC_WB_STATE = IDLE then
+                        -- DBcc: evaluate conditions. [F161] Expired: padded to the UM 14 harness (DBCC_XHOLD, CNT < 5).
+                        if NEXT_EXEC_WB_STATE = IDLE and DBCC_XHOLD = false then
                             NEXT_FETCH_STATE <= START_OP;
                         else
                             NEXT_FETCH_STATE <= SLEEP;

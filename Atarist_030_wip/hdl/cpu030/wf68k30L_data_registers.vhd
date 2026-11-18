@@ -33,6 +33,8 @@
 -- Changes are tagged Fnn in the code. Dates are from git history.
 -- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
 --   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-11-18 F161: DR_DEC port: read-port-2 register .W - 1 (early taken DBcc); DR_DNZ: that register .W /= 0 and
+--     not written this clock (a same-clock write would make the unforwarded value stale and lose the decrement).
 --   2026-11-04 F141: a new in-use mark wins over a release in the same clock.
 -- 
 
@@ -65,6 +67,8 @@ entity WF68K30L_DATA_REGISTERS is
         DR_FC_OUT           : out std_logic_vector(2 downto 0);
         DR_WR_1             : in bit;
         DR_WR_2             : in bit;
+        DR_DEC              : in bit := '0'; -- [F161] DR(read port 2)(15 downto 0) - 1.
+        DR_DNZ              : out bit; -- [F161] DR(read port 2)(15 downto 0) /= 0 and no write to it this clock.
         DR_MARK_USED        : in bit;
         USE_DPAIR           : in boolean;
         DR_IN_USE           : out bit;
@@ -157,6 +161,9 @@ begin
                 DR(DR_PNTR_RD_2)(31 downto 8) & DR_IN_1(7 downto 0) when DR_WR_1 = '1' and DR_SEL_WR_I1 = DR_SEL_RD_2 and OP_SIZE = Byte else
                 DR_IN_2 when DR_WR_2 = '1' and DR_SEL_WR_I2 = DR_SEL_RD_2 and OP_SIZE = LONG else
                 DR(DR_PNTR_RD_2);
+    DR_DNZ <= '0' when DR(DR_PNTR_RD_2)(15 downto 0) = x"0000" else
+              '0' when DR_WR_1 = '1' and DR_PNTR_WR_1 = DR_PNTR_RD_2 else
+              '0' when DR_WR_2 = '1' and DR_PNTR_WR_2 = DR_PNTR_RD_2 else '1'; -- [F161]
     DR_FC_OUT <= DR(conv_integer(DR_FC_SEL))(2 downto 0); -- [PMMU3] MC68030UM p. 9-64: FC = Dn bits 2-0
 
     REGISTERS: process
@@ -178,6 +185,9 @@ begin
                 when WORD => DR(DR_PNTR_WR_2)(15 downto 0) <= DR_IN_2(15 downto 0);
                 when Byte => DR(DR_PNTR_WR_2)(7 downto 0) <= DR_IN_2(7 downto 0);
             end case;
+        end if;
+        if DR_DEC = '1' then -- [F161] Only with DR_DNZ = '1' (no other write to this register this clock).
+            DR(DR_PNTR_RD_2)(15 downto 0) <= DR(DR_PNTR_RD_2)(15 downto 0) - 1;
         end if;
     end process REGISTERS;
 end BEHAVIOUR;
