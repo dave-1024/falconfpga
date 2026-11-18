@@ -94,12 +94,12 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
 ## What's working now (18 Nov 2026)
-Everything below has been checked on the real board (Tang Console 138K) with the build in flash, F164 (main `efd7ccd`).
+Everything below has been checked on the real board (Tang Console 138K) with the build in flash, F165 (main `8477686`).
 
 - **TOS 2.06** boots to the GEM desktop with the menu bar spaced correctly, and the A: floppy window opens.
 - **EmuTOS 1.4** boots to the GEM desktop with its icons; double-clicking DISK A opens the A: window and menus work.
 - **Linux/m68k 6.18** boots from a floppy image (`linux68k30.st`) to the BusyBox `ash` prompt, and `uname` prints
-  `Linux`. It reports 2.94 BogoMIPS.
+  `Linux`. It reports 2.95 BogoMIPS.
 - **FreeMiNT with memory protection**, XaAES and TeraDesk (last checked 31 Oct 2026, see below).
 - **The 68030 PMMU** (memory management unit): address translation, the translation cache, transparent translation
   and all the MMU instructions.
@@ -120,17 +120,23 @@ Everything below has been checked on the real board (Tang Console 138K) with the
   4-byte block (address 4n+2, about half of all subroutines, because compilers only align to 2 bytes), the
   instruction cache never kept the first word, so a call plus return took about 32 clocks instead of the manual's
   15 to 17. F164 lets the cache keep each word on its own; in simulation a call plus return now takes 18 to 22
-  clocks. F164 passed the board tests (TOS 2.06, EmuTOS, LOOPTEST, Linux) and is in flash.
-- **Next**: instructions that read and write memory (to-do items 2 and 3 below), not started yet.
+  clocks. F164 passed the board tests (TOS 2.06, EmuTOS, LOOPTEST, Linux).
+- **Memory-operand reads: done in F165 (18 Nov 2026).** Instructions that read from memory (for example
+  `MOVE (An),Dn`, `ADD`, `CMP`, `TST`) overlap the steps after the data arrives, so they take fewer clocks:
+  `(An)` 9 to 7, `d16(An)` 11 to 9, `abs.L` 13 to 10, `#imm.L` 5, `CLR` mem 6 to 5. F165 passed the board tests
+  (TOS 2.06, EmuTOS, LOOPTEST, Linux) and is in flash. clk_cpu030 Fmax 16.630 MHz, clk32 33.212 MHz,
+  46125 LUT + 5468 ALU, bitstream md5 `351d5aa7522a20c39300e1fc6dad32bc`.
+- **Next**: remaining gaps on instructions that write memory (to-do item 3), large `MOVEM` lists, and `LINK`/`UNLK`.
 
 ## Identified to-do
 From a survey of 95 instructions against the manual (`f163` cycle survey, 18 Nov 2026), the biggest remaining gaps:
 
 1. **Calls and returns**: the odd-address case is fixed in F164; calls are still about 3 to 4 clocks over the
    manual.
-2. **Instructions that read memory** (for example `MOVE (An),Dn`, `ADD`, `CMP`, `TST` from memory): 4 to 7 clocks over.
-   The steps after the data arrives run one after another instead of overlapping.
+2. **Instructions that read memory** (for example `MOVE (An),Dn`, `ADD`, `CMP`, `TST` from memory): cut in F165
+   (`(An)` 9 to 7, still 2 clocks over the manual's 5; `d16(An)` 11 to 9; `abs.L` 13 to 10).
 3. **Instructions that write memory**, and read-modify-write ones (`ADD Dn,(An)`): 2 to 7 clocks over.
+   `CLR` mem is 5 in F165 (was 6); MOVE writes are unchanged from F164.
 4. **Large `MOVEM` lists** (8 registers: 21 clocks over) and the **`LINK`/`UNLK`** pair (20 against 9).
 5. **Small register and branch gaps**: `MOVE.L Dn,Dn` 3 against 2, `ADDA.L` 4 against 2, shifts by a number 6
    against 4, `BRA.S` 7 against 6, a taken word-size branch 9 against 6.
@@ -148,25 +154,29 @@ Other known problems:
 Tips: EmuTOS boots in ST Low; GEMBench needs ST Medium (Options > Change resolution). `gbref.st` is GEMBench 4.03 and
 `gb608.st` is GEMBENCH 6 (title 6.31); their scores can't be compared with each other.
 
-## Speedups so far (F158 -> F164, 16-18 Nov 2026)
+## Speedups so far (F158 -> F165, 16-18 Nov 2026)
 Measured on the board at 16 MHz, except the clock counts, which come from simulation against the manual.
 
-| Test | F158 (16 Nov) | F164 (18 Nov) | Change |
+| Test | F158 (16 Nov) | F165 (18 Nov) | Change |
 |---|---|---|---|
 | LOOPTEST, TT-RAM with the instruction cache on (loops/s) | 1,418,439 | 1,960,784 | +38% |
 | LOOPTEST, ST-RAM (loops/s) | 216,684 | 325,203 | +50% |
-| Linux BogoMIPS | 2.11 | 2.94 | +39% |
+| Linux BogoMIPS | 2.11 | 2.95 | +40% |
 
-GEMBENCH 6.31 on F164 (TOS 2.06, blitter on, against a blitter STE): average 123%, CPU 169%, display 90%.
+LOOPTEST TT-RAM with caches off is 558,659 (F164 557,103). GEMBENCH 6.31 was measured on F164 (TOS 2.06, blitter on, against a blitter STE): average 123%, CPU 169%, display 90%.
 
-| Instruction (clock cycles) | F164 | Manual |
+| Instruction (clock cycles) | F165 | Manual |
 |---|---|---|
 | Simple register maths (`ADD`, `SUB`, `ADDQ`, `MOVEQ`, `CMP`, `TST` on registers) | same as manual | 2 |
 | Count-down loop `subq.l #1,d0; bcc.s` (Linux delay loop) | 8 | 8 |
 | `DBF` loop of 8 passes | 59.5 | 54 |
 | `BSR` + `RTS`, subroutine aligned | 18 | 15 |
 | `BSR` + `RTS`, subroutine at an odd word (F163: 32) | 18-22 | 15-17 |
-| `MOVE.L (An),Dn` | 9 | 5 |
+| `MOVE.L (An),Dn` (F164: 9) | 7 | 5 |
+| `MOVE.L d16(An),Dn` (F164: 11) | 9 | — |
+| `MOVE.L abs.L,Dn` (F164: 13) | 10 | — |
+| `#imm.L` | 5 | — |
+| `CLR` mem (F164: 6) | 5 | — |
 | `LINK` + `UNLK` | 20 | 9 |
 
 Details: [`Atarist_030_wip/docs/HISTORY.md`](Atarist_030_wip/docs/HISTORY.md) item 28 and
