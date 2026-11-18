@@ -15,7 +15,17 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (11 Nov 2026, main)
+## Status (18 Nov 2026, main)
+
+Board build: **F164** (`efd7ccd`): clk_cpu030 Fmax 17.471 MHz (16 MHz target), 46130 LUT + 5465 ALU, timing_pairs
+passes, Gowin V1.9.12.03. Since F157x: Phase A (2-clock register ops, F162), early taken-branch decision with the
+CCR forwarded (F163), and an I-cache valid bit per word so calls to code at 4n+2 hit the cache (F164). LOOPTEST
+TT-RAM I-cache 1960784 loops/s (F158 1418439), ST-RAM 325203 (216684); Linux 2.94 BogoMIPS (2.11). GEMBENCH 6.31
+under TOS 2.06 with BLITON + BLITFIX, against a blitter STE: average 123%, CPU 169%, display 90%. The
+`subq.l #1,Dn; bcc` loop is now 8 clocks, as in MC68030UM Section 11. Remaining cycle gaps (memory-operand reads and
+writes, MOVEM, LINK/UNLK): front [`README.md`](../README.md#identified-to-do).
+
+## Status (11 Nov 2026, history)
 
 Board build: **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU, Gowin V1.9.12.03. EmuTOS 1.4
 GEM with icons and working clicks; LOOPTEST TT-RAM I+D 1428571 loops/s (same as F156); Linux to BusyBox, 2.13 BogoMIPS;

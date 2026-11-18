@@ -94,7 +94,7 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
 ## What's working now (18 Nov 2026)
-Everything below has been checked on the real board (Tang Console 138K) with the build in flash, F163 (main `fb91331`).
+Everything below has been checked on the real board (Tang Console 138K) with the build in flash, F164 (main `efd7ccd`).
 
 - **TOS 2.06** boots to the GEM desktop with the menu bar spaced correctly, and the A: floppy window opens.
 - **EmuTOS 1.4** boots to the GEM desktop with its icons; double-clicking DISK A opens the A: window and menus work.
@@ -106,22 +106,26 @@ Everything below has been checked on the real board (Tang Console 138K) with the
 - **Instruction and data caches** inside the 68030, and **16 MB of TT-RAM** (fast RAM only the 68030 sees).
 - **Floppy and hard disk images on the SD card**, USB keyboard and mouse, the on-screen menu, and HDMI video.
 - **Blitter** with TOS 2.06 (switched on with BLITON; use BLITFIX together with TT-RAM).
+- **GEMBENCH 6.31 on F164** (18 Nov 2026, TOS 2.06 with BLITON and BLITFIX, ST Medium, against a blitter STE):
+  average 123%, CPU 169%, display 90%, RAM access 101%, ROM access 104%, ALT RAM 153%, Integer Division 510%.
+  VDI Text Effects (55%) is the one low result. Under EmuTOS the scores are lower (average 72% against a blitter
+  STE) because EmuTOS reports no blitter and its VDI is slower, so use TOS 2.06 to compare.
 - The CPU runs at 16 MHz. The work now is making each instruction take the same number of clock cycles as
   Motorola's MC68030 User's Manual says. Where an exact match isn't possible, slightly faster is preferred to slower.
 
 ## Being worked on now
-- **Calls to code at an odd word address.** When a subroutine starts halfway into a 4-byte block (address 4n+2,
-  about half of all subroutines, because compilers only align to 2 bytes), the instruction cache never kept the first
-  word. So every call to it went back to memory for that word, and a call plus return took about 32 clocks instead of
-  the manual's 15 to 17. The fix (F164, on the `speed` branch) lets the cache keep each word on its own, so those
-  calls hit the cache like a real 68030 does. In simulation a call plus return drops from 32-33 to 18-22 clocks.
-  It still has to pass the board tests before it goes into flash.
+- **Calls to code at an odd word address: done in F164 (18 Nov 2026).** When a subroutine starts halfway into a
+  4-byte block (address 4n+2, about half of all subroutines, because compilers only align to 2 bytes), the
+  instruction cache never kept the first word, so a call plus return took about 32 clocks instead of the manual's
+  15 to 17. F164 lets the cache keep each word on its own; in simulation a call plus return now takes 18 to 22
+  clocks. F164 passed the board tests (TOS 2.06, EmuTOS, LOOPTEST, Linux) and is in flash.
+- **Next**: instructions that read and write memory (to-do items 2 and 3 below), not started yet.
 
 ## Identified to-do
 From a survey of 95 instructions against the manual (`f163` cycle survey, 18 Nov 2026), the biggest remaining gaps:
 
-1. **Calls and returns**: the odd-address case above, then about 3 to 4 clocks over the manual even when the
-   subroutine is aligned.
+1. **Calls and returns**: the odd-address case is fixed in F164; calls are still about 3 to 4 clocks over the
+   manual.
 2. **Instructions that read memory** (for example `MOVE (An),Dn`, `ADD`, `CMP`, `TST` from memory): 4 to 7 clocks over.
    The steps after the data arrives run one after another instead of overlapping.
 3. **Instructions that write memory**, and read-modify-write ones (`ADD Dn,(An)`): 2 to 7 clocks over.
@@ -142,22 +146,24 @@ Other known problems:
 Tips: EmuTOS boots in ST Low; GEMBench needs ST Medium (Options > Change resolution). `gbref.st` is GEMBench 4.03 and
 `gb608.st` is GEMBENCH 6 (title 6.31); their scores can't be compared with each other.
 
-## Speedups so far (F158 -> F163, 16-18 Nov 2026)
+## Speedups so far (F158 -> F164, 16-18 Nov 2026)
 Measured on the board at 16 MHz, except the clock counts, which come from simulation against the manual.
 
-| Test | F158 (16 Nov) | F163 (18 Nov) | Change |
+| Test | F158 (16 Nov) | F164 (18 Nov) | Change |
 |---|---|---|---|
 | LOOPTEST, TT-RAM with the instruction cache on (loops/s) | 1,418,439 | 1,960,784 | +38% |
 | LOOPTEST, ST-RAM (loops/s) | 216,684 | 325,203 | +50% |
 | Linux BogoMIPS | 2.11 | 2.94 | +39% |
 
-| Instruction (clock cycles) | F163 | Manual |
+GEMBENCH 6.31 on F164 (TOS 2.06, blitter on, against a blitter STE): average 123%, CPU 169%, display 90%.
+
+| Instruction (clock cycles) | F164 | Manual |
 |---|---|---|
 | Simple register maths (`ADD`, `SUB`, `ADDQ`, `MOVEQ`, `CMP`, `TST` on registers) | same as manual | 2 |
 | Count-down loop `subq.l #1,d0; bcc.s` (Linux delay loop) | 8 | 8 |
 | `DBF` loop of 8 passes | 59.5 | 54 |
 | `BSR` + `RTS`, subroutine aligned | 18 | 15 |
-| `BSR` + `RTS`, subroutine at an odd word (being fixed) | 32 | 15 |
+| `BSR` + `RTS`, subroutine at an odd word (F163: 32) | 18-22 | 15-17 |
 | `MOVE.L (An),Dn` | 9 | 5 |
 | `LINK` + `UNLK` | 20 | 9 |
 
