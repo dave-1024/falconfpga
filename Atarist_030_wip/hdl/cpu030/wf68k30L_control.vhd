@@ -157,6 +157,11 @@
 --   2026-10-09 F62d: JSR waits for a pending A7 writeback.
 --   2026-10-15 F66: a bus-errored operand read ends the instruction, no register writeback (MC68030).
 --   2026-10-16 PH2-FMAX: register-mode PACK/UNPK START_OP address select without the DR_IN_USE term (timing, same cycles).
+--   2026-11-18 F159: EARLY_ISSUE on again (stopgap): all F145 register-only
+--     groups except ADDA/SUBA. Board bisect of the TOS 2.06 stacked-menu /
+--     same-X icon bug (F145 first-bad) pinned it on early issue of ADDA/SUBA
+--     with a Dn/An source (g2an FAIL). CMP/TST early issue is clean (g2cmp
+--     PASS). ADDQ/SUBQ #,An stay excluded (F145).
 --   2026-11-17 F157z: EARLY_ISSUE := false again (F143-safe). TOS 2.06 board bisect
 --     2026-11-17: last-good F144 / first-bad F145; stacked menu titles and missing A: icon.
 --   2026-11-04 F145: early issue on again (EARLY_ISSUE = true) except ADDQ/SUBQ #,An; EXEC_WB_DEC sensitivity list completed (MV_RW_WB).
@@ -435,7 +440,16 @@ signal UPDT_CC              : bit := '0';  -- [F54] measured warm-boot value
 signal CAS2_WGAP            : bit := '0'; -- [C1]
 signal CAS2_CCHOLD          : bit := '0'; -- [C1]
 signal EARLY_OW             : bit; -- [F141]
-constant EARLY_ISSUE        : boolean := false; -- [F157z] off again; F145 re-enable is first-bad for TOS 2.06 (stacked menus / no A: icon).
+constant EARLY_ISSUE        : boolean := true; -- [F159] on again; per-group gates EI_G1..EI_G6.
+-- [F159] Per-group EARLY_OW enables (all on in this stopgap). A group set false
+-- takes the F158 path (no early OW_REQ) for those ops. ADDQ/SUBQ #,An stay
+-- excluded (F145 / bld_aq AUTO fail). ADDA/SUBA stay excluded (F159, below).
+constant EI_G1_MOVEQ        : boolean := true; -- MOVEQ/NOP/EXG/SWAP/EXT/EXTB
+constant EI_G2_ADD          : boolean := true; -- ADD..TST to Dn/An
+constant EI_G3_ADDI         : boolean := true; -- ADDI..CMPI #,Dn
+constant EI_G4_MOVE         : boolean := true; -- MOVE/MOVEA reg-reg
+constant EI_G5_SHIFT        : boolean := true; -- ASL..ROXR register (size /= "11")
+constant EI_G6_BIT          : boolean := true; -- BTST/BCHG/BCLR/BSET Dn
 constant F157_PHASE_A       : boolean := false; -- [F157a] pipe depth + INIT/WRITEBACK overlap. Set false to restore F156 issue timing.
 -- [F157x] Phase A OFF: with it on, the EmuTOS 1.4 desktop has no icons and GEM clicks fail (board). Re-enable after the fix.
 constant F157_PHASE_B       : boolean := true; -- [F157c] write ADD/ADDQ/AND/NEG/NOT/CLR (and siblings) in EXECUTE.
@@ -509,16 +523,17 @@ begin
     -- ran; the same build with EARLY_OW = '0' runs them (board bisect 2026-11-04). Root cause not reproduced in sim yet.
     EARLY_OW <= '0' when EARLY_ISSUE = false or TRACE_MODE /= "00" or IRQ_HOT = '1' else
                 '0' when (OP = ADDQ or OP = SUBQ) and BIW_0(5 downto 3) = "001" else -- [F145] no early issue for ADDQ/SUBQ #,An (board AUTO failure, bld_aq).
-                '1' when OP = MOVEQ or OP = NOP or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB else -- [F157c] NOP: early OW_REQ
-                '1' when (OP = ADD or OP = ADDA or OP = ADDQ or OP = SUB or OP = SUBA or OP = SUBQ or OP = AND_B or OP = OR_B or
+                '0' when OP = ADDA or OP = SUBA else -- [F159] no early issue for ADDA/SUBA (TOS 2.06 stacked menu, board g2an).
+                '1' when EI_G1_MOVEQ and (OP = MOVEQ or OP = NOP or OP = EXG or OP = SWAP or OP = EXT or OP = EXTB) else -- [F157c] NOP: early OW_REQ
+                '1' when EI_G2_ADD and (OP = ADD or OP = ADDA or OP = ADDQ or OP = SUB or OP = SUBA or OP = SUBQ or OP = AND_B or OP = OR_B or
                           OP = EOR or OP = CMP or OP = CLR or OP = NEG or OP = NEGX or OP = NOT_B or OP = TST) and
                          (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") else
-                '1' when (OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = CMPI) and BIW_0(5 downto 3) = "000" else
-                '1' when (OP = MOVE or OP = MOVEA) and (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") and
+                '1' when EI_G3_ADDI and (OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = CMPI) and BIW_0(5 downto 3) = "000" else
+                '1' when EI_G4_MOVE and (OP = MOVE or OP = MOVEA) and (BIW_0(5 downto 3) = "000" or BIW_0(5 downto 3) = "001") and
                          (BIW_0(8 downto 6) = "000" or BIW_0(8 downto 6) = "001") else
-                '1' when (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
+                '1' when EI_G5_SHIFT and (OP = ASL or OP = ASR or OP = LSL or OP = LSR or OP = ROTL or OP = ROTR or OP = ROXL or OP = ROXR) and
                          BIW_0(7 downto 6) /= "11" else
-                '1' when (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
+                '1' when EI_G6_BIT and (OP = BTST or OP = BCHG or OP = BCLR or OP = BSET) and BIW_0(5 downto 3) = "000" else '0';
 
     -- [F157a] Only register-only ops (the F141 EARLY_OW set) may take INIT during the
     -- previous WRITEBACK. Multi-phase MOVE/ORI to memory would otherwise ALU_INIT and
