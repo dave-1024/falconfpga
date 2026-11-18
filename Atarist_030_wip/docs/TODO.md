@@ -1,5 +1,21 @@
 # TODO (in priority order)
 
+## Status 18 Nov 2026
+main = speed + F163 (`fb91331`). Board: F163 in flash (clk_cpu030 Fmax 17.196 MHz, 46553 LUT + 5462 ALU; Gowin
+V1.9.12.03). LOOPTEST TT I-cache 1960784 (F161/F162 1739130), ST-RAM 325203 (was 216684), Linux BogoMIPS 2.94 (F162
+2.61, F157x 2.13). The core clock stays at 16 MHz; the work is cycle counts against MC68030UM Section 11 (slightly
+under the manual is preferred to over). F163 cycle survey vs UM (I-cache case, 2-clock bus), top 5 gaps:
+1. **Calls/returns:** callee at 4n+2 costs +16 to +17 per call+return (BSR 32, JSR 33 vs UM 15-17) because the first
+   longword of a stream entered at 4n+2 is never cached (ICACHE_DESIGN Q1); callee at 4n is +3 to +4.5. Next: F164.
+2. **Memory-source reads** (`MOVE/ADD/SUB/CMP/TST <ea>,Dn`): +4 `(An)`, +5 `d16(An)`/`abs.W`, +7 `abs.L`; serial
+   DATA_RDY -> INIT_EXEC_WB -> EXECUTE -> WRITEBACK chain, no overlap with the next operand fetch.
+3. **Memory-destination writes / RMW:** `Dn->(An)` +3, `d16(An)` +4, push +2, RMW +6, `LSL (An)` +7.
+4. **MOVEM** larger lists (8-reg push+pop +21) and **LINK/UNLK** pair (20 vs 9).
+5. **Cheap register/branch gaps:** `MOVE.L Dn,Dn` 3 vs 2, `ADDA.L` 4 vs 2, `LSL #n,Dn` 6 vs 4, `BRA.S` 7 vs 6,
+   `Bcc.W` taken 9 vs 6.
+Also open: `DBF` loop of 8 is 59.5 vs 54; T1 trace set from supervisor mode before a BSR loops forever (since at least
+F158). Still open: SD write path bug, [P1] dialogs ignoring clicks, NetBSD, `sdram64` restart, FrontBench.
+
 ## Status 11 Nov 2026
 main = speed + F157x (`3ff7c63`). Board: F157x in flash (clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU). EmuTOS
 desktop icons and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 EmuTOS ST Medium 107%.

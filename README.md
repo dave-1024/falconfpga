@@ -17,6 +17,8 @@ chip), and later a full **Atari Falcon** with its DSP56001 sound/signal processo
 > stayed black, while a V1.9.12.03 build of the same commit booted straight to the GEM desktop. Settings,
 > constraints and pins were identical; V1.9.12.04 synthesises and places the design differently. V1.9.12.03 is the
 > version this project is developed and tested with. Thanks to **Łukasz Jokiel** for finding and reporting this.
+> This is not only this project: the stock **MiSTeryNano** and **NanoMig** cores also fail on V1.9.12.04
+> (reported by their developers, Nov 2026). Use V1.9.12.03.
 
 ## The blitter, TT-RAM and BLITFIX: correct behaviour, not a fault
 

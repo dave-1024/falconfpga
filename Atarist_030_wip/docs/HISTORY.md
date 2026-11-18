@@ -196,3 +196,14 @@ GEMBENCH 6.08 (`gb608.st`) numbers are in item 18 and docs/MOVEM_TIMING_F1_F2.md
     two-word path back on. Board: LOOPTEST TT I-cache 1307189 -> 1428571 (I+D 1418439), FrontBench TT-RAM 1237 (level
     with 1234), Linux BogoMIPS 2.13 (was 1.79). Build: clk_cpu030 20.401 / clk32_core 34.731 MHz, 46537 LUT + 5352 ALU.
     Details: docs/SPEED_OVERHAUL.md, handoff/FINDING_F155_ICACHE_HANG.md, handoff/STATUS_F156.md.
+
+28. **Cycle accuracy (`speed`, 16-18 Nov 2026, merged to main 18 Nov 2026).** F158 (9938898) reverts F144 COF_BLK
+    (Linux hang at BusyBox; no cached gain). F159a (2e4e664) IPIPE_FLUSH wins over a stale OPCODE_RDY in P_BSY
+    (taken-Bcc refill). F160 (3f5cfe5) taken Bcc.B flushes in its OPD_ACK clock. F161 (680ce80) taken DBcc completes
+    in its OPD_ACK clock, expired DBcc padded to the UM 14, RTS early. F162 (e4ecf8c) Phase A: 2-clock register ops
+    (ADD/SUB/AND/ADDQ/SUBQ/MOVEQ Dn), back-to-back word requests (DBF loop of 8: 68.5 -> 59.5, UM 54). F163 (fb91331)
+    G2: Bcc.B/BRA.B issue with one word in the pipe, CCR forwarded from the ALU so a taken Bcc.B decides early after a
+    CC op (`subq.l #1,d0; bcc.s` 9 -> 8, exactly UM 8). Board F163: LOOPTEST TT I-cache 1960784 (was 1739130), ST-RAM
+    325203 (was 216684, the dropped wasted pre-branch fetch), Linux BogoMIPS 2.94 (2.61). Build: clk_cpu030 17.196 MHz,
+    46553 LUT + 5462 ALU, Gowin V1.9.12.03. Remaining gaps: see TODO.md status 18 Nov 2026.
+
