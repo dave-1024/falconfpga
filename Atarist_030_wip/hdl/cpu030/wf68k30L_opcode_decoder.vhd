@@ -71,6 +71,7 @@
 --   2026-11-04 F144: no stream read behind a pending change of flow (COF_PEND, COF_BLK for BRA/BSR).
 --   2026-11-09 F157a: OPC_RD_NEXT also when the pipe dropped to one word after an issue (PC still on the current opcode, queue head is the next word).
 --   2026-11-17 F158: revert F144 COF_BLK and the OPCODE_RD_I hold-off (Linux first-bad F144; F144a isolation reached ash).
+--   2026-11-18 F159a: IPIPE_FLUSH wins over the OPCODE_RDY async clear in P_BSY (early issue + taken Bcc refill).
 -- 
 
 library work;
@@ -227,7 +228,7 @@ constant F157_PHASE_A       : boolean := false; -- [F157a] keep pipe at two word
 -- [F157x] Phase A OFF with control and bus_interface (empty GEM desktop on the board).
 signal F157_NEED_REFILL     : bit := '0'; -- [F157a] pulse: last clock issued a level-D word.
 begin
-    P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY)
+    P_BSY: process(BUSY_EXH, CLK, IPIPE_FILL, OPCODE_RDY, IPIPE_FLUSH)
     -- This logic requires asynchronous reset. This flip flop is intended 
     -- to break combinatorial loops. If an opcode cycle in the bus controller 
     -- unit is currently running, the actual PC address is stored during this 
@@ -236,8 +237,13 @@ begin
     -- opcode is inhibited during a pipe flush. For the main controller unit 
     -- and the coprocessor interface the pipe is flushed after a running 
     -- opcode cycle.
+    -- [F159a] IPIPE_FLUSH wins over the OPCODE_RDY async clear. Early issue
+    -- can land a stale OPCODE_RDY in a taken-Bcc flush clock; that clear used
+    -- to block the clocked refill request and add one clock per taken short
+    -- branch (LOOPTEST TT I-cache 12 vs 11). Not the F144 OPCODE_RD_I hold-off
+    -- (that blocked stream reads behind COF_PEND).
     begin
-        if OPCODE_RDY = '1' then
+        if OPCODE_RDY = '1' and IPIPE_FLUSH = '0' then
             OPCODE_RD_I <= '0';
         elsif BUSY_EXH = '1' and IPIPE_FILL = '0' then
             OPCODE_RD_I <= '0';
