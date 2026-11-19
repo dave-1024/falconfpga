@@ -15,17 +15,19 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (18 Nov 2026, main)
+## Status (19 Nov 2026, main)
 
-Board build: **F165** (`8477686`, merge `5a5625b`): clk_cpu030 Fmax 16.630 MHz (16 MHz target), clk32 33.212 MHz,
-46125 LUT + 5468 ALU, timing_pairs passes, Gowin V1.9.12.03. Bitstream md5 `351d5aa7522a20c39300e1fc6dad32bc`.
+Board build: **F166** (`f3a2574`): clk_cpu030 Fmax 16.738 MHz (16 MHz target), clk32 35.298 MHz,
+46297 LUT + 5462 ALU, timing_pairs passes, Gowin V1.9.12.03. Bitstream md5 `36291d908317f90547bb86a730cbb717`.
 Since F157x: Phase A (2-clock register ops, F162), early taken-branch decision with the CCR forwarded (F163), an
-I-cache valid bit per word so calls to code at 4n+2 hit the cache (F164), and faster memory-source reads
-(`(An)` 9 to 7, `d16(An)` 11 to 9, `abs.L` 13 to 10, `#imm.L` 5, `CLR` mem 6 to 5) (F165). LOOPTEST ST-RAM 325203,
+I-cache valid bit per word so calls to code at 4n+2 hit the cache (F164), faster memory-source reads
+(`(An)` 9 to 7, `d16(An)` 11 to 9, `abs.L` 13 to 10, `#imm.L` 5, `CLR` mem 6 to 5) (F165), and MOVE
+Dn-to-memory writes one clock faster (`(An)`/`(An)+`/`-(An)` 6 to 5, `d16(An)`/`d8(An,Xn)` 8 to 7, `abs.W`
+8 to 7, `abs.L` 9 to 8; 9 of 98 survey rows faster, none slower) (F166). LOOPTEST ST-RAM 325203,
 TT-RAM caches off 558659, I-cache 1960784 (F158 216684 / 1418439); Linux 2.95 BogoMIPS (2.11). GEMBENCH 6.31
 under TOS 2.06 with BLITON + BLITFIX, against a blitter STE, was measured on F164: average 123%, CPU 169%,
 display 90%. The `subq.l #1,Dn; bcc` loop is now 8 clocks, as in MC68030UM Section 11. Remaining cycle gaps
-(further memory-operand writes, MOVEM, LINK/UNLK): front [`README.md`](../README.md#identified-to-do).
+(read-modify-write, MOVEM, LINK/UNLK): front [`README.md`](../README.md#identified-to-do).
 
 ## Status (11 Nov 2026, history)
 
