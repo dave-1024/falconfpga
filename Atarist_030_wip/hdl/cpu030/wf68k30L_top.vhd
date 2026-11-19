@@ -163,6 +163,10 @@
 --     CIINn, CDISn, CBACKn (in), CBREQn, CIOUTn (out); CACR CI/CEI with CAAR. The F59 experimental I/D modules
 --     and G_CACHES are gone, the prefetch queue is always on; CACHES is ignored (docs/ICACHE_DESIGN.md).
 --   2026-11-04 F147: second opcode word path bus interface -> decoder (OPCODE_RDY_2).
+--   2026-11-19 F167: AR_IN_2 takes DATA_TO_CORE for UNLK when the ALU is idle (early An write).
+--     AR_IN_1 uses AR_OUT_1 for LINK/UNLK when DATA_WR is set or the ALU is idle, so UNLK SWITCH
+--     during LINK's memory write keeps the frame pointer, and a previous register WRITEBACK
+--     (LEA 8(An),An then UNLK) still takes ALU_RESULT.
 --   2026-11-18 F164: IC_LK_HALF from the bus interface to the I-cache LK_HALF (per-word valid bits).
 --   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
@@ -977,15 +981,23 @@ begin
     AR_WR_1_REG <= AR_WR_1 or To_Bit(MMU_AN_WR);
     AR_IN_1 <= MMU_AN_DATA when MMU_AN_WR = '1' else -- [PMMU3] PTEST A = 1 (the core is stalled by MMU_BUSY)
                DATA_TO_CORE when BUSY_EXH = '1' else
+               -- [F167] LINK copies SP to An, UNLK copies An to SP. If a previous instruction is
+               -- still in register WRITEBACK (DATA_WR = 0 and ALU_BSY = 1, e.g. LEA 8(An),An then
+               -- UNLK) AR_IN_1 must stay ALU_RESULT. If the previous write is a memory WRITE_DEST
+               -- (DATA_WR = 1: LINK's stacked An, registers already final) or the ALU is idle,
+               -- use AR_OUT_1 so UNLK SWITCH / LINK INIT do not take ALU_RESULT as the frame pointer.
+               AR_OUT_1 when (OP = LINK or OP = UNLK) and (DATA_WR = '1' or ALU_BSY = '0') else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
                -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
                DATA_TO_CORE when FETCH_MEM_ADR = '1' else
                ADR_EFF when OP = JMP or OP = JSR else
                DR_OUT_1 when USE_DREG = '1' else -- CAS2: Address register from data register.
-               AR_OUT_1 when OP = LINK or OP = UNLK else DATA_TO_CORE; -- Default used for RTD, RTR, RTS.
+               DATA_TO_CORE; -- Default used for RTD, RTR, RTS.
 
-    AR_IN_2 <= ALU_RESULT(63 downto 32) when OP_WB = EXG else ALU_RESULT(31 downto 0); -- Default is for UNLK.
+    AR_IN_2 <= ALU_RESULT(63 downto 32) when OP_WB = EXG else
+               DATA_TO_CORE when OP = UNLK and ALU_BSY = '0' else -- [F167] UNLK_EARLY: popped An, no ALU.
+               ALU_RESULT(31 downto 0); -- Default is for UNLK writeback.
 
     DR_IN_1 <= ALU_RESULT(63 downto 32) when OP_WB = EXG and ALU_BSY = '1' and DR_WR_1 = '1' and BIW_0_WB_73 = "10001" else -- Address and data registers.
                ALU_RESULT(31 downto 0);
