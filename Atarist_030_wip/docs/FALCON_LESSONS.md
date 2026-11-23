@@ -95,6 +95,9 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   on the opcode word (prog_branch case 9: the frame PC is the faulted opcode $10000, RC from the same long, RB
   because the core refetches $10004 before the exception and that fetch faults too: SSW $2005 -> $3005).
 
+- **LINK/UNLK user-mode SP hang (F167/F168, fixed F169, 23 Nov 2026).** *Symptom:* TOS 2.06 on the board hung at the white screen with the busy bee after ROM init (AES/desktop). F166 from SRAM reached the desktop on the same disk; F167 (`ef70457`) and F168 (`d4589b9`) both hung, so it was not a marginal-timing issue. *Cause:* since F167_LU_GO, UNLK can enter SWITCH in the last clock of a previous memory WRITE_DEST. Two bugs then showed up only in user mode: (1) `address_registers` P_IN_USE gave UNMARK priority over a coincident AR_MARK_USED, so MSBIT reset to `"01"` (ISP) and the UNLK An->SP write went to the ISP while USP kept the old SP; (2) in that same SWITCH clock DATA_WR had already dropped while ALU_BSY was still 1, so the F167 AR_IN_1 term picked ALU_RESULT (the previous MOVE's data, e.g. `$B`) as the new SP. Supervisor-mode code is unaffected (MSBIT `"01"` is right there), which is why every earlier sim missed it. *Fix (F169, `7dbefeb`):* MSBIT priority is RESET > AR_MARK_USED > UNMARK (AR_USED keeps the old UNMARK priority); control raises `UNLK_SW` while UNLK is in SWITCH_STATE, and top selects AR_OUT_1 for AR_IN_1 whenever `UNLK_SW` is set. Cycle counts unchanged (LINK/UNLK stays 15). Reproduced and checked with `lu_stress` in user and supervisor mode, wait states, random WS and IRQs. Board: F169 from SRAM reaches the TOS 2.06 desktop and the A: window (`193628 bytes used in 7 items`). *Lesson:* sims must include user-mode runs; SRAM-test TOS desktop before flashing.
+- **F168 Fmax recovery (23 Nov 2026).** *Symptom:* F167 dropped clk_cpu030 to 16.00 MHz / 49 levels (F166 was 16.738 / 45). *Change (F168, `d4589b9`):* `F168_LU_Q` registered and factored the LINK/UNLK qualifiers (OP_IS_LINK / OP_IS_UNLK, LU_HOLD, UNLK_FO_Q) with no cycle change; clk_cpu030 closed at 17.349 MHz / 35 levels. F168 still carried the F167 hang, so it was never a release candidate. F169's hang fix brought the official Fmax back to 16.008 MHz / 43 levels (constraint still met). A cycle-neutral recovery is proposed, not yet built. *Lesson:* an Fmax-only change on top of un-gated logic must be SRAM-tested on the board for functional bugs, not only timed in P&R.
+
 ### Debug tooling
 
 - **Decoder bit-18 mask.** *Symptom:* an apparent A23:16 address corruption. *Cause:* our overlay decoder masked bit 18 (row d, bit 20), so the address "corruption" was a decode error. *Fix:* `86882a8`, re-read in `5e855f4`. *Lesson:* check your probe before you believe it.
@@ -625,3 +628,38 @@ do not reset the board.
 6. **Record the test conditions with every cycle figure.** The earlier "BSR/RTS 28 clocks" (against the manual's 15)
    was measured with the subroutine at 4n+2 and the stack in 16-bit low RAM; with an aligned subroutine and a 32-bit
    stack it is 18. Write down alignment, bus width/wait states, cache state and stack location next to each number.
+
+
+## LESSONS_LEARNED (F167-F169, 23 Nov 2026)
+
+Process lessons from the F167 LINK/UNLK hang, the F168 Fmax work, and the F169 fix.
+
+1. **Sims must include user-mode runs.** The F167 hang (wrong stack on UNLK, busy-bee lock-up in TOS 2.06 AES)
+   only appeared in user mode. Supervisor-mode instruction tests, the cycle survey and the existing RTL suite all
+   passed on F167/F168. Add a user-mode stress (`lu_stress` here) that covers LINK/UNLK frames, writes before UNLK,
+   and both USP and ISP.
+2. **Stress with wait states, random wait states and interrupts.** The second F169 bug (UNLK SWITCH writing
+   ALU_RESULT into SP) showed up at WS=3, WSRND=3 and CACR=0101 WS=0; WS=0 alone was not enough. Keep IRQ periods
+   sparse enough that the test can finish, and judge user-mode checksums (supervisor frame bytes are not
+   IRQ-invariant if the test reads uninitialised stack slots).
+3. **Coincident MARK/UNMARK needs an explicit priority in `address_registers`.** P_IN_USE has one AR_USED slot.
+   If a new AR_MARK_USED lands in the same clock as the previous operation's UNMARK, UNMARK-wins resets MSBIT to
+   `"01"` (ISP) and the mark is dropped. Since F167_LU_GO that coincidence is reachable. F169 gives AR_MARK_USED
+   priority over UNMARK for MSBIT (RESET still wins first). AR_USED can keep the old UNMARK priority. Any later
+   overlap of a write-retire with a stack-pointer mark should be reviewed the same way.
+4. **Always SRAM-test TOS desktop before flashing.** F167 was written to flash 0 without an SRAM TOS/EmuTOS/Linux
+   gate. It hung at the busy bee, and a power cycle then came up hung until F166 was restored. Load a candidate
+   with `pop.sh 2`, cold-boot `gbref.st`, wait ~150 s, and grab once. Only flash after that gate (and the others)
+   pass. Flash 0 was put back to F166 and left there for F169.
+5. **A remote `while pgrep -f` loop matches itself.** `pgrep -f gw_sh` inside a remote `while` command line that
+   also contains those words returns true because it sees its own argv. Wait with sleeps of a few minutes and a
+   single status check (`tail` the build log, or a one-shot `pgrep`), never a remote self-matching loop.
+6. **Box restarts wipe `/tmp` sim workdirs.** Keep NOTES and `wave_*.ok` stamps in the workspace so verify can be
+   resumed (rebuild the GHDL workdirs with `mk.sh`, then rerun `run_verify.sh`; it skips stamped waves). Do not
+   start a second verify while the recorded pid is still alive.
+7. **Linserver capture:** `ffmpeg` from `/dev/video0`, skip about 90 frames
+   (`-f v4l2 -input_format yuyv422 -video_size 1920x1080 -vf select='gte(n\,90)' -frames:v 1`). Retry once if the
+   frame is all black; if the picture is a busy bee, confirm with one more grab about two minutes later. Do not
+   grab in a loop.
+8. **Fmax fixes must be retested on the board for logic bugs.** F168 recovered clk_cpu030 (17.349 MHz) on top of
+   F167's LINK/UNLK logic and inherited the hang. A timing-only close is not a functional close.

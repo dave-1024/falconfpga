@@ -15,7 +15,21 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (19 Nov 2026, main)
+## Status (23 Nov 2026, main)
+
+Current core: **F169** (speed `7dbefeb`). Flash 0 still holds **F166** (`f3a2574`); F169 has been tested from
+SRAM only and has not been written to flash. clk_cpu030 Fmax 16.008 MHz / 43 levels (16 MHz target; F168 was
+17.349 MHz / 35 levels), clk32_core 32.009 MHz, 46265 LUT + 5468 ALU, timing_pairs passes, Gowin V1.9.12.03.
+Bitstream md5 `b85723aca57150a6f8e035a3828af4bc`. TOS 2.06 from SRAM reaches the GEM desktop and the A: window
+(`193628 bytes used in 7 items`). EmuTOS 1.4 and Linux were last verified on F166 (19 Nov), not re-run on F169.
+F167 cut `LINK`/`UNLK` from 20 clocks to 15 (manual 9). F167/F168 hung at the TOS 2.06 busy bee in user mode
+(coincident UNMARK/AR_MARK_USED dropped MSBIT to the ISP, and UNLK SWITCH could write ALU_RESULT into SP);
+F169 fixes that (MSBIT mark-over-unmark and `UNLK_SW` AR_IN_1 select) with no cycle change. Cycle survey vs the
+MC68030 manual (98 rows): 1290.5 clocks against 1059 (7 faster, 19 equal, 72 slower). Next, in order: the
+memory-operand MOVE read-to-write gap, large MOVEM, JSR/BSR/RTS, RTE, the bus bridge check, and Fmax margin
+recovery for F169. Front [`README.md`](../README.md#identified-to-do).
+
+## Status (19 Nov 2026, history)
 
 Board build: **F166** (`f3a2574`): clk_cpu030 Fmax 16.738 MHz (16 MHz target), clk32 35.298 MHz,
 46297 LUT + 5462 ALU, timing_pairs passes, Gowin V1.9.12.03. Bitstream md5 `36291d908317f90547bb86a730cbb717`.
@@ -26,8 +40,7 @@ Dn-to-memory writes one clock faster (`(An)`/`(An)+`/`-(An)` 6 to 5, `d16(An)`/`
 8 to 7, `abs.L` 9 to 8; 9 of 98 survey rows faster, none slower) (F166). LOOPTEST ST-RAM 325203,
 TT-RAM caches off 558659, I-cache 1960784 (F158 216684 / 1418439); Linux 2.95 BogoMIPS (2.11). GEMBENCH 6.31
 under TOS 2.06 with BLITON + BLITFIX, against a blitter STE, was measured on F164: average 123%, CPU 169%,
-display 90%. The `subq.l #1,Dn; bcc` loop is now 8 clocks, as in MC68030UM Section 11. Remaining cycle gaps
-(read-modify-write, MOVEM, LINK/UNLK): front [`README.md`](../README.md#identified-to-do).
+display 90%. The `subq.l #1,Dn; bcc` loop is now 8 clocks, as in MC68030UM Section 11.
 
 ## Status (11 Nov 2026, history)
 
