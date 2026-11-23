@@ -176,6 +176,9 @@
 --     UNLK_WAIT_ALU use a flip flop (UNLK_FO_Q) set in SWITCH / FETCH_OPERAND so the ready clock
 --     only ANDs the flop with RD_RDY / DATA_VALID / ALU_BSY / fault guards (as F166 WR_OLAP_Q).
 --     (F168_LU_Q).
+--   2026-11-23 F169: UNLK_SW output (UNLK in SWITCH_STATE) for the top AR_IN_1 select. Under F167_LU_GO the
+--     SWITCH clock can follow the end of a previous memory write (DATA_WR already 0, ALU_BSY still 1), and
+--     the F167 select wrote ALU_RESULT (the MOVE's data) into SP (TOS 2.06 busy bee hang, board only).
 --   2026-11-18 F166: the F165 write overlap again for a following MOVE (F166_MV_OLAP). The operation part of WR_OLAP
 --     (which write-back operation, which waiting operation) is now a flip flop (WR_OLAP_Q) computed in the clock
 --     before from the same registered OP/BIW_0/OP_WB_I (they cannot change while the operation waits in INIT_EXEC_WB),
@@ -351,6 +354,7 @@ entity WF68K30L_CONTROL is
         DR_WR_2             : out bit;
 
         UNMARK              : out bit;
+        UNLK_SW             : out bit; -- [F169] UNLK is in SWITCH_STATE (its An -> SP write).
 
         DISPLACEMENT        : out std_logic_vector(31 downto 0);
         PC_ADD_DISPL        : out bit;
@@ -1928,6 +1932,11 @@ begin
                     '1' when OP = MOVES and BIW_1(15) = '0' and BIW_1(11) = '0' else
                     '1' when (OP = NBCD or OP = NEG or OP = NEGX or OP = NOT_B) and BIW_0(5 downto 3) = "000" else
                     '1' when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else '0';
+
+    -- [F169] UNLK's own An -> SP write (AR_WR_I in SWITCH_STATE). Top selects AR_OUT_1 for it whatever
+    -- DATA_WR / ALU_BSY say: with F167_LU_GO, SWITCH can be the clock after the previous WRITE_DEST
+    -- dropped DATA_WR while ALU_BSY is still 1, and the F167 mux then wrote ALU_RESULT into SP.
+    UNLK_SW <= '1' when OP = UNLK and FETCH_STATE = SWITCH_STATE else '0';
 
     UNMARK <= '1' when WR_FLT = '1' else -- [FLT1] The aborted write-back releases its address.
               '1' when UNLK_EARLY else -- [F167] early path skips EXEC/WB; release the SWITCH An-to-SP mark.

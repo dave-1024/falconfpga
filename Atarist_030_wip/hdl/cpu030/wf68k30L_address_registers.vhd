@@ -54,6 +54,8 @@
 --     Dn) rather than INDEX_IN (DR read port 1). Phase B writes in EXECUTE and
 --     UNMARKs without WRITEBACK, so brief/(bd,Dn.w*SCALE) STORE can happen after
 --     INDEX_PEND has already dropped; port 1 is no longer the index.
+--   2026-11-23 F169: MSBIT (which stack pointer an A7 write uses) follows a new AR_MARK_USED even in the
+--     clock of the previous operation's UNMARK (user-mode UNLK after a memory write wrote the ISP).
 -- 
 
 use work.WF68K30L_PKG.all;
@@ -221,16 +223,26 @@ begin
         if RESET = '1' or UNMARK = '1' then
             AR_USED_1(3) <= '0';
             AR_USED_2(3) <= '0';
-            -- [COLD] 68030 reset SR is S=1 M=0.  MSBIT had no reset and
-            -- only updated on AR_MARK_USED, so move.l %sp could write
-            -- USP/MSP while exception stacking still used ISP.
-            MSBIT <= "01";
         elsif AR_MARK_USED = '1' then
             AR_USED_1 <= '1' & AR_SEL_WR_1;
             if USE_APAIR = true then
                 AR_USED_2 <= '1' & AR_SEL_WR_2;
             end if;
+        end if;
+        -- [COLD] 68030 reset SR is S=1 M=0.  MSBIT had no reset and
+        -- only updated on AR_MARK_USED, so move.l %sp could write
+        -- USP/MSP while exception stacking still used ISP.
+        -- [F169] A new AR_MARK_USED in the same clock as the previous operation's UNMARK takes MSBIT
+        -- from the current mode. Since F167_LU_GO, UNLK enters SWITCH_STATE (mark, then An -> A7 write)
+        -- in the last clock of a previous memory WRITE_DEST. UNMARK used to win and set MSBIT to "01",
+        -- so in user mode UNLK wrote A6 to the ISP and USP kept the old SP (TOS 2.06 hung at the AES
+        -- busy bee; RTS returned through the wrong stack). AR_USED keeps the old UNMARK priority.
+        if RESET = '1' then
+            MSBIT <= "01";
+        elsif AR_MARK_USED = '1' then
             MSBIT <= MBIT & SBIT;
+        elsif UNMARK = '1' then
+            MSBIT <= "01";
         end if;
         --
         if RESET = '1' or UNMARK = '1' then

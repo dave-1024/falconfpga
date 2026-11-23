@@ -470,6 +470,7 @@ component WF68K30L_CONTROL
         DR_WR_1             : out bit;
         DR_WR_2             : out bit;
         UNMARK              : out bit;
+        UNLK_SW             : out bit; -- [F169]
         DISPLACEMENT        : out std_logic_vector(31 downto 0);
         PC_ADD_DISPL        : out bit;
         PC_LOAD             : out bit;

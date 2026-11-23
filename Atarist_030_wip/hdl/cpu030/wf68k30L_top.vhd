@@ -169,6 +169,8 @@
 --     (LEA 8(An),An then UNLK) still takes ALU_RESULT.
 --   2026-11-19 F168: AR_IN_1 / AR_IN_2 LINK/UNLK selects use 1-bit OP decodes (OP_IS_LINK, OP_IS_UNLK)
 --     so the mux does not compare the wide OP enum on the address / ALU path (Fmax, same cycles).
+--   2026-11-23 F169: AR_IN_1 = AR_OUT_1 while UNLK is in SWITCH_STATE (UNLK_SW from control), whatever DATA_WR
+--     and ALU_BSY are (the F167 qualifier missed the clock after a previous memory write: SP got ALU_RESULT).
 --   2026-11-18 F164: IC_LK_HALF from the bus interface to the I-cache LK_HALF (per-word valid bits).
 --   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
@@ -600,6 +602,7 @@ signal TRAP_V                   : bit;
 signal TRAP_MMUCFG              : bit; -- [PMMU2]
 signal PMOVE_PC                 : std_logic_vector(31 downto 0); -- [PMMU2] address of the last PMOVE.
 signal UNMARK                   : bit;
+signal UNLK_SW                  : bit; -- [F169]
 signal USE_APAIR                : boolean;
 signal USE_DFC                  : bit;
 signal USE_SFC                  : bit;
@@ -995,6 +998,10 @@ begin
                -- (DATA_WR = 1: LINK's stacked An, registers already final) or the ALU is idle,
                -- use AR_OUT_1 so UNLK SWITCH / LINK INIT do not take ALU_RESULT as the frame pointer.
                -- [F168] OP_IS_LINK / OP_IS_UNLK are 1-bit decodes (same cycle as OP).
+               -- [F169] UNLK SWITCH (An -> SP) always takes AR_OUT_1 (An): LU_GO lets UNLK reach SWITCH in the
+               -- clock after a previous memory write ended (DATA_WR = 0, ALU_BSY = 1); the F167 term below
+               -- then picked ALU_RESULT (that write's data) as the new SP.
+               AR_OUT_1 when UNLK_SW = '1' else
                AR_OUT_1 when (OP_IS_LINK = '1' or OP_IS_UNLK = '1') and (DATA_WR = '1' or ALU_BSY = '0') else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
@@ -1729,6 +1736,7 @@ begin
             DR_WR_1                 => DR_WR_1,
             DR_WR_2                 => DR_WR_2,
             UNMARK                  => UNMARK,
+            UNLK_SW                 => UNLK_SW, -- [F169]
             DISPLACEMENT            => DISPLACEMENT_MAIN,
             PC_ADD_DISPL            => PC_ADD_DISPL,
             PC_LOAD                 => PC_LOAD_MAIN,
