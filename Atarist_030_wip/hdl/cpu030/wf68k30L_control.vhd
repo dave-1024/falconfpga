@@ -169,6 +169,13 @@
 --     to release the used flag). Without that, a following BSR waits forever on AR_IN_USE (SP).
 --     Bus-errored reads, trace and interrupts keep the old INIT path
 --     (F167_UNLK_EARLY, F167_UNLK_NCA, F167_LU_GO, F167_UNLK_WAIT).
+--   2026-11-19 F168: recover clk_cpu030 Fmax lost in F167 (16.004 MHz, 49 levels) with no cycle-count
+--     change. F167's critical path (OP_SIZE -> MOVEM_INH_WR -> NEXT_FETCH_STATE) grew a 4-level tail
+--     through ALU_OP1_IN and the shift bit-counter. The LINK/UNLK decode and START_OP hold are now
+--     1-bit flags (OP_IS_LINK, OP_IS_UNLK, LU_HOLD) factored out of FETCH_DEC, and UNLK_EARLY /
+--     UNLK_WAIT_ALU use a flip flop (UNLK_FO_Q) set in SWITCH / FETCH_OPERAND so the ready clock
+--     only ANDs the flop with RD_RDY / DATA_VALID / ALU_BSY / fault guards (as F166 WR_OLAP_Q).
+--     (F168_LU_Q).
 --   2026-11-18 F166: the F165 write overlap again for a following MOVE (F166_MV_OLAP). The operation part of WR_OLAP
 --     (which write-back operation, which waiting operation) is now a flip flop (WR_OLAP_Q) computed in the clock
 --     before from the same registered OP/BIW_0/OP_WB_I (they cannot change while the operation waits in INIT_EXEC_WB),
@@ -537,6 +544,12 @@ constant F167_UNLK_EARLY    : boolean := true; -- [F167] UNLK: write An from DAT
     signal UNLK_WAIT_ALU        : boolean; -- [F167] pop ready, previous register WB still busy: stay in FETCH_OPERAND.
 constant F167_UNLK_NCA      : boolean := true; -- [F167] UNLK: SWITCH to FETCH_OPERAND, no CALC_AEFF.
 constant F167_LU_GO         : boolean := true; -- [F167] UNLK may leave START_OP during a previous WRITE_DEST; LINK waits for any previous write.
+constant F168_LU_Q          : boolean := true; -- [F168] registered / factored LINK/UNLK qualifiers (Fmax, same cycles).
+    signal OP_IS_LINK           : bit; -- [F168] 1-bit decode of OP = LINK.
+    signal OP_IS_UNLK           : bit; -- [F168] 1-bit decode of OP = UNLK.
+    signal UNLK_FO_Q            : bit := '0'; -- [F168] OP=UNLK in SWITCH or FETCH_OPERAND, delayed one clock so it is 1 on the first FETCH_OPERAND clock.
+    signal UNLK_IN_FO           : boolean; -- [F168] UNLK is in FETCH_OPERAND (flop when F168_LU_Q, else combo).
+    signal LU_HOLD              : boolean; -- [F168] START_OP wait, factored out of FETCH_DEC (same conditions as F167_LU_GO).
     signal WR_OLAP_Q            : bit := '0'; -- [F166] registered WR_OLAP operation qualifier.
     signal WR_OLAP_OPS          : bit; -- [F166] its input (operation lists).
     signal ALU_BSY_MV           : bit; -- [F166] ALU busy as seen by MOVE's INIT terms.
@@ -1625,17 +1638,49 @@ begin
     RTS_EARLY <= true when F161_RTS_EARLY and OP = RTS and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and
                            ALU_BSY = '0' and TRACE_MODE = "00" and IRQ_HOT = '0' and EXH_REQ = '0' and PM_INFL = '0' and
                            PMMU_WR_D = '0' and MMU_BUSY = '0' and WR_FLT = '0' and WFLT = '0' else false;
+    -- [F168] 1-bit OP decodes (combinational, in sync with the OP flop) so FETCH_DEC and the AR mux
+    -- do not each compare the wide OP enum.
+    OP_IS_LINK <= '1' when OP = LINK else '0';
+    OP_IS_UNLK <= '1' when OP = UNLK else '0';
+    -- [F168] START_OP hold is the F167_LU_GO condition, factored out of FETCH_DEC.
+    LU_HOLD <= true when F167_LU_GO and OP_IS_UNLK = '1' and (AR_IN_USE = '1' or (ALU_BSY = '1' and EXEC_WB_STATE /= WRITE_DEST)) else
+               true when F167_LU_GO and OP_IS_LINK = '1' and (AR_IN_USE = '1' or ALU_BSY = '1') else
+               true when not F167_LU_GO and ALU_BSY = '1' else false;
+    -- [F168] Set during SWITCH (so the flop is 1 on the first FETCH_OPERAND clock) and held through
+    -- FETCH_OPERAND. The ready clock then only ANDs UNLK_FO_Q with the strobes (as F166 WR_OLAP_Q).
+    P_LU_Q: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if F168_LU_Q and OP = UNLK and (FETCH_STATE = SWITCH_STATE or FETCH_STATE = FETCH_OPERAND) then
+            UNLK_FO_Q <= '1';
+        else
+            UNLK_FO_Q <= '0';
+        end if;
+    end process P_LU_Q;
+    UNLK_IN_FO <= true when F168_LU_Q and UNLK_FO_Q = '1' and FETCH_STATE = FETCH_OPERAND else
+                  true when (not F168_LU_Q) and OP = UNLK and FETCH_STATE = FETCH_OPERAND else false;
     -- [F167] Same ready-clock / fault / trace / interrupt guards as RTS_EARLY. An is written from
     -- DATA_TO_CORE (top AR_IN_2); SP has already been post-incremented on this clock (AR_INC).
-    UNLK_EARLY <= true when F167_UNLK_EARLY and OP = UNLK and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and
+    -- [F168] OP=UNLK / FETCH_STATE=FETCH_OPERAND come from UNLK_IN_FO (UNLK_FO_Q when F168_LU_Q).
+    UNLK_EARLY <= true when F167_UNLK_EARLY and UNLK_IN_FO and RD_RDY = '1' and DATA_VALID = '1' and
                             ALU_BSY = '0' and TRACE_MODE = "00" and IRQ_HOT = '0' and EXH_REQ = '0' and PM_INFL = '0' and
                             PMMU_WR_D = '0' and MMU_BUSY = '0' and WR_FLT = '0' and WFLT = '0' else false;
     -- [F167] Operand is ready but a previous register write still has the ALU (LEA 8(An),An then UNLK,
     -- EXECUTE or WRITEBACK). Stay in FETCH_OPERAND until ALU_BSY clears and UNLK_EARLY can fire; do
     -- not take INIT_EXEC_WB in that window (it can deadlock with the pending An WRITEBACK). Do not
     -- wait through a previous memory WRITE_DEST (move.l (A4),dest then UNLK: that write must finish).
-    UNLK_WAIT_ALU <= true when F167_UNLK_EARLY and OP = UNLK and FETCH_STATE = FETCH_OPERAND and RD_RDY = '1' and DATA_VALID = '1' and
+    UNLK_WAIT_ALU <= true when F167_UNLK_EARLY and UNLK_IN_FO and RD_RDY = '1' and DATA_VALID = '1' and
                                ALU_BSY = '1' and EXEC_WB_STATE /= WRITE_DEST else false;
+    -- synthesis translate_off
+    P_LU_CHK: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        assert not (F168_LU_Q and FETCH_STATE = FETCH_OPERAND and OP = UNLK and UNLK_FO_Q = '0')
+            report "F168: UNLK_FO_Q not set in FETCH_OPERAND of UNLK" severity failure;
+        assert not (F168_LU_Q and UNLK_FO_Q = '1' and FETCH_STATE = FETCH_OPERAND and OP /= UNLK)
+            report "F168: UNLK_FO_Q set but OP is not UNLK" severity failure;
+    end process P_LU_CHK;
+    -- synthesis translate_on
     -- [F161] Expired DBcc: OA, INIT, SLEEP ... START_OP, next OA. Leaving SLEEP at DBCC_CNT = 5 puts the
     -- dbf_expired harness at the MC68030UM 14 (or just under). The unpadded instruction was 5 (UM 10);
     -- CNT < 7 gave the harness 16, 2 over the UM 14, so the hold is CNT < 5. Prefer at or below the UM.
@@ -2337,7 +2382,7 @@ begin
     --                         Bcc | BSR | CHK | DBcc | JSR | TRAPV | RTR | Scc | STOP | 
     --                         ADDI | ANDI | SUBI | CMPI | EORI | ORI | MULS | MULU, '0' when others;
 
-    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, BCC_INIT, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, UNLK_EARLY, UNLK_WAIT_ALU, MEM_FAST, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
+    FETCH_DEC: process(ADR_MODE_I, ALU_BSY, BCC_EARLY, BCC_INIT, DBCC_EARLY, DBCC_XHOLD, RTS_EARLY, UNLK_EARLY, UNLK_WAIT_ALU, LU_HOLD, MEM_FAST, ALU_BSY_M, ALU_COND, AR_IN_USE, CMPA_DLY, BF_BYTES, BIW_0, BIW_1, BRANCH_ATN, DR_IN_USE, EW_ACK, EW_RDY, EXEC_WB_STATE, F157_ALU_FREE, F157_OLAP, F157_WR_EXEC, 
                        EXH_REQ, EXT_WORD, FETCH_STATE, MEM_INDIRECT, MEMADR_RDY, MOVEM_COND, MOVEM_END, MOVEM_PNTR, MOVEP_PNTR_I, NEXT_EXEC_WB_STATE, 
                        OP, OP_SIZE_I, OP_WB_I, OPD_ACK, OW_RDY, PHASE2, RD_RDY, TRACE_MODE, OD_REQ_32, OD_REQ_16, WR_RDY, MOVEM_FIRST_RD, PMMU_WR_D, PM_INFL, MMU_BUSY, MV_RW, MV_AN, PM_QUAD) -- MOVEM_FIRST_RD: sensitivity audit; [PMMU2] PMMU_WR_D, PM_INFL
     -- ADH: avoid data hazard.
@@ -2620,9 +2665,7 @@ begin
                             -- otherwise issue a long write at ABCD's byte address). Still wait if An or SP is
                             -- in use, or if the ALU is in EXECUTE/WRITEBACK of a previous register write
                             -- (LEA 8(An),An then UNLK: AR_IN_USE can be low in EXECUTE).
-                            if (F167_LU_GO and OP = UNLK and (AR_IN_USE = '1' or (ALU_BSY = '1' and EXEC_WB_STATE /= WRITE_DEST))) or
-                               (F167_LU_GO and OP = LINK and (AR_IN_USE = '1' or ALU_BSY = '1')) or
-                               (not F167_LU_GO and ALU_BSY = '1') then
+                            if LU_HOLD then -- [F168] same F167_LU_GO hold, factored (OP_IS_LINK / OP_IS_UNLK).
                                 NEXT_FETCH_STATE <= START_OP; -- Wait, ADH, ASH (two address registers are affected).
                             else
                                 NEXT_FETCH_STATE <= SWITCH_STATE; -- Stack pointer is decremented in this state.

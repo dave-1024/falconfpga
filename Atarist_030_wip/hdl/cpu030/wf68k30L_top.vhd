@@ -167,6 +167,8 @@
 --     AR_IN_1 uses AR_OUT_1 for LINK/UNLK when DATA_WR is set or the ALU is idle, so UNLK SWITCH
 --     during LINK's memory write keeps the frame pointer, and a previous register WRITEBACK
 --     (LEA 8(An),An then UNLK) still takes ALU_RESULT.
+--   2026-11-19 F168: AR_IN_1 / AR_IN_2 LINK/UNLK selects use 1-bit OP decodes (OP_IS_LINK, OP_IS_UNLK)
+--     so the mux does not compare the wide OP enum on the address / ALU path (Fmax, same cycles).
 --   2026-11-18 F164: IC_LK_HALF from the bus interface to the I-cache LK_HALF (per-word valid bits).
 --   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
@@ -308,6 +310,8 @@ signal AMODE_SEL                : std_logic_vector(2 downto 0);
 signal AR_DEC                   : bit;
 signal MV_SAVE, MV_RESTORE      : bit;
 signal AR_IN_1                  : std_logic_vector(31 downto 0);
+signal OP_IS_LINK               : bit; -- [F168]
+signal OP_IS_UNLK               : bit; -- [F168]
 signal AR_IN_2                  : std_logic_vector(31 downto 0);
 signal AR_IN_USE                : bit;
 signal AR_INC                   : bit;
@@ -979,6 +983,10 @@ begin
     AR_SEL_RD_1 <= "111" when BUSY_EXH = '1' else AR_SEL_RD_1_MAIN; -- ISP during exception.
 
     AR_WR_1_REG <= AR_WR_1 or To_Bit(MMU_AN_WR);
+    -- [F168] 1-bit OP decodes, same cycle as OP (not delayed flops).
+    OP_IS_LINK <= '1' when OP = LINK else '0';
+    OP_IS_UNLK <= '1' when OP = UNLK else '0';
+
     AR_IN_1 <= MMU_AN_DATA when MMU_AN_WR = '1' else -- [PMMU3] PTEST A = 1 (the core is stalled by MMU_BUSY)
                DATA_TO_CORE when BUSY_EXH = '1' else
                -- [F167] LINK copies SP to An, UNLK copies An to SP. If a previous instruction is
@@ -986,7 +994,8 @@ begin
                -- UNLK) AR_IN_1 must stay ALU_RESULT. If the previous write is a memory WRITE_DEST
                -- (DATA_WR = 1: LINK's stacked An, registers already final) or the ALU is idle,
                -- use AR_OUT_1 so UNLK SWITCH / LINK INIT do not take ALU_RESULT as the frame pointer.
-               AR_OUT_1 when (OP = LINK or OP = UNLK) and (DATA_WR = '1' or ALU_BSY = '0') else
+               -- [F168] OP_IS_LINK / OP_IS_UNLK are 1-bit decodes (same cycle as OP).
+               AR_OUT_1 when (OP_IS_LINK = '1' or OP_IS_UNLK = '1') and (DATA_WR = '1' or ALU_BSY = '0') else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and AR_WR_1 = '1' else
                ALU_RESULT(31 downto 0) when ALU_BSY = '1' and (DFC_WR = '1' or SFC_WR = '1' or ISP_WR = '1' or MSP_WR = '1' or USP_WR = '1') else
                -- [C3] Memory-indirect JMP/JSR: the pointer read must load MEM_ADR from the bus, not ADR_EFF.
@@ -996,7 +1005,7 @@ begin
                DATA_TO_CORE; -- Default used for RTD, RTR, RTS.
 
     AR_IN_2 <= ALU_RESULT(63 downto 32) when OP_WB = EXG else
-               DATA_TO_CORE when OP = UNLK and ALU_BSY = '0' else -- [F167] UNLK_EARLY: popped An, no ALU.
+               DATA_TO_CORE when OP_IS_UNLK = '1' and ALU_BSY = '0' else -- [F167] UNLK_EARLY: popped An, no ALU. [F168] 1-bit decode.
                ALU_RESULT(31 downto 0); -- Default is for UNLK writeback.
 
     DR_IN_1 <= ALU_RESULT(63 downto 32) when OP_WB = EXG and ALU_BSY = '1' and DR_WR_1 = '1' and BIW_0_WB_73 = "10001" else -- Address and data registers.
@@ -1096,7 +1105,7 @@ begin
                   DR_FWD_2 when OP = MULS or OP = MULU else
                   DR_FWD_1 when (OP = PACK or OP = UNPK) and BIW_0(3) = '0' else -- Register direct.
                   DATA_TO_CORE when OP = PACK or OP = UNPK else
-                  AR_OUT_1 when OP = LINK else
+                  AR_OUT_1 when OP_IS_LINK = '1' else -- [F168]
                   DR_FWD_2 when BIW_0(5 downto 3) = "000" else
                   AR_OUT_2 when BIW_0(5 downto 3) = "001" else DATA_TO_CORE;
 
