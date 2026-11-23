@@ -109,6 +109,9 @@
 --   2026-11-18 F162: Q_MISS (stream restart) also in the clock of a dismissed opcode ready (F162_DQ), so the
 --     refill after a flush with a queue read in flight starts one or two clocks earlier.
 --   2026-11-18 F164: IC_LK_HALF = F_ADR(1) to the I-cache (per-word valid bits, a 4n+2 stream start hits).
+--   2026-11-23 F170: F170_WR_GO: PW_GO (IDLE -> S0, no START_CYCLE) for an operand write after any cycle, not only
+--     after a posted write (MOVE <mem>,<mem> and read-modify-write: the write after the operand read). F170_RD_GO off.
+--     F170_RW_GO: posted write S5 chains into the next instruction's operand read (RW_GO, control F170_RW_Q).
 -- 
 
 library work;
@@ -316,6 +319,9 @@ signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); 
 constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour. [F156] on again
 constant F162_DQ            : boolean := true; -- [F162] restart (Q_MISS) in the clock of a dismissed opcode ready.
 constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
+constant F170_WR_GO         : boolean := true;  -- [F170] operand write from IDLE starts without START_CYCLE (PW_GO), any previous cycle.
+constant F170_RD_GO         : boolean := false; -- [F170] the same for an operand read (data cache off). Off: evaluation only.
+constant F170_RW_GO         : boolean := true;  -- [F170] posted write S5 rolls into a waiting operand read (RW_GO).
 -- [F157x] Phase A OFF with control and opcode_decoder (empty GEM desktop on the board).
 signal Q_HIT2               : bit; -- [F147]
 signal OPCODE_ACCESS        : bit := '0';  -- [F54] measured warm-boot value
@@ -334,6 +340,7 @@ signal WP_DONE              : bit := '0'; -- [PH2-WP] The running write was post
 signal DOB_HOLD             : bit := '0'; -- [PH2-WP] Keep the faulted write's data for the frame.
 signal WP_LAST              : bit := '0'; -- [PH2-WP] The bus is idle since a posted write ended.
 signal WW_GO                : bit; -- [F3] Write-to-write chain on the S5 edge.
+signal RW_GO                : bit; -- [F170] Posted write to operand read chain on the S5 edge.
 signal PW_GO                : bit; -- [PH2-WP] IDLE clock after a posted write: start the operand cycle now.
 signal SLICE_CNT_N          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
 signal SLICE_CNT_P          : std_logic_vector(2 downto 0) := "111";  -- [F54] measured warm-boot value
@@ -1279,7 +1286,8 @@ begin
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     OP_CHAIN_GO <= (OP_CHAIN_RAW and not DC_CHIT) or
                    PW_GO or -- [PH2-WP] Same start actions, from the IDLE clock after a posted write.
-                   WW_GO; -- [F3] Same start actions, on the S5 edge of the posted write before it.
+                   WW_GO or -- [F3] Same start actions, on the S5 edge of the posted write before it.
+                   RW_GO; -- [F170] Same start actions: a waiting operand read behind a posted write.
 
     -- [F3] MOVEM register-to-memory, back-to-back writes (MC68030UM 11.6: the sequencer has the next MOVEM
     -- operand ready while the current one is on the bus). The control unit took the outcome of a posted
@@ -1288,6 +1296,16 @@ begin
     -- word (GAP 1) under the conditions of every other chain. Operand before a waiting prefetch.
     WW_GO <= '1' when WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000"
                       and WP_DONE = '1' and OP_WR = '1' and OP_RD = '0'
+                      and RMC = '0' and BUSY_EXH = '0'
+                      and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                      and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    -- [F170] F170_RW_GO: a posted write (WP_DONE: final at its S3) whose DATA_RDY clock already carries the next
+    -- instruction's operand read (the control unit raises DATA_RD in that clock, F170_RW_Q) rolls on the S5 edge
+    -- into that read, as a 68030 starts the next cycle after S5 with a request pending (MC68030UM 7.3). Same
+    -- conditions as WW_GO; reads only with the data cache off (no START_CYCLE lookup), no held read-ahead.
+    RW_GO <= '1' when F170_RW_GO and WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000"
+                      and WP_DONE = '1' and OP_RD = '1' and OP_WR = '0' and DC_ON = '0' and RA_HELD = '0'
+                      and FILL_PEND = '0' and DC_DECIDE = '0'
                       and RMC = '0' and BUSY_EXH = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
@@ -1300,7 +1318,16 @@ begin
     -- address/FC latches in IDLE anyway) and the slice counter goes straight to S0. Only operand
     -- requests (no RMC, no exception processing), and every IDLE hold (reset, halt, arbitration)
     -- takes precedence.
-    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and WP_LAST = '1' and ((OP_RD = '0' and OP_WR = '1') or (OP_RD = '1' and DC_ON = '0')) -- [DC]
+    -- [F170] F170_WR_GO: an operand write requested in IDLE after any cycle (not only after a posted write) starts the
+    -- same way. MOVE <ea>,<mem> and read-modify-write operations request their write in IDLE after the operand read;
+    -- that write took IDLE -> START_CYCLE -> S0. The start actions are the PW_GO ones (WP_BUFFER, SIZE_N, SSW, queue
+    -- flush, data cache write strobe, ADR_LAT/FC_LAT from ADR_NXT/FC_NXT loaded on the same IDLE edge as before), so
+    -- the address and data on the S0 edge are those the START_CYCLE path latched one clock later from the same request.
+    -- F170_RD_GO: the same for an operand read in IDLE (data cache off).
+    PW_GO <= '1' when BUS_CTRL_STATE = IDLE and
+                      ((WP_LAST = '1' and ((OP_RD = '0' and OP_WR = '1') or (OP_RD = '1' and DC_ON = '0'))) or -- [DC]
+                       (F170_WR_GO and OP_RD = '0' and OP_WR = '1') or -- [F170]
+                       (F170_RD_GO and OP_RD = '1' and DC_ON = '0')) -- [F170]
                       and RA_HELD = '0' -- [F2]
                       and RMC = '0' and (BUSY_EXH = '0' or EXH_STK = '1') and SIZE_N = "000" -- [XT2]
                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
@@ -1312,7 +1339,7 @@ begin
                    and RMC = '0' and BUSY_EXH = '0' and DC_DPBLK = '0' -- [DC]
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
-    DP_CHAIN_GO <= DP_CHAIN_RAW and not RA_GO and not WW_GO; -- [F2] [F3] The next MOVEM operand comes before the queue (operand priority).
+    DP_CHAIN_GO <= DP_CHAIN_RAW and not RA_GO and not WW_GO and not RW_GO; -- [F170] RW_GO -- [F2] [F3] The next MOVEM operand comes before the queue (operand priority).
 
     -- [F2] MOVEM read-ahead. S3 of the last portion of a MOVEM read while the control unit waits for it and the
     -- register list has a further register (RA_MORE): arm; the S5 edge rolls into the read of the next operand

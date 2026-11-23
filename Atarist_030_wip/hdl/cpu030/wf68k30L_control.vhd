@@ -543,6 +543,8 @@ constant F165_WR_OLAP       : boolean := true; -- [F165] next op loads in the wr
     signal WR_OLAP              : bit; -- [F165]
 constant F166_MV_OLAP       : boolean := true; -- [F166] WR_OLAP for a following MOVE, registered operation qualifier.
 constant F166_MV_AMODE      : boolean := true; -- [F166] MOVE destination address mode for the whole INIT_EXEC_WB stay.
+constant F170_RW_EARLY      : boolean := true; -- [F170] operand read requested in a posted write's DATA_RDY clock (bus RW_GO chain).
+    signal F170_RW_Q            : bit := '0'; -- [F170] registered: FETCH_OPERAND of a qualifying operation in the clock before.
 constant F167_UNLK_EARLY    : boolean := true; -- [F167] UNLK: write An from DATA_TO_CORE in the read-ready clock.
     signal UNLK_EARLY           : boolean; -- [F167]
     signal UNLK_WAIT_ALU        : boolean; -- [F167] pop ready, previous register WB still busy: stay in FETCH_OPERAND.
@@ -852,6 +854,11 @@ begin
     DATA_RD <= DATA_RD_I;
     DATA_RD_I <= '0' when WFLT = '1' else -- [FLT1] No operand cycle after a data write fault (MC68030: exception straight after the faulted cycle).
                  '0' when DATA_WR_I = '1' and READ_CYCLE = '0' and WRITE_CYCLE = '0' else -- Write is prioritized.
+                 -- [F170] The write's DATA_RDY clock (posted, its outcome is final): the operand read of the operation
+                 -- waiting in FETCH_OPERAND is presented now, so the bus can roll the write's S5 into it (RW_GO).
+                 -- Otherwise the same request follows in the next clock, as before.
+                 '1' when F170_RW_EARLY and F170_RW_Q = '1' and FETCH_STATE = FETCH_OPERAND and WRITE_CYCLE = '1' and
+                          DATA_RDY = '1' and DATA_VALID = '1' else
                  '0' when WRITE_CYCLE = '1' else -- Do not read during a write cycle.
                  '0' when ADR_IN_USE = '1' else -- Avoid data hazards.
                  '0' when DATA_RDY = '1' or MEMADR_RDY = '1' else
@@ -871,6 +878,20 @@ begin
     -- that read is certain to be requested next, at the next address. The control unit still requests it as
     -- before; the bus interface hands it the data read ahead (or the bus error) only on a matching request.
     MOVEM_RA <= '1' when OP = MOVEM and BIW_0(10) = '1' and FETCH_STATE = FETCH_OPERAND and MOVEM_END = false else '0';
+
+    -- [F170] Operations whose FETCH_OPERAND read may be presented in a write's DATA_RDY clock (one operand read,
+    -- no RMC, no MOVEM read-ahead, no alternate function code). Registered from the previous clock, so OP is final.
+    P_F170_RW: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if FETCH_STATE = FETCH_OPERAND and (OP = MOVE or OP = MOVEA or OP = ADD or OP = ADDA or OP = SUB or OP = SUBA or
+           OP = AND_B or OP = OR_B or OP = EOR or OP = CMP or OP = CMPA or OP = TST or OP = ADDQ or OP = SUBQ or
+           OP = ADDI or OP = SUBI or OP = ANDI or OP = ORI or OP = EORI or OP = CMPI or OP = NEG or OP = NOT_B) then
+            F170_RW_Q <= '1';
+        else
+            F170_RW_Q <= '0';
+        end if;
+    end process P_F170_RW;
 
     DATA_WR <= DATA_WR_I;
     DATA_WR_I <= '0' when WFLT = '1' else -- [FLT1]
