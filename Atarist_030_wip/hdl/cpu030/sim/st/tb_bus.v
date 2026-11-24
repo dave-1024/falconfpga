@@ -38,7 +38,7 @@ module tb_bus;
         .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .refresh(refresh), .din(mdout), .dout(sd_dout), .addr(ram_a[22:1]), .ds({cash_n, casl_n}),
-        .cs(!ras_n && !ram_a[23]), .ecs(ram_early_en & ram_early && !ram_a[23]), .we(!we_n), .st_ba(2'b00)
+        .cs(!ras_n && !ram_a[23]), .ecs(ram_early_en & ram_early && !ram_a[23]), .we(!we_n), .st_ba(2'b00), .st_rd2(1'b0), .dout2()
 `ifdef TTRAM
         , .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata)
 `endif

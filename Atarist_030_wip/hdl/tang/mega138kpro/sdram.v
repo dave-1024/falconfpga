@@ -45,8 +45,12 @@ module sdram (
 	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
 	input		  we,         // cpu/chipset requests write
 	input		  zmask,      // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
-	input [1:0]	  st_ba       // FalconFPGA FAL_01: ST-port bank. ST build ties 2'b00 (bank 0, 8 MB).
+	input [1:0]	  st_ba,      // FalconFPGA FAL_01: ST-port bank. ST build ties 2'b00 (bank 0, 8 MB).
 	                              // Falcon maps 16 MB (14 MB ST-RAM + TOS at $E00000) as bank = {1'b0, byte A23}.
+	input		  st_rd2,     // FAL_01: 0 = existing single-word ST cycle (ST build ties 0, bit-identical).
+	                              // 1 = page-mode second READ of addr+1 in the same 8-clock slot (MODE stays BL=1).
+	                              // Column 0x1FF falls back to one word. Do not use with TTRAM.
+	output reg [15:0] dout2       // second word; valid 1 clk after dout when a burst was taken
 `ifdef TTRAM
 	,
 	// FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 32-bit TT-RAM port in banks 1/2.
@@ -192,6 +196,8 @@ wire tt_go = (init_state == 0) && tg_ok && (tg == 3'd2) && tt_req && !tt_busy &&
 `endif
 
 reg zmask_q = 1'b0;
+reg        rd2_act = 1'b0;  // FAL_01: this ST read issues a second CAS (st_rd2 sampled at first CAS)
+reg [8:0]  rd2_col = 9'd0;
 always @(posedge clk) begin
    sd_cmd <= CMD_NOP;  // default: idle
 
@@ -274,10 +280,14 @@ always @(posedge clk) begin
                st_stk <= st_stk + 2'd1;
             end else begin
                sd_cmd <= we?CMD_WRITE:CMD_READ;
-               sd_addr <= { 4'b0010, addr[8:0] };
+               // st_rd2=0 (ST build): A10=1 auto-precharge, one CAS, identical to the previous controller.
+               // st_rd2=1: first CAS has A10=0 so the row stays open for a second CAS next clock.
+               sd_addr <= (st_rd2 && !we && (addr[8:0] != 9'h1FF)) ? { 4'b0000, addr[8:0] } : { 4'b0010, addr[8:0] };
                sd_ba <= st_ba;                  // [F110]/FAL_01: ST bank (0 on the ST build)
                zmask_q <= zmask;
                st_rd <= !we;
+               rd2_act <= st_rd2 && !we && (addr[8:0] != 9'h1FF);
+               rd2_col <= addr[8:0] + 9'd1;
                state <= STATE_CMD_CONT + 3'd1 + {1'b0, st_stk};
                st_stk <= 2'd0;
             end
@@ -285,10 +295,21 @@ always @(posedge clk) begin
 
         if(state > STATE_CMD_CONT && state < STATE_READ)
             sd_cmd <= CMD_NOP;
+        // FAL_01 page-mode second CAS (after the NOP default so it wins this clock).
+        // Same 8-clock slot: CAS1 at g1, CAS2 at g2, data0 at g4, data1 at g5, AP on CAS2.
+        if (rd2_act && (state == STATE_CMD_CONT + 3'd1)) begin
+            sd_cmd  <= CMD_READ;
+            sd_addr <= { 4'b0010, rd2_col };
+            sd_ba   <= st_ba;
+        end
       
         // read phase
         if(state == STATE_READ && !we) begin
             dout <= zmask_q ? 16'h0000 : sd_data[15:0];
+        end
+        if(state == (STATE_READ + 3'd1) && rd2_act) begin
+            dout2 <= zmask_q ? 16'h0000 : sd_data[15:0];
+            rd2_act <= 1'b0;
         end
       end
    end

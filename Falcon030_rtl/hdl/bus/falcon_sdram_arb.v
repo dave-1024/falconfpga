@@ -16,11 +16,8 @@
 // address = A22:A1. The ST build ties st_ba to 0 and is unchanged.
 // ecs is held 0 in v1 (proven 8-clock cycle, no early start).
 //
-// Bandwidth note: one 16-bit word per 250 ns is 8 MB/s. A 640x480 4-plane
-// line is 160 words (40 us) but a 640x480@60 line is 31.8 us, so that mode
-// underruns on this port. ST boot modes (80 or 160 bytes/line) fit. A later
-// Falcon-only burst-2/4 path on sdram.v (ST timing unchanged) is the fix;
-// it needs a go-ahead because it touches the shared controller.
+// Scanout uses sdram.v st_rd2 (page-mode burst-2, MODE stays BL=1): 160
+// words of 640x480 4-plane in 80 slots = 20 us, inside a 31.8 us HDMI line.
 module falcon_sdram_arb (
     input  wire        clk,             // clk_32, same edge as sdram.v
     input  wire        reset,           // sync, active high
@@ -34,12 +31,15 @@ module falcon_sdram_arb (
     output reg  [1:0]  sd_ds,           // active-high byte masks (like GSTMCU CAS_n)
     output reg  [15:0] sd_din,
     input  wire [15:0] sd_dout,
+    input  wire [15:0] sd_dout2,        // FAL_01 burst-2 second word
+    output reg         sd_rd2,          // 1 = page-mode 2-word read this slot (scanout)
     output reg  [1:0]  sd_ba,
     // scanout
     input  wire        vid_req,
     input  wire [23:1] vid_a,
     output reg         vid_ack,
     output reg  [15:0] vid_q,
+    output reg  [15:0] vid_q2,
     // floppy DMA
     input  wire        dma_req,
     input  wire        dma_we,
@@ -69,6 +69,7 @@ module falcon_sdram_arb (
     reg [2:0] ph;                       // 0..7 slot phase
     reg [2:0] win;
     reg [3:0] refdiv;                   // 0 -> refresh this slot
+    reg       vid_burst;                // this slot issued st_rd2
 
     wire [23:1] a_vid = vid_a, a_dma = dma_a, a_ld = ld_a, a_cpu = cpu_a;
     function [21:0] waddr; input [23:1] a; begin waddr = a[22:1]; end endfunction
@@ -82,9 +83,10 @@ module falcon_sdram_arb (
     always @(posedge clk) begin
         if (reset || !ram_ready) begin
             ph <= 3'd0; win <= WIN_NONE; refdiv <= 4'd15;
-            sd_cs <= 1'b0; sd_we <= 1'b0; sd_refresh <= 1'b0;
+            sd_cs <= 1'b0; sd_we <= 1'b0; sd_refresh <= 1'b0; sd_rd2 <= 1'b0;
             sd_ds <= 2'b00; sd_addr <= 22'd0; sd_ba <= 2'b00; sd_din <= 16'd0;
             vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0;
+            vid_burst <= 1'b0;
         end else begin
             if (vid_ack && !vid_req) vid_ack <= 1'b0;
             if (dma_ack && !dma_req) dma_ack <= 1'b0;
@@ -114,20 +116,23 @@ module falcon_sdram_arb (
                         win <= WIN_VID;
                         sd_cs <= 1'b1; sd_we <= 1'b0; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_vid); sd_ba <= bank(a_vid);
+                        // burst-2 unless the column would wrap (sdram.v also guards this)
+                        vid_burst <= (a_vid[9:1] != 9'h1FF);
+                        sd_rd2    <= (a_vid[9:1] != 9'h1FF);
                     end else if (take_dma) begin
-                        win <= WIN_DMA;
+                        win <= WIN_DMA; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
                         sd_cs <= 1'b1; sd_we <= dma_we; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_dma); sd_ba <= bank(a_dma); sd_din <= dma_d;
                     end else if (take_ld) begin
-                        win <= WIN_LD;
+                        win <= WIN_LD; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
                         sd_cs <= 1'b1; sd_we <= 1'b1; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_ld); sd_ba <= bank(a_ld); sd_din <= ld_d;
                     end else if (take_cpu) begin
-                        win <= WIN_CPU;
+                        win <= WIN_CPU; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
                         sd_cs <= 1'b1; sd_we <= cpu_we; sd_ds <= cpu_we ? ~cpu_be : 2'b00;
                         sd_addr <= waddr(a_cpu); sd_ba <= bank(a_cpu); sd_din <= cpu_d;
                     end else begin
-                        win <= WIN_NONE;
+                        win <= WIN_NONE; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
                         sd_cs <= 1'b0; sd_we <= 1'b0;
                     end
                 end
@@ -135,14 +140,20 @@ module falcon_sdram_arb (
 
             // dout is written by sdram.v on the STATE_READ edge (phase 4);
             // it is visible here on the next edge (phase 5). Ack writes then too.
+            // dout is written by sdram.v on the STATE_READ edge (phase 4);
+            // it is visible here on the next edge (phase 5). Burst word 2 is
+            // one clock later (phase 6).
             if (ph == 3'd5) begin
                 case (win)
-                    WIN_VID: begin vid_q <= sd_dout; vid_ack <= 1'b1; end
+                    WIN_VID: begin vid_q <= sd_dout; if (!vid_burst) vid_ack <= 1'b1; end
                     WIN_DMA: begin dma_q <= sd_dout; dma_ack <= 1'b1; end
                     WIN_LD:  begin ld_ack <= 1'b1; end
                     WIN_CPU: begin cpu_q <= sd_dout; cpu_ack <= 1'b1; end
                     default: ;
                 endcase
+            end
+            if (ph == 3'd6 && win == WIN_VID && vid_burst) begin
+                vid_q2 <= sd_dout2; vid_ack <= 1'b1; sd_rd2 <= 1'b0;
             end
         end
     end

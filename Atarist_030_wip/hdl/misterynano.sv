@@ -344,7 +344,7 @@ sdram sdram (
         .ecs( ram_early && !ram_a[23] ), // F63: read RAS on the next clock (early start)
         .we( !we_n ),               // cpu/chipset requests write
         .zmask( (pwr_cold && memvalid_hit) || (TT_RV_MASK && pwr_cold_rv && ramvalid_hit) ),
-        .st_ba(2'b00)
+        .st_ba(2'b00), .st_rd2(1'b0), .dout2()
 `ifdef TTRAM
         ,
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be),

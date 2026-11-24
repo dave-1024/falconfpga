@@ -110,10 +110,14 @@ The ST port in `sdram.v` was bank 0 only (8 MB). A backward-compatible `st_ba` i
 ties it to `2'b00`; ST benches updated to match). Falcon maps 16 MB across banks 0 and 1: bank = `{1'b0, byte A23}`,
 word address = A22:A1, which covers 14 MB ST-RAM plus the TOS copy at $E00000.
 
-Bandwidth: one 16-bit word per 250 ns is 8 MB/s. A 640x480 4-plane line is 160 words (40 us) but a 640x480@60
-HDMI line is 31.8 us, so that TOS boot mode underruns on this port. ST-sized lines (40 or 80 words) fit.
-A later Falcon-only burst-2/4 path in `sdram.v` (ST cycle timing unchanged) would give enough bandwidth; that
-touches the shared controller and needs a go-ahead.
+Bandwidth: a Falcon-only page-mode burst-2 read (`st_rd2`, default 0) issues a second CAS of addr+1 in the
+same 8-clock slot, MODE stays burst-length 1. The ST build ties `st_rd2` to 0; a compare of the new
+controller against the pre-burst `sdram.v` (256 slots: read/write/refresh/ecs/zmask) was bit-identical
+on every SDRAM pin and `dout` (2361 clocks, 0 mismatches, `Falcon030_rtl/sim` notes). Burst-2 gives
+16-bit x 2 / 250 ns = 16 MB/s: a 640x480 4-plane line is 80 slots = 20 us, inside the 31.8 us HDMI line
+(headroom for refresh, floppy DMA and the CPU). An 8-plane 640 line is still 40 us (later). Do not use
+`st_rd2` on a TTRAM build (the second CAS would sit on a TT command clock). Bring this `sdram.v` change
+to `speed`/`main` later; it lives on `falcon` only for now.
 
 ## Video
 

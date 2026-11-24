@@ -34,9 +34,11 @@ module falcon_scanout (
     input  wire [17:0] fpal_wd,
     // SDRAM arbiter word port (clk_32)
     output reg         ram_req,
+    output reg         ram_rd2,         // request a burst-2 word pair
     output reg  [23:1] ram_a,
     input  wire        ram_ack,
     input  wire [15:0] ram_q,
+    input  wire [15:0] ram_q2,
     // HDMI 640x480 (clk_pixel)
     output reg  [9:0]  cx, cy,
     output wire        hsync, vsync, de,
@@ -167,7 +169,7 @@ module falcon_scanout (
 
     always @(posedge clk_32) begin
         if (reset) begin
-            st <= S_IDLE; ram_req <= 1'b0; underrun <= 1'b0; busy_line <= 1'b0;
+            st <= S_IDLE; ram_req <= 1'b0; ram_rd2 <= 1'b0; underrun <= 1'b0; busy_line <= 1'b0;
         end else begin
             case (st)
                 S_IDLE: if (fetch_go) begin
@@ -185,6 +187,7 @@ module falcon_scanout (
                         widx <= 10'd0;
                         wmax <= lb_now[11:1];            // words in the line
                         ram_a <= fb_base[23:1] + fetch_line * (lb_now >> 1);
+                        ram_rd2 <= (lb_now[11:1] >= 12'd2) && ((fb_base[23:1] + fetch_line * (lb_now >> 1)) & 23'h1FF) != 23'h1FF;
                         ram_req <= 1'b1;
                         busy_line <= 1'b1;
                         st <= S_FETCH;
@@ -192,13 +195,19 @@ module falcon_scanout (
                 end
                 S_FETCH: if (ram_req && ram_ack) begin
                     rawbuf[widx] <= ram_q;
+                    if (ram_rd2) rawbuf[widx + 10'd1] <= ram_q2;
                     ram_req <= 1'b0;
-                    if (widx + 10'd1 >= wmax) begin
-                        dcol <= 10'd0; st <= S_DEC;
-                    end else begin
-                        widx <= widx + 10'd1;
-                        ram_a <= ram_a + 23'd1;
-                        ram_req <= 1'b1;
+                    begin : nxt
+                        reg [9:0] ni;
+                        ni = widx + (ram_rd2 ? 10'd2 : 10'd1);
+                        if (ni >= wmax) begin
+                            dcol <= 10'd0; st <= S_DEC; ram_rd2 <= 1'b0;
+                        end else begin
+                            widx <= ni;
+                            ram_a <= ram_a + (ram_rd2 ? 23'd2 : 23'd1);
+                            ram_rd2 <= ((wmax - ni) >= 10'd2) && ((ram_a + (ram_rd2 ? 23'd2 : 23'd1)) & 23'h1FF) != 23'h1FF;
+                            ram_req <= 1'b1;
+                        end
                     end
                 end else if (!ram_req) ram_req <= 1'b1;
                 S_DEC: begin
