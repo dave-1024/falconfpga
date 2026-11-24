@@ -181,12 +181,10 @@ set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*
 create_generated_clock -name st_sck_pll -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 -phase 22.5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}]
 create_generated_clock -name clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}] -master_clock st_sck_pll -divide_by 1 [get_ports {mspi_clk}]
 set_clock_groups -exclusive -group [get_clocks {st_sck_pll clk_spi}] -group [get_clocks {ae350_flash_clk}]
-// Flash (W25Q128JV class) dual-I/O read: data changes after SCK falling, tCLQV <= 6 ns, tCLQX >= 1.5 ns (+0.5 ns board).
-// flash_dspi.v samples IO0/IO1 (dspi_in_r) on the st_flash_clk rising edge 2 edges after that SCK fall.
-set_input_delay -clock clk_spi -clock_fall -max 6.5 [get_ports {mspi_di mspi_do}]
-set_input_delay -clock clk_spi -clock_fall -min 1.5 [get_ports {mspi_di mspi_do}]
-set_multicycle_path -setup -end 2 -from [get_ports {mspi_di mspi_do}] -to [get_clocks {st_flash_clk}]
-set_multicycle_path -hold  -end 1 -from [get_ports {mspi_di mspi_do}] -to [get_clocks {st_flash_clk}]
+// No ST flash_dspi in this build (TOS 4.04 comes from SD, image 4). mspi_di is
+// MOSI to the AE350 (Gowin promotes it to an output), so the ST dual-I/O
+// set_input_delay / multicycle on {mspi_di mspi_do} does not apply. st_sck_pll
+// and clk_spi stay: they are in the clock groups and still describe the pad mux.
 // SDRAM DQ/DQM outputs are NOT constrained: sdram.v drives them combinationally from the chipset (din, cs/we/ds; f102a
 // first build: 16 logic levels from the blitter through the shifter mbus, -11.4 ns against a 1-cycle relation). They are
 // set up cycles ahead of the WRITE edge in practice; registering them is the proper fix (F103).
@@ -195,5 +193,3 @@ report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {
 report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk32_core}]
 report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
 report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
-report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_spi}] -to_clock [get_clocks {st_flash_clk}]
-report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_spi}] -to_clock [get_clocks {st_flash_clk}]

@@ -170,5 +170,5 @@ set_option -co-place_io_registers 0
 set_option -replicate_resources 1
 set_option -show_init_in_vo 0
 
-# Uncomment for a linserver V1.9.12.03 board build (timing_pairs must pass).
-# run all
+# Linserver V1.9.12.03 board build (timing_pairs must pass).
+run all
