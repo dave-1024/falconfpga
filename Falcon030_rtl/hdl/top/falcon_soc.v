@@ -60,7 +60,13 @@ module falcon_soc (
     output wire [7:0]  vr, vg, vb,
     output wire        vbl, hbl,
     output wire        scan_underrun,
-    output wire        cpu_halted_n
+    output wire        cpu_halted_n,
+    // raw mount path (clk_32), for the colour-bar debug tray / helper port_status
+    input  wire        dbg_mnt,          // sd_card image_mounted[4] pulse
+    input  wire [31:0] dbg_mnt_size,
+    input  wire        dbg_hold,         // soc_reset = por32|helper_hold
+    input  wire        dbg_sticky,       // tos_mount_latch waiting
+    output wire [31:0] loader_status     // flags[31:16], sect[9:0]
 );
     wire        mem_req, mem_we, mem_ack;
     wire [23:1] mem_a;
@@ -273,21 +279,54 @@ module falcon_soc (
         .vbl(vbl), .hbl(hbl), .vcount(vcount), .underrun(scan_underrun)
     );
 
-    // Colour bars + a bottom progress strip while the TOS loader holds the
-    // CPU in reset (or on a bad image). Separates "HDMI is up but TOS has
-    // not started" from "no TMDS". 85ca498 board grabs were a 6 kB black
-    // 1920x1080 frame; the Hagibis dongle does not report the source size.
+    // Colour bars + a bottom debug tray while the TOS loader holds the CPU
+    // in reset (or on a bad image). 3196a13c board grabs had a navy tray and
+    // no yellow bar: that is also what busy=1 and sect=0 looks like, so it
+    // does not prove the loader never started. The 3196a13c helper log had
+    // "DRV 4: inserted. Size = 524288", "enable direct mapping @744008", then
+    // "spourious interrupt" — sd_card only raises that IRQ on a rising
+    // rstart/wstart while direct_enable is still 0, so tos_sd_rd likely went
+    // high before CMD 6 finished. The tray now has sticky coloured blocks
+    // so one grab shows where the path stopped.
     wire [7:0] scan_r, scan_g, scan_b;
     wire       ld_busy;
     wire [9:0] ld_sect;
+
+    // Sticky flags on clk_32 (por32 only). Live bits 6/7/10 follow the inputs.
+    reg [15:0] ld_flags;
+    always @(posedge clk_32) begin
+        if (loader_reset) begin
+            ld_flags <= 16'd0;
+        end else begin
+            if (dbg_mnt)                         ld_flags[0]  <= 1'b1; // mount-seen
+            if (dbg_mnt && dbg_mnt_size == 32'd524288)
+                                                 ld_flags[1]  <= 1'b1; // size-ok
+            if (dbg_mnt && dbg_mnt_size != 32'd524288)
+                                                 ld_flags[11] <= 1'b1; // size-bad (eject or wrong)
+            if (tos_img_mounted)                 ld_flags[2]  <= 1'b1; // go-seen
+            if (ld_busy)                         ld_flags[3]  <= 1'b1; // busy-seen
+            if (tos_sd_rd)                       ld_flags[4]  <= 1'b1; // sd_rd issued
+            if (tos_sd_ack)                      ld_flags[5]  <= 1'b1; // sd_ack seen
+            ld_flags[6]  <= ram_ready;                                 // live
+            ld_flags[7]  <= dbg_hold;                                  // live
+            if (tos_sd_dout_strobe)              ld_flags[8]  <= 1'b1; // byte strobe
+            if (ld_ack)                          ld_flags[9]  <= 1'b1; // ram ack
+            ld_flags[10] <= dbg_sticky;                                // live, waiting
+        end
+    end
+    assign loader_status = { ld_flags, 6'd0, ld_sect };
+
     reg  [1:0] rst_s, busy_s, err_s;
     reg  [9:0] sect_s, sect_p;
+    reg [15:0] flg_s, flg_p;
     always @(posedge clk_pixel) begin
         rst_s  <= { rst_s[0],  cpu_reset };
         busy_s <= { busy_s[0], ld_busy   };
         err_s  <= { err_s[0],  tos_err   };
         sect_s <= ld_sect;
         sect_p <= sect_s;
+        flg_s  <= ld_flags;
+        flg_p  <= flg_s;
     end
     // 8 CEA-style 75% bars across 640 px (cx[9:7]).
     reg [23:0] bar_rgb;
@@ -303,23 +342,62 @@ module falcon_soc (
             default: bar_rgb = 24'h000000;
         endcase
     end
-    // progress width = sect * 640 / 1024 = sect * 5 / 8 (0..639)
-    wire [12:0] prog_x = { 3'd0, sect_p } * 13'd5 >> 3;
-    wire        in_tray  = rst_s[1] && (cy >= 10'd464);
-    wire        in_prog  = in_tray && busy_s[1] && ({3'd0, cx} < prog_x);
+    // 12 x 16 px flag blocks at the left of the tray, then 10 sector bits
+    // (8 px each, x=192..271), then a yellow progress strip from x=272.
+    // 0 mount-seen white, 1 size-ok green, 2 go yellow, 3 busy magenta,
+    // 4 sd_rd blue, 5 sd_ack cyan, 6 ram_ready lime (live), 7 hold red (live),
+    // 8 strobe teal, 9 ram_ack pink, 10 sticky orange (live), 11 size-bad maroon.
+    reg [23:0] flag_rgb;
+    always @(*) begin
+        case (cx[7:4])
+            4'd0:  flag_rgb = 24'hF0F0F0;
+            4'd1:  flag_rgb = 24'h00C000;
+            4'd2:  flag_rgb = 24'hF0C000;
+            4'd3:  flag_rgb = 24'hC000C0;
+            4'd4:  flag_rgb = 24'h3060FF;
+            4'd5:  flag_rgb = 24'h00C0C0;
+            4'd6:  flag_rgb = 24'h80FF00;
+            4'd7:  flag_rgb = 24'hFF2020;
+            4'd8:  flag_rgb = 24'h00E0C0;
+            4'd9:  flag_rgb = 24'hFF80C0;
+            4'd10: flag_rgb = 24'hFF8000;
+            default: flag_rgb = 24'h800000;
+        endcase
+    end
+    wire [3:0]  flag_i   = cx[7:4];
+    wire        flag_on  = (flag_i < 4'd12) && flg_p[flag_i];
+    wire        in_flags = (cy >= 10'd464) && (cx < 10'd192);
+    // 10 sector bits at x=192..271, 8 px each, MSB at the left (no divider)
+    wire [6:0]  bit_raw  = cx[9:3] - 7'd24;      // (cx-192)>>3, valid when in_bits
+    wire [3:0]  bit_div  = bit_raw[3:0];
+    wire        in_bits  = (cy >= 10'd464) && (cx >= 10'd192) && (cx < 10'd272);
+    wire        bit_on   = in_bits && sect_p[4'd9 - bit_div];
+    wire [12:0] prog_x   = 13'd272 + ({3'd0, sect_p} * 13'd23 / 13'd64); // 272..639
+    wire        in_tray  = (rst_s[1] | err_s[1]) && (cy >= 10'd464);
+    wire        in_prog  = in_tray && (cx >= 10'd272) && ({3'd0, cx} < prog_x);
     wire        show_bar = rst_s[1] | err_s[1];
+    wire [7:0]  tray_r, tray_g, tray_b;
+    assign tray_r = in_flags ? (flag_on ? flag_rgb[23:16] : 8'h18) :
+                    in_bits  ? (bit_on  ? 8'hF0 : 8'h18) :
+                    in_prog  ? 8'hFF :
+                               8'h20;
+    assign tray_g = in_flags ? (flag_on ? flag_rgb[15:8]  : 8'h18) :
+                    in_bits  ? (bit_on  ? 8'hF0 : 8'h18) :
+                    in_prog  ? 8'hC0 :
+                               8'h20;
+    assign tray_b = in_flags ? (flag_on ? flag_rgb[7:0]   : 8'h18) :
+                    in_bits  ? (bit_on  ? 8'hF0 : 8'h18) :
+                    in_prog  ? 8'h00 :
+                               8'h40;
     assign vr = !show_bar ? scan_r :
-                err_s[1]  ? 8'hC0 :
-                in_prog   ? 8'hFF :
-                in_tray   ? 8'h20 : bar_rgb[23:16];
+                in_tray   ? tray_r :
+                err_s[1]  ? 8'hC0 : bar_rgb[23:16];
     assign vg = !show_bar ? scan_g :
-                err_s[1]  ? 8'h00 :
-                in_prog   ? 8'hC0 :
-                in_tray   ? 8'h20 : bar_rgb[15:8];
+                in_tray   ? tray_g :
+                err_s[1]  ? 8'h00 : bar_rgb[15:8];
     assign vb = !show_bar ? scan_b :
-                err_s[1]  ? 8'h00 :
-                in_prog   ? 8'h00 :
-                in_tray   ? 8'h40 : bar_rgb[7:0];
+                in_tray   ? tray_b :
+                err_s[1]  ? 8'h00 : bar_rgb[7:0];
     // vid_rd2 is produced by the scanout and also generated by the arbiter from the
     // address; the arbiter's sd_rd2 is what sdram.v sees.
 

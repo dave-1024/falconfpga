@@ -840,6 +840,7 @@ assign diag_vbase    = 24'd0;
 
 wire        soc_reset = por32 | helper_hold;
 wire        ram_ready, tos_err, cpu_reset, scan_underrun, cpu_halted_n;
+wire [31:0] loader_status;
 wire        sd_clk_unused, sd_cke_unused;
 wire [9:0]  hdmi_cx, hdmi_cy;
 wire        hdmi_hs, hdmi_vs, hdmi_de, hdmi_vbl, hdmi_hbl;
@@ -871,11 +872,12 @@ always @(posedge clk32) begin
 end
 // Sticky TOS mount: see tos_mount_latch.v. Reset by por32 only; go waits for
 // !soc_reset && ram_ready plus 1 ms for the helper's CMD 6 direct-map.
+wire        tos_mnt_sticky;
 tos_mount_latch #(.DELAY(32_000)) u_tos_mnt (
     .clk(clk32), .por(por32), .hold(soc_reset), .ram_ready(ram_ready),
     .img_mounted(sd_img_mounted[4]),
     .img_size(sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r),
-    .go(tos_mnt_go), .size(tos_mnt_size)
+    .go(tos_mnt_go), .size(tos_mnt_size), .sticky(tos_mnt_sticky)
 );
 
 // HID / IKBD
@@ -954,7 +956,12 @@ falcon_soc u_soc (
     .vr(hdmi_r), .vg(hdmi_g), .vb(hdmi_b),
     .vbl(hdmi_vbl), .hbl(hdmi_hbl),
     .scan_underrun   ( scan_underrun ),
-    .cpu_halted_n    ( cpu_halted_n )
+    .cpu_halted_n    ( cpu_halted_n ),
+    .dbg_mnt         ( sd_img_mounted[4] ),
+    .dbg_mnt_size    ( sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r ),
+    .dbg_hold        ( soc_reset ),
+    .dbg_sticky      ( tos_mnt_sticky ),
+    .loader_status   ( loader_status )
 );
 
 // ----- helper SPI (AE350) + OSD XML + SD images (TOS ROM = index 4) -----
@@ -992,7 +999,7 @@ sysctrl sysctrl (
     .leds(system_leds),
     .jtagsel(jtagsel_unused),
     .color(ws2812_color),
-    .port_status(32'd0), .port_out_available(8'd0), .port_out_strobe(),
+    .port_status(loader_status), .port_out_available(8'd0), .port_out_strobe(),
     .port_out_data(8'd0), .port_in_available(8'd0), .port_in_strobe(), .port_in_data(),
     .rtc(),
     .system_chipset(), .system_memory(), .system_video(), .system_reset(system_reset),

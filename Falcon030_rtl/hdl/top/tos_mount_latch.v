@@ -35,11 +35,11 @@ module tos_mount_latch #(
     input  wire        img_mounted,     // 1-cycle pulse, sd_card domain
     input  wire [31:0] img_size,
     output reg         go,              // 1-cycle pulse to tos_loader
-    output reg  [31:0] size
+    output reg  [31:0] size,
+    output reg         sticky           // 1 while a 524288-byte mount is waiting
 );
     // 16-bit counter is enough for the 1 ms / 32 MHz default (32000).
     // Avoid $clog2 so Gowin V1.9.12.03 takes the file as plain Verilog.
-    reg        sticky;
     reg [1:0]  hold_s, ready_s;
     reg [15:0] wait_n;
 
