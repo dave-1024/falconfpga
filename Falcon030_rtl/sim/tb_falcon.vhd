@@ -159,9 +159,12 @@ begin
       if r = 16#8607# then return 1; end if;                     -- DMA status: no error
       if r = 16#8605# then return 0; end if;                     -- FDC status 0
       if r = 16#A202# then return 16#06#; end if;                -- DSP host ISR: TXDE|TRDY
+      if r = 16#8A3C# then return io(r - 16#8000#) mod 128; end if;  -- blitter busy (b7): v1 stub completes at once (Hybrid M11f)
       return io(r - 16#8000#);
     end;
-    procedure wrb(r : integer; v : integer) is begin
+    procedure wrb(r : integer; v : integer) is
+      variable w : integer := v;
+    begin
       if r < 16#8000# then return; end if;   -- IDE stub: writes dropped
       if r = 16#8961# then nvsel := v mod 64; return; end if;
       if r = 16#8963# then if nvsel /= 12 and nvsel /= 13 then nv(nvsel) := v; end if; return; end if;
@@ -171,7 +174,8 @@ begin
       if r = 16#FA1F# or r = 16#FA21# or r = 16#FA23# or r = 16#FA25# then
         tld((r - 16#FA1F#) / 2) := v; tcnt((r - 16#FA1F#) / 2) := v;
       end if;
-      io(r - 16#8000#) := v;
+      if r = 16#8A3C# then w := w mod 128; end if;               -- drop busy so a start does not stick (no real blit in v1)
+      io(r - 16#8000#) := w;
     end;
   begin
     nv_init;

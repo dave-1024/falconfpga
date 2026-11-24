@@ -55,7 +55,7 @@ module falcon_io #(
         else if (wr) begin
             if (is_dens && lds) fdc_hd <= din[1:0];
             if (is_snd) begin if (uds) snd[{r[6:1], 1'b0}] <= din[15:8]; if (lds) snd[{r[6:1], 1'b1}] <= din[7:0]; end
-            if (is_blt) begin if (uds) blt[{r[5:1], 1'b0}] <= din[15:8]; if (lds) blt[{r[5:1], 1'b1}] <= din[7:0]; end
+            if (is_blt) begin if (uds) blt[{r[5:1], 1'b0}] <= (r == 16'h8A3C) ? (din[15:8] & 8'h7F) : din[15:8]; if (lds) blt[{r[5:1], 1'b1}] <= din[7:0]; end  // $FF8A3C busy: stub completes at once (M11f)
             if (is_cfg) begin if (uds) cfg[{r[3:1], 1'b0}] <= din[15:8]; if (lds) cfg[{r[3:1], 1'b1}] <= din[7:0]; end
             if (is_scc) begin if (uds) scc[{r[2:1], 1'b0}] <= din[15:8]; if (lds) scc[{r[2:1], 1'b1}] <= din[7:0]; end
             if (is_scsi && lds) scsi[r[3:1]] <= din[7:0];
@@ -73,7 +73,7 @@ module falcon_io #(
         else if (is_cfg && r == 16'h8006) dout = {MONITOR, 1'b0, MEMCODE[2:1], 1'b0, MEMCODE[0], 1'b0, cfg[7]};
         else if (is_cfg)   dout = {cfg[{r[3:1], 1'b0}], cfg[{r[3:1], 1'b1}]};
         else if (is_snd)   dout = {snd[{r[6:1], 1'b0}], snd[{r[6:1], 1'b1}]};
-        else if (is_blt)   dout = {blt[{r[5:1], 1'b0}], blt[{r[5:1], 1'b1}]};
+        else if (is_blt)   dout = {(r == 16'h8A3C) ? (blt[{r[5:1], 1'b0}] & 8'h7F) : blt[{r[5:1], 1'b0}], blt[{r[5:1], 1'b1}]};
         else if (is_scc)   dout = {scc[{r[2:1], 1'b0}], scc[{r[2:1], 1'b1}]};
         else if (is_scsi)  dout = {8'hFF, r[3:1] == 3'd1 ? ((scsi[1] & 8'h9F) | (scsi[2][0] ? 8'h40 : 8'h00)) :
                                           r[3:1] == 3'd2 ? scsi[2] : 8'h00};
