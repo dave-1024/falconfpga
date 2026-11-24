@@ -57,6 +57,10 @@ architecture sim of tb_falcon is
   type nv_t is array (0 to 63) of integer range 0 to 255;
   shared variable nv : nv_t := (others => 0);
   shared variable nvsel : integer := 0;
+  -- MFP timers A-D: data register write loads the counter (read back at once while stopped, as TOS 4.04's
+  -- xbtimer loop at $E02806 expects); a running timer counts down at its prescale (2.4576 MHz MFP clock).
+  type t4 is array (0 to 3) of integer;
+  shared variable tcnt, tld : t4 := (others => 255);
   signal done : boolean := false;
   signal clkn : integer := 0;
   signal vbl_p, tc_p : std_logic := '0';
@@ -88,8 +92,25 @@ begin
 
   -- interrupt sources: VBL = level 4 autovector; MFP timer C = level 6 vectored
   irq : process
+    type p8 is array (0 to 7) of integer;
+    constant presc : p8 := (0, 26, 65, 104, 326, 417, 651, 1302);   -- 16 MHz clocks per MFP count (/4../200)
+    variable ctl, ld : integer; variable acc : t4 := (others => 0);
   begin
     wait until rising_edge(clk); clkn <= clkn + 1;
+    for t in 0 to 3 loop
+      case t is
+        when 0 => ctl := io(16#7A19#) mod 8; when 1 => ctl := io(16#7A1B#) mod 8;
+        when 2 => ctl := (io(16#7A1D#) / 16) mod 8; when others => ctl := io(16#7A1D#) mod 8;
+      end case;
+      if ctl /= 0 then
+        acc(t) := acc(t) + 1;
+        if acc(t) >= presc(ctl) then
+          acc(t) := 0;
+          if tcnt(t) <= 1 then ld := tld(t); if ld = 0 then ld := 256; end if; tcnt(t) := ld mod 256; if ld = 256 then tcnt(t) := 0; end if;
+          else tcnt(t) := tcnt(t) - 1; end if;
+        end if;
+      end if;
+    end loop;
     if IRQON /= 0 and clkn > 0 and clkn mod VBLPER = 0 then vbl_p <= '1'; end if;
     -- timer C pending only when enabled+unmasked in IERB/IMRB bit 5 ($FFFA09/$FFFA15)
     if IRQON /= 0 and clkn > 0 and clkn mod TCPER = 0 and (io(16#7A09#) / 32) mod 2 = 1 and (io(16#7A15#) / 32) mod 2 = 1 then tc_p <= '1'; end if;
@@ -122,7 +143,7 @@ begin
       if r >= 16#FA00# and r <= 16#FA3F# then
         if r mod 2 = 0 then return 255; end if;
         if r = 16#FA01# then return 16#FF#; end if;              -- GPIP: all inactive (mono-detect 1 = colour)
-        if r = 16#FA1F# or r = 16#FA21# or r = 16#FA23# or r = 16#FA25# then return 255 - (n / 64) mod 256; end if;
+        if r = 16#FA1F# or r = 16#FA21# or r = 16#FA23# or r = 16#FA25# then return tcnt((r - 16#FA1F#) / 2); end if;
         return io(r - 16#8000#);
       end if;
       if r = 16#8607# then return 1; end if;                     -- DMA status: no error
@@ -134,6 +155,9 @@ begin
       if r < 16#8000# then return; end if;   -- IDE stub: writes dropped
       if r = 16#8961# then nvsel := v mod 64; return; end if;
       if r = 16#8963# then if nvsel /= 12 and nvsel /= 13 then nv(nvsel) := v; end if; return; end if;
+      if r = 16#FA1F# or r = 16#FA21# or r = 16#FA23# or r = 16#FA25# then
+        tld((r - 16#FA1F#) / 2) := v; tcnt((r - 16#FA1F#) / 2) := v;
+      end if;
       io(r - 16#8000#) := v;
     end;
   begin
