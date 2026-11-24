@@ -115,7 +115,8 @@ module falcon_core (
     reg        berr1_seen, vpend;
     reg [1:0]  vcnt;
     reg [15:0] vaddr;
-    reg [31:0] berr1_a, berr1_info, berr1_pc, lastw_a, vlog0, vlog1, vlog2;
+    reg [31:0] berr1_a, berr1_info, berr1_pc, vlog0, vlog1;
+    wire [31:0] lastw_a = 32'd0, vlog2 = 32'd0;   // dropped 19:10 (8010a45 routing stall)
     wire [23:0] a24w = cpu_a[23:0];
     wire        wr_done = dsack_d && !(&cpu_dsack_n) && !cpu_rw;
     wire        rd_done = dsack_d && !(&cpu_dsack_n) &&  cpu_rw;
@@ -126,8 +127,8 @@ module falcon_core (
             walk_a <= 24'd0; walk_d <= 32'd0;
             left_e0 <= 1'b0; walk_pend <= 1'b0;
             berr1_seen <= 1'b0; vpend <= 1'b0; vcnt <= 2'd0; vaddr <= 16'd0;
-            berr1_a <= 32'd0; berr1_info <= 32'd0; berr1_pc <= 32'd0; lastw_a <= 32'd0;
-            vlog0 <= 32'd0; vlog1 <= 32'd0; vlog2 <= 32'd0;
+            berr1_a <= 32'd0; berr1_info <= 32'd0; berr1_pc <= 32'd0;
+            vlog0 <= 32'd0; vlog1 <= 32'd0;
             dbg_io_ring <= 256'd0; dbg_pc_ring <= 256'd0;
             dbg_io_addr <= 16'd0; dbg_io_data <= 16'd0;
             dsack_d <= 1'b1;
@@ -150,8 +151,7 @@ module falcon_core (
                 end
             end
             // Last data write address (stack / pointer hint for the BERR).
-            if (as_d && !cpu_as_n && !cpu_rw && cpu_fc[0] && !berr1_seen)
-                lastw_a <= cpu_a;
+            // (lastw_a capture dropped 19:10: 8010a45 stalled in routing)
             // First BERR: address, {FC, R/W, SIZ}, last program fetch, last write.
             if (berr_d && !cpu_berr_n && !berr1_seen) begin
                 berr1_seen <= 1'b1;
@@ -161,7 +161,7 @@ module falcon_core (
             end
             // After the first BERR: log the next 3 FC=5 word reads of $8..$3FF
             // (exception vectors), {addr[15:0], data[15:0]}.
-            if (berr1_seen && vcnt != 2'd3 && as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw &&
+            if (berr1_seen && vcnt[1] == 1'b0 && as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw &&
                 a24w[23:10] == 14'd0 && a24w[9:3] != 7'd0)
                 begin vpend <= 1'b1; vaddr <= a24w[15:0]; end
             if (vpend && rd_done) begin
@@ -170,7 +170,7 @@ module falcon_core (
                 case (vcnt)
                     2'd0: vlog0 <= {vaddr, cpu_din[31:16]};
                     2'd1: vlog1 <= {vaddr, cpu_din[31:16]};
-                    default: vlog2 <= {vaddr, cpu_din[31:16]};
+                    default: ;  // vlog2 dropped (routing)
                 endcase
             end
             // Last 8 IO writes (shift in at [255:224]; [31:0] is oldest).
