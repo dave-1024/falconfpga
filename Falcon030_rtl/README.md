@@ -8,4 +8,9 @@ the MC68030 user's manual inside the Atari ST/STE test bed in
 Once the CPU core is ready, it moves here along with the Falcon-specific hardware
 (Falcon bus, VIDEL, DSP 56001, Combel, SDMA/Codec and so on).
 
-Status: empty, reserved for the Falcon hardware (November 2026).
+Status (24 Nov 2026, branch `falcon`, FAL_01): first iteration started. Design note in
+[docs/DESIGN.md](docs/DESIGN.md). RTL blocks written and lint-clean (bus decode with async DSACK and
+bus errors, IO stubs, NVRAM, YM stub, VIDEL register file, floppy A: wrapper, peripheral sub-bus, TOS loader);
+not yet a full top or a bitstream. The GHDL bench `sim/run_tos.sh` runs TOS 4.04 on the shared WF68K30L
+against a behavioural Falcon bus. The CPU source is shared by path from `../Atarist_030_wip/hdl/cpu030/`,
+so every CPU timing fix lands in both builds. No ROM images in git: TOS 4.04 comes from the SD card.
