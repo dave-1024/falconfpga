@@ -203,3 +203,26 @@ Source: https://www.neperos.com/article/qs4f1491a6baa850 (plain text copy outsid
 | $FF9200 | fire buttons, sample $BF (bit 6 low) | Hybrid030 reads $FF | $FFFF | **differs**: on a real Falcon $FF9200 bit 6 is low in AURA's sample. Hybrid030 booted TOS 4.04 with $FF, so v1 keeps $FF; revisit if TOS 4.04 uses it (it reads $FF9200 at $E0042E). |
 | $FFA202 DSP ISR | sample $06 (TRDY, TXDE) | Hybrid030 falcon_m28 (shadow) / Hatari | $06 | agrees |
 | $FF8961/$FF8963 | NVRAM select / data | same | same | agrees |
+
+## Wiring reference: ReFalcon (Steve Suavek)
+
+ReFalcon-030 (https://github.com/eskwadrat/ReFalcon, commit 56105f4) is a validated replica of the Falcon030
+motherboard rev 1 with all Field Service Guide ECOs: a 27-page schematic of rev 1.1 and the BOM. Credit: Steve
+Suavek. Its licence is educational/non-commercial, so nothing from it (artwork, schematic pages) is copied into
+this repo; it is referenced by page. Priority for this project: Hybrid030 for behaviour, ReFalcon for wiring
+and signals, then Hatari, then the AURA doc.
+
+First pass (text extraction of the PDF, `pdftotext -layout`; to be confirmed on rendered pages with `pdftoppm`):
+
+| Item | ReFalcon page | First reading | v1 |
+|---|---|---|---|
+| 68030 STERM | p12 (U55 pin 122) | pulled up through a 4k7 resistor, not driven: no synchronous cycles | STERMn tied high, async DSACK only (agrees) |
+| 68030 CIIN | p12 (U55 pin 73) | resistor network beside it; driver to confirm | v1 drives CIIN from the address decode (ST-RAM and IO inhibited) |
+| DSACK0/DSACK1, BERR | p12, p13 (XDSACK0/1, XBERR, EBERR) | generated off-CPU (COMBEL side), both DSACK lines routed | v1 answers 16-bit (DSACK1) for every port, as Hybrid030; confirm whether any Falcon port answers 32-bit |
+| YM2149 port A (IOA0-7) | p3 (U170) | IOA0 = side select, IOA lines to floppy select, DSP reset (XDSPRESET), speaker; RESET from XRESET | v1: IOA0 side, IOA1 drive A select (B ignored); DSP reset bit ignored (stub) |
+| Floppy density DENS | p6 | DENS net to the drive connector | v1 latches $FF860E; to wire to the FDC clock select later |
+| IDE chip selects IDECS0/IDECS1 | p4, p5 | two chip selects (task file / control block) | v1: one interface window, no device |
+| VIDEL digital RGB, syncs, pixel clock | J703 (ReFalcon addition) | VIDEL digital outputs exposed for a scaler | v1 scanout regenerates 640x480 from SDRAM, not from VIDEL timing; J703 is the reference if we later drive pixels from the VIDEL timing registers |
+
+The PAL equations (U62/U63/U67/U68) do not appear to be in the repo, so address-decode details inside the PALs
+still come from Hybrid030/Hatari.
