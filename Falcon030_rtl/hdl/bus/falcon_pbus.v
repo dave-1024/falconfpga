@@ -17,7 +17,7 @@ module falcon_pbus #(
 ) (
     input  wire        clk_32,
     input  wire        reset,
-    input  wire        sel_mfp, sel_acia, sel_dma,   // level, from falcon_core (clk_cpu)
+    input  wire        sel_mfp, sel_acia, sel_dma, sel_addr,  // level, from falcon_core (clk_cpu)
     input  wire [7:0]  mfp_d, acia_d,
     input  wire [15:0] dma_d,
     output reg         mfp_cs, mfp_ds_n,
@@ -35,14 +35,14 @@ module falcon_pbus #(
     wire e_fall = (ediv == 6'd0) && E;
     localparam I = 0, RUN = 1, AW = 2, AE = 3, FIN = 4;
     reg [2:0] st; reg [5:0] cnt;
-    wire any = sel_mfp || sel_acia || sel_dma;
+    wire any = sel_mfp || sel_acia || sel_dma || sel_addr;
     always @(posedge clk_32) begin
         if (reset) begin st <= I; done <= 1'b0; mfp_cs <= 1'b0; mfp_ds_n <= 1'b1; acia_cs <= 1'b0; dma_cs <= 1'b0; end
         else case (st)
             I: if (any && !done) begin
                 cnt <= 6'd0;
                 if (sel_acia) begin st <= AW; end
-                else begin mfp_cs <= sel_mfp; mfp_ds_n <= !sel_mfp; dma_cs <= sel_dma; st <= RUN; end
+                else begin mfp_cs <= sel_mfp; mfp_ds_n <= !sel_mfp; dma_cs <= sel_dma || sel_addr; st <= RUN; end
             end else if (!any) done <= 1'b0;
             RUN: begin
                 cnt <= cnt + 6'd1;

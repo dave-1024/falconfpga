@@ -8,9 +8,9 @@
 // is replaced by falcon_soc (WF68K30L, SDRAM arbiter, scanout, TOS loader).
 // HDMI is 640x480@60 from the scanout through hdmi_640 and its own 25.2 MHz
 // PLL (gowin_pll_hdmi). Do not treat pll_160m clkout1 as a pixel clock: it
-// is 32 MHz clk32. MFP / ACIA / IKBD / FDC / falcon_pbus are not yet
-// instantiated (NEXT); the CPU peripheral bus is stub-acked inside falcon_soc.
-// OSD "TOS ROM" is sysctrl slot / sd_card image 4 (falcon.xml).
+// is 32 MHz clk32. MFP, ACIAs, IKBD, falcon_fdc and falcon_pbus are in
+// falcon_soc; helper HID (and USB host) is in this top. OSD "TOS ROM" is
+// sysctrl slot / sd_card image 4 (falcon.xml). Floppy A: is image 0.
 `include "build_sel.vh"
 
 `define GOWIN
@@ -840,11 +840,48 @@ wire [63:0] sd_img_size;
 wire [7:0]  sd_img_mounted;
 wire        sd_busy, sd_done, sd_err, sd_rd_byte_strobe;
 wire [8:0]  sd_byte_index;
-wire [7:0]  sd_rd_data;
+wire [7:0]  sd_rd_data, sd_wr_data;
 wire        tos_img_mounted = sd_img_mounted[4];
-wire [31:0] tos_sd_lba;
-wire        tos_sd_rd;
+wire        fdc_img_mounted = sd_img_mounted[0];
+wire [31:0] tos_sd_lba, fdc_sd_lba;
+wire        tos_sd_rd, fdc_sd_rd, fdc_sd_wr;
 wire        tos_sd_ack = sd_busy;
+wire        fdc_sd_ack = sd_busy;
+// Latch per-slot sizes: sd_card.v keeps only the last mounted image's size.
+reg  [31:0] tos_img_size_r, fdc_img_size_r;
+wire [1:0]  system_floppy_wprot;
+wire [1:0]  system_reset;
+always @(posedge clk32) begin
+    if (por32) begin
+        tos_img_size_r <= 32'd0;
+        fdc_img_size_r <= 32'd0;
+    end else begin
+        if (sd_img_mounted[4]) tos_img_size_r <= sd_img_size[31:0];
+        if (sd_img_mounted[0]) fdc_img_size_r <= sd_img_size[31:0];
+    end
+end
+
+// HID / IKBD
+wire [7:0]  keyboard[14:0];
+wire [14:0] keyboard_matrix_out;
+wire [7:0]  keyboard_matrix_in =
+              (!keyboard_matrix_out[0]?keyboard[0]:8'hff)&
+              (!keyboard_matrix_out[1]?keyboard[1]:8'hff)&
+              (!keyboard_matrix_out[2]?keyboard[2]:8'hff)&
+              (!keyboard_matrix_out[3]?keyboard[3]:8'hff)&
+              (!keyboard_matrix_out[4]?keyboard[4]:8'hff)&
+              (!keyboard_matrix_out[5]?keyboard[5]:8'hff)&
+              (!keyboard_matrix_out[6]?keyboard[6]:8'hff)&
+              (!keyboard_matrix_out[7]?keyboard[7]:8'hff)&
+              (!keyboard_matrix_out[8]?keyboard[8]:8'hff)&
+              (!keyboard_matrix_out[9]?keyboard[9]:8'hff)&
+              (!keyboard_matrix_out[10]?keyboard[10]:8'hff)&
+              (!keyboard_matrix_out[11]?keyboard[11]:8'hff)&
+              (!keyboard_matrix_out[12]?keyboard[12]:8'hff)&
+              (!keyboard_matrix_out[13]?keyboard[13]:8'hff)&
+              (!keyboard_matrix_out[14]?keyboard[14]:8'hff);
+wire [5:0]  hid_mouse;
+wire [7:0]  hid_joy [4];
 
 // LEDs: [0] ROM/TOS loader done (was rom_fetch), [1] CPU running
 assign rom_fetch   = ~cpu_reset & ram_ready & ~tos_err;
@@ -856,6 +893,7 @@ falcon_soc u_soc (
     .clk_cpu_n       ( clk_cpu030_n ),
     .clk_pixel       ( clk_hdmi     ),
     .por             ( soc_reset    ),
+    .user_reset      ( system_reset[0] ),
     .sd_clk          ( sd_clk_unused ),
     .sd_cke          ( sd_cke_unused ),
     .sd_cs           ( O_sdram_cs_n ),
@@ -868,7 +906,7 @@ falcon_soc u_soc (
     .sd_ba           ( O_sdram_ba   ),
     .ram_ready       ( ram_ready    ),
     .tos_img_mounted ( tos_img_mounted ),
-    .tos_img_size    ( sd_img_size[31:0] ),
+    .tos_img_size    ( sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r ),
     .tos_sd_lba      ( tos_sd_lba   ),
     .tos_sd_rd       ( tos_sd_rd    ),
     .tos_sd_ack      ( tos_sd_ack   ),
@@ -877,6 +915,22 @@ falcon_soc u_soc (
     .tos_sd_dout_strobe ( sd_rd_byte_strobe ),
     .tos_err         ( tos_err      ),
     .cpu_reset       ( cpu_reset    ),
+    .fdc_img_mounted ( fdc_img_mounted ),
+    .fdc_img_size    ( sd_img_mounted[0] ? sd_img_size[31:0] : fdc_img_size_r ),
+    .fdc_img_wp      ( system_floppy_wprot[0] ),
+    .fdc_sd_lba      ( fdc_sd_lba   ),
+    .fdc_sd_rd       ( fdc_sd_rd    ),
+    .fdc_sd_wr       ( fdc_sd_wr    ),
+    .fdc_sd_ack      ( fdc_sd_ack   ),
+    .fdc_sd_err      ( sd_err       ),
+    .fdc_sd_buff_addr( sd_byte_index ),
+    .fdc_sd_dout     ( sd_rd_data   ),
+    .fdc_sd_din      ( sd_wr_data   ),
+    .fdc_sd_dout_strobe ( sd_rd_byte_strobe ),
+    .keyboard_matrix_out ( keyboard_matrix_out ),
+    .keyboard_matrix_in  ( keyboard_matrix_in ),
+    .joy0            ( hid_mouse    ),
+    .joy1            ( hid_joy[0][4:0] ),
     .cx(hdmi_cx), .cy(hdmi_cy),
     .hsync(hdmi_hs), .vsync(hdmi_vs), .de(hdmi_de),
     .vr(hdmi_r), .vg(hdmi_g), .vb(hdmi_b),
@@ -888,10 +942,10 @@ falcon_soc u_soc (
 // ----- helper SPI (AE350) + OSD XML + SD images (TOS ROM = index 4) -----
 wire       mcu_sys_strobe, mcu_hid_strobe, mcu_osd_strobe, mcu_sdc_strobe, mcu_start;
 wire [7:0] mcu_data_out, sys_data_out, sdc_data_out;
-wire [7:0] hid_data_out = 8'h00;         // HID/IKBD: NEXT
+wire [7:0] hid_data_out;
 wire [7:0] osd_data_out = 8'h55;
 wire [7:0] int_ack;
-wire       hid_int = 1'b0;
+wire       hid_int;
 wire       sdc_int;
 wire       sdc_iack = int_ack[3];
 wire [1:0] system_leds;
@@ -923,12 +977,45 @@ sysctrl sysctrl (
     .port_status(32'd0), .port_out_available(8'd0), .port_out_strobe(),
     .port_out_data(8'd0), .port_in_available(8'd0), .port_in_strobe(), .port_in_data(),
     .rtc(),
-    .system_chipset(), .system_memory(), .system_video(), .system_reset(),
+    .system_chipset(), .system_memory(), .system_video(), .system_reset(system_reset),
     .system_scanlines(), .system_volume(), .system_screen(),
-    .system_floppy_wprot(), .system_cubase_en(),
+    .system_floppy_wprot(system_floppy_wprot), .system_cubase_en(),
     .system_port_mouse(), .system_port_joy(), .system_tos_slot()
 );
 
+wire hid_iack = int_ack[1];
+`ifdef ST_HELPER_USB
+wire [7:0] hid_data_out_hid;
+wire [7:0] usb_data_out;
+wire       usb_active;
+assign hid_data_out = usb_active ? usb_data_out : hid_data_out_hid;
+st_helper_usb st_helper_usb (
+    .clk32(clk32), .reset(por32),
+    .usb1_dp(usb1_dp), .usb1_dn(usb1_dn),
+    .usb2_dp(usb2_dp), .usb2_dn(usb2_dn),
+    .data_in_strobe(mcu_hid_strobe), .data_in_start(mcu_start),
+    .data_in(mcu_data_out), .active(usb_active), .data_out(usb_data_out)
+);
+`else
+// no USB host: hid.v still answers the helper
+`endif
+
+hid hid (
+    .clk(clk32), .reset(por32),
+    .data_in_strobe(mcu_hid_strobe), .data_in_start(mcu_start),
+    .data_in(mcu_data_out),
+`ifdef ST_HELPER_USB
+    .data_out(hid_data_out_hid),
+`else
+    .data_out(hid_data_out),
+`endif
+    .db9_port(6'd0),
+    .irq(hid_int), .iack(hid_iack),
+    .mouse(hid_mouse), .keyboard(keyboard), .joystick(hid_joy)
+);
+
+// Image 4 = TOS ROM (read-only); image 0 = floppy A:. TOS wins if both request.
+wire        sd_tos_busy = tos_sd_rd;
 sd_card #(.CLK_DIV(3'd0)) sd_card (
     .rstn(!por32), .clk(clk32),
     .sdclk(sd_clk), .sdcmd(sd_cmd), .sddat(sd_dat),
@@ -936,13 +1023,13 @@ sd_card #(.CLK_DIV(3'd0)) sd_card (
     .data_in(mcu_data_out), .data_out(sdc_data_out),
     .image_size(sd_img_size), .image_mounted(sd_img_mounted),
     .irq(sdc_int), .iack(sdc_iack),
-    .rstart({ 3'b000, tos_sd_rd, 4'b0000 }),   // image 4 = TOS ROM
-    .wstart(8'h00),                            // TOS image is read-only
-    .rsector(tos_sd_lba),
+    .rstart({ 3'b000, tos_sd_rd, 3'b000, fdc_sd_rd & ~sd_tos_busy }),
+    .wstart({ 7'b0000000, fdc_sd_wr & ~sd_tos_busy }),
+    .rsector(sd_tos_busy ? tos_sd_lba : fdc_sd_lba),
     .idx_dbg(240'd0),
     .rsrc(),
     .rbusy(sd_busy), .sd_err(sd_err), .rdone(sd_done),
-    .inbyte(8'h00),
+    .inbyte(sd_wr_data),
     .outen(sd_rd_byte_strobe), .outaddr(sd_byte_index), .outbyte(sd_rd_data)
 );
 

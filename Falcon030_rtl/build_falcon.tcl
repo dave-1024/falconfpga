@@ -4,8 +4,8 @@
 # timing_pairs must pass; clk_cpu030 floor 16 MHz. Output: impl/pnr/falcon.fs.
 #
 # falcon_top.sv + falcon_soc.v are in. HDMI is scanout -> hdmi_640 (own 25.2 MHz
-# PLL). Helper SPI/sysctrl/sd_card are in the top; TOS ROM is sd_card image 4.
-# MFP/ACIA/IKBD/FDC/falcon_pbus are still NEXT (CPU peri bus is stub-acked).
+# PLL). Helper SPI/sysctrl/sd_card/HID are in the top; TOS ROM is image 4,
+# floppy A: is image 0. MFP/ACIA/IKBD/FDC/falcon_pbus are in falcon_soc.
 # SDC: Falcon030_rtl/hdl/top/falcon.sdc (not the ST helper SDC).
 
 set ST "Atarist_030_wip"
@@ -53,6 +53,7 @@ add_file $ST/hdl/cpu030/wf68k30L_top.vhd
 
 # ST peripherals reused as-is
 add_file $ST/hdl/atarist/acia.v
+add_file $ST/hdl/atarist/acsi.v
 add_file $ST/hdl/atarist/dma.v
 add_file $ST/hdl/atarist/io_fifo.v
 add_file $ST/hdl/atarist/mfp.v
