@@ -76,8 +76,11 @@ module falcon_core (
     wire        cpu_berr_n, cpu_avec_n;
     reg  [2:0]  ipl_r;
     // cache inhibit: IO, IDE, the vector mirror and ST-RAM (DMA'd by the floppy, no snooping: the ST build's rule);
-    // only the TOS ROM copy at $E00000-$E7FFFF is cachable
-    wire cpu_ciin_n = !(cpu_a[23:15] == 9'h1FF || cpu_a[23:20] == 4'hF || cpu_a[23:3] == 21'd0 || cpu_a[23:21] != 3'b111);
+    // only the TOS ROM copy at $E00000-$E7FFFF was cachable.
+    // 24 Nov 20:1x bring-up: CIIN asserted for EVERY cycle, like the ST bridge's ST side (the
+    // cache was validated there on 32-bit TT-RAM only; I-cache fills over this 16-bit DSACK port
+    // are untested). Hybrid030 (Musashi) has no cache model. Re-enable ROM caching once TOS boots.
+    wire cpu_ciin_n = 1'b0;
     always @(posedge clk_cpu) ipl_r <= mfp_irq ? 3'b001 : vbl ? 3'b011 : hbl ? 3'b101 : 3'b111;
 
     assign dbg_reset_out = cpu_reset_out;
