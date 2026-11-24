@@ -37,6 +37,10 @@ add_file $F/hdl/peri/falcon_nvram.v
 add_file $F/hdl/peri/falcon_ym_stub.v
 add_file $F/hdl/peri/falcon_fdc.v
 add_file $F/osd/falcon_xml.hex
+# sysctrl.v $readmemh("falcon_xml.hex") searches the gw_sh cwd, not add_file's
+# path. 85ca498: WARN EX3988, empty XML ROM, helper config[0]=00.
+file copy -force $F/osd/falcon_xml.hex falcon_xml.hex
+
 
 # Shared WF68K30L (by path, no fork)
 add_file $ST/hdl/cpu030/wf68k30L_pkg.vhd

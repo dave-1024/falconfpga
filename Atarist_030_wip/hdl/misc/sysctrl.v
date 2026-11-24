@@ -88,6 +88,13 @@ reg [7:0]  menu_rom_data;
 // gzip -n atarist.xml
 // xxd -c1 -p atarist.xml.gz > atarist_xml.hex
 reg [7:0] atarist_xml[1024];
+// Gowin has no -verilog_define; macros live in build_sel.vh (written by the
+// build tcl). Include it here so `ifdef FALCON is reliable in this unit.
+// ST builds write the same file without FALCON, so they still load
+// atarist_xml.hex. $readmemh looks in the gw_sh cwd, not add_file's path:
+// the Falcon build tcl copies falcon_xml.hex there (85ca498 hit EX3988
+// "Cannot open file 'falcon_xml.hex'" and left the ROM empty).
+`include "build_sel.vh"
 `ifndef EFINIX
 `ifdef FALCON
    initial $readmemh("falcon_xml.hex", atarist_xml);

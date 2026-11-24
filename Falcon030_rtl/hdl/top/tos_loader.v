@@ -28,18 +28,19 @@ module tos_loader (
     output reg  [15:0] ram_wdata,
     input  wire        ram_ack,
     output reg         cpu_reset,
-    output reg         err
+    output reg         err,
+    output reg         busy,            // 1 while sectors are being copied
+    output reg  [9:0]  sect             // 0..1023, sectors written so far (bytes = sect*512)
 );
-    reg [9:0]  sect;
     reg [7:0]  hi;
     reg [8:1]  widx;
     reg [31:0] base;
-    reg        busy, got;
+    reg        got;
     // one-word buffer: sd bytes arrive faster than nothing, slower than SDRAM writes (~8 clk/byte)
     assign ram_a = {5'b11100, sect, widx};   // $E00000 + sect*512 + widx*2
     always @(posedge clk) begin
         if (reset) begin
-            cpu_reset <= 1'b1; err <= 1'b0; busy <= 1'b0; sd_rd <= 1'b0; ram_req <= 1'b0; got <= 1'b0;
+            cpu_reset <= 1'b1; err <= 1'b0; busy <= 1'b0; sect <= 10'd0; sd_rd <= 1'b0; ram_req <= 1'b0; got <= 1'b0;
         end else begin
             if (img_mounted) begin
                 if (img_size != 32'd524288) err <= 1'b1;

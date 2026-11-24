@@ -151,6 +151,19 @@ $E00000-$E7FFFF, checks the header (BRA at $E00000, $00E00000 base), then releas
 used, so the ST core's flash layout (TOS 2.06 at 0x500000) is untouched. Existing SD images are never
 written; the loader only reads.
 
+The helper reads the gzip'd OSD XML from the core (`sysctrl.v` CMD 8) unless `/sd/config.xml` is
+present. The menu lives in `Falcon030_rtl/osd/falcon.xml` (hex `falcon_xml.hex`). `sysctrl.v` is
+shared with the ST core and picks that file under `` `ifdef FALCON `` (from `build_sel.vh`).
+`$readmemh("falcon_xml.hex")` searches the gw_sh working directory, not the `add_file` path:
+build 85ca498 took the FALCON branch but Gowin warned EX3988 (file not found), left the XML ROM
+empty, and the helper printed `config[0] = 00` / "no core config loaded". Image 4 (TOS ROM) was
+never mounted, so the loader held the CPU in reset. `build_falcon.tcl` now copies the hex into
+the cwd. The console `mount` command only accepts `a|b|h0|h1` (drives 0-3); image 4 is mounted
+from the XML default, not from that command. While `cpu_reset` is high, `falcon_soc.v` substitutes
+colour bars and a bottom progress strip (`sect * 640 / 1024`) so a later HDMI grab can tell a
+waiting/loading core from no TMDS; a bad image is a red screen. Helper `sdlog on` logs each
+loader SD read (bytes = sectors * 512) without a firmware change.
+
 ## Floppy (drive A: only)
 
 The Falcon has one floppy drive and no second floppy port. `fdc1772.v` and `dma.v` are instantiated as in
