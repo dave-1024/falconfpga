@@ -8,12 +8,14 @@
 //   regs 0..13 RTC: 0 sec, 2 min, 4 hour (BCD, 24h), 6 weekday, 7 day, 8 month, 9 year,
 //   10 reg A ($26, UIP pulses near the end of each second), 11 reg B ($02 24h),
 //   12 reg C (reads 0, no interrupts), 13 reg D ($80 = battery good). C and D are read-only.
-//   regs 14..63 NVRAM. Unlike the hybrid (zeroed, bad checksum), the power-up contents carry a
-//   VALID checksum (Hatari: byte 62 = ~sum(14..61), byte 63 = sum) and a default video mode
-//   word at 28/29 (VMODE_DEFAULT, $001A = VGA | 80 columns | 4 bitplanes), so TOS 4.04 starts
-//   in 640x480x16 on the VGA monitor that $FFFF8006 reports.
+//   regs 14..63 NVRAM. PRESET = 0 (default): STOCK power-up as Hybrid030 M11h (falcon_m28.c):
+//   battery good, user cells zeroed, INVALID checksum, so TOS writes its own defaults like a
+//   factory Falcon's first boot (Hybrid030 removed its pre-planted mode for that reason).
+//   PRESET = 1: VALID checksum (Hatari: byte 62 = ~sum(14..61), byte 63 = sum) and the video
+//   mode word at 28/29 (VMODE_DEFAULT, $001A = VGA | 80 columns | 4 bitplanes). David decides.
 // No battery: contents are lost at power-off (later: saved through the helper).
 module falcon_nvram #(
+    parameter        PRESET = 0,
     parameter [15:0] VMODE_DEFAULT = 16'h001A,
     parameter integer CLK_HZ = 16000000
 ) (
@@ -34,8 +36,10 @@ module falcon_nvram #(
         for (i = 0; i < 64; i = i + 1) mem[i] = 8'h00;
         mem[6] = 8'h03; mem[7] = 8'h24; mem[8] = 8'h11; mem[9] = 8'h26;  // Tue 24 Nov 2026 (BCD)
         mem[10] = 8'h26; mem[11] = 8'h02; mem[13] = 8'h80;
-        mem[28] = VMODE_DEFAULT[15:8]; mem[29] = VMODE_DEFAULT[7:0];
-        mem[62] = ~SUM; mem[63] = SUM;
+        if (PRESET) begin
+            mem[28] = VMODE_DEFAULT[15:8]; mem[29] = VMODE_DEFAULT[7:0];
+            mem[62] = ~SUM; mem[63] = SUM;
+        end
     end
     // seconds tick and the clock (BCD)
     reg [24:0] pre = 0;

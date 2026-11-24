@@ -6,10 +6,12 @@
 // The WF68K30L (Atarist_030_wip/hdl/cpu030, shared by path) talks to this block directly at
 // 16 MHz, both clocked by clk_cpu. There is no ST bridge: the Falcon's 030 bus is async DSACK.
 // Every port here is 16 bits wide (DSACK1 only), like the Falcon's ST-RAM/ROM/IO bus; the CPU
-// does its own dynamic bus sizing. Map (24-bit decode, top byte $00 or $FF), see docs/DESIGN.md:
+// does its own dynamic bus sizing. Map (24-bit bus: A31:24 are not decoded and everything aliases,
+// like a stock Falcon and the Hybrid030 BUS=24 default, HOWTO.md), see docs/DESIGN.md:
 //   $000000-$000007  ROM vector mirror (reads; writes go to RAM)
 //   $000008-$DFFFFF  14 MB ST-RAM in SDRAM  -> mem_* port (ram)
 //   $E00000-$E7FFFF  TOS 4.04, SDRAM copy loaded by the helper -> mem_* port (rom, writes dropped)
+//   $F00000-$F0003F  IDE, one interface (falcon_m28.c M11q), v1 stub: no device -> io port
 //   $FA0000-$FBFFFF  cartridge: reads $FFFF
 //   $FF8000-$FFFFFF  IO: decoded selects below; whitelisted stubs latch; anything else BERR
 //   everything else  BERR  (unmapped space must bus-error: that is how TOS tells the machine)
@@ -51,16 +53,17 @@ module falcon_bus #(
     input  wire        mfp_dtack      // MFP supplies its vector
 );
     wire [23:0] a24 = cpu_a[23:0];
-    wire top_ok = (cpu_a[31:24] == 8'h00) || (cpu_a[31:24] == 8'hFF);
+    wire top_ok = 1'b1;   // 24-bit bus (Hybrid030 BUS=24, the mode that matched Hatari and the bench for TOS)
     wire iack   = (cpu_fc == 3'b111);
     wire is_vec = top_ok && cpu_rw && (a24[23:3] == 21'd0);
-    wire is_ram = top_ok && cpu_a[31:24] == 8'h00 && !is_vec && (a24 < 24'hE00000);
+    wire is_ram = top_ok && !is_vec && (a24 < 24'hE00000);
+    wire is_ide = top_ok && (a24[23:6] == 18'h3C000);                 // $F00000-$F0003F
     wire is_rom = top_ok && (a24[23:19] == 5'b11100);                // $E00000-$E7FFFF
     wire is_cart= top_ok && (a24[23:17] == 7'b1111101);              // $FA0000-$FBFFFF
     wire [15:0] r = a24[15:0];
     wire in_io  = top_ok && (a24[23:15] == 9'h1FF);                  // $FF8000-$FFFFFF
     // Falcon IO whitelist (falcon_m28.c falcon_io_valid)
-    wire io_ok = in_io && (
+    wire io_ok = is_ide || in_io && (
         (r >= 16'h8000 && r <= 16'h800F) || (r >= 16'h8200 && r <= 16'h8211) ||
         (r >= 16'h8240 && r <= 16'h826F) || (r >= 16'h8280 && r <= 16'h82C7) ||
         (r >= 16'h8604 && r <= 16'h860F) || (r >= 16'h8780 && r <= 16'h878F) ||

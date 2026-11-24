@@ -12,9 +12,10 @@
 --   $000008-$DFFFFF  14 MB ST-RAM                      16-bit port, DSACK1
 --   $E00000-$E7FFFF  TOS ROM (writes ignored)
 --   $FA0000-$FBFFFF  cartridge: reads $FFFF
---   $FF8000-$FFFFFF  IO, also at $FFFF8000-: whitelist of Falcon registers
+--   $F00000-$F0003F  IDE (one interface, no device: status reads 0)
+--   $FF8000-$FFFFFF  IO: whitelist of Falcon registers
 --                    (latch, reset value $FF), anything else BERR
---   everything else  BERR
+--   everything else  BERR. The bus is 24-bit: A31:24 are ignored (Hybrid030 BUS=24 default).
 -- NVRAM (MC146818) at $FF8961/$FF8963 with a valid checksum, VGA monitor in $FF8006,
 -- VBL autovector level 4 at 60 Hz, MFP timer C level 6 (vector from MFP VR) at 200 Hz.
 -- Logs: IO accesses (first LOGIO lines), BERRs, exceptions, a PC heartbeat.
@@ -112,6 +113,7 @@ begin
       nv(62) := 255 - sum; nv(63) := sum;
     end;
     impure function rdb(r : integer; n : integer) return integer is begin
+      if r >= 16#0000# and r < 16#0040# then return 0; end if;   -- IDE $F00000-$F0003F: no device, status 0 (M11q/M11r: TOS 4.04 then skips IDE)
       if r = 16#8006# then return 16#80# + (MEMCODE mod 2) * 2 + (MEMCODE / 2) * 8; end if;  -- b7:6 monitor 10 = VGA; b1 + b4:3 = RAM size code (TOS 4.04 $E0013A)
       if r = 16#8961# then return nvsel; end if;
       if r = 16#8963# then if nvsel = 12 then return 0; end if; return nv(nvsel); end if;
@@ -129,6 +131,7 @@ begin
       return io(r - 16#8000#);
     end;
     procedure wrb(r : integer; v : integer) is begin
+      if r < 16#8000# then return; end if;   -- IDE stub: writes dropped
       if r = 16#8961# then nvsel := v mod 64; return; end if;
       if r = 16#8963# then if nvsel /= 12 and nvsel /= 13 then nv(nvsel) := v; end if; return; end if;
       io(r - 16#8000#) := v;
@@ -151,12 +154,12 @@ begin
         a := unsigned(adr);
         iack := fc = "111";
         a24 := to_integer(a(23 downto 0));
-        ok := a(31 downto 24) = x"00" or a(31 downto 24) = x"FF";
+        ok := true;   -- 24-bit bus: A31:24 not decoded, everything aliases (Hybrid030 HOWTO.md BUS=24 default, real Falcon)
         isrom := ok and ((a24 < 8 and rwn = '1') or (a24 >= 16#E00000# and a24 < 16#E80000#));
-        isram := ok and a(31 downto 24) = x"00" and a24 >= 8 and a24 < 16#E00000#;
+        isram := ok and a24 >= 8 and a24 < 16#E00000#;
         iscart := ok and a24 >= 16#FA0000# and a24 < 16#FC0000#;
         r := to_integer(a(15 downto 0));
-        isio := ok and a24 >= 16#FF8000# and io_ok(r);
+        isio := ok and ((a24 >= 16#FF8000# and io_ok(r)) or (a24 >= 16#F00000# and a24 < 16#F00040#));  -- one IDE interface (falcon_m28.c M11q)
         if fc(1 downto 0) = "10" then lastpc := a; end if;
         w := x"FFFF";
         if iack then null;
