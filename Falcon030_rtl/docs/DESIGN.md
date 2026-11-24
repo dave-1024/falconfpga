@@ -5,10 +5,15 @@ Copyright (C) 2026 FalconFPGA project (dave-1024). SPDX-License-Identifier: GPL-
 **Goal v1:** Atari TOS 4.04 boots to the desktop with HDMI video, from SRAM, on the Tang Console 138K
 (GW5AST-LV138PG484AC1/I0, version C), with a real floppy drive A:.
 
-**Behaviour reference:** `reference/Hybrid030/hybrid_musashi/falcon_m28.c` (Hybrid030 booted TOS 4.04 under
-Musashi on the AE350; its behaviour was correct, just too slow). Where Hybrid030 and Hatari disagree, this
-design follows Hybrid030 for what TOS 4.04 needs on this board, and the difference is listed in
-[Differences](#differences-from-hybrid030-and-hatari).
+**Behaviour reference:** Hybrid030 (`reference/Hybrid030/`). Its C model (`hybrid_musashi/falcon_m28.c` and
+friends) booted TOS 4.04 under Musashi on the AE350, and was built against a real 68030 (minus cache and MMU),
+so its bus and IO behaviour is hardware-verified; it was correct, just too slow. Where Hybrid030 and Hatari
+disagree, this design follows Hybrid030 for what TOS 4.04 needs on this board, and says so in
+[Differences](#differences-from-hybrid030-and-hatari). Every decision below names the Hybrid030 document it comes
+from ([Sources](#sources-per-decision)). Read for this note: `README.md`, `HOWTO.md`, `AE350_ERRATA.md`,
+`Binaries/README.md`, `hybrid_falcon030/README.md`, `hybrid_falcon030/GUI.md`, `hybrid_musashi/README.md`,
+`HOWTO.md`, `COMPILE.md`, `FIRST_TIME.md`, the revision header of `falcon_m28.c` (M1..M28) and of
+`hybrid_falcon030/src/falcon_video.v` (v6.2).
 
 ## Blocks
 
@@ -27,20 +32,21 @@ design follows Hybrid030 for what TOS 4.04 needs on this board, and the differen
 | HD density select | real (latch) | $FF860E (Falcon: bit 0/1 = HD) to the FDC clock select |
 | YM2149 | stub | `hdl/peri/falcon_ym_stub.v`: register store and readback; port A drives drive/side select |
 | Blitter | stub | $FF8A00-$FF8A3D latch (TOS 4.04 probes it; no blits) |
-| IDE | stub | $FFF00000-: BERR (no drive) as Hybrid030 with no HDD |
+| IDE | stub | ONE interface at $F00000-$F0003F answers, no device (status 0); other IDE addresses BERR |
 | SCSI/ACSI | stub | NCR5380 latch at $FF8780 (bus free, selection times out), ACSI: no target |
 | DSP 56001 host | stub | $FFA200-$FFA207, ISR reads TXDE/TRDY |
 | Sound DMA / codec / crossbar | stub | $FF8900-$FF897F latch, no playback |
 | SCC, joypads | stub | latch / reads $FF |
 | AE350 | helper only | OSD, SD, TOS load, as in the ST build |
 
-## Memory map (68030, 24-bit decode: A31:24 = $00 or $FF, else BERR)
+## Memory map (68030, 24-bit bus: A31:24 not decoded, every address aliases into 16 MB)
 
 | Address | What | Port |
 |---|---|---|
 | $000000-$000007 | ROM vector mirror (reads; writes go to RAM) | SDRAM $E00000.. |
 | $000008-$DFFFFF | 14 MB ST-RAM | SDRAM, 16-bit, DSACK1 |
 | $E00000-$E7FFFF | TOS 4.04 (writes ignored, DSACK) | SDRAM, 16-bit |
+| $F00000-$F0003F | IDE (one interface, v1: no device, status 0) | stub |
 | $FA0000-$FBFFFF | cartridge, reads $FFFF | - |
 | $FF8000-$FF800F | memory/bus config; $FF8006 monitor type + RAM size | IO |
 | $FF8200-$FF8211 | video base, counter, line offset, VWRAP | VIDEL |
@@ -116,12 +122,14 @@ the SDRAM arbiter. ACSI in `dma.v` gets no images (stub).
 
 | Item | Hybrid030 (falcon_m28.c) | Hatari | v1 |
 |---|---|---|---|
-| NVRAM at power-up | zeroed, invalid checksum; TOS writes its defaults | file or defaults | **valid checksum and mode $001A (VGA, 80 col, 4 planes)** per David's brief; TOS behaves the same as after its own default write |
+| NVRAM at power-up | zeroed user cells, invalid checksum (M11h: removed its own pre-planted mode because a stock Falcon has none) | file or defaults | **Hybrid030 stock** by default (`PRESET=0`). The brief asked for a valid checksum + default mode: that is `PRESET=1` ($001A VGA, 80 col, 4 planes, valid checksum). **David to choose.** |
+| Address bus | 24-bit by default (`BUS=24`, "matched Hatari and this bench for TOS") | 24-bit on Falcon | 24-bit, A31:24 ignored |
+| IDE | one interface answers at $FFF00000-3F (M11q); TOS 4.04 BERRed on alt status +$39 before that | IDE emulated | one interface answers, no device |
 | $FF8006 | io_shadow $FF (TV, code 7) | monitor + RAM config | $92xx (VGA, 14 MB), so TOS sizes 14 MB without probing |
 | GPIP7 | mono-detect XOR sound DMA | mono detect | Hybrid030 (no sound DMA: reads 1) |
 | IO whitelist | coarse ranges | per register | Hybrid030 ranges |
 | YM shadows $8804-$88FF | mirror $8800-$8803 | same | same |
-| Floppy | C model of the FDC, A: and B: | A:, B: | real fdc1772, **A: only** |
+| Floppy | C model of the FDC, A: and B: (B: works only under EmuTOS; HOWTO "Floppy B") | A:, B: | real fdc1772, **A: only** |
 
 ## Layout
 
@@ -135,3 +143,26 @@ Falcon030_rtl/
   hdl/peri/             falcon_nvram.v, falcon_ym_stub.v, falcon_io.v (stubs + IO mux)
   sim/                  tb_falcon.vhd + run_tos.sh (TOS 4.04 on the shared core, behavioural bus)
 ```
+
+## Sources per decision
+
+| Decision | Hybrid030 source |
+|---|---|
+| Falcon memory map (vector mirror, 14 MB ST-RAM, ROM at $E00000, cart $FA0000) | `falcon_m28.c` M1 header "Memory map (68k side)" |
+| Unmapped IO and open space bus-error; IO whitelist ranges | `falcon_m28.c` M1 header + `falcon_io_valid()` |
+| 24-bit address bus | `HOWTO.md` "`BUS=32`" (24-bit default, masks to 16 MB); `falcon_m28.c` M22 |
+| One IDE interface at $FFF00000-3F, the other three must BERR | `falcon_m28.c` M11q |
+| IDE INTRQ shares MFP GPIP5 with the FDC (for later, real IDE) | `falcon_m28.c` M11y |
+| Stock NVRAM, live BCD clock, regs C/D read-only, UIP pulse | `falcon_m28.c` M11h + `nvram_read/nvram_write` |
+| MFP timer counters must run while TOS 4.04 polls TCDR with IRQs masked ($E0256E delay calibration) | `falcon_m28.c` M11e |
+| Floppy A: only; TOS 4.04 never selects B: | `HOWTO.md` "`DISKB=`" and "Floppy B"; `falcon_m28.c` M11i |
+| FDC command with no drive selected pends, does not fail | `falcon_m28.c` M11i |
+| YM shadows ($8804-$88FF mirror $8800-$8803), port A read-modify-write for drive/side | `falcon_m28.c` M25, `psg_*` |
+| NCR5380 stub: ICR AIP follows mode ARBITRATE, mode reads back | `falcon_m28.c` M11w |
+| No FPU (F-line traps) | `falcon_m28.c` M24 |
+| TOS from the SD card, not flash; 512K at $E00000 | `HOWTO.md` "`ROM=`"; `falcon_m28.c` M9G/M10 ROM-from-card |
+| Blitter (v1 stub). When real: reads ROM (system font) and latches $FF8A3C as one word | `falcon_m28.c` M11g, M11f |
+| Scanout: decode-on-fetch line buffer, geometry guard against insane transient VIDEL values | `falcon_video.v` v6 header; `falcon_m28.c` M11d |
+| Use the J9 SDRAM, not the SOM DDR3 (dead lanes, burst rules) | `AE350_ERRATA.md`, `README.md` "SOM DDR3" |
+| TOS 4.04 waits on missing hardware (EmuTOS fails cleanly) | `HOWTO.md` "EmuTOS vs TOS 4.04" |
+| VBL at 60 Hz on VGA (50 Hz option later) | `HOWTO.md` "F10" / `VBL=` |
