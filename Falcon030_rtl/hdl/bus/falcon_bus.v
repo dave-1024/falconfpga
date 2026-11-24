@@ -35,10 +35,10 @@ module falcon_bus #(
     output reg         cpu_avec_n,
     // SDRAM word port (RAM and ROM copy), 16-bit, byte enables
     output reg         mem_req,
-    output wire [23:1] mem_a,
-    output wire        mem_we,
-    output wire [1:0]  mem_be,        // {UDS, LDS}
-    output wire [15:0] mem_wdata,
+    output reg  [23:1] mem_a,
+    output reg         mem_we,
+    output reg  [1:0]  mem_be,        // {UDS, LDS}
+    output reg  [15:0] mem_wdata,
     input  wire        mem_ack,
     input  wire [15:0] mem_rdata,
     // IO byte/word port to the peripherals (falcon_io.v)
@@ -78,10 +78,15 @@ module falcon_bus #(
     // LDS = A0 = 1 or SIZ is not byte
     wire uds = !a24[0];
     wire lds = a24[0] || (cpu_siz != 2'b01);
-    assign mem_a     = is_vec ? {20'hE0000, a24[2:1]} : a24[23:1];
-    assign mem_we    = !cpu_rw && is_ram;
-    assign mem_be    = {uds, lds};
-    assign mem_wdata = cpu_dout[31:16];        // the core drives a 16-bit port on D31:16
+    // mem_a/we/be/wdata are latched on the same clk_cpu edge as mem_req (S_IDLE
+    // -> S_MEM). The combo MMU PA and CPU data path is a clk_cpu path (62.5 ns);
+    // the arbiter then sees a registered CDC into clk32 (31.25 ns). Leaving them
+    // combinational missed that relation by 6.2 ns on 56d6a85 (PF_ACC -> MMU PA
+    // -> sd_din, 37.4 ns data delay).
+    wire [23:1] mem_a_c     = is_vec ? {20'hE0000, a24[2:1]} : a24[23:1];
+    wire        mem_we_c    = !cpu_rw && is_ram;
+    wire [1:0]  mem_be_c    = {uds, lds};
+    wire [15:0] mem_wdata_c = cpu_dout[31:16];        // the core drives a 16-bit port on D31:16
     assign io_a      = r[15:1];
     assign io_uds    = uds;
     assign io_lds    = lds;
@@ -96,6 +101,7 @@ module falcon_bus #(
         io_wr <= 1'b0;
         if (reset) begin
             state <= S_IDLE; mem_req <= 1'b0;
+            mem_a <= 23'd0; mem_we <= 1'b0; mem_be <= 2'b00; mem_wdata <= 16'd0;
             cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1;
         end else case (state)
             S_IDLE: if (!cpu_as_n) begin
@@ -103,7 +109,12 @@ module falcon_bus #(
                 if (iack) state <= S_IACK;
                 else if (is_ram || is_rom || is_vec) begin
                     if (!cpu_rw && !is_ram) begin cpu_dsack_n <= 2'b01; state <= S_WEND; end  // ROM write: dropped
-                    else begin mem_req <= 1'b1; state <= S_MEM; end
+                    else begin
+                        mem_req <= 1'b1;
+                        mem_a <= mem_a_c; mem_we <= mem_we_c;
+                        mem_be <= mem_be_c; mem_wdata <= mem_wdata_c;
+                        state <= S_MEM;
+                    end
                 end else if (is_cart) begin cpu_din <= 32'hFFFFFFFF; cpu_dsack_n <= 2'b01; state <= S_END; end
                 else if (io_ok) state <= S_IO;
                 else begin cpu_berr_n <= 1'b0; state <= S_END; end

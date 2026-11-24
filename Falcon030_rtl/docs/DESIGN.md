@@ -106,6 +106,12 @@ David (24 Nov) picked (a): the arbiter (`hdl/bus/falcon_sdram_arb.v`) generates 
 (every 16 slots = 4 us), then scanout, then floppy DMA, then the TOS loader / CPU (the loader uses the port
 while the CPU is held in reset). `ecs` is 0 in v1.
 
+The CPU word port of `falcon_bus.v` (address, write data, we, byte enables) is latched on the same
+clk_cpu edge as `mem_req`. The combo path from the 030 MMU physical address through the arbiter into
+`sd_din` is then a registered CDC into clk32 (31.25 ns). On 56d6a85 the combinational version missed
+that relation by 6.2 ns (`timing_pairs` clk_cpu030 -> clk32_core setup). Functional latency is
+unchanged: the latch is the same edge that already raised `mem_req`.
+
 The ST port in `sdram.v` was bank 0 only (8 MB). A backward-compatible `st_ba` input was added (the ST build
 ties it to `2'b00`; ST benches updated to match). Falcon maps 16 MB across banks 0 and 1: bank = `{1'b0, byte A23}`,
 word address = A22:A1, which covers 14 MB ST-RAM plus the TOS copy at $E00000.
