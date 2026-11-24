@@ -106,7 +106,16 @@ begin
         acc(t) := acc(t) + 1;
         if acc(t) >= presc(ctl) then
           acc(t) := 0;
-          if tcnt(t) <= 1 then ld := tld(t); if ld = 0 then ld := 256; end if; tcnt(t) := ld mod 256; if ld = 256 then tcnt(t) := 0; end if;
+          if tcnt(t) <= 1 then
+            -- underflow: pending bit if enabled (IPRA b5 = A, b0 = B; IPRB b5 = C, b4 = D), as the MFP;
+            -- TOS 4.04 polls IPRA b5 at $E01424 to time its delay calibration
+            case t is
+              when 0 => if (io(16#7A07#) / 32) mod 2 = 1 and (io(16#7A0B#) / 32) mod 2 = 0 then io(16#7A0B#) := io(16#7A0B#) + 32; end if;
+              when 1 => if io(16#7A07#) mod 2 = 1 and io(16#7A0B#) mod 2 = 0 then io(16#7A0B#) := io(16#7A0B#) + 1; end if;
+              when 2 => if (io(16#7A09#) / 32) mod 2 = 1 and (io(16#7A0D#) / 32) mod 2 = 0 then io(16#7A0D#) := io(16#7A0D#) + 32; end if;
+              when others => if (io(16#7A09#) / 16) mod 2 = 1 and (io(16#7A0D#) / 16) mod 2 = 0 then io(16#7A0D#) := io(16#7A0D#) + 16; end if;
+            end case;
+            ld := tld(t); if ld = 0 then ld := 256; end if; tcnt(t) := ld mod 256; if ld = 256 then tcnt(t) := 0; end if;
           else tcnt(t) := tcnt(t) - 1; end if;
         end if;
       end if;
@@ -155,6 +164,9 @@ begin
       if r < 16#8000# then return; end if;   -- IDE stub: writes dropped
       if r = 16#8961# then nvsel := v mod 64; return; end if;
       if r = 16#8963# then if nvsel /= 12 and nvsel /= 13 then nv(nvsel) := v; end if; return; end if;
+      if r = 16#FA0B# or r = 16#FA0D# then   -- IPRA/IPRB: writing 0 clears a pending bit, 1 leaves it
+        io(r - 16#8000#) := to_integer(to_unsigned(io(r - 16#8000#), 8) and to_unsigned(v, 8)); return;
+      end if;
       if r = 16#FA1F# or r = 16#FA21# or r = 16#FA23# or r = 16#FA25# then
         tld((r - 16#FA1F#) / 2) := v; tcnt((r - 16#FA1F#) / 2) := v;
       end if;
@@ -162,6 +174,7 @@ begin
     end;
   begin
     nv_init;
+    for i in 16#7A00# to 16#7A3F# loop io(i) := 0; end loop;   -- MFP registers reset to 0 (IO latches start at $FF)
     wait for 4 us; rstn <= '1';
     loop
       wait until rising_edge(clk); n := n + 1;
