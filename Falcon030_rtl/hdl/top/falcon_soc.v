@@ -184,8 +184,18 @@ module falcon_soc (
         .st_pal_idx(st_pal_idx), .st_pal_rd(st_pal_rd),
         .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
-        .ym_porta(ym_porta), .fdc_hd(), .cpu_halted_n(cpu_halted_n)
+        .ym_porta(ym_porta), .fdc_hd(), .cpu_halted_n(cpu_halted_n),
+        .dbg_pc(dbg_pc), .dbg_berr_count(dbg_berr_count), .dbg_berr_addr(dbg_berr_addr),
+        .dbg_reset_out(dbg_reset_out), .dbg_io_addr(dbg_io_addr), .dbg_io_data(dbg_io_data),
+        .dbg_fetch_count(dbg_fetch_count),
+        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode)
     );
+
+    wire [31:0] dbg_pc, dbg_berr_addr;
+    wire [15:0] dbg_berr_count, dbg_io_addr, dbg_io_data, dbg_fetch_count;
+    wire [15:0] dbg_hht, dbg_vft, dbg_spshift;
+    wire [7:0]  dbg_shmode;
+    wire        dbg_reset_out;
 
     // ---- peripheral sub-bus (clk_32) ----
     // MFP_CLK=24 / DMA_CLK=16: enough 4/8 MHz enables for dtack and the dma.v edge.
@@ -389,15 +399,100 @@ module falcon_soc (
                     in_bits  ? (bit_on  ? 8'hF0 : 8'h18) :
                     in_prog  ? 8'h00 :
                                8'h40;
-    assign vr = !show_bar ? scan_r :
-                in_tray   ? tray_r :
-                err_s[1]  ? 8'hC0 : bar_rgb[23:16];
-    assign vg = !show_bar ? scan_g :
-                in_tray   ? tray_g :
-                err_s[1]  ? 8'h00 : bar_rgb[15:8];
-    assign vb = !show_bar ? scan_b :
-                in_tray   ? tray_b :
-                err_s[1]  ? 8'h00 : bar_rgb[7:0];
+    // Always-on hex overlay (clk_pixel). Sampled at the start of each frame
+    // so a grab is internally consistent. 2-flop the source bits first.
+    reg [31:0] pc_s, pc_p, ba_s, ba_p, crc_s, crc_p;
+    reg [15:0] ioa_s, ioa_p, iod_s, iod_p, bc_s, bc_p, fc_s, fc_p;
+    reg [15:0] hht_s, hht_p, vft_s, vft_p, sp_s, sp_p;
+    reg [11:0] lb_s, lb_p;
+    reg [23:0] vb_s, vb_p;
+    reg [9:0]  ht_s, ht_p;
+    reg [7:0]  sh_s, sh_p;
+    reg [3:0]  pl_s, pl_p;
+    reg        ro_s, ro_p, hl_s, hl_p, rr_s, rr_p, vbll_s, vbll_p, hd_s, hd_p, vd_s, vd_p;
+    always @(posedge clk_pixel) begin
+        pc_s  <= dbg_pc;           pc_p  <= pc_s;
+        ba_s  <= dbg_berr_addr;    ba_p  <= ba_s;
+        crc_s <= tos_crc;          crc_p <= crc_s;
+        ioa_s <= dbg_io_addr;      ioa_p <= ioa_s;
+        iod_s <= dbg_io_data;      iod_p <= iod_s;
+        bc_s  <= dbg_berr_count;   bc_p  <= bc_s;
+        fc_s  <= dbg_fetch_count;  fc_p  <= fc_s;
+        hht_s <= dbg_hht;          hht_p <= hht_s;
+        vft_s <= dbg_vft;          vft_p <= vft_s;
+        sp_s  <= dbg_spshift;      sp_p  <= sp_s;
+        lb_s  <= linebytes;        lb_p  <= lb_s;
+        vb_s  <= fb_base;          vb_p  <= vb_s;
+        ht_s  <= height;           ht_p  <= ht_s;
+        sh_s  <= dbg_shmode;       sh_p  <= sh_s;
+        pl_s  <= planes;           pl_p  <= pl_s;
+        ro_s  <= dbg_reset_out;    ro_p  <= ro_s;
+        hl_s  <= ~cpu_halted_n;    hl_p  <= hl_s;
+        rr_s  <= ram_ready;        rr_p  <= rr_s;
+        vbll_s<= vbl;              vbll_p<= vbll_s;
+        hd_s  <= hdbl;             hd_p  <= hd_s;
+        vd_s  <= vdbl;             vd_p  <= vd_s;
+    end
+    // Freeze a consistent snapshot at the first pixel of the frame.
+    reg [31:0] pc_f, ba_f, crc_f;
+    reg [15:0] ioa_f, iod_f, bc_f, fc_f, hht_f, vft_f, sp_f;
+    reg [11:0] lb_f;
+    reg [23:0] vb_f;
+    reg [9:0]  ht_f;
+    reg [7:0]  sh_f, frame_f, frame_c;
+    reg [3:0]  pl_f;
+    reg        ro_f, hl_f, rr_f, vbll_f, hd_f, vd_f, crst_f, terr_f;
+    always @(posedge clk_pixel) begin
+        if (cx == 10'd0 && cy == 10'd0) begin
+            pc_f   <= pc_p;
+            ba_f   <= ba_p;
+            crc_f  <= crc_p;
+            ioa_f  <= ioa_p;
+            iod_f  <= iod_p;
+            bc_f   <= bc_p;
+            fc_f   <= fc_p;
+            hht_f  <= hht_p;
+            vft_f  <= vft_p;
+            sp_f   <= sp_p;
+            lb_f   <= lb_p;
+            vb_f   <= vb_p;
+            ht_f   <= ht_p;
+            sh_f   <= sh_p;
+            pl_f   <= pl_p;
+            ro_f   <= ro_p;
+            hl_f   <= hl_p;
+            rr_f   <= rr_p;
+            vbll_f <= vbll_p;
+            hd_f   <= hd_p;
+            vd_f   <= vd_p;
+            crst_f <= rst_s[1];
+            terr_f <= err_s[1];
+            frame_f<= frame_c;
+            frame_c<= frame_c + 8'd1;
+        end
+    end
+    wire        hud_hit;
+    wire [7:0]  hud_r, hud_g, hud_b;
+    wire        crc_ok = (crc_f == 32'h028B561D);
+    // flags[7:0] = {hb, vbl, ram_ready, crc_ok, halted, reset_out, tos_err, cpu_reset}
+    wire [7:0]  hud_flags = {frame_f[0], vbll_f, rr_f, crc_ok, hl_f, ro_f, terr_f, crst_f};
+    falcon_dbg_hud u_hud (
+        .cx(cx), .cy(cy),
+        .pc(pc_f), .io_a(ioa_f), .io_d(iod_f),
+        .berr_count(bc_f), .berr_addr(ba_f),
+        .vbas(vb_f), .hht(hht_f), .vft(vft_f), .spshift(sp_f), .shmode(sh_f),
+        .tos_crc(crc_f), .flags(hud_flags), .fetch_count(fc_f),
+        .planes(pl_f), .linebytes(lb_f), .height(ht_f), .hdbl(hd_f), .vdbl(vd_f),
+        .frame(frame_f),
+        .hit(hud_hit), .r(hud_r), .g(hud_g), .b(hud_b)
+    );
+
+    wire [7:0] pic_r = !show_bar ? scan_r : in_tray ? tray_r : err_s[1] ? 8'hC0 : bar_rgb[23:16];
+    wire [7:0] pic_g = !show_bar ? scan_g : in_tray ? tray_g : err_s[1] ? 8'h00 : bar_rgb[15:8];
+    wire [7:0] pic_b = !show_bar ? scan_b : in_tray ? tray_b : err_s[1] ? 8'h00 : bar_rgb[7:0];
+    assign vr = hud_hit ? hud_r : pic_r;
+    assign vg = hud_hit ? hud_g : pic_g;
+    assign vb = hud_hit ? hud_b : pic_b;
     // vid_rd2 is produced by the scanout and also generated by the arbiter from the
     // address; the arbiter's sd_rd2 is what sdram.v sees.
 
@@ -407,6 +502,8 @@ module falcon_soc (
         .sd_lba(tos_sd_lba), .sd_rd(tos_sd_rd), .sd_ack(tos_sd_ack),
         .sd_buff_addr(tos_sd_buff_addr), .sd_dout(tos_sd_dout), .sd_dout_strobe(tos_sd_dout_strobe),
         .ram_req(ld_req), .ram_a(ld_a), .ram_wdata(ld_d), .ram_ack(ld_ack),
-        .cpu_reset(cpu_reset), .err(tos_err), .busy(ld_busy), .sect(ld_sect)
+        .cpu_reset(cpu_reset), .err(tos_err), .busy(ld_busy), .sect(ld_sect),
+        .crc(tos_crc)
     );
+    wire [31:0] tos_crc;
 endmodule

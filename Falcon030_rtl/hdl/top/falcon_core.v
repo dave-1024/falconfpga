@@ -48,7 +48,19 @@ module falcon_core (
     output wire [11:0] stpal_wd,
     output wire [7:0]  ym_porta,
     output wire [1:0]  fdc_hd,
-    output wire        cpu_halted_n
+    output wire        cpu_halted_n,
+    // debug samples for the always-on HDMI hex overlay (clk_cpu)
+    output reg  [31:0] dbg_pc,
+    output reg  [15:0] dbg_berr_count,
+    output reg  [31:0] dbg_berr_addr,
+    output wire        dbg_reset_out,
+    output reg  [15:0] dbg_io_addr,
+    output reg  [15:0] dbg_io_data,
+    output reg  [15:0] dbg_fetch_count,
+    output wire [15:0] dbg_hht,
+    output wire [15:0] dbg_vft,
+    output wire [15:0] dbg_spshift,
+    output wire [7:0]  dbg_shmode
 );
     wire [31:0] cpu_a, cpu_dout, cpu_din;
     wire        cpu_as_n, cpu_ds_n, cpu_rw, cpu_rmc_n, cpu_reset_out;
@@ -60,6 +72,38 @@ module falcon_core (
     // only the TOS ROM copy at $E00000-$E7FFFF is cachable
     wire cpu_ciin_n = !(cpu_a[23:15] == 9'h1FF || cpu_a[23:20] == 4'hF || cpu_a[23:3] == 21'd0 || cpu_a[23:21] != 3'b111);
     always @(posedge clk_cpu) ipl_r <= mfp_irq ? 3'b001 : vbl ? 3'b011 : hbl ? 3'b101 : 3'b111;
+
+    assign dbg_reset_out = cpu_reset_out;
+    // Sample on the falling edge of AS (address is valid). Program space is FC x10.
+    // BERR is counted on a falling BERRn while AS is still low.
+    reg as_d, berr_d;
+    always @(posedge clk_cpu) begin
+        as_d   <= cpu_as_n;
+        berr_d <= cpu_berr_n;
+        if (reset) begin
+            dbg_pc          <= 32'd0;
+            dbg_berr_count  <= 16'd0;
+            dbg_berr_addr   <= 32'd0;
+            dbg_io_addr     <= 16'd0;
+            dbg_io_data     <= 16'd0;
+            dbg_fetch_count <= 16'd0;
+            as_d   <= 1'b1;
+            berr_d <= 1'b1;
+        end else begin
+            if (as_d && !cpu_as_n && cpu_fc[1] && !cpu_fc[0]) begin
+                dbg_pc          <= cpu_a;
+                dbg_fetch_count <= dbg_fetch_count + 16'd1;
+            end
+            if (berr_d && !cpu_berr_n) begin
+                dbg_berr_count <= dbg_berr_count + 16'd1;
+                dbg_berr_addr  <= cpu_a;
+            end
+            if (io_wr) begin
+                dbg_io_addr <= {io_a, 1'b0};
+                dbg_io_data <= io_wdata;
+            end
+        end
+    end
 
     WF68K30L_TOP #(.CLK_N_EXT(1), .CACHES(0), .WA_ADR_HI(1), .FAST_HANDOFF(1)) cpu (
         .CLK(clk_cpu), .CLK_N(clk_cpu_n), .ADR_OUT(cpu_a), .DATA_IN(cpu_din), .DATA_OUT(cpu_dout), .DATA_EN(),
@@ -102,5 +146,6 @@ module falcon_core (
         .wr(io_wr), .din(io_wdata), .dout(videl_d), .vcount(vcount),
         .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl), .height(height), .linebytes(linebytes),
         .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
-        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd));
+        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
+        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode));
 endmodule

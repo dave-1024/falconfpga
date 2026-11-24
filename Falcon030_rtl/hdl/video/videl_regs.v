@@ -36,7 +36,12 @@ module videl_regs (
     output reg         fpal_we,
     output reg         stpal_we,
     output reg  [3:0]  stpal_wa,
-    output reg  [11:0] stpal_wd
+    output reg  [11:0] stpal_wd,
+    // debug shadow (same clk; HHT $8282, VFT $82A2)
+    output wire [15:0] dbg_hht,
+    output wire [15:0] dbg_vft,
+    output wire [15:0] dbg_spshift,
+    output wire [7:0]  dbg_shmode
 );
     reg [7:0]  base_h, base_m, base_l;
     reg [15:0] lineoff, vwrap, spshift;
@@ -49,6 +54,10 @@ module videl_regs (
     assign fb_base   = {base_h, base_m, base_l[7:1], 1'b0};
     assign linebytes = {vwrap[10:0], 1'b0};
     assign st_pal_rd = st_pal[st_pal_idx][11:0];
+    assign dbg_hht     = vt[(16'h8282 - 16'h8280) >> 1];
+    assign dbg_vft     = vt[(16'h82A2 - 16'h8280) >> 1];
+    assign dbg_spshift = spshift;
+    assign dbg_shmode  = shmode;
     wire [15:0] vmode = vt[(16'h82C2 - 16'h8280) >> 1];
     wire [15:0] vde   = vt[(16'h82AA - 16'h8280) >> 1];
     wire [15:0] vdb   = vt[(16'h82A8 - 16'h8280) >> 1];

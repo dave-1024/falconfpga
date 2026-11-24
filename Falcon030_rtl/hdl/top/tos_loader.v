@@ -30,22 +30,39 @@ module tos_loader (
     output reg         cpu_reset,
     output reg         err,
     output reg         busy,            // 1 while sectors are being copied
-    output reg  [9:0]  sect             // 0..1023, sectors written so far (bytes = sect*512)
+    output reg  [9:0]  sect,            // 0..1023, sectors written so far (bytes = sect*512)
+    output wire [31:0] crc              // IEEE CRC32 of bytes written so far (TOS404.IMG = 32'h028B561D)
 );
     reg [7:0]  hi;
     reg [8:1]  widx;
     reg [31:0] base;
     reg        got;
     reg        issued;          // 1 once the current sector request has been acked
+    // IEEE CRC32 (poly 0xEDB88320) of the image bytes in file order. TOS404.IMG is 028b561d.
+    reg [31:0] crc_s;
+    function [31:0] crc8;
+        input [31:0] c_in;
+        input [7:0]  d;
+        integer k;
+        reg [31:0] c;
+        begin
+            c = c_in ^ {24'd0, d};
+            for (k = 0; k < 8; k = k + 1)
+                c = c[0] ? ((c >> 1) ^ 32'hEDB88320) : (c >> 1);
+            crc8 = c;
+        end
+    endfunction
+    assign crc = ~crc_s;
     // one-word buffer: sd bytes arrive faster than nothing, slower than SDRAM writes (~8 clk/byte)
     assign ram_a = {5'b11100, sect, widx};   // $E00000 + sect*512 + widx*2
     always @(posedge clk) begin
         if (reset) begin
             cpu_reset <= 1'b1; err <= 1'b0; busy <= 1'b0; sect <= 10'd0; sd_rd <= 1'b0; ram_req <= 1'b0; got <= 1'b0; issued <= 1'b0;
+            crc_s <= 32'hFFFFFFFF;
         end else begin
             if (img_mounted) begin
                 if (img_size != 32'd524288) err <= 1'b1;
-                else begin busy <= 1'b1; err <= 1'b0; cpu_reset <= 1'b1; sect <= 10'd0; sd_lba <= 32'd0; sd_rd <= 1'b1; issued <= 1'b0; end
+                else begin busy <= 1'b1; err <= 1'b0; cpu_reset <= 1'b1; sect <= 10'd0; sd_lba <= 32'd0; sd_rd <= 1'b1; issued <= 1'b0; crc_s <= 32'hFFFFFFFF; end
             end else if (busy && !issued && !sd_rd && !sd_ack && !got && !ram_req) begin
                 // re-issue the first request if sd_ack was already high on the start cycle
                 // (last-assignment would have cleared sd_rd) or the pulse was otherwise dropped
@@ -56,6 +73,7 @@ module tos_loader (
             // request as already issued (that stalled 39bbce6 at sect=1).
             if (sd_ack && sd_rd) begin sd_rd <= 1'b0; issued <= 1'b1; end
             if (busy && sd_dout_strobe) begin
+                crc_s <= crc8(crc_s, sd_dout);
                 if (!sd_buff_addr[0]) hi <= sd_dout;
                 else begin ram_wdata <= {hi, sd_dout}; widx <= sd_buff_addr[8:1]; ram_req <= 1'b1; end
                 if (sect == 10'd0 && sd_buff_addr >= 9'd8 && sd_buff_addr <= 9'd11)
