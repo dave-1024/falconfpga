@@ -174,6 +174,7 @@
 --   2026-11-18 F164: IC_LK_HALF from the bus interface to the I-cache LK_HALF (per-word valid bits).
 --   2026-11-18 F163: CCR_IN = ALU XNZVC when CC_UPDT, else STATUS_REG (forwarded early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ (data registers DR_DNZ) and DR_DEC (control to data registers), early taken DBcc.
+--   2026-11-24 F172: MOVEM_RA2 and the F172_RA_IGO address/FC latch load (RA_ILD, RA_IADR, RA_IFC).
 --   2026-11-18 F160: STATUS_REG(4 downto 0) to the control unit (CCR_IN, early taken Bcc.B).
 --   2026-11-09 F156: OPCODE_RDY_2 also to the exception handler (REFILL_PIPE).
 --   2026-11-04 F141: IRQ_HOT from the exception handler to the control unit (early OW_REQ).
@@ -672,6 +673,10 @@ signal FC_NXT                   : std_logic_vector(2 downto 0); -- [PH2]
 signal OP_CHAIN_LD              : bit; -- [PH2]
 signal MOVEM_RA                 : bit; -- [F2] MOVEM read-ahead allowed (control unit).
 signal RA_LD                    : bit; -- [F2] A MOVEM read-ahead starts on this S5 edge.
+signal MOVEM_RA2                : bit; -- [F172] MOVEM: the register requested now is not the last.
+signal RA_ILD                   : bit; -- [F172] A MOVEM read-ahead starts from IDLE on this edge.
+signal RA_IADR                  : std_logic_vector(31 downto 0); -- [F172]
+signal RA_IFC                   : std_logic_vector(2 downto 0); -- [F172]
 -- [IC] The cache control is part of the CPU: keep it through synthesis (see WF68K30L_ICACHE).
 attribute syn_preserve : integer;
 attribute syn_preserve of CACR : signal is 1;
@@ -1288,7 +1293,10 @@ begin
     -- bus cycle. 
     begin
         wait until CLK = '1' and CLK' event;
-        if BUS_BSY = '0' or OP_CHAIN_LD = '1' then -- [PH2] also on the S5 edge of a chained operand cycle
+        if RA_ILD = '1' then -- [F172] MOVEM read-ahead from IDLE: the next register's operand, same FC.
+            ADR_LATCH <= RA_IADR;
+            FC_LATCH <= RA_IFC;
+        elsif BUS_BSY = '0' or OP_CHAIN_LD = '1' then -- [PH2] also on the S5 edge of a chained operand cycle
             ADR_LATCH <= ADR_NXT;
             FC_LATCH <= FC_NXT;
         elsif RA_LD = '1' then -- [F2] MOVEM read-ahead: the next register's operand follows this one (same FC).
@@ -1587,6 +1595,10 @@ begin
             OP_CHAIN_LD         => OP_CHAIN_LD, -- [PH2]
             RA_MORE             => MOVEM_RA, -- [F2]
             RA_LD               => RA_LD, -- [F2]
+            RA_MORE2            => MOVEM_RA2, -- [F172]
+            RA_ILD              => RA_ILD, -- [F172]
+            RA_IADR             => RA_IADR, -- [F172]
+            RA_IFC              => RA_IFC, -- [F172]
             IC_LK_ADR           => IC_LK_ADR, -- [IC]
             IC_LK_FC2           => IC_LK_FC2,
             IC_LK_HALF          => IC_LK_HALF, -- [F164]
@@ -1804,6 +1816,7 @@ begin
             BERR_IBOUND             => BERR_IBOUND,
             BERR_PCSTALE            => BERR_PCSTALE,
             MOVEM_RA                => MOVEM_RA, -- [F2]
+            MOVEM_RA2               => MOVEM_RA2, -- [F172]
             STATUSn                 => STATUSn_MAIN,
             EX_TRACE                => EX_TRACE,
             TRAP_cc                 => TRAP_cc,

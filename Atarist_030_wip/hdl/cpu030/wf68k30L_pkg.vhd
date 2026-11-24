@@ -44,6 +44,7 @@
 --   2026-11-18 F163: XNZVC_OUT port on the ALU (CCR forwarded to the early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ / DR_DEC ports (control, data registers) for the early taken DBcc.
 --   2026-11-24 F171: ADR_FAST_MV port (control out, address registers in).
+--   2026-11-24 F172: MOVEM_RA2 (control out) and RA_MORE2/RA_ILD/RA_IADR/RA_IFC (bus interface) ports.
 --   2026-11-18 F160: CCR_IN port on the control unit (taken Bcc.B in its OPD_ACK clock).
 --   2026-11-09 F156: OPCODE_RDY_2 into the exception handler (REFILL_PIPE word count).
 --   2026-11-04 F147: OPCODE_RDY_2/OPCODE_VALID_2/second opcode word ports (bus interface out, decoder in).
@@ -326,6 +327,10 @@ component WF68K30L_BUS_INTERFACE
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         RA_MORE             : in bit; -- [F2] MOVEM memory to register: the running read is not the last register.
         RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
+        RA_MORE2            : in bit; -- [F172] MOVEM memory to register: the operand requested now is not the last register.
+        RA_ILD              : out bit; -- [F172] IDLE edge of a MOVEM read-ahead started from IDLE: load RA_IADR/RA_IFC.
+        RA_IADR             : out std_logic_vector(31 downto 0); -- [F172] Its address.
+        RA_IFC              : out std_logic_vector(2 downto 0); -- [F172] Its function code.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_LK_HALF          : out std_logic; -- [F164]
@@ -538,6 +543,7 @@ component WF68K30L_CONTROL
         BERR_IBOUND         : out bit;
         BERR_PCSTALE        : out bit;
         MOVEM_RA            : out bit; -- [F2]
+        MOVEM_RA2           : out bit; -- [F172]
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;

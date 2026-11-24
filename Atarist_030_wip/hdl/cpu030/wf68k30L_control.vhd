@@ -177,6 +177,7 @@
 --     only ANDs the flop with RD_RDY / DATA_VALID / ALU_BSY / fault guards (as F166 WR_OLAP_Q).
 --     (F168_LU_Q).
 --   2026-11-24 F171: MOVE <ea>,(An)/(An)+/-(An) (not #imm) presents its write in the EXECUTE clock instead of WRITE_DEST
+--   2026-11-24 F172: MOVEM_RA2: MOVEM memory to register, CALC_AEFF of a register that is not the last (F172_RA_IGO).
 --     (F171_MV_WX). In the INIT clock (ADR_MARK_USED) the destination address goes straight into ADR_WB
 --     (ADR_FAST_MV: ADR_EFF_NXT, the unregistered EA; F166_MV_AMODE selects the destination mode in INIT)
 --     and a flop (MVX_Q) marks the ALU load. In the next clock (EXECUTE, ALU_REQ) DATA_WR is raised and the
@@ -439,6 +440,7 @@ entity WF68K30L_CONTROL is
         BERR_IBOUND         : out bit; -- [FLT2] Data write fault at an instruction boundary (format $A).
         BERR_PCSTALE        : out bit; -- [F131] ... and the next instruction is not issued yet: PC_I is still the faulted one.
         MOVEM_RA            : out bit; -- [F2] MOVEM memory to register waits for a read and more registers follow.
+        MOVEM_RA2           : out bit; -- [F172] MOVEM memory to register: the register requested in CALC_AEFF is not the last.
         STATUSn             : out bit;
         EX_TRACE            : out bit;
         TRAP_cc             : out bit;
@@ -900,6 +902,7 @@ begin
     -- that read is certain to be requested next, at the next address. The control unit still requests it as
     -- before; the bus interface hands it the data read ahead (or the bus error) only on a matching request.
     MOVEM_RA <= '1' when OP = MOVEM and BIW_0(10) = '1' and FETCH_STATE = FETCH_OPERAND and MOVEM_END = false else '0';
+    MOVEM_RA2 <= '1' when OP = MOVEM and BIW_0(10) = '1' and FETCH_STATE = CALC_AEFF and MOVEM_FIRST_RD = true and MOVEM_END = false else '0'; -- [F172]
 
     -- [F170] Operations whose FETCH_OPERAND read may be presented in a write's DATA_RDY clock (one operand read,
     -- no RMC, no MOVEM read-ahead, no alternate function code). Registered from the previous clock, so OP is final.
