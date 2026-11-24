@@ -601,6 +601,9 @@ wire ae350_run = 1'b0;
 wire flash_reinit = 1'b0;
 wire helper_hold = 1'b0;
 `endif
+// Falcon has no ST flash controller (TOS is loaded from the SD card). The
+// leftover helper-phase FSM below still samples flash_ready; treat it as ready.
+wire flash_ready = 1'b1;
 always @(posedge clk32) begin
     if (por32) begin
         ddr3_init_sync <= 2'b00;
@@ -798,9 +801,14 @@ assign st_mspi_cs    = 1'b1;
 assign st_mspi_io_o  = 2'b00;
 assign st_mspi_io_oe = 2'b00;
 
-// Mailbox I/O window: ack immediately, no core registers yet (MFP/IKBD NEXT).
-assign ext_io_rdata = 16'h0000;
-assign ext_io_dtack = ext_io_cs;
+// Mailbox I/O window: not yet decoded on the Falcon bus. Hold the ST-side
+// cycle idle; the mailbox drives rdata/dtack. Helper still runs from DDR3.
+assign ext_io_cs    = 1'b0;
+assign ext_io_rw    = 1'b1;
+assign ext_io_uds_n = 1'b1;
+assign ext_io_lds_n = 1'b1;
+assign ext_io_a     = 4'd0;
+assign ext_io_wdata = 16'd0;
 
 // Pads / leftover ST video path (no ST framebuffer, no LCD, no video2hdmi)
 assign lcd_clk = 1'b0;
