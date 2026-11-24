@@ -115,8 +115,11 @@ module falcon_core (
     reg        berr1_seen, vpend;
     reg [1:0]  vcnt;
     reg [15:0] vaddr;
-    reg [31:0] berr1_a, berr1_info, berr1_pc, vlog0, vlog1;
-    wire [31:0] lastw_a = 32'd0, vlog2 = 32'd0;   // dropped 19:10 (8010a45 routing stall)
+    reg [31:0] berr1_a, berr1_info, berr1_pc, vlog0, pwalk_d;
+    reg [23:0] pwalk_a;
+    wire [31:0] vlog1 = 32'd0;                     // dropped (always 000A/398C on 8a0cc24)
+    wire [31:0] lastw_a = {8'h00, pwalk_a};       // slot reused: previous FC=5 long read addr
+    wire [31:0] vlog2 = pwalk_d;                  // slot reused: previous FC=5 long read data
     wire [23:0] a24w = cpu_a[23:0];
     wire        wr_done = dsack_d && !(&cpu_dsack_n) && !cpu_rw;
     wire        rd_done = dsack_d && !(&cpu_dsack_n) &&  cpu_rw;
@@ -128,7 +131,7 @@ module falcon_core (
             left_e0 <= 1'b0; walk_pend <= 1'b0;
             berr1_seen <= 1'b0; vpend <= 1'b0; vcnt <= 2'd0; vaddr <= 16'd0;
             berr1_a <= 32'd0; berr1_info <= 32'd0; berr1_pc <= 32'd0;
-            vlog0 <= 32'd0; vlog1 <= 32'd0;
+            vlog0 <= 32'd0; pwalk_a <= 24'd0; pwalk_d <= 32'd0;
             dbg_io_ring <= 256'd0; dbg_pc_ring <= 256'd0;
             dbg_io_addr <= 16'd0; dbg_io_data <= 16'd0;
             dsack_d <= 1'b1;
@@ -161,7 +164,7 @@ module falcon_core (
             end
             // After the first BERR: log the next 3 FC=5 word reads of $8..$3FF
             // (exception vectors), {addr[15:0], data[15:0]}.
-            if (berr1_seen && vcnt[1] == 1'b0 && as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw &&
+            if (berr1_seen && vcnt == 2'd0 && as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw &&
                 a24w[23:10] == 14'd0 && a24w[9:3] != 7'd0)
                 begin vpend <= 1'b1; vaddr <= a24w[15:0]; end
             if (vpend && rd_done) begin
@@ -169,7 +172,6 @@ module falcon_core (
                 vcnt  <= vcnt + 2'd1;
                 case (vcnt)
                     2'd0: vlog0 <= {vaddr, cpu_din[31:16]};
-                    2'd1: vlog1 <= {vaddr, cpu_din[31:16]};
                     default: ;  // vlog2 dropped (routing)
                 endcase
             end
@@ -180,13 +182,27 @@ module falcon_core (
                 dbg_io_ring <= {{io_a, 1'b0, io_wdata}, dbg_io_ring[255:32]};
             end
             // Table-walk reads (FC=5, $700..$7FF). Accumulate a long.
-            if (as_d && !cpu_as_n && cpu_fc == 3'b101 && a24w[23:8] == 16'h0007 && cpu_rw)
+            // 8a0cc24 showed the 1st BERR is a FC=5 long READ of $00FFFFFC with
+            // only writes in flight (= a PMMU table-walk read). Now: any FC=5
+            // read, frozen at the 1st BERR; the previous long is kept too, so
+            // the HUD shows the two descriptor reads that led to the bad address.
+            if (as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw && !berr1_seen)
                 walk_pend <= 1'b1;
-            if (walk_pend && rd_done) begin
-                walk_a <= a24w;
-                if (!a24w[1]) walk_d[31:16] <= cpu_din[31:16];
-                else          walk_d[15:0]  <= cpu_din[31:16];
+            if (berr1_seen) walk_pend <= 1'b0;
+            else if (walk_pend && rd_done) begin
                 walk_pend <= 1'b0;
+                if (!a24w[1]) begin
+                    pwalk_a <= walk_a; pwalk_d <= walk_d;
+                    walk_a  <= a24w;
+                    walk_d  <= {cpu_din[31:16], 16'h0000};
+                end else begin
+                    if (a24w[23:2] != walk_a[23:2]) begin
+                        pwalk_a <= walk_a; pwalk_d <= walk_d;
+                        walk_d[31:16] <= 16'h0000;
+                    end
+                    walk_a <= {a24w[23:2], 2'b00};
+                    walk_d[15:0] <= cpu_din[31:16];
+                end
             end
         end
     end
