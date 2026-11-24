@@ -138,6 +138,18 @@ The vector-mirror address must be the same 23-bit `{A23:A1}` as `tos_loader`
 and drops A23, so reset-vector reads landed at $700000 (zeros) and the 030
 halted with PC=0 (c518b4c HUD).
 
+The always-on HDMI HUD (falcon_dbg_hud.v) is ten 8-pixel rows and does not
+depend on VIDEL. Rows 0-2 are PC, last IO, BERR, VBAS/HHT/VFT, TOS CRC and
+flags. Rows 3-9 snoop (on clk_cpu, at DSACK / io_wr / AS falling) the PMMU
+table at $700..$7FF (XOR and the $700/$740/$7C0/$7F8 descriptors; TOS 4.04
+image XOR is $0F000080, U-bit writebacks only touch the low nibble),
+_phystop ($42E), _frclock ($466), $FF82C0, the last 8 IO writes, the last 8
+program-fetch addresses, and the first program fetch outside $00E0xxxx plus
+the previous $E0 fetch. That is how a single grab shows whether the board
+diverged from the GHDL PMMU walk (identity map, $7F8 = $00E00001) or jumped
+out of TOS ROM.
+
+
 Bandwidth: a Falcon-only page-mode burst-2 read (`st_rd2`, default 0) issues a second CAS of addr+1 in the
 same 8-clock slot, MODE stays burst-length 1. The ST build ties `st_rd2` to 0; a compare of the new
 controller against the pre-burst `sdram.v` (256 slots: read/write/refresh/ecs/zmask) was bit-identical

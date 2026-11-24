@@ -41,7 +41,8 @@ module videl_regs (
     output wire [15:0] dbg_hht,
     output wire [15:0] dbg_vft,
     output wire [15:0] dbg_spshift,
-    output wire [7:0]  dbg_shmode
+    output wire [7:0]  dbg_shmode,
+    output wire [15:0] dbg_vco
 );
     reg [7:0]  base_h, base_m, base_l;
     reg [15:0] lineoff, vwrap, spshift;
@@ -58,6 +59,7 @@ module videl_regs (
     assign dbg_vft     = vt[(16'h82A2 - 16'h8280) >> 1];
     assign dbg_spshift = spshift;
     assign dbg_shmode  = shmode;
+    assign dbg_vco     = vt[(16'h82C0 - 16'h8280) >> 1];
     wire [15:0] vmode = vt[(16'h82C2 - 16'h8280) >> 1];
     wire [15:0] vde   = vt[(16'h82AA - 16'h8280) >> 1];
     wire [15:0] vdb   = vt[(16'h82A8 - 16'h8280) >> 1];

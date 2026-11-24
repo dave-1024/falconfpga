@@ -213,16 +213,20 @@ module falcon_soc (
         .dbg_reset_out(dbg_reset_out), .dbg_io_addr(dbg_io_addr), .dbg_io_data(dbg_io_data),
         .dbg_fetch_count(dbg_fetch_count),
         .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode),
-        .dbg_cycs(dbg_cycs), .dbg_ncyc(dbg_ncyc)
+        .dbg_vco(dbg_vco),
+        .dbg_cycs(dbg_cycs), .dbg_ncyc(dbg_ncyc),
+        .dbg_io_ring(dbg_io_ring), .dbg_pc_ring(dbg_pc_ring)
     );
 
     wire [31:0] dbg_pc, dbg_berr_addr;
     wire [15:0] dbg_berr_count, dbg_io_addr, dbg_io_data, dbg_fetch_count;
     wire [15:0] dbg_hht, dbg_vft, dbg_spshift;
     wire [7:0]  dbg_shmode;
+    wire [15:0] dbg_vco;
     wire        dbg_reset_out;
     wire [383:0] dbg_cycs;
     wire [3:0]   dbg_ncyc;
+    wire [255:0] dbg_io_ring, dbg_pc_ring;
 
     // ---- peripheral sub-bus (clk_32) ----
     // MFP_CLK=24 / DMA_CLK=16: enough 4/8 MHz enables for dtack and the dma.v edge.
@@ -439,6 +443,7 @@ module falcon_soc (
     reg        ro_s, ro_p, hl_s, hl_p, rr_s, rr_p, vbll_s, vbll_p, hd_s, hd_p, vd_s, vd_p;
     reg [383:0] cycs_s, cycs_p;
     reg [3:0]   ncyc_s, ncyc_p;
+    reg [255:0] ioring_s, ioring_p, pcring_s, pcring_p;
     always @(posedge clk_pixel) begin
         pc_s  <= dbg_pc;           pc_p  <= pc_s;
         ba_s  <= dbg_berr_addr;    ba_p  <= ba_s;
@@ -463,6 +468,8 @@ module falcon_soc (
         vd_s  <= vdbl;             vd_p  <= vd_s;
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
+        ioring_s<= dbg_io_ring;    ioring_p<= ioring_s;
+        pcring_s<= dbg_pc_ring;    pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.
     reg [31:0] pc_f, ba_f, crc_f;
@@ -475,6 +482,7 @@ module falcon_soc (
     reg        ro_f, hl_f, rr_f, vbll_f, hd_f, vd_f, crst_f, terr_f;
     reg [383:0] cycs_f;
     reg [3:0]   ncyc_f;
+    reg [255:0] ioring_f, pcring_f;
     always @(posedge clk_pixel) begin
         if (cx == 10'd0 && cy == 10'd0) begin
             pc_f   <= pc_p;
@@ -502,6 +510,8 @@ module falcon_soc (
             terr_f <= err_s[1];
             cycs_f <= cycs_p;
             ncyc_f <= ncyc_p;
+            ioring_f <= ioring_p;
+            pcring_f <= pcring_p;
             frame_f<= frame_c;
             frame_c<= frame_c + 8'd1;
         end
@@ -519,6 +529,7 @@ module falcon_soc (
         .tos_crc(crc_f), .flags(hud_flags), .fetch_count(fc_f),
         .planes(pl_f), .linebytes(lb_f), .height(ht_f), .hdbl(hd_f), .vdbl(vd_f),
         .frame(frame_f), .cycs(cycs_f), .ncyc(ncyc_f),
+        .io_ring(ioring_f), .pc_ring(pcring_f),
         .hit(hud_hit), .r(hud_r), .g(hud_g), .b(hud_b)
     );
 

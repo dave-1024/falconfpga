@@ -61,10 +61,13 @@ module falcon_core (
     output wire [15:0] dbg_vft,
     output wire [15:0] dbg_spshift,
     output wire [7:0]  dbg_shmode,
-    // First 8 bus cycles after reset (any FC): {addr[23:0], data[15:0],
-    // berr, ack_early, rw, siz[1:0], fc[2:0]} per cycle, 48 bits each.
-    output reg  [383:0] dbg_cycs,
-    output reg  [3:0]   dbg_ncyc
+    output wire [15:0] dbg_vco,
+    // Packed post-PMMU debug (see falcon_dbg_hud.v): descriptors, table XOR,
+    // _phystop, _frclock, VCO, first fetch outside $E0, last table-walk.
+    output wire [383:0] dbg_cycs,
+    output wire [3:0]   dbg_ncyc,      // [0] = has left $E0 program space
+    output reg  [255:0] dbg_io_ring,   // 8 x {addr[15:0], data[15:0]}, oldest in [31:0]
+    output reg  [255:0] dbg_pc_ring    // 8 x pc[31:0], oldest in [31:0]; frozen after leave
 );
     wire [31:0] cpu_a, cpu_dout, cpu_din;
     wire        cpu_as_n, cpu_ds_n, cpu_rw, cpu_rmc_n, cpu_reset_out;
@@ -88,8 +91,6 @@ module falcon_core (
             dbg_pc          <= 32'd0;
             dbg_berr_count  <= 16'd0;
             dbg_berr_addr   <= 32'd0;
-            dbg_io_addr     <= 16'd0;
-            dbg_io_data     <= 16'd0;
             dbg_fetch_count <= 16'd0;
             as_d   <= 1'b1;
             berr_d <= 1'b1;
@@ -102,51 +103,111 @@ module falcon_core (
                 dbg_berr_count <= dbg_berr_count + 16'd1;
                 dbg_berr_addr  <= cpu_a;
             end
-            if (io_wr) begin
-                dbg_io_addr <= {io_a, 1'b0};
-                dbg_io_data <= io_wdata;
-            end
         end
     end
 
-    // First 8 bus cycles (every FC, not just program space). Address is
-    // sampled on AS falling; data and termination on the first DSACK or BERR
-    // of that cycle. ack_early is mem_ack already high when AS fell (leftover).
-    reg        cyc_as_d, cyc_dsack_d, cyc_pend, cyc_early;
-    reg [23:0] cyc_a;
-    reg [2:0]  cyc_fc;
-    reg [1:0]  cyc_siz;
-    reg        cyc_rw;
-    reg [47:0] cycs [0:7];
-    integer    ci;
+    // Post-PMMU / IO / table snoops for the HUD (clk_cpu).
+    // Shadow $700..$7FF (PMMU tables), _phystop ($42E), _frclock ($466),
+    // last 8 IO writes, last 8 program fetches, first fetch outside $E0xxxx.
+    reg [15:0] pmap [0:127];
+    reg [31:0] tblxor, phystop, frclock, d700, d740, d7c0, d7f8;
+    reg [31:0] outpc, prevpc, last_e0_pc, walk_d;
+    reg [23:0] walk_a;
+    reg        left_e0, dsack_d, walk_pend;
+    integer    pi;
+    wire [23:0] a24w = cpu_a[23:0];
+    wire        wr_done = dsack_d && !(&cpu_dsack_n) && !cpu_rw;
+    wire        rd_done = dsack_d && !(&cpu_dsack_n) &&  cpu_rw;
     always @(posedge clk_cpu) begin
-        cyc_as_d    <= cpu_as_n;
-        cyc_dsack_d <= &cpu_dsack_n;
+        dsack_d <= &cpu_dsack_n;
         if (reset) begin
-            for (ci = 0; ci < 8; ci = ci + 1) cycs[ci] <= 48'd0;
-            dbg_ncyc     <= 4'd0;
-            cyc_pend     <= 1'b0;
-            cyc_as_d     <= 1'b1;
-            cyc_dsack_d  <= 1'b1;
-        end else if (dbg_ncyc < 4'd8) begin
-            if (cyc_as_d && !cpu_as_n) begin
-                cyc_a     <= cpu_a[23:0];
-                cyc_fc    <= cpu_fc;
-                cyc_siz   <= cpu_siz;
-                cyc_rw    <= cpu_rw;
-                cyc_early <= mem_ack;
-                cyc_pend  <= 1'b1;
-            end else if (cyc_pend && ((cyc_dsack_d && !(&cpu_dsack_n)) || (berr_d && !cpu_berr_n))) begin
-                cycs[dbg_ncyc] <= {cyc_a, cpu_din[31:16],
-                                   (berr_d && !cpu_berr_n), cyc_early, cyc_rw, cyc_siz, cyc_fc};
-                dbg_ncyc <= dbg_ncyc + 4'd1;
-                cyc_pend <= 1'b0;
+            for (pi = 0; pi < 128; pi = pi + 1) pmap[pi] <= 16'd0;
+            tblxor <= 32'd0; phystop <= 32'd0; frclock <= 32'd0;
+            d700 <= 32'd0; d740 <= 32'd0; d7c0 <= 32'd0; d7f8 <= 32'd0;
+            outpc <= 32'd0; prevpc <= 32'd0; last_e0_pc <= 32'd0;
+            walk_a <= 24'd0; walk_d <= 32'd0;
+            left_e0 <= 1'b0; walk_pend <= 1'b0;
+            dbg_io_ring <= 256'd0; dbg_pc_ring <= 256'd0;
+            dbg_io_addr <= 16'd0; dbg_io_data <= 16'd0;
+            dsack_d <= 1'b1;
+        end else begin
+            // Program-space ring + first fetch outside $00E0xxxx (not the
+            // $000000-$000007 vector mirror). Address valid on AS falling.
+            if (as_d && !cpu_as_n && cpu_fc[1] && !cpu_fc[0]) begin
+                if (!left_e0) begin
+                    dbg_pc_ring <= {cpu_a, dbg_pc_ring[255:32]};
+                    if (a24w[23:16] == 8'hE0)
+                        last_e0_pc <= cpu_a;
+                    else if (a24w[23:3] != 21'd0) begin
+                        left_e0 <= 1'b1;
+                        outpc   <= cpu_a;
+                        prevpc  <= last_e0_pc;
+                    end
+                end
+            end
+            // Last 8 IO writes (shift in at [255:224]; [31:0] is oldest).
+            if (io_wr) begin
+                dbg_io_addr <= {io_a, 1'b0};
+                dbg_io_data <= io_wdata;
+                dbg_io_ring <= {{io_a, 1'b0, io_wdata}, dbg_io_ring[255:32]};
+            end
+            // RAM write completed (DSACK). Snoop the PMMU table, _phystop
+            // and _frclock. mem_* still hold the latched cycle.
+            if (wr_done && mem_we) begin
+                if (mem_a[23:8] == 16'h0007) begin
+                    begin : pmap_wr
+                        reg [15:0] oldw, neww;
+                        oldw = pmap[mem_a[7:1]];
+                        neww = oldw;
+                        if (mem_be[1]) neww[15:8] = mem_wdata[15:8];
+                        if (mem_be[0]) neww[7:0]  = mem_wdata[7:0];
+                        pmap[mem_a[7:1]] <= neww;
+                        if (!mem_a[1]) tblxor <= tblxor ^ {oldw, 16'h0} ^ {neww, 16'h0};
+                        else           tblxor <= tblxor ^ {16'h0, oldw} ^ {16'h0, neww};
+                        if (mem_a[7:1] == 7'h00) d700[31:16] <= neww;
+                        if (mem_a[7:1] == 7'h01) d700[15:0]  <= neww;
+                        if (mem_a[7:1] == 7'h20) d740[31:16] <= neww;
+                        if (mem_a[7:1] == 7'h21) d740[15:0]  <= neww;
+                        if (mem_a[7:1] == 7'h60) d7c0[31:16] <= neww;
+                        if (mem_a[7:1] == 7'h61) d7c0[15:0]  <= neww;
+                        if (mem_a[7:1] == 7'h7C) d7f8[31:16] <= neww;
+                        if (mem_a[7:1] == 7'h7D) d7f8[15:0]  <= neww;
+                    end
+                end
+                if (mem_a[23:1] == 23'h00042E >> 1) begin
+                    if (mem_be[1]) phystop[31:24] <= mem_wdata[15:8];
+                    if (mem_be[0]) phystop[23:16] <= mem_wdata[7:0];
+                end
+                if (mem_a[23:1] == 23'h000430 >> 1) begin
+                    if (mem_be[1]) phystop[15:8] <= mem_wdata[15:8];
+                    if (mem_be[0]) phystop[7:0]  <= mem_wdata[7:0];
+                end
+                if (mem_a[23:1] == 23'h000466 >> 1) begin
+                    if (mem_be[1]) frclock[31:24] <= mem_wdata[15:8];
+                    if (mem_be[0]) frclock[23:16] <= mem_wdata[7:0];
+                end
+                if (mem_a[23:1] == 23'h000468 >> 1) begin
+                    if (mem_be[1]) frclock[15:8] <= mem_wdata[15:8];
+                    if (mem_be[0]) frclock[7:0]  <= mem_wdata[7:0];
+                end
+            end
+            // Table-walk reads (FC=5, $700..$7FF). Accumulate a long.
+            if (as_d && !cpu_as_n && cpu_fc == 3'b101 && a24w[23:8] == 16'h0007 && cpu_rw)
+                walk_pend <= 1'b1;
+            if (walk_pend && rd_done) begin
+                walk_a <= a24w;
+                if (!a24w[1]) walk_d[31:16] <= cpu_din[31:16];
+                else          walk_d[15:0]  <= cpu_din[31:16];
+                walk_pend <= 1'b0;
             end
         end
     end
-    always @(*) begin
-        dbg_cycs = {cycs[7], cycs[6], cycs[5], cycs[4], cycs[3], cycs[2], cycs[1], cycs[0]};
-    end
+    assign dbg_ncyc = {3'b000, left_e0};
+    assign dbg_cycs = {d700, d740, d7c0, d7f8,
+                       tblxor, phystop, frclock,
+                       dbg_vco, 16'h0000,
+                       outpc, prevpc,
+                       walk_a, walk_d, 8'h00};
 
     WF68K30L_TOP #(.CLK_N_EXT(1), .CACHES(0), .WA_ADR_HI(1), .FAST_HANDOFF(1)) cpu (
         .CLK(clk_cpu), .CLK_N(clk_cpu_n), .ADR_OUT(cpu_a), .DATA_IN(cpu_din), .DATA_OUT(cpu_dout), .DATA_EN(),
@@ -190,5 +251,6 @@ module falcon_core (
         .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl), .height(height), .linebytes(linebytes),
         .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
-        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode));
+        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode),
+        .dbg_vco(dbg_vco));
 endmodule
