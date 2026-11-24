@@ -47,7 +47,8 @@ module falcon_blitter (
     output reg  [15:0] m_wdata,
     input  wire        m_ack,
     input  wire [15:0] m_rdata,
-    output wire        irq_n
+    output wire        irq_n,
+    output wire [127:0] dbg          // HUD: 4 x 32-bit live slots (clk_32, no handshake)
 );
     // 16 MHz bus phases
     reg ph = 1'b0;
@@ -157,6 +158,28 @@ module falcon_blitter (
 
     assign br_want = !b_oBRn || !b_oBGACKn;
     assign irq_n   = b_INTn;
+
+    // ---- HUD debug (FAL_01): live, free-running, clk_32 ----
+    // slot0 {busy, br_want, bus_grant, grant_32, m_req, m_ack, m_we, ctrlOe, last master byte addr}
+    // slot1 {last master WRITE byte addr A23:8, last write data}
+    // slot2 {blits started, blits completed}  (busy rising / falling)
+    // slot3 {master writes acked (incl. dropped >= $E00000), master reads acked}
+    reg [23:1] d_wa = 23'd0;
+    reg [15:0] d_wd = 16'd0, d_st = 16'd0, d_dn = 16'd0, d_wc = 16'd0, d_rc = 16'd0;
+    reg        d_busy_q = 1'b0;
+    always @(posedge clk_32) begin
+        d_busy_q <= b_INTn;                       // stBlitter INTn = busy (high while busy)
+        if (b_INTn && !d_busy_q) d_st <= d_st + 16'd1;
+        if (!b_INTn && d_busy_q) d_dn <= d_dn + 16'd1;
+        if (m_req && m_ack) begin
+            if (m_we) begin d_wc <= d_wc + 16'd1; d_wa <= m_a; d_wd <= m_wdata; end
+            else d_rc <= d_rc + 16'd1;
+        end
+        if (b_ctrlOe && grant_32 && !b_oASn && !b_oDSn && !m_busy && !m_ack &&
+            !b_oRWn && b_oA[23:21] == 3'b111) d_wc <= d_wc + 16'd1;
+    end
+    assign dbg = {{d_wc, d_rc}, {d_st, d_dn}, {d_wa[23:8], d_wd},
+                  {b_INTn, br_want, bus_grant, grant_32, m_req, m_ack, m_we, b_ctrlOe, m_a, 1'b0}};
 
     stBlitter blt (
         .clk(clk_32), .aRESETn(!reset), .pwrUp(pwr_up),

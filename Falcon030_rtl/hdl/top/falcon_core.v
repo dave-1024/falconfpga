@@ -245,7 +245,11 @@ module falcon_core (
         .CIINn(cpu_ciin_n), .MMU_ON(), .CDISn(1'b1), .CBACKn(1'b1), .CBREQn(), .CIOUTn());
 
     wire sel_videl, sel_nv_a, sel_nv_d, sel_ym, sel_mfp, sel_acia, sel_dma;
-    wire sel_blt = io_cyc && (io_a[15:5] == 11'h450);   // $FF8A00-$FF8A3F
+    // io_a is [15:1] (A15..A1): $FF8A00-$FF8A3F is A15:A6 = $228. The old io_a[15:5] == $450
+    // matched only $FF8A00-$FF8A1F (halftone RAM), so every register at $FF8A20-$FF8A3F
+    // (addresses, counts, HOP/OP, control) went to falcon_io's $FFFF default: TAS $FF8A3C read
+    // $FF forever (board f6e5591: last 8 IO = 8A3C=FFFF, PC around E12BCC..BD6).
+    wire sel_blt = io_cyc && (io_a[15:6] == 10'h228);   // $FF8A00-$FF8A3F
     wire io_ext = sel_mfp || sel_acia || sel_dma || sel_blt;
     wire io_cyc, io_uds, io_lds, io_wr, io_rw; wire [15:1] io_a; wire [15:0] io_wdata, io_rdata;
     falcon_bus bus (

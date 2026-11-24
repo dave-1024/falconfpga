@@ -243,13 +243,14 @@ module falcon_soc (
     // ---- blitter $FF8A00 (falcon_blitter.v wraps the proven stBlitter.sv) ----
     wire        p_sel_blt, p_uds, p_lds, blt_done, blt_br, blt_bg, cpu_cyc_tog, blt_irq_n;
     wire [15:0] blt_rdata;
+    wire [127:0] blt_dbg;
     falcon_blitter blitter (
         .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
         .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
         .rdata(blt_rdata), .done(blt_done),
         .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),
-        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n)
+        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n), .dbg(blt_dbg)
     );
 
     // ---- peripheral sub-bus (clk_32) ----
@@ -489,7 +490,10 @@ module falcon_soc (
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
         ioring_s<= dbg_io_ring;    ioring_p<= ioring_s;
-        pcring_s<= dbg_pc_ring;    pcring_p<= pcring_s;
+        // HUD row 9 (pc_ring slots 4-7) shows live blitter debug once the ring has frozen at
+        // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.
+        pcring_s<= (dbg_berr_count != 16'd0) ? {blt_dbg, dbg_pc_ring[127:0]} : dbg_pc_ring;
+        pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.
     reg [31:0] pc_f, ba_f, crc_f;
