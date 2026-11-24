@@ -8,8 +8,9 @@
 // part, so this block gives it a small private 68000-style bus on clk_32 (enPhi1/enPhi2 alternate
 // every clk_32 = 16 MHz bus, like atarist.v with cpu_16mhz_enable):
 //   - CPU register cycles: falcon_core routes $FF8A00-$FF8A3F as a clk_32 ("io_ext") cycle. While
-//     sel is high and done is low we drive AS/UDS/LDS/RW/A/D with FC=101 for 2 clk_32 (exactly one
-//     enPhi1 edge, where stBlitter latches), take the read data, then raise done until sel drops.
+//     sel is high and done is low we start AS on enPhi2, keep it low through the next enPhi1
+//     (where stBlitter latches writes) and sample the combinational read data on the following
+//     enPhi2, then raise done until sel drops.
 //   - Bus arbitration: stBlitter's BR (oBRn) / BGACK (busOwned) become br_want (level to clk_cpu).
 //     falcon_bus grants (bus_grant, clk_cpu) only between CPU cycles and then starts no new cycle
 //     until br_want drops: the same effect as BR/BG/BGACK on the 030, without touching WF68K30L.
@@ -72,26 +73,44 @@ module falcon_blitter (
     reg [23:1] c_a = 23'd0;
     reg [1:0]  c_cnt;
     reg [1:0]  p_cnt = 2'd0;          // pseudo AS for CPU cycles
-    localparam C_IDLE = 2'd0, C_AS = 2'd1, C_FIN = 2'd2;
+    // stBlitter latches register writes on enPhi1 while AS/UDS/LDS are already
+    // low (wrWordSel / ctrlWr). A fixed 2-clock AS window that can start on
+    // enPhi1 raises AS on the same edge as the latch, so half of all writes
+    // (including $FF8A3C start and TAS) are dropped. Start AS on enPhi2 so the
+    // next enPhi1 definitely sees a settled cycle, then sample the
+    // combinational read data on the following enPhi2.
+    localparam C_IDLE = 2'd0, C_AS = 2'd1, C_FIN = 2'd2, C_ARM = 2'd3;
     reg [1:0]  c_st = C_IDLE;
     always @(posedge clk_32) begin
         if (reset) begin
             c_st <= C_IDLE; c_as_n <= 1'b1; c_uds_n <= 1'b1; c_lds_n <= 1'b1; c_rw <= 1'b1;
-            done <= 1'b0; p_cnt <= 2'd0;
+            done <= 1'b0; p_cnt <= 2'd0; c_cnt <= 2'd0;
         end else begin
+            if (cpu_cyc) p_cnt <= 2'd2;
+            else if (p_cnt != 2'd0) p_cnt <= p_cnt - 2'd1;
             case (c_st)
                 C_IDLE: begin
                     if (sel && !done && !b_ctrlOe) begin
                         c_a <= {18'h3FE28, a};            // $FF8A00 + a
                         c_rw <= rw; c_uds_n <= !uds; c_lds_n <= !lds;
-                        c_as_n <= 1'b0; c_cnt <= 2'd0; c_st <= C_AS;
+                        c_cnt <= 2'd0;
+                        if (enPhi2) begin
+                            c_as_n <= 1'b0; c_st <= C_AS;
+                        end else begin
+                            c_st <= C_ARM;
+                        end
                     end else if (!sel) done <= 1'b0;
-                    if (cpu_cyc) p_cnt <= 2'd2;
-                    else if (p_cnt != 2'd0) p_cnt <= p_cnt - 2'd1;
+                end
+                C_ARM: begin
+                    if (!sel) begin
+                        c_st <= C_IDLE; done <= 1'b0;
+                    end else if (enPhi2) begin
+                        c_as_n <= 1'b0; c_st <= C_AS;
+                    end
                 end
                 C_AS: begin
-                    c_cnt <= c_cnt + 2'd1;
-                    if (c_cnt == 2'd1) begin
+                    if (enPhi1) c_cnt <= 2'd1;
+                    if (c_cnt == 2'd1 && enPhi2) begin
                         rdata <= b_oD;
                         c_as_n <= 1'b1; c_uds_n <= 1'b1; c_lds_n <= 1'b1; c_rw <= 1'b1;
                         c_st <= C_FIN;
@@ -124,7 +143,7 @@ module falcon_blitter (
                 m_dtack_n <= 1'b1;
                 if (!m_req) m_busy <= 1'b0;
             end
-            if (b_ctrlOe && !b_oASn && !b_oDSn && !m_busy && !m_ack) begin
+            if (b_ctrlOe && grant_32 && !b_oASn && !b_oDSn && !m_busy && !m_ack) begin
                 m_busy <= 1'b1;
                 m_a <= b_oA; m_we <= !b_oRWn; m_wdata <= b_oD;
                 if (!b_oRWn && b_oA[23:21] == 3'b111) m_dtack_n <= 1'b0;   // >= $E00000: drop write
