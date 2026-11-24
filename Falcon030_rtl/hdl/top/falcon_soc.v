@@ -15,7 +15,8 @@ module falcon_soc (
     input  wire        clk_cpu,
     input  wire        clk_cpu_n,
     input  wire        clk_pixel,
-    input  wire        por,              // async/sync reset, clk_32 domain
+    input  wire        por,              // async/sync reset, clk_32 domain (includes helper_hold)
+    input  wire        loader_reset,     // por32 only: do not hold the loader with helper_hold
     input  wire        user_reset,       // helper OSD reset (CPU/chipset only; TOS stays in SDRAM)
     // sdram.v chip pins (16-bit)
     output wire        sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas,
@@ -323,7 +324,7 @@ module falcon_soc (
     // address; the arbiter's sd_rd2 is what sdram.v sees.
 
     tos_loader loader (
-        .clk(clk_32), .reset(por),
+        .clk(clk_32), .reset(loader_reset),
         .img_mounted(tos_img_mounted), .img_size(tos_img_size),
         .sd_lba(tos_sd_lba), .sd_rd(tos_sd_rd), .sd_ack(tos_sd_ack),
         .sd_buff_addr(tos_sd_buff_addr), .sd_dout(tos_sd_dout), .sd_dout_strobe(tos_sd_dout_strobe),

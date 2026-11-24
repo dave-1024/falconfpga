@@ -849,7 +849,6 @@ wire [7:0]  sd_img_mounted;
 wire        sd_busy, sd_done, sd_err, sd_rd_byte_strobe;
 wire [8:0]  sd_byte_index;
 wire [7:0]  sd_rd_data, sd_wr_data;
-wire        tos_img_mounted = sd_img_mounted[4];
 wire        fdc_img_mounted = sd_img_mounted[0];
 wire [31:0] tos_sd_lba, fdc_sd_lba;
 wire        tos_sd_rd, fdc_sd_rd, fdc_sd_wr;
@@ -859,6 +858,8 @@ wire        fdc_sd_ack = sd_busy;
 reg  [31:0] tos_img_size_r, fdc_img_size_r;
 wire [1:0]  system_floppy_wprot;
 wire [1:0]  system_reset;
+wire        tos_mnt_go;
+wire [31:0] tos_mnt_size;
 always @(posedge clk32) begin
     if (por32) begin
         tos_img_size_r <= 32'd0;
@@ -868,6 +869,14 @@ always @(posedge clk32) begin
         if (sd_img_mounted[0]) fdc_img_size_r <= sd_img_size[31:0];
     end
 end
+// Sticky TOS mount: see tos_mount_latch.v. Reset by por32 only; go waits for
+// !soc_reset && ram_ready plus 1 ms for the helper's CMD 6 direct-map.
+tos_mount_latch #(.DELAY(32_000)) u_tos_mnt (
+    .clk(clk32), .por(por32), .hold(soc_reset), .ram_ready(ram_ready),
+    .img_mounted(sd_img_mounted[4]),
+    .img_size(sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r),
+    .go(tos_mnt_go), .size(tos_mnt_size)
+);
 
 // HID / IKBD
 wire [7:0]  keyboard[14:0];
@@ -901,6 +910,7 @@ falcon_soc u_soc (
     .clk_cpu_n       ( clk_cpu030_n ),
     .clk_pixel       ( clk_hdmi     ),
     .por             ( soc_reset    ),
+    .loader_reset    ( por32        ),
     .user_reset      ( system_reset[0] ),
     .sd_clk          ( sd_clk_unused ),
     .sd_cke          ( sd_cke_unused ),
@@ -913,8 +923,8 @@ falcon_soc u_soc (
     .sd_dqm          ( sdram_dqm    ),
     .sd_ba           ( O_sdram_ba   ),
     .ram_ready       ( ram_ready    ),
-    .tos_img_mounted ( tos_img_mounted ),
-    .tos_img_size    ( sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r ),
+    .tos_img_mounted ( tos_mnt_go ),
+    .tos_img_size    ( tos_mnt_size ),
     .tos_sd_lba      ( tos_sd_lba   ),
     .tos_sd_rd       ( tos_sd_rd    ),
     .tos_sd_ack      ( tos_sd_ack   ),

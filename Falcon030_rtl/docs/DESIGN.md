@@ -159,7 +159,16 @@ build 85ca498 took the FALCON branch but Gowin warned EX3988 (file not found), l
 empty, and the helper printed `config[0] = 00` / "no core config loaded". Image 4 (TOS ROM) was
 never mounted, so the loader held the CPU in reset. `build_falcon.tcl` now copies the hex into
 the cwd. The console `mount` command only accepts `a|b|h0|h1` (drives 0-3); image 4 is mounted
-from the XML default, not from that command. While `cpu_reset` is high, `falcon_soc.v` substitutes
+from `falcon.ini` `drive4=` (the XML `default=` uses the helper `imageN` ROM-upload path, which
+does not pulse `image_mounted`). `sd_card.v` pulses `image_mounted` for one clk32 cycle.
+`falcon_soc.por` is `por32|helper_hold`, so a mount during the helper hold would reset
+`tos_loader` and drop the pulse. `tos_mount_latch.v` (clk32 / sd_card domain, reset by `por32`
+only) keeps a sticky 512K mount and issues a one-cycle go once `helper_hold` is clear, SDRAM
+is ready, and 1 ms has passed for the helper's CMD 6 direct-map (sent after INSERT; starting
+earlier takes the MCU IRQ path). The loader itself is reset by `por32` only, not `helper_hold`.
+The CPU stays in reset until all 1024 sectors are in `$E00000` and the header base is
+`$00E00000` (Hybrid030 `flop_init` / `ROM=`: copy the ROM, then release the CPU).
+While `cpu_reset` is high, `falcon_soc.v` substitutes
 colour bars and a bottom progress strip (`sect * 640 / 1024`) so a later HDMI grab can tell a
 waiting/loading core from no TMDS; a bad image is a red screen. Helper `sdlog on` logs each
 loader SD read (bytes = sectors * 512) without a firmware change.

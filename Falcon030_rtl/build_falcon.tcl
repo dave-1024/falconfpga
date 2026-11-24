@@ -26,6 +26,7 @@ add_file $F/hdl/top/falcon_top.sv
 add_file $F/hdl/top/falcon_soc.v
 add_file $F/hdl/top/falcon_core.v
 add_file $F/hdl/top/tos_loader.v
+add_file $F/hdl/top/tos_mount_latch.v
 add_file $F/hdl/bus/falcon_bus.v
 add_file $F/hdl/bus/falcon_pbus.v
 add_file $F/hdl/bus/falcon_sdram_arb.v
