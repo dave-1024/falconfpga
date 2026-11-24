@@ -70,12 +70,13 @@ module tb_tos_loader;
     reg [9:0]  sd_idx;
     reg [2:0]  sd_wait;
     reg [2:0]  sd_gap;
+    reg [3:0]  sd_tail;     // keep ack high after the last byte (board rbusy)
     reg [31:0] sd_cur;
     always @(posedge clk) begin
         if (por) begin
             sd_ack <= 1'b0; sd_dout_strobe <= 1'b0; sd_buff_addr <= 9'd0;
             sd_dout <= 8'd0; sd_active <= 1'b0; sd_idx <= 10'd0; sd_wait <= 3'd0;
-            sd_gap <= 3'd0; sd_cur <= 32'd0;
+            sd_gap <= 3'd0; sd_tail <= 4'd0; sd_cur <= 32'd0;
         end else begin
             sd_dout_strobe <= 1'b0;
             if (sd_rd && !sd_ack && !sd_active) begin
@@ -98,9 +99,15 @@ module tb_tos_loader;
                         sd_idx <= sd_idx + 10'd1;
                         sd_gap <= 3'd3;
                     end
+                end else if (sd_tail != 4'd0) begin
+                    sd_tail <= sd_tail - 4'd1;
+                    if (sd_tail == 4'd1) begin
+                        sd_ack <= 1'b0;
+                        sd_active <= 1'b0;
+                    end
                 end else begin
-                    sd_ack <= 1'b0;
-                    sd_active <= 1'b0;
+                    // board: rbusy stays high a few clocks after byte 511
+                    sd_tail <= 4'd8;
                 end
             end
         end

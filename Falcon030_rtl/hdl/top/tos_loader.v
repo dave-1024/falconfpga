@@ -51,7 +51,10 @@ module tos_loader (
                 // (last-assignment would have cleared sd_rd) or the pulse was otherwise dropped
                 sd_rd <= 1'b1;
             end
-            if (sd_ack) begin sd_rd <= 1'b0; issued <= 1'b1; end
+            // Only an ack of an outstanding request sets issued. A leftover
+            // rbusy after the last byte of a sector must not mark the next
+            // request as already issued (that stalled 39bbce6 at sect=1).
+            if (sd_ack && sd_rd) begin sd_rd <= 1'b0; issued <= 1'b1; end
             if (busy && sd_dout_strobe) begin
                 if (!sd_buff_addr[0]) hi <= sd_dout;
                 else begin ram_wdata <= {hi, sd_dout}; widx <= sd_buff_addr[8:1]; ram_req <= 1'b1; end
@@ -65,7 +68,17 @@ module tos_loader (
                 if (sect == 10'd1023) begin
                     busy <= 1'b0;
                     if (base == 32'h00E00000) cpu_reset <= 1'b0; else err <= 1'b1;
-                end else begin sect <= sect + 10'd1; sd_lba <= sd_lba + 32'd1; sd_rd <= 1'b1; issued <= 1'b0; end
+                end else begin
+                    // Board 39bbce6 tray: mount/size/go/busy/rd/ack/strobe/ram_ack
+                    // all on, but sect stuck at 1. rbusy (sd_ack) is still high
+                    // when sector 0's last RAM write completes, so "sd_rd<=1;
+                    // issued<=0" was then cancelled by "if (sd_ack) sd_rd<=0;
+                    // issued<=1" in the same cycle. Wait for ack to fall;
+                    // the re-issue clause raises sd_rd once !sd_ack.
+                    sect <= sect + 10'd1;
+                    sd_lba <= sd_lba + 32'd1;
+                    issued <= 1'b0;
+                end
             end
         end
     end
