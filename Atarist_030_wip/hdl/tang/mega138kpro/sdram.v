@@ -44,7 +44,9 @@ module sdram (
 	input		  cs, // cpu/chipset requests read/wrie
 	input		  ecs,        // FalconFPGA F63: a read RAS follows on the next clk edge (early start), 0 = unused
 	input		  we,         // cpu/chipset requests write
-	input		  zmask       // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
+	input		  zmask,      // FalconFPGA: this ST read returns 0 (sampled at CAS; cold-start memvalid mask)
+	input [1:0]	  st_ba       // FalconFPGA FAL_01: ST-port bank. ST build ties 2'b00 (bank 0, 8 MB).
+	                              // Falcon maps 16 MB (14 MB ST-RAM + TOS at $E00000) as bank = {1'b0, byte A23}.
 `ifdef TTRAM
 	,
 	// FalconFPGA TTRAM (docs/TTRAM_DESIGN.md): 32-bit TT-RAM port in banks 1/2.
@@ -236,7 +238,7 @@ always @(posedge clk) begin
       if(ecs && (state == STATE_IDLE || state == STATE_LAST)) begin
         sd_cmd <= CMD_ACTIVE;
         sd_addr <= addr[21:9];
-        sd_ba <= 2'b00;
+        sd_ba <= st_ba;
         state <= 3'd1;
       end else
       if(state == STATE_IDLE) begin
@@ -246,7 +248,7 @@ always @(posedge clk) begin
             // RAS phase
             sd_cmd <= CMD_ACTIVE;
             sd_addr <= addr[21:9];  // 8 Megawords = 16 Megabytes per bank
-            sd_ba <= 2'b00;         // use one of the four banks only (and one of the two rams)
+            sd_ba <= st_ba;         // FAL_01: ST build ties 0; Falcon uses A23 as bank 1
             state <= 3'd1;
           end else begin
             // [F110] AUTO REFRESH needs every bank idle: defer it while a TT bank is open
@@ -273,7 +275,7 @@ always @(posedge clk) begin
             end else begin
                sd_cmd <= we?CMD_WRITE:CMD_READ;
                sd_addr <= { 4'b0010, addr[8:0] };
-               sd_ba <= 2'b00;                  // [F110] ST is bank 0: never inherit a TT bank
+               sd_ba <= st_ba;                  // [F110]/FAL_01: ST bank (0 on the ST build)
                zmask_q <= zmask;
                st_rd <= !we;
                state <= STATE_CMD_CONT + 3'd1 + {1'b0, st_stk};

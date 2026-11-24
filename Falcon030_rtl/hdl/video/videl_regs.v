@@ -33,7 +33,10 @@ module videl_regs (
     input  wire [3:0]  st_pal_idx,
     output reg  [7:0]  fpal_wa,       // Falcon palette write port (to the scanout's palette RAM)
     output reg  [17:0] fpal_wd,
-    output reg         fpal_we
+    output reg         fpal_we,
+    output reg         stpal_we,
+    output reg  [3:0]  stpal_wa,
+    output reg  [11:0] stpal_wd
 );
     reg [7:0]  base_h, base_m, base_l;
     reg [15:0] lineoff, vwrap, spshift;
@@ -56,6 +59,7 @@ module videl_regs (
     end endfunction
     always @(posedge clk) begin
         fpal_we <= 1'b0;
+        stpal_we <= 1'b0;
         if (reset) begin
             base_h <= 8'h00; base_m <= 8'h00; base_l <= 8'h00; shmode <= 8'h00;
             spshift <= 16'h0000; vwrap <= 16'd40; lineoff <= 16'd0;
@@ -69,7 +73,12 @@ module videl_regs (
                     fpal_we <= 1'b1;
                 end
             end else if (o >= 16'h8280) vt[(o - 16'h8280) >> 1] <= mrg(vt[(o - 16'h8280) >> 1], din, uds, lds);
-            else if (o >= 16'h8240 && o < 16'h8260) st_pal[o[4:1]] <= mrg(st_pal[o[4:1]], din, uds, lds);
+            else if (o >= 16'h8240 && o < 16'h8260) begin
+                st_pal[o[4:1]] <= mrg(st_pal[o[4:1]], din, uds, lds);
+                stpal_we <= 1'b1;
+                stpal_wa <= o[4:1];
+                stpal_wd <= mrg(st_pal[o[4:1]], din, uds, lds); // 12-bit port, low 12 of $0RGB
+            end
             else case (o)
                 16'h8200: if (lds) base_h <= din[7:0];
                 16'h8202: if (lds) base_m <= din[7:0];

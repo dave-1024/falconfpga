@@ -50,7 +50,7 @@ module tb_ttram;
     reg  rst_n = 0;
     sdram u_sd (.sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_dq), .sd_addr(sd_a), .sd_dqm(sd_dqm), .sd_ba(sd_ba),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas), .clk(clk), .reset_n(rst_n), .ready(ready),
-        .refresh(st_ref), .din(st_din), .dout(st_dout), .addr(st_addr), .ds(st_ds), .cs(st_cs), .ecs(st_ecs), .we(st_we), .zmask(1'b0),
+        .refresh(st_ref), .din(st_din), .dout(st_dout), .addr(st_addr), .ds(st_ds), .cs(st_cs), .ecs(st_ecs), .we(st_we), .zmask(1'b0), .st_ba(2'b00),
         .tt_req(tt_req), .tt_we(tt_we), .tt_la(tt_la), .tt_be(tt_be), .tt_din(tt_wdata), .tt_ack(tt_ack), .tt_dout(tt_rdata));
     wire ctl_oe = u_sd.tt_oe | (!u_sd.tt_rdwin & st_cs & st_we);
     wire [31:0] m_err;

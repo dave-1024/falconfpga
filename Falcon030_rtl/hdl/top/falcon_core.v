@@ -1,6 +1,6 @@
 // falcon_core.v - FAL_01: Falcon030 core, clk_cpu domain: WF68K30L + falcon_bus + IO block,
 //                 NVRAM, YM stub, VIDEL registers. clk_32 peripherals (MFP, ACIAs, floppy) and
-//                 the SDRAM/scanout sit outside on the ports below (falcon_pbus.v, arbiter: NEXT).
+//                 the SDRAM/scanout sit outside on the ports below (falcon_pbus.v, falcon_sdram_arb.v).
 //
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -43,6 +43,9 @@ module falcon_core (
     output wire [7:0]  fpal_wa,
     output wire [17:0] fpal_wd,
     output wire        fpal_we,
+    output wire        stpal_we,
+    output wire [3:0]  stpal_wa,
+    output wire [11:0] stpal_wd,
     output wire [7:0]  ym_porta,
     output wire [1:0]  fdc_hd,
     output wire        cpu_halted_n
@@ -98,5 +101,6 @@ module falcon_core (
     videl_regs videl (.clk(clk_cpu), .reset(reset), .sel(sel_videl), .a(io_a), .uds(io_uds), .lds(io_lds),
         .wr(io_wr), .din(io_wdata), .dout(videl_d), .vcount(vcount),
         .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl), .height(height), .linebytes(linebytes),
-        .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we));
+        .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
+        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd));
 endmodule

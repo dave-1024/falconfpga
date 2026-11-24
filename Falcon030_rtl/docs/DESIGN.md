@@ -101,11 +101,19 @@ build has no GSTMCU, so a small arbiter (`hdl/bus/falcon_sdram_arb.v`, NEXT) giv
 (line bursts in blanking), then the floppy DMA (`dma.v` rdy_i/rdy_o word transfers), then the CPU word port of
 falcon_bus.v. The TOS loader uses the same port before the CPU leaves reset.
 
-Open point for the next step: the ST `sdram.v` (`hdl/tang/mega138kpro/sdram.v`) has two ports. The ST port
-(cs/we/ds/addr, 22-bit word address) is driven with GSTMCU slot timing; the TTRAM port (tt_req/tt_ack, 32-bit,
-long address = byte A23:2, banks 1/2 only) is a clean request/ack handshake but interleaves with ST slots. Options:
-(a) the arbiter generates the GSTMCU-style slot cadence on the ST port (proven timing, 16-bit); (b) a request/ack
-wrapper derived from the TT engine for all 4 banks. Pick (a) for v1 unless timing says otherwise.
+David (24 Nov) picked (a): the arbiter (`hdl/bus/falcon_sdram_arb.v`) generates the GSTMCU-style 8-clock
+(250 ns at 32 MHz) slot cadence on the ST port of `sdram.v`. Priority in each slot: a periodic AUTO_REFRESH
+(every 16 slots = 4 us), then scanout, then floppy DMA, then the TOS loader / CPU (the loader uses the port
+while the CPU is held in reset). `ecs` is 0 in v1.
+
+The ST port in `sdram.v` was bank 0 only (8 MB). A backward-compatible `st_ba` input was added (the ST build
+ties it to `2'b00`; ST benches updated to match). Falcon maps 16 MB across banks 0 and 1: bank = `{1'b0, byte A23}`,
+word address = A22:A1, which covers 14 MB ST-RAM plus the TOS copy at $E00000.
+
+Bandwidth: one 16-bit word per 250 ns is 8 MB/s. A 640x480 4-plane line is 160 words (40 us) but a 640x480@60
+HDMI line is 31.8 us, so that TOS boot mode underruns on this port. ST-sized lines (40 or 80 words) fit.
+A later Falcon-only burst-2/4 path in `sdram.v` (ST cycle timing unchanged) would give enough bandwidth; that
+touches the shared controller and needs a go-ahead.
 
 ## Video
 
@@ -139,7 +147,7 @@ the SDRAM arbiter. ACSI in `dma.v` gets no images (stub).
 
 | Item | Hybrid030 (falcon_m28.c) | Hatari | v1 |
 |---|---|---|---|
-| NVRAM at power-up | zeroed user cells, invalid checksum (M11h: removed its own pre-planted mode because a stock Falcon has none) | file or defaults | **Hybrid030 stock** by default (`PRESET=0`). The brief asked for a valid checksum + default mode: that is `PRESET=1` ($001A VGA, 80 col, 4 planes, valid checksum). **David to choose.** |
+| NVRAM at power-up | zeroed user cells, invalid checksum (M11h: removed its own pre-planted mode because a stock Falcon has none) | file or defaults | **Hybrid030 stock** (`PRESET=0`, the v1 default). David (24 Nov): TOS writes its defaults from a bad checksum, as a stock Falcon does. `PRESET=1` remains a parameter ($001A VGA, 80 col, 4 planes, valid checksum) for a faster sim; run at least one check with `PRESET=0` before the board test. |
 | Address bus | 24-bit by default (`BUS=24`, "matched Hatari and this bench for TOS") | 24-bit on Falcon | 24-bit, A31:24 ignored |
 | IDE | one interface answers at $FFF00000-3F (M11q); TOS 4.04 BERRed on alt status +$39 before that | IDE emulated | one interface answers, no device |
 | $FF8006 | io_shadow $FF (TV, code 7) | monitor + RAM config | $92xx (VGA, 14 MB), so TOS sizes 14 MB without probing |
@@ -200,7 +208,7 @@ Source: https://www.neperos.com/article/qs4f1491a6baa850 (plain text copy outsid
 | $FF860E/$FF860F | "new Falcon registers", no meaning given (sample $00/$80) | density select (Hybrid030 `flop_density` latch, both bytes) | density latch, bits 1:0 | AURA gives no bit meaning; v1 follows Hybrid030 |
 | $FF8800/$8802 | read data at $8800, write data at $8802 | same | same | agrees |
 | $FF8C80-$FF8C87 | SCC: odd bytes are the registers, even bytes unused | whitelist latch (Hybrid030) | latch | v1 latches even bytes too (harmless; Hybrid030 does the same) |
-| $FF9200 | fire buttons, sample $BF (bit 6 low) | Hybrid030 reads $FF | $FFFF | **differs**: on a real Falcon $FF9200 bit 6 is low in AURA's sample. Hybrid030 booted TOS 4.04 with $FF, so v1 keeps $FF; revisit if TOS 4.04 uses it (it reads $FF9200 at $E0042E). |
+| $FF9200 | fire buttons, sample $BF (bit 6 low) | Hybrid030 reads $FF | $FFFF | **settled (David, 24 Nov)**: stays $FF, as Hybrid030 has it. AURA's sample has bit 6 low; TOS 4.04 does read $FF9200 at $E0042E, but Hybrid030 booted with $FF. |
 | $FFA202 DSP ISR | sample $06 (TRDY, TXDE) | Hybrid030 falcon_m28 (shadow) / Hatari | $06 | agrees |
 | $FF8961/$FF8963 | NVRAM select / data | same | same | agrees |
 
@@ -212,14 +220,16 @@ Suavek. Its licence is educational/non-commercial, so nothing from it (artwork, 
 this repo; it is referenced by page. Priority for this project: Hybrid030 for behaviour, ReFalcon for wiring
 and signals, then Hatari, then the AURA doc.
 
-First pass (text extraction of the PDF, `pdftotext -layout`; to be confirmed on rendered pages with `pdftoppm`):
+Confirmed on rendered pages (`pdftoppm` of `ReFalcon_R1.1(RC).pdf`, 24 Nov; PDF page numbers below).
+Nothing from the schematic is copied into this repo.
+
 
 | Item | ReFalcon page | First reading | v1 |
 |---|---|---|---|
-| 68030 STERM | p12 (U55 pin 122) | pulled up through a 4k7 resistor, not driven: no synchronous cycles | STERMn tied high, async DSACK only (agrees) |
-| 68030 CIIN | p12 (U55 pin 73) | resistor network beside it; driver to confirm | v1 drives CIIN from the address decode (ST-RAM and IO inhibited) |
-| DSACK0/DSACK1, BERR | p12, p13 (XDSACK0/1, XBERR, EBERR) | generated off-CPU (COMBEL side), both DSACK lines routed | v1 answers 16-bit (DSACK1) for every port, as Hybrid030; confirm whether any Falcon port answers 32-bit |
-| YM2149 port A (IOA0-7) | p3 (U170) | IOA0 = side select, IOA lines to floppy select, DSP reset (XDSPRESET), speaker; RESET from XRESET | v1: IOA0 side, IOA1 drive A select (B ignored); DSP reset bit ignored (stub) |
+| 68030 STERM | p12 (U55 pin 122) | **confirmed**: pin 122 to R199 4k7 pull-up only, not driven. No synchronous cycles. | STERMn tied high, async DSACK only (agrees) |
+| 68030 CIIN | p12 (U55 pin 73) | **confirmed on-page**: pin 73 only to the R200 pull-up in the same pack as STERM/EM1/EM0 (R199/R200/R204/R206). No on-page driver; a PAL/COMBEL driver may be off-page. | v1 drives CIIN from the address decode (ST-RAM and IO inhibited) |
+| DSACK0/DSACK1, BERR | p12, p13 (XDSACK0/1, XBERR, EBERR) | **confirmed**: U55 pin 132 = DSACK1/XDSACK1, pin 3 = DSACK0/XDSACK0, pin 130 = BERR/EBERR; p13 has the XDSACK/XBERR buffers. Both DSACK lines routed, generated off-CPU. | v1 answers 16-bit (DSACK1) for every port, as Hybrid030; whether any Falcon port answers 32-bit is still open |
+| YM2149 port A (IOA0-7) | p3 (U170) | **confirmed**: U170 YM2149, IOA0 net SEL, DOSEL/SOSEL to the floppy, XDSPRESET, XSPKON (speaker); YM RESET from XRESET. | v1: IOA0 side, IOA1 drive A select (B ignored); DSP reset bit ignored (stub) |
 | Floppy density DENS | p6 | DENS net to the drive connector | v1 latches $FF860E; to wire to the FDC clock select later |
 | IDE chip selects IDECS0/IDECS1 | p4, p5 | two chip selects (task file / control block) | v1: one interface window, no device |
 | VIDEL digital RGB, syncs, pixel clock | J703 (ReFalcon addition) | VIDEL digital outputs exposed for a scaler | v1 scanout regenerates 640x480 from SDRAM, not from VIDEL timing; J703 is the reference if we later drive pixels from the VIDEL timing registers |

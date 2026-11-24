@@ -89,7 +89,11 @@ reg [7:0]  menu_rom_data;
 // xxd -c1 -p atarist.xml.gz > atarist_xml.hex
 reg [7:0] atarist_xml[1024];
 `ifndef EFINIX
+`ifdef FALCON
+   initial $readmemh("falcon_xml.hex", atarist_xml);
+`else
    initial $readmemh("atarist_xml.hex", atarist_xml);
+`endif
 `else
   // it would be great if a global define could be used for the
   // filename here. But that does not work, at least not in efinity
