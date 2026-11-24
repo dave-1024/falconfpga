@@ -112,6 +112,14 @@
 --   2026-11-23 F170: F170_WR_GO: PW_GO (IDLE -> S0, no START_CYCLE) for an operand write after any cycle, not only
 --     after a posted write (MOVE <mem>,<mem> and read-modify-write: the write after the operand read). F170_RD_GO off.
 --     F170_RW_GO: posted write S5 chains into the next instruction's operand read (RW_GO, control F170_RW_Q).
+--   2026-11-24 F172: F172_RA_IGO: MOVEM memory to register keeps one read always in flight. When a MOVEM read is
+--     handed over (held read-ahead taken in CALC_AEFF, or any MOVEM read ending with its request present and no F2
+--     chain) and a register follows, the next register's read-ahead starts from the next IDLE clock (IDLE -> S0, as
+--     PW_GO) at the handed-over address + size (RA_DLV, RA_LP, RA_IGO, RA_NADR/RA_NFC; top RA_ILD). 4 clocks/register.
+--   2026-11-24 F172_SP: synchronous (STERM) writes are posted like DSACK writes: WP_NEG has a STERM term, so WP_GO
+--     (WR_EARLY) fires in the S2/S3 clock of a STERM write, and WP_LAST is set when that write ends in the same clock,
+--     so the next operand write starts from IDLE (PW_GO). MOVEM register-to-memory on a 2-clock STERM bus: 5 -> 3
+--     clocks/register. DSACK cycles unchanged.
 -- 
 
 library work;
@@ -201,6 +209,10 @@ entity WF68K30L_BUS_INTERFACE is
         OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
         RA_MORE             : in bit; -- [F2] MOVEM memory to register: the running read is not the last register.
         RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
+        RA_MORE2            : in bit; -- [F172] MOVEM memory to register: the operand requested now is not the last register.
+        RA_ILD              : out bit; -- [F172] IDLE edge of a MOVEM read-ahead started from IDLE: load RA_IADR/RA_IFC.
+        RA_IADR             : out std_logic_vector(31 downto 0); -- [F172] Its address.
+        RA_IFC              : out std_logic_vector(2 downto 0); -- [F172] Its function code.
         IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
         IC_LK_FC2           : out std_logic; -- [IC]
         IC_LK_HALF          : out std_logic; -- [F164] F_ADR(1): the stream needs only the low word of the long.
@@ -319,6 +331,8 @@ signal RESTART_ADR          : std_logic_vector(31 downto 1) := (others => '0'); 
 constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F145 two-word behaviour. [F156] on again
 constant F162_DQ            : boolean := true; -- [F162] restart (Q_MISS) in the clock of a dismissed opcode ready.
 constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
+constant F172_RA_IGO        : boolean := true;  -- [F172] MOVEM read-ahead started from IDLE on hand-over (RA_IGO).
+constant F172_SP            : boolean := true;  -- [F172_SP] post synchronous (STERM) writes like DSACK writes (WP_GO in the STERM clock).
 constant F170_WR_GO         : boolean := true;  -- [F170] operand write from IDLE starts without START_CYCLE (PW_GO), any previous cycle.
 constant F170_RD_GO         : boolean := false; -- [F170] the same for an operand read (data cache off). Off: evaluation only.
 constant F170_RW_GO         : boolean := true;  -- [F170] posted write S5 rolls into a waiting operand read (RW_GO).
@@ -395,6 +409,11 @@ signal RA_FLT_P             : std_logic := '0'; -- [F2] A read-ahead bus-errored
 signal RA_DIB_HOLD          : std_logic := '0'; -- [F2] INBUFFER (DIB) keeps the faulted read-ahead's data.
 signal RA_GO                : bit; -- [F2] S5 decision: the read rolls into the next register's read.
 signal RA_GO_D              : bit := '0'; -- [F2] The clock after RA_GO.
+signal RA_DLV               : bit; -- [F172] A MOVEM read-ahead is handed over and the list has a register after it.
+signal RA_LP                : bit := '0'; -- [F172] The clock after RA_DLV.
+signal RA_IGO               : bit; -- [F172] IDLE -> S0: the next register's read-ahead starts now.
+signal RA_NADR             : std_logic_vector(31 downto 0) := (others => '0'); -- [F172] Its address.
+signal RA_NFC               : std_logic_vector(2 downto 0) := "000"; -- [F172] Its function code.
 signal RA_ACC               : bit := '0'; -- [F2] The running read is a read-ahead.
 signal RA_HELD              : bit := '0'; -- [F2] A finished read-ahead waits for its request (data in DBUFFER, fault in DATA_VALID).
 signal RA_HADR              : std_logic_vector(31 downto 0) := (others => '0'); -- [F2] Its address.
@@ -482,7 +501,9 @@ begin
             BGACK_In <= BGACKn;
             AVEC_In <= AVECn;
             -- [T9] S3 and the pin terms of WP_GO, one flip flop (see WP_GO).
-            if SLICE_CNT_P = "001" and DSACKn /= "11" and STERMn = '1' and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
+            -- [F172_SP] Also a synchronous (STERM) write: its outcome is final in this clock (STERM and BERR recognised
+            -- at the edge that ended S1, held through S2 as P_SYNC/SLICES already require).
+            if SLICE_CNT_P = "001" and ((DSACKn /= "11" and STERMn = '1') or (F172_SP and STERMn = '0')) and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
                 WP_NEG <= '1';
             else
                 WP_NEG <= '0';
@@ -538,7 +559,7 @@ begin
             WRITE_ACCESS <= CH_WR;
             OPCODE_ACCESS <= '0';
             PF_ACC <= '0';
-        elsif RA_GO = '1' then -- [F2] The MOVEM read rolls into the next register's read.
+        elsif RA_GO = '1' or RA_IGO = '1' then -- [F2] The MOVEM read rolls into the next register's read. [F172] or starts from IDLE.
             READ_ACCESS <= '1';
             WRITE_ACCESS <= '0';
             OPCODE_ACCESS <= '0';
@@ -593,6 +614,8 @@ begin
                 SSW_80 <= To_StdLogicVector('0' & RMC & not CH_WR) & SIZEVAR & '0' & FC_NXT;
             elsif RA_GO = '1' then -- [F2] Read, same function code.
                 SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & FC_LAT;
+            elsif RA_IGO = '1' then -- [F172] Read, function code of the register before it.
+                SSW_80 <= To_StdLogicVector('0' & RMC & '1') & SIZEVAR & '0' & RA_NFC;
             elsif BUS_CTRL_STATE = DATA_C1C4 and (READ_ACCESS = '1' or WRITE_ACCESS = '1') and BUS_FLT = '1' then
                 SSW_80(8) <= '1';
             end if;
@@ -744,7 +767,7 @@ begin
             SIZE_N <= "000";
         elsif PF_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
             SIZE_N <= "100"; -- [F65] [PH2] Next prefetch long, loaded on the S5 edge.
-        elsif OP_CHAIN_GO = '1' or RA_GO = '1' then -- [PH2] Operand size of the waiting request. [F2] Same size.
+        elsif OP_CHAIN_GO = '1' or RA_GO = '1' or RA_IGO = '1' then -- [F172] RA_IGO [PH2] Operand size of the waiting request. [F2] Same size.
             case OP_SIZE is
                 when LONG => SIZE_N <= "100";
                 when WORD => SIZE_N <= "010";
@@ -813,7 +836,7 @@ begin
 
     BUS_CTRL_DEC: process(ADR_IN_P, ADR_OUT_I, ARB_STATE, BGACK_In, BR_In, BUS_CTRL_STATE, BUS_CYC_RDY, BUS_FLT, HALT_In, 
                           OPCODE_ACCESS, OPCODE_REQ, RD_REQ, READ_ACCESS, RESET_CPU_I, RMC_PIN, SIZE_N, WR_REQ, WRITE_ACCESS,
-                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I, OPC_ADR) -- OPC_ADR: sensitivity audit
+                          OPC_LEGACY, PF_REQ, CHAIN_GO, PW_GO, RA_IGO, FILL_REQ, FILL_START, FILL_ACC, DC_FL_GO_I, OPC_ADR) -- OPC_ADR: sensitivity audit
     -- This is the bus controller's state machine decoder.  A SIZE_N count of "000" means that all bytes
     -- to be transfered. After a bus transfer a value of x"0" indicates that no further bytes are required
     -- for a bus transfer.
@@ -830,7 +853,7 @@ begin
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- [DC] Data cache fill cycle.
                 elsif DC_FL_GO_I = '1' then
                     NEXT_BUS_CTRL_STATE <= IDLE; -- [DC] The cache is updated: look the next read up after it.
-                elsif PW_GO = '1' then
+                elsif PW_GO = '1' or RA_IGO = '1' then -- [F172] RA_IGO
                     NEXT_BUS_CTRL_STATE <= DATA_C1C4; -- [PH2-WP] Operand cycle after a posted write, S0 next.
                 elsif RD_REQ = '1' and SIZE_N = "000" then
                     NEXT_BUS_CTRL_STATE <= START_CYCLE; -- New read cycle.
@@ -992,7 +1015,7 @@ begin
         elsif OP_CHAIN_GO = '1' then
             PF_N := '0';
             FILL_N := '0';
-        elsif RA_GO = '1' then
+        elsif RA_GO = '1' or RA_IGO = '1' then -- [F172] RA_IGO
             PF_N := '0';
             FILL_N := '0';
         elsif DP_CHAIN_GO = '1' then
@@ -1023,7 +1046,9 @@ begin
             FCUR_N := F_CUR;
         end if;
 
-        if BUS_CTRL_STATE = IDLE or OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
+        if RA_IGO = '1' then
+            ALAT_N := RA_NADR; -- [F172]
+        elsif BUS_CTRL_STATE = IDLE or OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' then
             ALAT_N := ADR_NXT;
         elsif RA_GO = '1' then
             case OP_SIZE is
@@ -1352,6 +1377,29 @@ begin
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     RA_LD <= RA_GO;
+    -- [F172] MOVEM memory to register, one read always in flight (MC68030UM 11.6: 4 clocks per register on a
+    -- 2-clock bus). When a read-ahead is handed over to the control unit in its CALC_AEFF clock (held: RA_TAKE;
+    -- running and matched on its last edge) and the register list has a register after the requested one
+    -- (RA_MORE2), the next register's read starts from the following IDLE clock without START_CYCLE (IDLE -> S0,
+    -- as PW_GO), at the handed-over address + operand size with its function code. It is a read-ahead (RA_ACC):
+    -- held until requested, its data or bus error handed over on the matching request, dropped otherwise.
+    -- Only one read-ahead is ever outstanding (RA_HELD = '0' and no request in that clock), so the existing
+    -- one-slot DBUFFER / DATA_VALID hand-over and the F2 fault path are unchanged.
+    -- Also when any MOVEM read (read-ahead or demand) ends with its request present and no read-ahead chained on
+    -- this edge (RA_GO): the control unit waits for it in FETCH_OPERAND (RA_MORE) or asks for it now (RA_MORE2).
+    RA_DLV <= '1' when RA_DROP = '0' and RESET_CPU_I = '0' and BUSY_EXH = '0' and
+                       ((RA_TAKE = '1' and RA_MORE2 = '1') or
+                        (READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" and BUS_FLT = '0'
+                         and RA_GO = '0' and OP_RD = '1' and ADR_NXT = ADR_LAT and (RA_MORE = '1' or RA_MORE2 = '1'))) else '0';
+    RA_IGO <= '1' when F172_RA_IGO and RA_LP = '1' and BUS_CTRL_STATE = IDLE and OP_RD = '0' and OP_WR = '0' and RA_HELD = '0'
+                       and RMC = '0' and BUSY_EXH = '0' and SIZE_N = "000"
+                       and (DC_ON = '0' or CIIN_LAT = '0') and FILL_PEND = '0' and FILL_REQ = '0' and DC_FL_GO_I = '0' -- DC_DECIDE: no fill unless FILL_REQ
+                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0' and FILL_ACC = '0'
+                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
+                       and RETRY = '0' and RESET_CPU_I = '0' else '0';
+    RA_ILD <= RA_IGO;
+    RA_IADR <= RA_NADR;
+    RA_IFC <= RA_NFC;
     -- The read-ahead ends (data or bus error). The control unit asked for it (OP_RD at the matching address):
     -- DATA_RDY as for any read. Not asked yet: held. Asked for something else: dropped (never expected).
     RA_END <= '1' when RA_ACC = '1' and READ_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and BUS_CYC_RDY = '1' and SIZE_N = "000" else '0';
@@ -1364,9 +1412,18 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         RA_GO_D <= RA_GO;
+        RA_LP <= RA_DLV; -- [F172]
+        if RA_DLV = '1' then
+            RA_NFC <= FC_NXT;
+            case OP_SIZE is
+                when LONG => RA_NADR <= ADR_NXT + x"4";
+                when WORD => RA_NADR <= ADR_NXT + x"2";
+                when others => RA_NADR <= ADR_NXT + x"1";
+            end case;
+        end if;
         if RESET_CPU_I = '1' then
             RA_ACC <= '0';
-        elsif RA_GO = '1' then
+        elsif RA_GO = '1' or RA_IGO = '1' then -- [F172] RA_IGO
             RA_ACC <= '1';
         elsif RA_END = '1' or BUS_CTRL_STATE = IDLE then
             RA_ACC <= '0';
@@ -1868,7 +1925,7 @@ begin
         --
         -- The following variable is responsible, that the _RDY signals are
         -- always strobes.
-        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' or RA_GO = '1' then -- [PH2] [PH2-WP] First: a posted write's DATA_RDY can
+        if OP_CHAIN_GO = '1' or DP_CHAIN_GO = '1' or RA_GO = '1' or RA_IGO = '1' then -- [F172] RA_IGO [PH2] [PH2-WP] First: a posted write's DATA_RDY can
             RDY_VAR := '1';                                 -- be high on the chain edge (never the case before).
         elsif DATA_RDY_I = '1' and RA_GO_D = '1' then
             null; -- [F2] DATA_RDY of the read that rolled into the read-ahead: the read-ahead keeps its ready.
@@ -1953,7 +2010,7 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         assert (WP_GO = '1') = (WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
-                      WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
+                      ((WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1') or (F172_SP and STERM_In = '0')) and
                       BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
                       RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000")
             report "T9: WP_GO differs from the original decode" severity failure;
@@ -1963,7 +2020,7 @@ begin
     P_WP_DONE: process
     begin
         wait until CLK = '1' and CLK' event;
-        if WP_DONE = '1' and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then
+        if (WP_DONE = '1' or (F172_SP and WP_GO = '1')) and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then -- [F172_SP] a STERM write posts and ends in one clock
             WP_LAST <= '1'; -- Held through the IDLE clocks until the next cycle starts.
         elsif BUS_CTRL_STATE /= IDLE or NEXT_BUS_CTRL_STATE /= IDLE then
             WP_LAST <= '0';
@@ -2021,7 +2078,7 @@ begin
     -- slice counter working on the positive clock edge may change it's state.
     begin
         if CLK = '1' and CLK' event then
-            if BUS_CTRL_STATE = IDLE and PW_GO = '1' then
+            if BUS_CTRL_STATE = IDLE and (PW_GO = '1' or RA_IGO = '1') then -- [F172] RA_IGO
                 SLICE_CNT_P <= "000"; -- [PH2-WP] S0 in the next clock.
             elsif BUS_CTRL_STATE = IDLE then
                 SLICE_CNT_P <= "111"; -- Init.
