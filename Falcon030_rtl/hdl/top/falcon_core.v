@@ -24,8 +24,8 @@ module falcon_core (
     output wire [15:1] p_a,
     output wire        p_rw,
     output wire [15:0] p_wdata,
-    input  wire [7:0]  p_mfp_d, p_acia_d,
-    input  wire [15:0] p_dma_d,
+    input  wire [15:0] p_rdata,          // falcon_pbus.v latched read data
+    input  wire        p_done,           // falcon_pbus.v cycle finished
     output wire        p_iack_mfp,
     input  wire [7:0]  mfp_vector,
     input  wire        mfp_dtack,
@@ -66,6 +66,8 @@ module falcon_core (
         .STERMn(1'b1), .BRn(1'b1), .BGn(), .BGACKn(1'b1),
         .CIINn(cpu_ciin_n), .MMU_ON(), .CDISn(1'b1), .CBACKn(1'b1), .CBREQn(), .CIOUTn());
 
+    wire sel_videl, sel_nv_a, sel_nv_d, sel_ym, sel_mfp, sel_acia, sel_dma;
+    wire io_ext = sel_mfp || sel_acia || sel_dma;
     wire io_cyc, io_uds, io_lds, io_wr; wire [15:1] io_a; wire [15:0] io_wdata, io_rdata;
     falcon_bus bus (
         .clk(clk_cpu), .reset(reset),
@@ -75,16 +77,15 @@ module falcon_core (
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be), .mem_wdata(mem_wdata),
         .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_wr(io_wr), .io_wdata(io_wdata),
-        .io_rdata(io_rdata), .iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack));
+        .io_rdata(io_ext ? p_rdata : io_rdata), .io_ext(io_ext), .io_done(p_done), .iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack));
 
-    wire sel_videl, sel_nv_a, sel_nv_d, sel_ym, sel_mfp, sel_acia, sel_dma;
     wire [15:0] videl_d; wire [7:0] nv_d, ym_d;
     falcon_io io (
         .clk(clk_cpu), .reset(reset), .cyc(io_cyc), .a(io_a), .uds(io_uds), .lds(io_lds), .wr(io_wr),
         .din(io_wdata), .dout(io_rdata),
         .sel_videl(sel_videl), .sel_nvram_a(sel_nv_a), .sel_nvram_d(sel_nv_d), .sel_ym(sel_ym),
         .sel_mfp(sel_mfp), .sel_acia(sel_acia), .sel_dma(sel_dma),
-        .videl_d(videl_d), .nvram_d(nv_d), .ym_d(ym_d), .mfp_d(p_mfp_d), .acia_d(p_acia_d), .dma_d(p_dma_d),
+        .videl_d(videl_d), .nvram_d(nv_d), .ym_d(ym_d), .mfp_d(8'hFF), .acia_d(8'hFF), .dma_d(16'hFFFF),
         .fdc_hd(fdc_hd));
     assign p_sel_mfp = sel_mfp; assign p_sel_acia = sel_acia; assign p_sel_dma = sel_dma && !io_a[3];
     assign p_sel_dmaaddr = sel_dma && io_a[3];

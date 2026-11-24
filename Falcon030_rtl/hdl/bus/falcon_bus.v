@@ -48,6 +48,8 @@ module falcon_bus #(
     output reg         io_wr,         // one-clock write strobe
     output wire [15:0] io_wdata,
     input  wire [15:0] io_rdata,
+    input  wire        io_ext,        // this IO cycle goes to a clk_32 peripheral (falcon_pbus.v)
+    input  wire        io_done,       // ... which has finished it (data valid on io_rdata)
     output wire        iack_mfp,      // level 6 IACK in progress
     input  wire [7:0]  mfp_vector,
     input  wire        mfp_dtack      // MFP supplies its vector
@@ -111,7 +113,7 @@ module falcon_bus #(
             end
             S_IO: begin
                 wcnt <= wcnt + 4'd1;
-                if (wcnt == IO_WAIT - 1) begin
+                if (io_ext ? io_done : (wcnt == IO_WAIT - 1)) begin
                     cpu_din <= {io_rdata, io_rdata}; io_wr <= !cpu_rw; cpu_dsack_n <= 2'b01; state <= S_END;
                 end
             end
