@@ -15,19 +15,33 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
-## Status (23 Nov 2026, main)
+## Status (24 Nov 2026, main)
 
-Current core: **F169** (speed `7dbefeb`). Flash 0 still holds **F166** (`f3a2574`); F169 has been tested from
-SRAM only and has not been written to flash. clk_cpu030 Fmax 16.008 MHz / 43 levels (16 MHz target; F168 was
+Current core: **F170** (speed `8968788`), in flash 0 (written 24 Nov 2026 06:33-06:35 UK, verified).
+clk_cpu030 Fmax 17.516 MHz / 32 levels (16 MHz target; F169 was 16.008 MHz / 43 levels), clk32_core 35.461 MHz,
+46274 LUT + 5464 ALU, timing_pairs passes, Gowin V1.9.12.03. Bitstream md5 `a44381ac65b79245c4c147d71eb7c18b`.
+TOS 2.06 from SRAM and from flash 0 reaches the GEM desktop and the A: window (`193628 bytes used in 7 items`).
+EmuTOS 1.4 (desktop and A: window) and Linux (`linux68k30.st` to `#`, `uname` prints Linux, 2.96 BogoMIPS) were
+verified on F170 from SRAM (23 Nov). LOOPTEST ST-RAM 325203 and TT-RAM I-cache 1960784 match F166; TT-RAM caches
+off is 557103 against F166's 558659 (0.28% slower, still to investigate). F170 starts an operand write from IDLE
+via `PW_GO` after any cycle (`F170_WR_GO`) and chains a posted write's S5 into the next operand read
+(`F170_RW_GO` / `F170_RW_Q`): memory-to-memory MOVE and RMW ALU ops each lose 2 clocks (17 of 98 survey rows
+faster, none slower; total 1266.0 against the manual's 1059, ratio 1.195, F169 was 1290.5). LINK/UNLK is 14
+(was 15). Next, in order: the remaining memory MOVE gap (still about 3 clocks over the manual), large MOVEM,
+JSR/BSR/RTS, RTE, the bus bridge check, and the uncached TT-RAM LOOPTEST check. Front
+[`README.md`](../README.md#identified-to-do).
+
+## Status (23 Nov 2026, history)
+
+Current core: **F169** (speed `7dbefeb`). Flash 0 still held **F166** (`f3a2574`); F169 was tested from
+SRAM only and was not written to flash. clk_cpu030 Fmax 16.008 MHz / 43 levels (16 MHz target; F168 was
 17.349 MHz / 35 levels), clk32_core 32.009 MHz, 46265 LUT + 5468 ALU, timing_pairs passes, Gowin V1.9.12.03.
 Bitstream md5 `b85723aca57150a6f8e035a3828af4bc`. TOS 2.06 from SRAM reaches the GEM desktop and the A: window
 (`193628 bytes used in 7 items`). EmuTOS 1.4 and Linux were last verified on F166 (19 Nov), not re-run on F169.
 F167 cut `LINK`/`UNLK` from 20 clocks to 15 (manual 9). F167/F168 hung at the TOS 2.06 busy bee in user mode
 (coincident UNMARK/AR_MARK_USED dropped MSBIT to the ISP, and UNLK SWITCH could write ALU_RESULT into SP);
 F169 fixes that (MSBIT mark-over-unmark and `UNLK_SW` AR_IN_1 select) with no cycle change. Cycle survey vs the
-MC68030 manual (98 rows): 1290.5 clocks against 1059 (7 faster, 19 equal, 72 slower). Next, in order: the
-memory-operand MOVE read-to-write gap, large MOVEM, JSR/BSR/RTS, RTE, the bus bridge check, and Fmax margin
-recovery for F169. Front [`README.md`](../README.md#identified-to-do).
+MC68030 manual (98 rows): 1290.5 clocks against 1059 (7 faster, 19 equal, 72 slower).
 
 ## Status (19 Nov 2026, history)
 

@@ -96,7 +96,8 @@ Each entry gives the symptom, the cause, the fix or current status, and the comm
   because the core refetches $10004 before the exception and that fetch faults too: SSW $2005 -> $3005).
 
 - **LINK/UNLK user-mode SP hang (F167/F168, fixed F169, 23 Nov 2026).** *Symptom:* TOS 2.06 on the board hung at the white screen with the busy bee after ROM init (AES/desktop). F166 from SRAM reached the desktop on the same disk; F167 (`ef70457`) and F168 (`d4589b9`) both hung, so it was not a marginal-timing issue. *Cause:* since F167_LU_GO, UNLK can enter SWITCH in the last clock of a previous memory WRITE_DEST. Two bugs then showed up only in user mode: (1) `address_registers` P_IN_USE gave UNMARK priority over a coincident AR_MARK_USED, so MSBIT reset to `"01"` (ISP) and the UNLK An->SP write went to the ISP while USP kept the old SP; (2) in that same SWITCH clock DATA_WR had already dropped while ALU_BSY was still 1, so the F167 AR_IN_1 term picked ALU_RESULT (the previous MOVE's data, e.g. `$B`) as the new SP. Supervisor-mode code is unaffected (MSBIT `"01"` is right there), which is why every earlier sim missed it. *Fix (F169, `7dbefeb`):* MSBIT priority is RESET > AR_MARK_USED > UNMARK (AR_USED keeps the old UNMARK priority); control raises `UNLK_SW` while UNLK is in SWITCH_STATE, and top selects AR_OUT_1 for AR_IN_1 whenever `UNLK_SW` is set. Cycle counts unchanged (LINK/UNLK stays 15). Reproduced and checked with `lu_stress` in user and supervisor mode, wait states, random WS and IRQs. Board: F169 from SRAM reaches the TOS 2.06 desktop and the A: window (`193628 bytes used in 7 items`). *Lesson:* sims must include user-mode runs; SRAM-test TOS desktop before flashing.
-- **F168 Fmax recovery (23 Nov 2026).** *Symptom:* F167 dropped clk_cpu030 to 16.00 MHz / 49 levels (F166 was 16.738 / 45). *Change (F168, `d4589b9`):* `F168_LU_Q` registered and factored the LINK/UNLK qualifiers (OP_IS_LINK / OP_IS_UNLK, LU_HOLD, UNLK_FO_Q) with no cycle change; clk_cpu030 closed at 17.349 MHz / 35 levels. F168 still carried the F167 hang, so it was never a release candidate. F169's hang fix brought the official Fmax back to 16.008 MHz / 43 levels (constraint still met). A cycle-neutral recovery is proposed, not yet built. *Lesson:* an Fmax-only change on top of un-gated logic must be SRAM-tested on the board for functional bugs, not only timed in P&R.
+- **F168 Fmax recovery (23 Nov 2026).** *Symptom:* F167 dropped clk_cpu030 to 16.00 MHz / 49 levels (F166 was 16.738 / 45). *Change (F168, `d4589b9`):* `F168_LU_Q` registered and factored the LINK/UNLK qualifiers (OP_IS_LINK / OP_IS_UNLK, LU_HOLD, UNLK_FO_Q) with no cycle change; clk_cpu030 closed at 17.349 MHz / 35 levels. F168 still carried the F167 hang, so it was never a release candidate. F169's hang fix brought the official Fmax back to 16.008 MHz / 43 levels (constraint still met). F170 later closed at 17.516 MHz / 32 levels. *Lesson:* an Fmax-only change on top of un-gated logic must be SRAM-tested on the board for functional bugs, not only timed in P&R.
+- **F170 memory-operand MOVE / RMW (23-24 Nov 2026).** *Change (F170, `8968788`):* `F170_WR_GO` lets `PW_GO` start an operand write from IDLE after any cycle; `F170_RW_GO` / `F170_RW_Q` chain a posted write's S5 into the next instruction's operand read. Memory-to-memory MOVE and RMW ALU ops each lose 2 clocks (`move.l (An),(An)` 12 to 10, `add.l Dn,(An)` 12 to 10); 17 of 98 survey rows faster, none slower; total 1266.0 against the manual's 1059 (ratio 1.195). clk_cpu030 17.516 MHz / 32 levels, 46274 LUT + 5464 ALU. SRAM gates passed (TOS 2.06, EmuTOS, LOOPTEST, Linux); written to flash 0 on 24 Nov 2026 06:33-06:35 UK, verified. Open: uncached TT-RAM LOOPTEST 557103 against F166 558659 (0.28% slower). *Lessons:* (1) update `run_verify.sh` exact-count gates when an intended cycle change lands, or the script prints `VERIFY_INCOMPLETE` / `SVY_FAIL` / `ICACHE_FAIL` on a real speedup (F170 LINK/UNLK 15 to 14, icache DONE 3 clocks faster); (2) a sim shell that exported `WORKDIR=/tmp/w169` silently ran the survey on the old core — pin `WORKDIR` to the build under test inside the verify script.
 
 ### Debug tooling
 
@@ -663,3 +664,17 @@ Process lessons from the F167 LINK/UNLK hang, the F168 Fmax work, and the F169 f
    grab in a loop.
 8. **Fmax fixes must be retested on the board for logic bugs.** F168 recovered clk_cpu030 (17.349 MHz) on top of
    F167's LINK/UNLK logic and inherited the hang. A timing-only close is not a functional close.
+
+## LESSONS_LEARNED (F170, 23-24 Nov 2026)
+
+Process lessons from the F170 memory-operand MOVE / RMW work and its verify run.
+
+1. **Update `run_verify.sh` exact-count gates when an intended cycle change lands.** F170 made 17 survey rows
+   faster (LINK/UNLK 15 to 14 as a side effect) and the icache unit test DONE counts 3 clocks faster (5736/6680
+   against the script's F169 5739/6683). The functional tests passed, but the script still printed `SVY_FAIL`,
+   `ICACHE_FAIL` and `VERIFY_INCOMPLETE` because `wave_svy.ok` and `wave_icache.ok` were not stamped. Review
+   faster-is-allowed results by hand, then update the gates so a later run does not look like a failure.
+2. **Do not leave `WORKDIR` exported to an old core in the sim shell.** A survey started with `WORKDIR=/tmp/w169`
+   still in the environment silently ran against F169, so the C-only F170 result was invalid. `run_verify.sh`
+   must export `WORKDIR` for the build under test itself; check the workdir path in the log before trusting a
+   survey total.
