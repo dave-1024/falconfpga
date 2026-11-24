@@ -3,10 +3,10 @@
 # Template: Atarist_030_wip/build_st_helper.tcl. No seed sweeps, no relaxed constraints.
 # timing_pairs must pass; clk_cpu030 floor 16 MHz. Output: impl/pnr/falcon.fs.
 #
-# falcon_top.sv is still NEXT (copy console138k/top.sv, replace misterynano with
-# falcon_core + falcon_pbus + falcon_sdram_arb + falcon_scanout + tos_loader +
-# ST mfp/acia/ikbd + falcon_fdc, HDMI from the scanout, OSD XML "TOS ROM").
-# This file list is ready for that top.
+# falcon_top.sv + falcon_soc.v are in. HDMI is scanout -> hdmi_640 (own 25.2 MHz
+# PLL). Helper SPI/sysctrl/sd_card are in the top; TOS ROM is sd_card image 4.
+# MFP/ACIA/IKBD/FDC/falcon_pbus are still NEXT (CPU peri bus is stub-acked).
+# SDC: Falcon030_rtl/hdl/top/falcon.sdc (not the ST helper SDC).
 
 set ST "Atarist_030_wip"
 set F  "Falcon030_rtl"
@@ -23,6 +23,7 @@ set_device GW5AST-LV138PG484AC1/I0 -device_version C
 
 # Falcon fabric
 add_file $F/hdl/top/falcon_top.sv
+add_file $F/hdl/top/falcon_soc.v
 add_file $F/hdl/top/falcon_core.v
 add_file $F/hdl/top/tos_loader.v
 add_file $F/hdl/bus/falcon_bus.v
@@ -117,7 +118,7 @@ add_file $ST/hdl/tang/console138k/st_helper_osd.v
 add_file $ST/hdl/tang/console138k/usb_hid_host.v
 add_file $ST/hdl/tang/console138k/usb_hid_host_rom.hex
 add_file $ST/hdl/tang/console138k/atarist_st_helper.cst
-add_file $ST/hdl/tang/console138k/atarist_st_helper.sdc
+add_file $F/hdl/top/falcon.sdc
 
 set_option -synthesis_tool gowinsynthesis
 set_option -output_base_name falcon
@@ -167,5 +168,5 @@ set_option -co-place_io_registers 0
 set_option -replicate_resources 1
 set_option -show_init_in_vo 0
 
-# Do not run until falcon_top.sv exists (NEXT). Uncomment then:
+# Uncomment for a linserver V1.9.12.03 board build (timing_pairs must pass).
 # run all
