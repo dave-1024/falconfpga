@@ -3,8 +3,9 @@
 // Based on Atarist_030_wip/hdl/tang/console138k/atarist_st_helper.sdc.
 // Differences: HDMI clocks are on pll_hdmi640 / clkdiv_hdmi640 (not hdmi_tp);
 // the ST-bridge MMU multicycle (misterynano/atarist/cpu030/...) is dropped
-// (no ST bus bridge); i2s_bclk_d is omitted (that net is not in falcon_top).
-// pll_160m is still instanced as pll_hdmi; clk32_core / clk_cpu030 are unchanged.
+// (no ST bus bridge). pll_160m is still instanced as pll_hdmi; clk32_core /
+// clk_cpu030 are unchanged. i2s_bclk_d is the Gowin name for the clk32/20
+// I2S divider (RTL clk_audio); keep the same generated-clock as the ST SDC.
 // Gowin V1.9.12.03. timing_pairs must pass; clk_cpu030 floor 16 MHz.
 
 //Copyright (C)2014-2024 GOWIN Semiconductor Corporation.
@@ -125,7 +126,10 @@ set_clock_groups -asynchronous -group [get_clocks {ddr3_sysclk}] -group [get_clo
 // (clk32 / 20) and DualShock2 SPI clock (clk32 / 252). Generated from
 // clk32_core so the paths into and out of them are timed with the true
 // relation instead of as unrelated clocks.
-// i2s_bclk_d is not a net in falcon_top.sv (the I2S clock is the i2s_bclk port / clk_audio).
+// Gowin names the I2S divider net i2s_bclk_d (RTL: clk_audio, assigned to
+// the i2s_bclk port). Omitting this clock left it as a 100 MHz default
+// with no async group vs HDMI 126 MHz (TA1132 on the first PnR).
+create_generated_clock -name i2s_bclk_d -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}] -master_clock clk32_core -divide_by 20 [get_nets {i2s_bclk_d}]
 create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}] -master_clock clk32_core -divide_by 252 [get_nets {ds2_p1/clk_spi}]
 
 // Groups for the new clocks. The AE350-side clocks (flash SCK, spi_io_clk,
@@ -133,9 +137,9 @@ create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_i
 // mux described above and in the AE350 group line further up; the clk32
 // dividers only meet the HDMI 640 domain through the existing frame-buffer
 // crossing.
-set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
 set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
-set_clock_groups -asynchronous -group [get_clocks {ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
+set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
 
 // ---------------------------------------------------------------------------
 // clk_g: the 50 MHz board clock after the DCE global buffer in top.sv (fabric
