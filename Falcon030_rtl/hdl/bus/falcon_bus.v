@@ -43,10 +43,11 @@ module falcon_bus #(
     input  wire [15:0] mem_rdata,
     // IO byte/word port to the peripherals (falcon_io.v)
     output wire        io_cyc,        // valid IO cycle in progress (whitelisted)
-    output wire [15:1] io_a,          // $FF8000 + ..
-    output wire        io_uds, io_lds,
+    output reg  [15:1] io_a,          // $FF8000 + .., latched with the cycle
+    output reg         io_uds, io_lds,
+    output reg         io_rw,         // latched R/W (1 = read)
     output reg         io_wr,         // one-clock write strobe
-    output wire [15:0] io_wdata,
+    output reg  [15:0] io_wdata,
     input  wire [15:0] io_rdata,
     input  wire        io_ext,        // this IO cycle goes to a clk_32 peripheral (falcon_pbus.v)
     input  wire        io_done,       // ... which has finished it (data valid on io_rdata)
@@ -87,10 +88,13 @@ module falcon_bus #(
     wire        mem_we_c    = !cpu_rw && is_ram;
     wire [1:0]  mem_be_c    = {uds, lds};
     wire [15:0] mem_wdata_c = cpu_dout[31:16];        // the core drives a 16-bit port on D31:16
-    assign io_a      = r[15:1];
-    assign io_uds    = uds;
-    assign io_lds    = lds;
-    assign io_wdata  = cpu_dout[31:16];
+    // io_a/uds/lds/rw are latched on the S_IDLE -> S_IO edge so the clk32
+    // peripheral sub-bus (pbus, MFP, ACIAs, falcon_fdc -> arbiter dma_d) sees a
+    // registered CDC, not the combo MMU PA / decode cone. 9bd249a still failed
+    // clk_cpu030 -> clk32_core setup (-8.0 ns, FILL_ACC -> mem_a_c -> videl/io/
+    // pbus -> sd_din) because those IO signals were left combinational.
+    // io_wdata is sampled again in S_IO so a 030 write that presents data after
+    // AS is still captured well before the clk32 write strobe.
     assign iack_mfp  = state == S_IACK && cpu_a[3:1] == 3'd6;
     assign io_cyc    = state == S_IO;
 
@@ -102,6 +106,7 @@ module falcon_bus #(
         if (reset) begin
             state <= S_IDLE; mem_req <= 1'b0;
             mem_a <= 23'd0; mem_we <= 1'b0; mem_be <= 2'b00; mem_wdata <= 16'd0;
+            io_a <= 15'd0; io_uds <= 1'b0; io_lds <= 1'b0; io_rw <= 1'b1; io_wdata <= 16'd0;
             cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1;
         end else case (state)
             S_IDLE: if (!cpu_as_n) begin
@@ -116,13 +121,18 @@ module falcon_bus #(
                         state <= S_MEM;
                     end
                 end else if (is_cart) begin cpu_din <= 32'hFFFFFFFF; cpu_dsack_n <= 2'b01; state <= S_END; end
-                else if (io_ok) state <= S_IO;
+                else if (io_ok) begin
+                    io_a <= r[15:1]; io_uds <= uds; io_lds <= lds;
+                    io_rw <= cpu_rw; io_wdata <= cpu_dout[31:16];
+                    state <= S_IO;
+                end
                 else begin cpu_berr_n <= 1'b0; state <= S_END; end
             end
             S_MEM: if (mem_ack) begin
                 mem_req <= 1'b0; cpu_din <= {mem_rdata, mem_rdata}; cpu_dsack_n <= 2'b01; state <= S_END;
             end
             S_IO: begin
+                io_wdata <= cpu_dout[31:16];
                 wcnt <= wcnt + 4'd1;
                 if (io_ext ? io_done : (wcnt == IO_WAIT - 1)) begin
                     cpu_din <= {io_rdata, io_rdata}; io_wr <= !cpu_rw; cpu_dsack_n <= 2'b01; state <= S_END;

@@ -112,6 +112,13 @@ clk_cpu edge as `mem_req`. The combo path from the 030 MMU physical address thro
 that relation by 6.2 ns (`timing_pairs` clk_cpu030 -> clk32_core setup). Functional latency is
 unchanged: the latch is the same edge that already raised `mem_req`.
 
+The IO port of `falcon_bus.v` (address, UDS/LDS, R/W, write data) is latched the
+same way on the S_IDLE -> S_IO edge (write data is sampled again in S_IO, in case
+the 030 presents it after AS). 9bd249a still failed the same clock pair (-8.0 ns,
+FILL_ACC through `mem_a_c` and the videl/io/pbus decode into `sd_din`) because
+those signals were left combinational and fan into `falcon_fdc` / `dma.v`
+(`dma_dout` is the arbiter's `dma_d`).
+
 The ST port in `sdram.v` was bank 0 only (8 MB). A backward-compatible `st_ba` input was added (the ST build
 ties it to `2'b00`; ST benches updated to match). Falcon maps 16 MB across banks 0 and 1: bank = `{1'b0, byte A23}`,
 word address = A22:A1, which covers 14 MB ST-RAM plus the TOS copy at $E00000.

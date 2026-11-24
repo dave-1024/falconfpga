@@ -71,7 +71,7 @@ module falcon_core (
 
     wire sel_videl, sel_nv_a, sel_nv_d, sel_ym, sel_mfp, sel_acia, sel_dma;
     wire io_ext = sel_mfp || sel_acia || sel_dma;
-    wire io_cyc, io_uds, io_lds, io_wr; wire [15:1] io_a; wire [15:0] io_wdata, io_rdata;
+    wire io_cyc, io_uds, io_lds, io_wr, io_rw; wire [15:1] io_a; wire [15:0] io_wdata, io_rdata;
     falcon_bus bus (
         .clk(clk_cpu), .reset(reset),
         .cpu_a(cpu_a), .cpu_dout(cpu_dout), .cpu_din(cpu_din), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n),
@@ -79,7 +79,7 @@ module falcon_core (
         .cpu_avec_n(cpu_avec_n),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be), .mem_wdata(mem_wdata),
         .mem_ack(mem_ack), .mem_rdata(mem_rdata),
-        .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_wr(io_wr), .io_wdata(io_wdata),
+        .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_rw(io_rw), .io_wr(io_wr), .io_wdata(io_wdata),
         .io_rdata(io_ext ? p_rdata : io_rdata), .io_ext(io_ext), .io_done(p_done), .iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack));
 
     wire [15:0] videl_d; wire [7:0] nv_d, ym_d;
@@ -92,7 +92,7 @@ module falcon_core (
         .fdc_hd(fdc_hd));
     assign p_sel_mfp = sel_mfp; assign p_sel_acia = sel_acia; assign p_sel_dma = sel_dma && !io_a[3];
     assign p_sel_dmaaddr = sel_dma && io_a[3];
-    assign p_a = io_a; assign p_rw = cpu_rw; assign p_wdata = io_wdata;
+    assign p_a = io_a; assign p_rw = io_rw; assign p_wdata = io_wdata;
 
     falcon_nvram nvram (.clk(clk_cpu), .reset(reset), .sel_addr(sel_nv_a), .sel_data(sel_nv_d), .wr(io_wr),
         .din(io_wdata[7:0]), .dout(nv_d));
