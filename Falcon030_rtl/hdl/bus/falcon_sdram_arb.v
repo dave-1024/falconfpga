@@ -85,7 +85,7 @@ module falcon_sdram_arb (
             ph <= 3'd0; win <= WIN_NONE; refdiv <= 4'd15;
             sd_cs <= 1'b0; sd_we <= 1'b0; sd_refresh <= 1'b0; sd_rd2 <= 1'b0;
             sd_ds <= 2'b00; sd_addr <= 22'd0; sd_ba <= 2'b00; sd_din <= 16'd0;
-            vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0;
+            vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0; cpu_q <= 16'd0;
             vid_burst <= 1'b0;
         end else begin
             if (vid_ack && !vid_req) vid_ack <= 1'b0;
@@ -138,23 +138,26 @@ module falcon_sdram_arb (
                 end
             end
 
+            // Burst word 2 is one clock later (phase 6).
             // dout is written by sdram.v on the STATE_READ edge (phase 4);
-            // it is visible here on the next edge (phase 5). Ack writes then too.
-            // dout is written by sdram.v on the STATE_READ edge (phase 4);
-            // it is visible here on the next edge (phase 5). Burst word 2 is
-            // one clock later (phase 6).
+            // it is visible here on the next edge (phase 5). For the CPU port,
+            // present data at phase 5 and raise ack at phase 6 so a clk_cpu
+            // flop that samples ack on the same edge still sees data that is
+            // at least one clk32 (31.25 ns) old. clk_cpu rising coincides with
+            // a clk32 edge; ph versus that edge is not fixed (ram_ready release).
             if (ph == 3'd5) begin
                 case (win)
                     WIN_VID: begin vid_q <= sd_dout; if (!vid_burst) vid_ack <= 1'b1; end
                     WIN_DMA: begin dma_q <= sd_dout; dma_ack <= 1'b1; end
                     WIN_LD:  begin ld_ack <= 1'b1; end
-                    WIN_CPU: begin cpu_q <= sd_dout; cpu_ack <= 1'b1; end
+                    WIN_CPU: begin cpu_q <= sd_dout; end
                     default: ;
                 endcase
             end
             if (ph == 3'd6 && win == WIN_VID && vid_burst) begin
                 vid_q2 <= sd_dout2; vid_ack <= 1'b1; sd_rd2 <= 1'b0;
             end
+            if (ph == 3'd6 && win == WIN_CPU) cpu_ack <= 1'b1;
         end
     end
 endmodule

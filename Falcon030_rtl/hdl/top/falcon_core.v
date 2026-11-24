@@ -60,7 +60,11 @@ module falcon_core (
     output wire [15:0] dbg_hht,
     output wire [15:0] dbg_vft,
     output wire [15:0] dbg_spshift,
-    output wire [7:0]  dbg_shmode
+    output wire [7:0]  dbg_shmode,
+    // First 8 bus cycles after reset (any FC): {addr[23:0], data[15:0],
+    // berr, ack_early, rw, siz[1:0], fc[2:0]} per cycle, 48 bits each.
+    output reg  [383:0] dbg_cycs,
+    output reg  [3:0]   dbg_ncyc
 );
     wire [31:0] cpu_a, cpu_dout, cpu_din;
     wire        cpu_as_n, cpu_ds_n, cpu_rw, cpu_rmc_n, cpu_reset_out;
@@ -103,6 +107,45 @@ module falcon_core (
                 dbg_io_data <= io_wdata;
             end
         end
+    end
+
+    // First 8 bus cycles (every FC, not just program space). Address is
+    // sampled on AS falling; data and termination on the first DSACK or BERR
+    // of that cycle. ack_early is mem_ack already high when AS fell (leftover).
+    reg        cyc_as_d, cyc_dsack_d, cyc_pend, cyc_early;
+    reg [23:0] cyc_a;
+    reg [2:0]  cyc_fc;
+    reg [1:0]  cyc_siz;
+    reg        cyc_rw;
+    reg [47:0] cycs [0:7];
+    integer    ci;
+    always @(posedge clk_cpu) begin
+        cyc_as_d    <= cpu_as_n;
+        cyc_dsack_d <= &cpu_dsack_n;
+        if (reset) begin
+            for (ci = 0; ci < 8; ci = ci + 1) cycs[ci] <= 48'd0;
+            dbg_ncyc     <= 4'd0;
+            cyc_pend     <= 1'b0;
+            cyc_as_d     <= 1'b1;
+            cyc_dsack_d  <= 1'b1;
+        end else if (dbg_ncyc < 4'd8) begin
+            if (cyc_as_d && !cpu_as_n) begin
+                cyc_a     <= cpu_a[23:0];
+                cyc_fc    <= cpu_fc;
+                cyc_siz   <= cpu_siz;
+                cyc_rw    <= cpu_rw;
+                cyc_early <= mem_ack;
+                cyc_pend  <= 1'b1;
+            end else if (cyc_pend && ((cyc_dsack_d && !(&cpu_dsack_n)) || (berr_d && !cpu_berr_n))) begin
+                cycs[dbg_ncyc] <= {cyc_a, cpu_din[31:16],
+                                   (berr_d && !cpu_berr_n), cyc_early, cyc_rw, cyc_siz, cyc_fc};
+                dbg_ncyc <= dbg_ncyc + 4'd1;
+                cyc_pend <= 1'b0;
+            end
+        end
+    end
+    always @(*) begin
+        dbg_cycs = {cycs[7], cycs[6], cycs[5], cycs[4], cycs[3], cycs[2], cycs[1], cycs[0]};
     end
 
     WF68K30L_TOP #(.CLK_N_EXT(1), .CACHES(0), .WA_ADR_HI(1), .FAST_HANDOFF(1)) cpu (

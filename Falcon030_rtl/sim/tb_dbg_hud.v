@@ -16,6 +16,7 @@ module tb_dbg_hud;
         .fetch_count(16'h00AB),
         .planes(4'd4), .linebytes(12'h140), .height(10'd480),
         .hdbl(1'b0), .vdbl(1'b0), .frame(8'h3C),
+        .cycs(384'h0), .ncyc(4'd0),
         .hit(hit), .r(r), .g(g), .b(b)
     );
 
@@ -23,8 +24,8 @@ module tb_dbg_hud;
     initial begin
         errors = 0;
         // outside the strip
-        cx = 10'd0; cy = 10'd24; #1;
-        if (hit !== 1'b0) begin $display("FAIL: hit at y=24"); errors = errors+1; end
+        cx = 10'd0; cy = 10'd56; #1;
+        if (hit !== 1'b0) begin $display("FAIL: hit at y=56"); errors = errors+1; end
         // navy background of a space cell (row 0, col 9 = x=72, between PC and IO)
         cx = 10'd72; cy = 10'd3; #1;
         if (hit !== 1'b1) begin $display("FAIL: miss in strip"); errors = errors+1; end

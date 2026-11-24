@@ -84,7 +84,13 @@ module falcon_bus #(
     // the arbiter then sees a registered CDC into clk32 (31.25 ns). Leaving them
     // combinational missed that relation by 6.2 ns on 56d6a85 (PF_ACC -> MMU PA
     // -> sd_din, 37.4 ns data delay).
-    wire [23:1] mem_a_c     = is_vec ? {20'hE0000, a24[2:1]} : a24[23:1];
+    // Vector mirror: $000000-$000007 reads map to $E00000+A2:A1. ram_a / mem_a
+    // are [23:1] (23 bits). The previous concat {20'hE0000, A2:A1} was only 22
+    // bits and zero-extended, so A23 was 0 and the read landed at $700000
+    // (ST-RAM, zeros) instead of the TOS copy. That loaded PC=0, the 030
+    // prefetched $000000/$00000002, and HALTed. Same prefix as tos_loader:
+    // {5'b11100, ...} = $E00000.
+    wire [23:1] mem_a_c     = is_vec ? {5'b11100, 16'd0, a24[2:1]} : a24[23:1];
     wire        mem_we_c    = !cpu_rw && is_ram;
     wire [1:0]  mem_be_c    = {uds, lds};
     wire [15:0] mem_wdata_c = cpu_dout[31:16];        // the core drives a 16-bit port on D31:16
@@ -98,7 +104,18 @@ module falcon_bus #(
     assign iack_mfp  = state == S_IACK && cpu_a[3:1] == 3'd6;
     assign io_cyc    = state == S_IO;
 
-    localparam S_IDLE = 3'd0, S_MEM = 3'd1, S_IO = 3'd2, S_IACK = 3'd3, S_END = 3'd4, S_WEND = 3'd5;
+    localparam S_IDLE = 3'd0, S_MEM = 3'd1, S_IO = 3'd2, S_IACK = 3'd3,
+               S_END = 3'd4, S_WEND = 3'd5, S_WAITACK = 3'd6;
+    // clk32 ack/data into clk_cpu. The arbiter writes cpu_q one clk32 before
+    // cpu_ack, so a coincident-edge sample of ack still has stable data.
+    // A leftover ack (still high from the previous word) is not accepted:
+    // wait for it to fall, then raise mem_req.
+    reg        mem_ack_s;
+    reg [15:0] mem_rdata_s;
+    always @(posedge clk) begin
+        mem_ack_s <= mem_ack;
+        if (mem_ack) mem_rdata_s <= mem_rdata;
+    end
     reg [2:0] state;
     reg [3:0] wcnt;
     always @(posedge clk) begin
@@ -115,10 +132,11 @@ module falcon_bus #(
                 else if (is_ram || is_rom || is_vec) begin
                     if (!cpu_rw && !is_ram) begin cpu_dsack_n <= 2'b01; state <= S_WEND; end  // ROM write: dropped
                     else begin
-                        mem_req <= 1'b1;
                         mem_a <= mem_a_c; mem_we <= mem_we_c;
                         mem_be <= mem_be_c; mem_wdata <= mem_wdata_c;
-                        state <= S_MEM;
+                        // 4-phase: do not raise req while a leftover ack is still high
+                        if (mem_ack_s) state <= S_WAITACK;
+                        else begin mem_req <= 1'b1; state <= S_MEM; end
                     end
                 end else if (is_cart) begin cpu_din <= 32'hFFFFFFFF; cpu_dsack_n <= 2'b01; state <= S_END; end
                 else if (io_ok) begin
@@ -128,8 +146,9 @@ module falcon_bus #(
                 end
                 else begin cpu_berr_n <= 1'b0; state <= S_END; end
             end
-            S_MEM: if (mem_ack) begin
-                mem_req <= 1'b0; cpu_din <= {mem_rdata, mem_rdata}; cpu_dsack_n <= 2'b01; state <= S_END;
+            S_WAITACK: if (!mem_ack_s) begin mem_req <= 1'b1; state <= S_MEM; end
+            S_MEM: if (mem_ack_s) begin
+                mem_req <= 1'b0; cpu_din <= {mem_rdata_s, mem_rdata_s}; cpu_dsack_n <= 2'b01; state <= S_END;
             end
             S_IO: begin
                 io_wdata <= cpu_dout[31:16];

@@ -111,6 +111,17 @@ clk_cpu edge as `mem_req`. The combo path from the 030 MMU physical address thro
 `sd_din` is then a registered CDC into clk32 (31.25 ns). On 56d6a85 the combinational version missed
 that relation by 6.2 ns (`timing_pairs` clk_cpu030 -> clk32_core setup). Functional latency is
 unchanged: the latch is the same edge that already raised `mem_req`.
+The return path is the other way: the arbiter writes `cpu_q` at slot phase 5 and
+raises `cpu_ack` at phase 6 (data at least one clk32 old), and `falcon_bus`
+samples both on clk_cpu. A leftover ack still high from the previous word is
+not accepted (wait for it to fall, then raise `mem_req`), the same 4-phase
+rule as the TOS loader.
+
+CPU and `falcon_bus` reset is generated in clk_cpu, like `cpu030_st_bridge.v`:
+the clk32 `por` / `cpu_reset` / `user_reset` sources are 2-flop synchronised
+and RESET_INn / HALT_INn stay low for 128 clk_cpu cycles after they fall.
+Releasing those pins on a clk32 tick that is `clk_cpu_n` (the in-between
+edge) would let the two halves of WF68K30L leave reset a half-cycle apart.
 
 The IO port of `falcon_bus.v` (address, UDS/LDS, R/W, write data) is latched the
 same way on the S_IDLE -> S_IO edge (write data is sampled again in S_IO, in case
@@ -122,6 +133,10 @@ those signals were left combinational and fan into `falcon_fdc` / `dma.v`
 The ST port in `sdram.v` was bank 0 only (8 MB). A backward-compatible `st_ba` input was added (the ST build
 ties it to `2'b00`; ST benches updated to match). Falcon maps 16 MB across banks 0 and 1: bank = `{1'b0, byte A23}`,
 word address = A22:A1, which covers 14 MB ST-RAM plus the TOS copy at $E00000.
+The vector-mirror address must be the same 23-bit `{A23:A1}` as `tos_loader`
+(`{5'b11100, A2:A1}` for $E00000). A 22-bit `{20'hE0000, A2:A1}` zero-extends
+and drops A23, so reset-vector reads landed at $700000 (zeros) and the 030
+halted with PC=0 (c518b4c HUD).
 
 Bandwidth: a Falcon-only page-mode burst-2 read (`st_rd2`, default 0) issues a second CAS of addr+1 in the
 same 8-clock slot, MODE stays burst-length 1. The ST build ties `st_rd2` to 0; a compare of the new

@@ -8,7 +8,7 @@
 // shows this strip, so one HDMI grab tells us whether TOS is running, hung,
 // or running with a video-register / scanout problem.
 //
-// Layout, 8x8 cells, y=0..23 (three rows), navy background:
+// Layout, 8x8 cells, y=0..55 (seven rows), navy background:
 //   Row 0 y=0..7
 //     x=0..7     cyan bar            PC (last instruction-fetch address)
 //     x=8..71    8 hex  pc[31:0]
@@ -46,6 +46,9 @@
 //          x=176..183 blue bar + 1 hex planes + 3 hex linebytes + 3 hex height,
 //          x=248..255 hdbl (white/dark), x=264..271 vdbl,
 //          x=280..287 grey bar + 2 hex frame counter.
+//   Rows 3..6 y=24..55  first 8 bus cycles, two per row (0,1 / 2,3 / 4,5 / 6,7):
+//     each cycle: teal/orange bar, 6 hex addr, 4 hex data, 2 hex flags
+//     flags = {berr, ack_early, rw, siz[1:0], fc[2:0]}. Blank if i >= ncyc.
 module falcon_dbg_hud (
     input  wire [9:0]  cx,
     input  wire [9:0]  cy,
@@ -68,6 +71,8 @@ module falcon_dbg_hud (
     input  wire        hdbl,
     input  wire        vdbl,
     input  wire [7:0]  frame,
+    input  wire [383:0] cycs,          // 8 x 48: {addr[23:0], data[15:0], flags[7:0]}
+    input  wire [3:0]   ncyc,
     output wire        hit,
     output wire [7:0]  r,
     output wire [7:0]  g,
@@ -184,11 +189,20 @@ module falcon_dbg_hud (
 
     wire [11:0] height12 = {2'b00, height};
 
-    wire in_hud = (cy < 10'd24) && (cx < 10'd640);
+    wire in_hud = (cy < 10'd56) && (cx < 10'd640);
     wire [6:0] col = cx[9:3];          // 0..79
     wire [2:0] px  = cx[2:0];
     wire [2:0] py  = cy[2:0];
-    wire [1:0] row = cy[4:3];
+    wire [2:0] row = cy[5:3];
+
+    wire [2:0]  cyc_ri   = row - 3'd3;
+    wire        cyc_right = (col >= 7'd40);
+    wire [3:0]  cyc_i    = {1'b0, cyc_ri, cyc_right};
+    wire [47:0] cyc_w    = cycs[48*cyc_i +: 48];
+    wire [23:0] cyc_a    = cyc_w[47:24];
+    wire [15:0] cyc_d    = cyc_w[23:8];
+    wire [7:0]  cyc_f    = cyc_w[7:0];
+    wire [6:0]  cyc_bcol = cyc_right ? (col - 7'd40) : col;
 
     // Which glyph (0-15, 16='=', 17='@', 18=space) at this cell, plus a colour-bar cell.
     reg [4:0]  ch;
@@ -204,7 +218,7 @@ module falcon_dbg_hud (
         is_flag = 1'b0;
         flag_on = 1'b0;
         flag_rgb= 24'h181818;
-        if (row == 2'd0) begin
+        if (row == 3'd0) begin
             if (col == 7'd0) begin is_bar = 1'b1; bar_rgb = 24'h00C0C0; end
             else if (col >= 7'd1 && col <= 7'd8)
                 ch = {1'b0, pc[4*(8-(col-7'd1))-1 -: 4]};
@@ -220,7 +234,7 @@ module falcon_dbg_hud (
             else if (col == 7'd26) ch = 5'd17; // '@'
             else if (col >= 7'd27 && col <= 7'd34)
                 ch = {1'b0, berr_addr[4*(8-(col-7'd27))-1 -: 4]};
-        end else if (row == 2'd1) begin
+        end else if (row == 3'd1) begin
             if (col == 7'd0) begin is_bar = 1'b1; bar_rgb = 24'h00C000; end
             else if (col >= 7'd1 && col <= 7'd6)
                 ch = {1'b0, vbas[4*(6-(col-7'd1))-1 -: 4]};
@@ -239,7 +253,7 @@ module falcon_dbg_hud (
             else if (col == 7'd30) begin is_bar = 1'b1; bar_rgb = crc_ok ? 24'h80FF00 : 24'hC00000; end
             else if (col >= 7'd31 && col <= 7'd38)
                 ch = {1'b0, tos_crc[4*(8-(col-7'd31))-1 -: 4]};
-        end else begin
+        end else if (row == 3'd2) begin
             // flags 0..7 at x=0..127 (16 px = 2 cells each)
             if (cx < 10'd128) begin
                 is_flag = 1'b1;
@@ -269,6 +283,20 @@ module falcon_dbg_hud (
             else if (col == 7'd35) begin is_bar = 1'b1; bar_rgb = 24'h808080; end
             else if (col >= 7'd36 && col <= 7'd37)
                 ch = {1'b0, frame[4*(2-(col-7'd36))-1 -: 4]};
+        end else if (row >= 3'd3 && row <= 3'd6) begin
+            // Two cycles per row, 40 cells (320 px) each.
+            // cycle i at col base 0 or 40: bar + 6 addr + 4 data + 2 flags.
+            if (cyc_i < {1'b0, ncyc}) begin
+                if (cyc_bcol == 7'd0) begin
+                    is_bar = 1'b1;
+                    bar_rgb = cyc_f[7] ? 24'hC00000 : cyc_f[6] ? 24'hC000C0 : (cyc_right ? 24'hF08000 : 24'h00E0C0);
+                end else if (cyc_bcol >= 7'd1 && cyc_bcol <= 7'd6)
+                    ch = {1'b0, cyc_a[4*(6-(cyc_bcol-7'd1))-1 -: 4]};
+                else if (cyc_bcol >= 7'd8 && cyc_bcol <= 7'd11)
+                    ch = {1'b0, cyc_d[4*(4-(cyc_bcol-7'd8))-1 -: 4]};
+                else if (cyc_bcol >= 7'd13 && cyc_bcol <= 7'd14)
+                    ch = {1'b0, cyc_f[4*(2-(cyc_bcol-7'd13))-1 -: 4]};
+            end
         end
     end
 

@@ -90,7 +90,31 @@ module falcon_soc (
     wire [1:0]  sd_ds, sd_st_ba;
     wire [15:0] sd_din, sd_dout, sd_dout2;
 
-    wire        core_reset = por | cpu_reset | user_reset;
+    // CPU and falcon_bus reset must live in clk_cpu, like cpu030_st_bridge.v.
+    // por / cpu_reset / user_reset are clk32 signals. clk_cpu rising coincides
+    // with a clk32 edge, but the in-between clk32 tick is clk_cpu_n. Releasing
+    // RESET_INn / HALT_INn on that tick lets the CLK and CLK_N halves of
+    // WF68K30L leave reset a half-cycle apart; the 030 then double-faults on
+    // the first vector reads (board HUD: HALT after two fetches at $00000002,
+    // PC loaded as 0 because those reads returned 0). Sync, then hold both
+    // pins low for RESET_HOLD clk_cpu cycles (>=16 required by the core;
+    // 128 matches the ST bridge).
+    localparam [7:0] RESET_HOLD = 8'd128;
+    (* syn_preserve = 1 *) reg [1:0] rst_sync = 2'b11;
+    reg [7:0] rst_cnt = 8'd0;
+    reg       core_reset = 1'b1;
+    wire      rst_src = por | cpu_reset | user_reset;
+    always @(posedge clk_cpu) begin
+        rst_sync <= {rst_sync[0], rst_src};
+        if (rst_sync[1]) begin
+            rst_cnt    <= 8'd0;
+            core_reset <= 1'b1;
+        end else if (rst_cnt != RESET_HOLD) begin
+            rst_cnt    <= rst_cnt + 8'd1;
+            core_reset <= 1'b1;
+        end else
+            core_reset <= 1'b0;
+    end
 
     // loader and CPU share the lowest arbiter port: loader only while cpu_reset
     wire        cpu_req  = cpu_reset ? 1'b0 : mem_req;
@@ -188,7 +212,8 @@ module falcon_soc (
         .dbg_pc(dbg_pc), .dbg_berr_count(dbg_berr_count), .dbg_berr_addr(dbg_berr_addr),
         .dbg_reset_out(dbg_reset_out), .dbg_io_addr(dbg_io_addr), .dbg_io_data(dbg_io_data),
         .dbg_fetch_count(dbg_fetch_count),
-        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode)
+        .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode),
+        .dbg_cycs(dbg_cycs), .dbg_ncyc(dbg_ncyc)
     );
 
     wire [31:0] dbg_pc, dbg_berr_addr;
@@ -196,6 +221,8 @@ module falcon_soc (
     wire [15:0] dbg_hht, dbg_vft, dbg_spshift;
     wire [7:0]  dbg_shmode;
     wire        dbg_reset_out;
+    wire [383:0] dbg_cycs;
+    wire [3:0]   dbg_ncyc;
 
     // ---- peripheral sub-bus (clk_32) ----
     // MFP_CLK=24 / DMA_CLK=16: enough 4/8 MHz enables for dtack and the dma.v edge.
@@ -410,6 +437,8 @@ module falcon_soc (
     reg [7:0]  sh_s, sh_p;
     reg [3:0]  pl_s, pl_p;
     reg        ro_s, ro_p, hl_s, hl_p, rr_s, rr_p, vbll_s, vbll_p, hd_s, hd_p, vd_s, vd_p;
+    reg [383:0] cycs_s, cycs_p;
+    reg [3:0]   ncyc_s, ncyc_p;
     always @(posedge clk_pixel) begin
         pc_s  <= dbg_pc;           pc_p  <= pc_s;
         ba_s  <= dbg_berr_addr;    ba_p  <= ba_s;
@@ -432,6 +461,8 @@ module falcon_soc (
         vbll_s<= vbl;              vbll_p<= vbll_s;
         hd_s  <= hdbl;             hd_p  <= hd_s;
         vd_s  <= vdbl;             vd_p  <= vd_s;
+        cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
+        ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.
     reg [31:0] pc_f, ba_f, crc_f;
@@ -442,6 +473,8 @@ module falcon_soc (
     reg [7:0]  sh_f, frame_f, frame_c;
     reg [3:0]  pl_f;
     reg        ro_f, hl_f, rr_f, vbll_f, hd_f, vd_f, crst_f, terr_f;
+    reg [383:0] cycs_f;
+    reg [3:0]   ncyc_f;
     always @(posedge clk_pixel) begin
         if (cx == 10'd0 && cy == 10'd0) begin
             pc_f   <= pc_p;
@@ -467,6 +500,8 @@ module falcon_soc (
             vd_f   <= vd_p;
             crst_f <= rst_s[1];
             terr_f <= err_s[1];
+            cycs_f <= cycs_p;
+            ncyc_f <= ncyc_p;
             frame_f<= frame_c;
             frame_c<= frame_c + 8'd1;
         end
@@ -483,7 +518,7 @@ module falcon_soc (
         .vbas(vb_f), .hht(hht_f), .vft(vft_f), .spshift(sp_f), .shmode(sh_f),
         .tos_crc(crc_f), .flags(hud_flags), .fetch_count(fc_f),
         .planes(pl_f), .linebytes(lb_f), .height(ht_f), .hdbl(hd_f), .vdbl(vd_f),
-        .frame(frame_f),
+        .frame(frame_f), .cycs(cycs_f), .ncyc(ncyc_f),
         .hit(hud_hit), .r(hud_r), .g(hud_g), .b(hud_b)
     );
 
