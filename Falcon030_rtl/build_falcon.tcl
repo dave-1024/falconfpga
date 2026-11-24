@@ -85,6 +85,7 @@ add_file $ST/hdl/hdmi/packet_picker.sv
 add_file $ST/hdl/hdmi/serializer.sv
 add_file $ST/hdl/hdmi/source_product_description_info_frame.sv
 add_file $ST/hdl/hdmi/tmds_channel.sv
+add_file $ST/hdl/misc/dualshock2.v
 add_file $ST/hdl/misc/hid.v
 add_file $ST/hdl/misc/mcu_spi.v
 add_file $ST/hdl/misc/osd_u8g2.v
