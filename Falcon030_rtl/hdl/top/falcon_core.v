@@ -109,33 +109,37 @@ module falcon_core (
     // Post-PMMU / IO / table snoops for the HUD (clk_cpu).
     // Shadow $700..$7FF (PMMU tables), _phystop ($42E), _frclock ($466),
     // last 8 IO writes, last 8 program fetches, first fetch outside $E0xxxx.
-    reg [15:0] pmap [0:127];
-    reg [31:0] tblxor, phystop, frclock, d700, d740, d7c0, d7f8;
     reg [31:0] outpc, prevpc, last_e0_pc, walk_d;
     reg [23:0] walk_a;
     reg        left_e0, dsack_d, walk_pend;
-    integer    pi;
+    reg        berr1_seen, vpend;
+    reg [1:0]  vcnt;
+    reg [15:0] vaddr;
+    reg [31:0] berr1_a, berr1_info, berr1_pc, lastw_a, vlog0, vlog1, vlog2;
     wire [23:0] a24w = cpu_a[23:0];
     wire        wr_done = dsack_d && !(&cpu_dsack_n) && !cpu_rw;
     wire        rd_done = dsack_d && !(&cpu_dsack_n) &&  cpu_rw;
     always @(posedge clk_cpu) begin
         dsack_d <= &cpu_dsack_n;
         if (reset) begin
-            for (pi = 0; pi < 128; pi = pi + 1) pmap[pi] <= 16'd0;
-            tblxor <= 32'd0; phystop <= 32'd0; frclock <= 32'd0;
-            d700 <= 32'd0; d740 <= 32'd0; d7c0 <= 32'd0; d7f8 <= 32'd0;
             outpc <= 32'd0; prevpc <= 32'd0; last_e0_pc <= 32'd0;
             walk_a <= 24'd0; walk_d <= 32'd0;
             left_e0 <= 1'b0; walk_pend <= 1'b0;
+            berr1_seen <= 1'b0; vpend <= 1'b0; vcnt <= 2'd0; vaddr <= 16'd0;
+            berr1_a <= 32'd0; berr1_info <= 32'd0; berr1_pc <= 32'd0; lastw_a <= 32'd0;
+            vlog0 <= 32'd0; vlog1 <= 32'd0; vlog2 <= 32'd0;
             dbg_io_ring <= 256'd0; dbg_pc_ring <= 256'd0;
             dbg_io_addr <= 16'd0; dbg_io_data <= 16'd0;
             dsack_d <= 1'b1;
         end else begin
             // Program-space ring + first fetch outside $00E0xxxx (not the
             // $000000-$000007 vector mirror). Address valid on AS falling.
+            // The ring now freezes at the FIRST BERR (so it shows the code
+            // that bus-errored); outpc/prevpc still latch the first leave.
             if (as_d && !cpu_as_n && cpu_fc[1] && !cpu_fc[0]) begin
-                if (!left_e0) begin
+                if (!berr1_seen)
                     dbg_pc_ring <= {cpu_a, dbg_pc_ring[255:32]};
+                if (!left_e0) begin
                     if (a24w[23:16] == 8'hE0)
                         last_e0_pc <= cpu_a;
                     else if (a24w[23:3] != 21'd0) begin
@@ -145,51 +149,35 @@ module falcon_core (
                     end
                 end
             end
+            // Last data write address (stack / pointer hint for the BERR).
+            if (as_d && !cpu_as_n && !cpu_rw && cpu_fc[0] && !berr1_seen)
+                lastw_a <= cpu_a;
+            // First BERR: address, {FC, R/W, SIZ}, last program fetch, last write.
+            if (berr_d && !cpu_berr_n && !berr1_seen) begin
+                berr1_seen <= 1'b1;
+                berr1_a    <= cpu_a;
+                berr1_info <= {5'd0, cpu_fc, 7'd0, cpu_rw, 6'd0, cpu_siz, 8'hB1};
+                berr1_pc   <= dbg_pc;
+            end
+            // After the first BERR: log the next 3 FC=5 word reads of $8..$3FF
+            // (exception vectors), {addr[15:0], data[15:0]}.
+            if (berr1_seen && vcnt != 2'd3 && as_d && !cpu_as_n && cpu_fc == 3'b101 && cpu_rw &&
+                a24w[23:10] == 14'd0 && a24w[9:3] != 7'd0)
+                begin vpend <= 1'b1; vaddr <= a24w[15:0]; end
+            if (vpend && rd_done) begin
+                vpend <= 1'b0;
+                vcnt  <= vcnt + 2'd1;
+                case (vcnt)
+                    2'd0: vlog0 <= {vaddr, cpu_din[31:16]};
+                    2'd1: vlog1 <= {vaddr, cpu_din[31:16]};
+                    default: vlog2 <= {vaddr, cpu_din[31:16]};
+                endcase
+            end
             // Last 8 IO writes (shift in at [255:224]; [31:0] is oldest).
             if (io_wr) begin
                 dbg_io_addr <= {io_a, 1'b0};
                 dbg_io_data <= io_wdata;
                 dbg_io_ring <= {{io_a, 1'b0, io_wdata}, dbg_io_ring[255:32]};
-            end
-            // RAM write completed (DSACK). Snoop the PMMU table, _phystop
-            // and _frclock. mem_* still hold the latched cycle.
-            if (wr_done && mem_we) begin
-                if (mem_a[23:8] == 16'h0007) begin
-                    begin : pmap_wr
-                        reg [15:0] oldw, neww;
-                        oldw = pmap[mem_a[7:1]];
-                        neww = oldw;
-                        if (mem_be[1]) neww[15:8] = mem_wdata[15:8];
-                        if (mem_be[0]) neww[7:0]  = mem_wdata[7:0];
-                        pmap[mem_a[7:1]] <= neww;
-                        if (!mem_a[1]) tblxor <= tblxor ^ {oldw, 16'h0} ^ {neww, 16'h0};
-                        else           tblxor <= tblxor ^ {16'h0, oldw} ^ {16'h0, neww};
-                        if (mem_a[7:1] == 7'h00) d700[31:16] <= neww;
-                        if (mem_a[7:1] == 7'h01) d700[15:0]  <= neww;
-                        if (mem_a[7:1] == 7'h20) d740[31:16] <= neww;
-                        if (mem_a[7:1] == 7'h21) d740[15:0]  <= neww;
-                        if (mem_a[7:1] == 7'h60) d7c0[31:16] <= neww;
-                        if (mem_a[7:1] == 7'h61) d7c0[15:0]  <= neww;
-                        if (mem_a[7:1] == 7'h7C) d7f8[31:16] <= neww;
-                        if (mem_a[7:1] == 7'h7D) d7f8[15:0]  <= neww;
-                    end
-                end
-                if (mem_a[23:1] == 23'h00042E >> 1) begin
-                    if (mem_be[1]) phystop[31:24] <= mem_wdata[15:8];
-                    if (mem_be[0]) phystop[23:16] <= mem_wdata[7:0];
-                end
-                if (mem_a[23:1] == 23'h000430 >> 1) begin
-                    if (mem_be[1]) phystop[15:8] <= mem_wdata[15:8];
-                    if (mem_be[0]) phystop[7:0]  <= mem_wdata[7:0];
-                end
-                if (mem_a[23:1] == 23'h000466 >> 1) begin
-                    if (mem_be[1]) frclock[31:24] <= mem_wdata[15:8];
-                    if (mem_be[0]) frclock[23:16] <= mem_wdata[7:0];
-                end
-                if (mem_a[23:1] == 23'h000468 >> 1) begin
-                    if (mem_be[1]) frclock[15:8] <= mem_wdata[15:8];
-                    if (mem_be[0]) frclock[7:0]  <= mem_wdata[7:0];
-                end
             end
             // Table-walk reads (FC=5, $700..$7FF). Accumulate a long.
             if (as_d && !cpu_as_n && cpu_fc == 3'b101 && a24w[23:8] == 16'h0007 && cpu_rw)
@@ -203,8 +191,11 @@ module falcon_core (
         end
     end
     assign dbg_ncyc = {3'b000, left_e0};
-    assign dbg_cycs = {d700, d740, d7c0, d7f8,
-                       tblxor, phystop, frclock,
+    // Row 4 (was $700/$740/$7C0/$7F8): first BERR addr, {FC,RW,SIZ,B1},
+    // last fetch PC before it, last data write addr before it.
+    // Row 3 (was TBLXOR/_phystop/_frclock): first three vector reads after it.
+    assign dbg_cycs = {berr1_a, berr1_info, berr1_pc, lastw_a,
+                       vlog2, vlog0, vlog1,
                        dbg_vco, 16'h0000,
                        outpc, prevpc,
                        walk_a, walk_d, 8'h00};
