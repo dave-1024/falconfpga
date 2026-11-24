@@ -116,6 +116,10 @@
 --     handed over (held read-ahead taken in CALC_AEFF, or any MOVEM read ending with its request present and no F2
 --     chain) and a register follows, the next register's read-ahead starts from the next IDLE clock (IDLE -> S0, as
 --     PW_GO) at the handed-over address + size (RA_DLV, RA_LP, RA_IGO, RA_NADR/RA_NFC; top RA_ILD). 4 clocks/register.
+--   2026-11-24 F172_SP: synchronous (STERM) writes are posted like DSACK writes: WP_NEG has a STERM term, so WP_GO
+--     (WR_EARLY) fires in the S2/S3 clock of a STERM write, and WP_LAST is set when that write ends in the same clock,
+--     so the next operand write starts from IDLE (PW_GO). MOVEM register-to-memory on a 2-clock STERM bus: 5 -> 3
+--     clocks/register. DSACK cycles unchanged.
 -- 
 
 library work;
@@ -328,6 +332,7 @@ constant F147_TWO_WORD      : boolean := true; -- [F149] set false to restore F1
 constant F162_DQ            : boolean := true; -- [F162] restart (Q_MISS) in the clock of a dismissed opcode ready.
 constant F157_PHASE_A       : boolean := false; -- [F157a] Q_NMATCH refill after issue. Set false with the decoder switch.
 constant F172_RA_IGO        : boolean := true;  -- [F172] MOVEM read-ahead started from IDLE on hand-over (RA_IGO).
+constant F172_SP            : boolean := true;  -- [F172_SP] post synchronous (STERM) writes like DSACK writes (WP_GO in the STERM clock).
 constant F170_WR_GO         : boolean := true;  -- [F170] operand write from IDLE starts without START_CYCLE (PW_GO), any previous cycle.
 constant F170_RD_GO         : boolean := false; -- [F170] the same for an operand read (data cache off). Off: evaluation only.
 constant F170_RW_GO         : boolean := true;  -- [F170] posted write S5 rolls into a waiting operand read (RW_GO).
@@ -496,7 +501,9 @@ begin
             BGACK_In <= BGACKn;
             AVEC_In <= AVECn;
             -- [T9] S3 and the pin terms of WP_GO, one flip flop (see WP_GO).
-            if SLICE_CNT_P = "001" and DSACKn /= "11" and STERMn = '1' and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
+            -- [F172_SP] Also a synchronous (STERM) write: its outcome is final in this clock (STERM and BERR recognised
+            -- at the edge that ended S1, held through S2 as P_SYNC/SLICES already require).
+            if SLICE_CNT_P = "001" and ((DSACKn /= "11" and STERMn = '1') or (F172_SP and STERMn = '0')) and (not BERRn) = '0' and To_Bit(HALTn) = '1' then
                 WP_NEG <= '1';
             else
                 WP_NEG <= '0';
@@ -2003,7 +2010,7 @@ begin
     begin
         wait until CLK = '1' and CLK' event;
         assert (WP_GO = '1') = (WRITE_ACCESS = '1' and BUS_CTRL_STATE = DATA_C1C4 and T_SLICE = S3 and
-                      WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1' and
+                      ((WAITSTATES = '0' and DSACK_In /= "11" and STERM_In = '1') or (F172_SP and STERM_In = '0')) and
                       BUS_FLT = '0' and BUS_FLT_N = '0' and RETRY = '0' and HALT_In = '1' and
                       RMC = '0' and RESET_CPU_I = '0' and RESET_OUT_I = '0' and SIZE_DEC = "000")
             report "T9: WP_GO differs from the original decode" severity failure;
@@ -2013,7 +2020,7 @@ begin
     P_WP_DONE: process
     begin
         wait until CLK = '1' and CLK' event;
-        if WP_DONE = '1' and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then
+        if (WP_DONE = '1' or (F172_SP and WP_GO = '1')) and BUS_CYC_RDY = '1' and BUS_CTRL_STATE = DATA_C1C4 and NEXT_BUS_CTRL_STATE = IDLE then -- [F172_SP] a STERM write posts and ends in one clock
             WP_LAST <= '1'; -- Held through the IDLE clocks until the next cycle starts.
         elsif BUS_CTRL_STATE /= IDLE or NEXT_BUS_CTRL_STATE /= IDLE then
             WP_LAST <= '0';
