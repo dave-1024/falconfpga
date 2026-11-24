@@ -95,6 +95,7 @@ begin
     type p8 is array (0 to 7) of integer;
     constant presc : p8 := (0, 26, 65, 104, 326, 417, 651, 1302);   -- 16 MHz clocks per MFP count (/4../200)
     variable ctl, ld : integer; variable acc : t4 := (others => 0);
+    variable vbl_l, tc_l : boolean := false;   -- last seen ack toggles (the acks are toggles, not levels)
   begin
     wait until rising_edge(clk); clkn <= clkn + 1;
     for t in 0 to 3 loop
@@ -123,8 +124,8 @@ begin
     if IRQON /= 0 and clkn > 0 and clkn mod VBLPER = 0 then vbl_p <= '1'; end if;
     -- timer C pending only when enabled+unmasked in IERB/IMRB bit 5 ($FFFA09/$FFFA15)
     if IRQON /= 0 and clkn > 0 and clkn mod TCPER = 0 and (io(16#7A09#) / 32) mod 2 = 1 and (io(16#7A15#) / 32) mod 2 = 1 then tc_p <= '1'; end if;
-    if vbl_ack then vbl_p <= '0'; end if;
-    if tc_ack then tc_p <= '0'; end if;
+    if vbl_ack /= vbl_l then vbl_p <= '0'; vbl_l := vbl_ack; end if;
+    if tc_ack /= tc_l then tc_p <= '0'; tc_l := tc_ack; end if;
   end process;
   ipl <= "001" when tc_p = '1' else "011" when vbl_p = '1' else "111";
 
