@@ -10,6 +10,8 @@ entity tb030 is
            IRQ_PER6 : integer := 0;   -- mode 3: level 6 every IRQ_PER6 clocks (0 = off)
            MAXCLK   : integer := 4000;
            WS       : integer := 0;
+           SYNC     : integer := 0;     -- [F172] 1: TT region ends with STERMn (2-clock synchronous, 32-bit), zero wait
+           BASEW    : integer := 2;     -- [SVY] base wait clocks before DSACK (survey only; 2 = stock)
            ST       : integer := 0;     -- 1: 4MB RAM, ROM alias at E0, I/O at FF8000 (FFFF), BERR at FF8C80
            STOPDONE : integer := 0;     -- 1: end the run 200 clocks after the DONE write
            QUIET    : integer := 0;     -- extra wait clocks per cycle
@@ -58,6 +60,7 @@ architecture sim of tb030 is
   signal trig_at : integer := -1;
   signal iack_clr : boolean := false;
   signal ciinn : std_logic := '0'; -- [IC]
+  signal stermn : std_logic; -- [F172]
   signal rmcn : std_logic; -- [RMC1]
   signal cdisn : std_logic := '1'; -- [IC]
   signal ciforce : std_logic := '0'; -- [IC] 1: CIIN asserted on every cycle (word write to $3502, D16)
@@ -88,7 +91,7 @@ begin
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
     ASn => asn, RWn => rwn, RMCn => rmcn, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
-    BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1',
+    BUS_EN => open, STERMn => stermn, STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1',
     CIINn => ciinn, CDISn => cdisn, CBACKn => '1', CBREQn => open, CIOUTn => open); -- [IC]
 
   process
@@ -103,6 +106,9 @@ begin
     elsif trig_at >= 0 and clkn >= trig_at and not fired then
       if TRIG6 /= 0 then irq6 <= '1'; else irq4 <= '1'; end if; fired := true; end if;
   end process;
+  -- [F172] zero-wait synchronous slave: STERMn follows AS for the TT window, so it is valid at the
+  -- rising edge that ends S1 (2-clock synchronous cycle, as the MC68030 UM timing tables assume).
+  stermn <= '0' when SYNC /= 0 and asn = '0' and fc /= "111" and adr(31 downto 16) = x"0100" else '1';
   ipl <= "101" when IPL_MODE = 1 else "001" when irq6 = '1' else "011" when irq4 = '1' else "111";
 
   process
@@ -184,7 +190,7 @@ begin
         if WSRND > 0 then
           lfsr := (lfsr * 75 + 74) mod 65537; wr := (lfsr / 7) mod (WSRND + 1);
         else wr := 0; end if;
-        for k in 1 to 2 + WS + wr loop wait until rising_edge(clk); n := n + 1; end loop;
+        for k in 1 to BASEW + WS + wr loop wait until rising_edge(clk); n := n + 1; end loop;
         din <= w & w;
         if istt then
           tl := ttm(ti); din <= tl; w := tl(31 downto 16);
@@ -217,6 +223,7 @@ begin
         if iack and VEC6 /= 0 and a(3 downto 1) = "110" then
           w := std_logic_vector(to_unsigned(VEC6, 16)); din <= w & w; dsackn <= "01"; iack_lvl <= 6; iack_clr <= not iack_clr;
         elsif iack then avecn <= '0'; iack_lvl <= to_integer(a(3 downto 1)); iack_clr <= not iack_clr;
+        elsif istt and SYNC /= 0 then null; -- [F172] STERMn is the concurrent term below
         elsif istt then dsackn <= "00";
         elsif isrom or isram or isio then dsackn <= "01";
         else berrn <= '0'; end if;
@@ -233,7 +240,7 @@ begin
         if CIMODE /= 0 and ciinn = '1' then write(l, string'(" C")); end if; -- [IC] (signal set before the wait clocks)
         if RMCMON /= 0 and rmcn = '0' then write(l, string'(" RMC")); end if; -- [RMC1]
         if QUIET = 0 or not (fc(1 downto 0) = "10" and (a >= x"00FC0000" or QUIET = 2)) then writeline(output, l); else deallocate(l); end if;
-        wait until asn = '1';
+        if asn = '0' then wait until asn = '1'; end if; -- [F172] (AS may already be negated after a sync cycle)
         dsackn <= "11"; berrn <= '1'; avecn <= '1'; ciinn <= '0';
       end if;
     end loop;
