@@ -111,7 +111,7 @@ module falcon_core (
     // last 8 IO writes, last 8 program fetches, first fetch outside $E0xxxx.
     reg [31:0] outpc, prevpc, last_e0_pc, walk_d;
     reg [23:0] walk_a;
-    reg        left_e0, dsack_d, walk_pend;
+    reg        left_e0, dsack_d, walk_pend, fpend;
     reg        berr1_seen, vpend;
     reg [1:0]  vcnt;
     reg [15:0] vaddr;
@@ -128,7 +128,7 @@ module falcon_core (
         if (reset) begin
             outpc <= 32'd0; prevpc <= 32'd0; last_e0_pc <= 32'd0;
             walk_a <= 24'd0; walk_d <= 32'd0;
-            left_e0 <= 1'b0; walk_pend <= 1'b0;
+            left_e0 <= 1'b0; walk_pend <= 1'b0; fpend <= 1'b0;
             berr1_seen <= 1'b0; vpend <= 1'b0; vcnt <= 2'd0; vaddr <= 16'd0;
             berr1_a <= 32'd0; berr1_info <= 32'd0; berr1_pc <= 32'd0;
             vlog0 <= 32'd0; pwalk_a <= 24'd0; pwalk_d <= 32'd0;
@@ -141,8 +141,12 @@ module falcon_core (
             // The ring now freezes at the FIRST BERR (so it shows the code
             // that bus-errored); outpc/prevpc still latch the first leave.
             if (as_d && !cpu_as_n && cpu_fc[1] && !cpu_fc[0]) begin
-                if (!berr1_seen)
-                    dbg_pc_ring <= {cpu_a, dbg_pc_ring[255:32]};
+                // FAL_01 20:0x: ring entry = {A15:1, long(SIZ=00), fetched D31:16}
+                // (data filled at DSACK) to compare with tos404.img at $E0032A.
+                if (!berr1_seen) begin
+                    dbg_pc_ring <= {cpu_a[15:1], (cpu_siz == 2'b00), 16'hEEEE, dbg_pc_ring[255:32]};
+                    fpend <= 1'b1;
+                end
                 if (!left_e0) begin
                     if (a24w[23:16] == 8'hE0)
                         last_e0_pc <= cpu_a;
@@ -153,6 +157,11 @@ module falcon_core (
                     end
                 end
             end
+            if (fpend && rd_done) begin
+                fpend <= 1'b0;
+                if (!berr1_seen) dbg_pc_ring[239:224] <= cpu_din[31:16];
+            end
+            if (berr1_seen) fpend <= 1'b0;
             // Last data write address (stack / pointer hint for the BERR).
             // (lastw_a capture dropped 19:10: 8010a45 stalled in routing)
             // First BERR: address, {FC, R/W, SIZ}, last program fetch, last write.
