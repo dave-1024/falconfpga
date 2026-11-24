@@ -176,8 +176,20 @@ module falcon_scanout (
                           (planes_l>4'd0) ? pw[0][15-pk] : 1'b0 };
     wire [15:0] tcw   = pw[0];
     wire [23:0] c565  = { tcw[15:11], tcw[15:13], tcw[10:5], tcw[10:9], tcw[4:0], tcw[4:2] };
+    // ST palette at $FF8240 is STe-encoded (....rRRR gGGG bBBB, bit 3 = LSB).
+    // Hybrid030 falcon_m28.c strot12 linearises it before the mailbox; the
+    // scanout then nibble-replicates. Apply the same rotation here so mid
+    // greys ($555->$AAA, $333->$666) and the TOS 4.04 desktop colours are
+    // physical intensity. Readback of $FF8240 stays raw (videl_regs).
+    function [3:0] strot4;
+        input [3:0] n;
+        begin
+            strot4 = {n[2:0], n[3]};   // ((n & 7) << 1) | (n >> 3)
+        end
+    endfunction
     wire [11:0] p12   = pal[idx8[3:0]];
-    wire [23:0] cpal  = { p12[11:8], p12[11:8], p12[7:4], p12[7:4], p12[3:0], p12[3:0] };
+    wire [11:0] p12l  = {strot4(p12[11:8]), strot4(p12[7:4]), strot4(p12[3:0])};
+    wire [23:0] cpal  = { p12l[11:8], p12l[11:8], p12l[7:4], p12l[7:4], p12l[3:0], p12l[3:0] };
     wire [23:0] f_rgb = { fpal_q[17:12], fpal_q[17:16],
                           fpal_q[11:6],  fpal_q[11:10],
                           fpal_q[5:0],   fpal_q[5:4] };

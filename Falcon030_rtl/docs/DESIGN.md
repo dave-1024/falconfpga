@@ -26,7 +26,7 @@ from ([Sources](#sources-per-decision)). Read for this note: `README.md`, `HOWTO
 | VIDEL | real (boot modes) | `hdl/video/videl_regs.v` register file + port of Hybrid030 `falcon_video.v` onto the SDRAM |
 | HDMI | real | the ST core's working path (`hdl/hdmi/*`, 640x480, `gowin_pll_hdmi`), one stack only |
 | MFP 68901 | real | ST `hdl/atarist/mfp*.v` |
-| Keyboard ACIA + IKBD | real | ST `acia.v`, `ikbd/` (HD63701) |
+| Keyboard ACIA + IKBD | stub (Hybrid030 M5) | `hdl/peri/falcon_ikbd_acia.v`: TDRE always, $80 $01 replies $F1; MIDI still ST `acia.v` |
 | NVRAM/RTC MC146818 | real (new) | `hdl/peri/falcon_nvram.v`, $FF8961/$FF8963 |
 | Floppy A: | **real** | ST `fdc1772.v` + `dma.v` at the Falcon addresses, the helper's floppy mounting; drive A: only |
 | HD density select | real (latch) | $FF860E (Falcon: bit 0/1 = HD) to the FDC clock select |
@@ -62,7 +62,7 @@ from ([Sources](#sources-per-decision)). Read for this note: `README.md`, `HOWTO
 | $FF9800-$FF9BFF | 256 x Falcon palette | VIDEL |
 | $FFA200-$FFA207 | DSP host port | stub |
 | $FFFA00-$FFFA3F | MFP | real |
-| $FFFC00-$FFFC07 | keyboard + MIDI ACIA | real (MIDI: TDRE only) |
+| $FFFC00-$FFFC07 | keyboard + MIDI ACIA | kbd: Hybrid030 M5 stub (TDRE, $F1 reset reply); MIDI: ST acia.v TDRE only |
 | rest of $FF8000-$FFFFFF and all other space | **BUS ERROR** | - |
 
 The IO whitelist is `falcon_io_valid()` from falcon_m28.c, unchanged. Interrupts: VBL level 4 and HBL level 2

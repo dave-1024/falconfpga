@@ -265,22 +265,18 @@ module falcon_soc (
     wire        acia_irq = kbd_acia_irq | midi_acia_irq;
     assign acia_d = p_a[2] ? midi_acia_d : kbd_acia_d;
 
-    ikbd #(.DIV(4)) ikbd (
-        .clk(clk_32), .res(por | user_reset),
-        .tx(ikbd_tx), .rx(ikbd_rx),
-        .matrix_out(keyboard_matrix_out), .matrix_in(keyboard_matrix_in),
-        .caps_lock(),
-        .joystick0({joy0[5:4], joy0[0], joy0[1], joy0[2], joy0[3]}),
-        .joystick1({joy1[4], joy1[0], joy1[1], joy1[2], joy1[3]})
+    // Keyboard ACIA + IKBD: Hybrid030 falcon_m28.c M5 stub (Falcon-side only).
+    // The shared ST HD63701 + acia.v are not used for the keyboard in this
+    // build: MCU_BIROM $readmemh("ikbd.hex") is not copied into the gw_sh
+    // cwd, and TOS 4.04 / EmuTOS wait on a $Fx self-test byte after $80 $01.
+    // MIDI still uses the ST acia.v (TDRE, no RX).
+    falcon_ikbd_acia kbd_acia (
+        .clk(clk_32), .reset(por | user_reset),
+        .sel(acia_cs && !p_a[2]), .rs(p_a[1]), .rw(p_rw),
+        .din(p_wdata[15:8]), .dout(kbd_acia_d), .irq(kbd_acia_irq)
     );
-
-    acia #(.INPUT_FILTER(0)) kbd_acia (
-        .clk(clk_32), .E(acia_E), .reset(por | user_reset),
-        .din(p_wdata[15:8]), .sel(acia_cs && !p_a[2]), .rs(p_a[1]), .rw(p_rw),
-        .dout(kbd_acia_d), .irq(kbd_acia_irq),
-        .rxtxclk_sel(1'b0), .dout_strobe(),
-        .rx(ikbd_tx), .tx(ikbd_rx)
-    );
+    assign ikbd_tx = 1'b1;
+    assign ikbd_rx = 1'b1;
 
     acia midi_acia (
         .clk(clk_32), .E(acia_E), .reset(por | user_reset),

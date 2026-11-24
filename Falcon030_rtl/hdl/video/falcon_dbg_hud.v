@@ -8,7 +8,10 @@
 // shows this strip, so one HDMI grab tells us whether TOS is running, hung,
 // or running with a video-register / scanout problem.
 //
-// Layout, 8x8 cells, y=0..79 (ten rows), navy background:
+// Layout, 8x8 cells, y=400..479 (ten rows, in the 40 px bottom border of
+// a 200-line ST-low desktop doubled to 400 plus 40 px of the desktop).
+// Moved off y=0..79 so the TOS menu bar (native lines 0..19, displayed
+// at y=40..79) is visible. Navy background:
 //   Rows 0-2: as before (PC, last IO, BERR; VBAS/HHT/VFT/SPSHIFT/SHMODE/CRC;
 //             flags, fetch count, planes/linebytes/height, hdbl/vdbl, frame).
 //   Row 3 y=24..31
@@ -190,11 +193,13 @@ module falcon_dbg_hud (
 
     wire [11:0] height12 = {2'b00, height};
 
-    wire in_hud = (cy < 10'd80) && (cx < 10'd640);
+    localparam [9:0] HUD_Y0 = 10'd400;
+    wire in_hud = (cy >= HUD_Y0) && (cy < HUD_Y0 + 10'd80) && (cx < 10'd640);
+    wire [9:0] cy_h = cy - HUD_Y0;
     wire [6:0] col = cx[9:3];          // 0..79
     wire [2:0] px  = cx[2:0];
-    wire [2:0] py  = cy[2:0];
-    wire [3:0] row = cy[6:3];          // 0..9
+    wire [2:0] py  = cy_h[2:0];
+    wire [3:0] row = cy_h[6:3];        // 0..9
 
     // Which glyph (0-15, 16='=', 17='@', 18=space) at this cell, plus a colour-bar cell.
     reg [4:0]  ch;
