@@ -94,10 +94,10 @@ against (TOS 2.06, EmuTOS, GEMBench), and real STEs and 68030 accelerator boards
 68030 is first made cycle-exact on the ST bus, as a test bed; then the same CPU moves onto Falcon hardware.
 
 ## What's working now (24 Nov 2026)
-The current core is **F170** (speed `8968788`), in flash 0 (written 24 Nov 2026 06:33-06:35 UK, verified).
+The current core is **F172** vC1 (speed `cf51baa`), which includes **F171** (`f6a5429`). Flash 0 still holds **F170** (`8968788`); F171 and F172 were tested from SRAM only and were not written to flash.
 
-- **TOS 2.06** (checked on F170 from SRAM on 23 Nov 2026, and from flash 0 on 24 Nov 2026) boots to the GEM desktop with the menu bar spaced correctly, and the A: floppy window opens (`193628 bytes used in 7 items`).
-- **EmuTOS 1.4** and **Linux/m68k 6.18** were verified on F170 from SRAM (23 Nov 2026). EmuTOS boots to the GEM desktop with its icons; double-clicking DISK A opens the A: window and menus work. Linux boots from a floppy image (`linux68k30.st`) to the BusyBox `ash` prompt, `uname` prints `Linux`, and it reports 2.96 BogoMIPS (F166 was 2.95).
+- **TOS 2.06** (checked on F172 vC1 from SRAM on 24 Nov 2026, and earlier that day on F171; F170 remains in flash 0 from 24 Nov 2026 06:33-06:35 UK) boots to the GEM desktop with the menu bar spaced correctly, and the A: floppy window opens (`193628 bytes used in 7 items`).
+- **EmuTOS 1.4** and **Linux/m68k 6.18** were verified on F172 vC1 from SRAM (24 Nov 2026), and earlier that day on F171. EmuTOS boots to the GEM desktop with its icons; double-clicking DISK A opens the A: window and menus work. Linux boots from a floppy image (`linux68k30.st`) to the BusyBox `ash` prompt, `uname` prints `Linux`, and it reports 2.98 BogoMIPS (F171 3.07, F170 2.96; calibration jitter).
 - **FreeMiNT with memory protection**, XaAES and TeraDesk (last checked 31 Oct 2026, see below).
 - **The 68030 PMMU** (memory management unit): address translation, the translation cache, transparent translation
   and all the MMU instructions.
@@ -110,10 +110,11 @@ The current core is **F170** (speed `8968788`), in flash 0 (written 24 Nov 2026 
   STE) because EmuTOS leaves the blitter off when TT-RAM is fitted and BLITON can't switch it on (see
   [The blitter, TT-RAM and BLITFIX](#the-blitter-tt-ram-and-blitfix-correct-behaviour-not-a-fault)), so use TOS 2.06
   to compare.
-- The CPU runs at 16 MHz. F170 closes clk_cpu030 at 17.516 MHz (32 logic levels; F169 was 16.008 MHz / 43 levels),
-  clk32_core 35.461 MHz, 46274 LUT + 5464 ALU, timing_pairs pass, Gowin V1.9.12.03, bitstream md5
-  `a44381ac65b79245c4c147d71eb7c18b`. The work now is making each instruction take the same number of clock cycles as
-  Motorola's MC68030 User's Manual says. Where an exact match isn't possible, slightly faster is preferred to slower.
+- The CPU runs at 16 MHz. F172 vC1 closes clk_cpu030 at 16.103 MHz (43 logic levels; F171 was 16.400 MHz / 30 levels,
+  F170 17.516 MHz / 32 levels), clk32_core 32.497 MHz, 46837 LUT + 5465 ALU, timing_pairs pass, Gowin V1.9.12.03,
+  bitstream md5 `25da6102583779c79b944766fc1f3630`. The work now is making each instruction take the same number of
+  clock cycles as Motorola's MC68030 User's Manual says. Where an exact match isn't possible, slightly faster is
+  preferred to slower.
 
 ## Being worked on now
 - **Calls to code at an odd word address: done in F164 (18 Nov 2026).** When a subroutine starts halfway into a
@@ -158,21 +159,46 @@ The current core is **F170** (speed `8968788`), in flash 0 (written 24 Nov 2026 
   bitstream md5 `a44381ac65b79245c4c147d71eb7c18b`. LOOPTEST ST-RAM 325203 and TT-RAM I-cache 1960784 match F166;
   TT-RAM caches off is 557103 against F166's 558659 (0.28% slower, still to investigate). Linux reached the `#`
   prompt, 2.96 BogoMIPS (F166 2.95), `uname` printed `Linux`.
-- **Next** (in order): the remaining memory-operand MOVE gap (still about 3 clocks over the manual); large `MOVEM`
-  lists (8 registers); `JSR`/`BSR`/`RTS`; `RTE`; the bus bridge timing check (AS to DSACK); the uncached TT-RAM
-  LOOPTEST check (0.28% below F166).
+- **MOVE writes in EXECUTE: done in F171 (24 Nov 2026).** MOVE to `(An)` / `(An)+` / `-(An)` presents the write in
+  the EXECUTE clock (`F171_MV_WX`: `ADR_FAST_MV` loads the write address from the unregistered EA, `MVX_Q` raises
+  DATA_WR in EXECUTE). Immediate sources are excluded. 8 of 98 survey rows are faster and none slower; the board
+  survey total drops from 1266.0 to 1258.0 (manual 1059): `move.l (An),(An)` / `(An)+,(An)+` 10 to 9,
+  `Dn,(An)` / `(An)+` / `-(An)` 5 to 4, `push_pop` 13 to 12. F171 passed the board tests (TOS 2.06, EmuTOS,
+  LOOPTEST, Linux) from SRAM and was not written to flash. clk_cpu030 Fmax 16.400 MHz / 30 levels, clk32_core
+  33.790 MHz, 46629 LUT + 5471 ALU, bitstream md5 `d20cb8598b49081d0da67e68387cc339`. LOOPTEST matches F170.
+  Linux 3.07 BogoMIPS (F170 2.96; calibration jitter).
+- **MOVEM: done in F172 vC1 (24 Nov 2026).** Memory-to-register keeps one read always in flight (`F172_RA_IGO`), so
+  a pop is 4 clocks per register (the manual) on the 2-clock synchronous, 3-clock async and survey/board bus models.
+  Synchronous (STERM) writes are posted like DSACK writes (`F172_SP`), so a register-to-memory MOVEM on the 2-clock
+  STERM model is 3 clocks per register (was 5): `movem8_push_pop` SYNC 89 to 53 (manual 58), `movem4_st_an` 19 to 13
+  (manual 14), `push_pop` 10 to 9 (manual 9). The ST/STE board never asserts STERM, so the board/DSACK survey only
+  moves on the pop side: `movem8_push_pop` 78 to 69, `movem4_ld_an` 28 to 25 (manual 26), `movem4_push_pop` 44 to 41.
+  Survey totals (98 rows, manual 1059): board 1243, async 1148, SYNC 1104 (F171 board 1258 / F170 1266). F172 vC1
+  passed the board tests (TOS 2.06, EmuTOS, LOOPTEST, Linux) from SRAM and was not written to flash. clk_cpu030 Fmax
+  16.103 MHz / 43 levels (margin 0.10 MHz; F171 16.400 / 30), clk32_core 32.497 MHz, 46837 LUT + 5465 ALU, bitstream
+  md5 `25da6102583779c79b944766fc1f3630`. LOOPTEST 325203 / 557103 / 1960784 matches F170/F171. Linux 2.98 BogoMIPS
+  (F171 3.07, F170 2.96; calibration jitter).
+- **Next** (in order): the remaining memory-operand MOVE gap (`d16,d16` 12 against 8; `Dn,d16` 7 against 4); a
+  2-clock synchronous MOVEM push write buffer (to take the next register in the S0/S1 clock of the current STERM
+  write — later, needs Fmax work first; margin is only 0.10 MHz); `JSR`/`BSR`/`RTS`; `RTE`; the bus bridge timing
+  check (AS to DSACK); the uncached TT-RAM LOOPTEST check (0.28% below F166).
 
 ## Identified to-do
-From a survey of 98 instructions against the manual (F170 cycle survey, 23 Nov 2026): 1266.0 clocks against the
-manual's 1059 (ratio 1.195; 7 rows faster, 19 equal, 72 slower). The biggest remaining gaps, in work order:
+From a survey of 98 instructions against the manual (F172 vC1 cycle survey, 24 Nov 2026): board 1243 clocks against
+the manual's 1059 (ratio 1.174; F171 was 1258, F170 1266). The same rows on the 3-clock async model total 1148, and
+on the 2-clock synchronous (STERM) model 1104. The biggest remaining gaps, in work order:
 
-1. **Remaining memory-operand MOVE gap** (still about 3 clocks over the manual). F170 cut memory-to-memory MOVE and
-   RMW ALU ops by 2 clocks (`move.l (An),(An)` 12 to 10, manual 7; `add.l Dn,(An)` 12 to 10, manual 6) but those
-   rows did not reach the manual. MOVE writes themselves were cut in F166 (`(An)` 6 to 5, `d16(An)` 8 to 7, `abs.L`
-   9 to 8); `CLR` mem is 5 in F165 (was 6). Memory-source reads were cut in F165 (`(An)` 9 to 7, still 2 over the
-   manual's 5; `d16(An)` 11 to 9; `abs.L` 13 to 10).
-2. **Large `MOVEM` lists** (8 registers: 78 against 58, 20 clocks over; was 79 in F169). `LINK`/`UNLK` was 20
-   against 9, 15 in F167/F169, and 14 in F170.
+1. **Remaining memory-operand MOVE gap** (`d16,d16` 12 against 8; `Dn,d16` 7 against 4). F171 cut `move.l (An),(An)`
+   / `(An)+,(An)+` from 10 to 9 (manual 7) and `Dn,(An)` / `(An)+` / `-(An)` from 5 to 4 (manual 3 / 3 / 4). F170
+   had already cut memory-to-memory MOVE and RMW ALU ops by 2 clocks (`add.l Dn,(An)` 12 to 10, manual 6). MOVE
+   writes themselves were cut in F166 (`(An)` 6 to 5, `d16(An)` 8 to 7, `abs.L` 9 to 8); `CLR` mem is 5 in F165
+   (was 6). Memory-source reads were cut in F165 (`(An)` 9 to 7, still 2 over the manual's 5; `d16(An)` 11 to 9;
+   `abs.L` 13 to 10).
+2. **Large `MOVEM` lists** (board/DSACK, 8 registers: 69 against 58, was 78 in F171 / F170). Pop is 4 clocks per
+   register (the manual) on all three bus models. On the 2-clock STERM model, `movem8_push_pop` is 53 (was 89),
+   slightly faster than the manual's 58. A 2-clock synchronous push write buffer (manual 2 clocks/register; now 3)
+   is a later item and needs Fmax work first (clk_cpu030 margin is 0.10 MHz). `LINK`/`UNLK` was 20 against 9, 15 in
+   F167/F169, and 14 in F170.
 3. **Calls and returns** (`JSR`/`BSR`/`RTS`): the odd-address case is fixed in F164; calls are still about 2 to 4
    clocks over the manual.
 4. **`RTE`**.
@@ -195,20 +221,21 @@ Other known problems:
 Tips: EmuTOS boots in ST Low; GEMBench needs ST Medium (Options > Change resolution). `gbref.st` is GEMBench 4.03 and
 `gb608.st` is GEMBENCH 6 (title 6.31); their scores can't be compared with each other.
 
-## Speedups so far (F158 -> F170, 16-24 Nov 2026)
+## Speedups so far (F158 -> F172, 16-24 Nov 2026)
 Measured on the board at 16 MHz, except the clock counts, which come from simulation against the manual.
-LOOPTEST ST-RAM and TT-RAM with the I-cache on match F166; Linux BogoMIPS is 2.96 (F166 2.95). Uncached TT-RAM
-LOOPTEST is 557,103 against F166's 558,659 (0.28% slower, still to investigate).
+LOOPTEST ST-RAM, uncached TT-RAM and TT-RAM with the I-cache on match F170 (325,203 / 557,103 / 1,960,784). Linux
+BogoMIPS on F172 vC1 is 2.98 (F171 3.07, F170 2.96, F166 2.95; calibration jitter). Uncached TT-RAM LOOPTEST is
+still 557,103 against F166's 558,659 (0.28% slower, still to investigate).
 
-| Test | F158 (16 Nov) | F166 (19 Nov) | F170 (23 Nov) | Change (F158 to F170) |
+| Test | F158 (16 Nov) | F166 (19 Nov) | F172 (24 Nov) | Change (F158 to F172) |
 |---|---|---|---|---|
 | LOOPTEST, TT-RAM with the instruction cache on (loops/s) | 1,418,439 | 1,960,784 | 1,960,784 | +38% |
 | LOOPTEST, ST-RAM (loops/s) | 216,684 | 325,203 | 325,203 | +50% |
-| Linux BogoMIPS | 2.11 | 2.95 | 2.96 | +40% |
+| Linux BogoMIPS | 2.11 | 2.95 | 2.98 | +41% |
 
 GEMBENCH 6.31 was measured on F164 (TOS 2.06, blitter on, against a blitter STE): average 123%, CPU 169%, display 90%.
 
-| Instruction (clock cycles) | F170 | Manual |
+| Instruction (clock cycles, board/DSACK survey) | F172 | Manual |
 |---|---|---|
 | Simple register maths (`ADD`, `SUB`, `ADDQ`, `MOVEQ`, `CMP`, `TST` on registers) | same as manual | 2 |
 | Count-down loop `subq.l #1,d0; bcc.s` (Linux delay loop) | 8 | 8 |
@@ -220,14 +247,17 @@ GEMBENCH 6.31 was measured on F164 (TOS 2.06, blitter on, against a blitter STE)
 | `MOVE.L abs.L,Dn` (F164: 13) | 10 | — |
 | `#imm.L` | 5 | — |
 | `CLR` mem (F164: 6) | 5 | — |
-| `MOVE.L Dn,(An)` (F165: 6) | 5 | — |
+| `MOVE.L Dn,(An)` / `(An)+` / `-(An)` (F170: 5) | 4 | 3 / 3 / 4 |
 | `MOVE.L Dn,d16(An)` / `d8(An,Xn)` / `abs.W` (F165: 8) | 7 | — |
 | `MOVE.L Dn,abs.L` (F165: 9) | 8 | — |
 | `MOVE.L #imm,(An)` (F165: 5.17) | 4.00 | — |
-| `MOVE.L (An),(An)` / `(An)+,(An)+` (F169: 12) | 10 | 7 |
-| `MOVE.L d16(An),d16(An)` (F169: 14) | 12 | — |
+| `MOVE.L (An),(An)` / `(An)+,(An)+` (F170: 10) | 9 | 7 |
+| `MOVE.L d16(An),d16(An)` (F169: 14, F170: 12) | 12 | 8 |
 | `ADD.L Dn,(An)` / `ADDQ.L (An)` (F169: 12) | 10 | 6 |
-| `LINK` + `UNLK` (F166: 20, F169: 15) | 14 | 9 |
+| `MOVEM.L` 8 registers push+pop (F171: 78) | 69 | 58 |
+| `LINK` + `UNLK` (F166: 20, F169: 15, F170: 14) | 14 | 9 |
+
+On the 2-clock synchronous (STERM) model, `movem8_push_pop` is 53 (F171 89, manual 58) and `push_pop` is 9 (manual 9).
 
 Details: [`Atarist_030_wip/docs/HISTORY.md`](Atarist_030_wip/docs/HISTORY.md) item 28 and
 [`Atarist_030_wip/docs/TODO.md`](Atarist_030_wip/docs/TODO.md).

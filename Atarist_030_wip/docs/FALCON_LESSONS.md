@@ -687,3 +687,24 @@ Process lessons from the F170 memory-operand MOVE / RMW work and its verify run.
    run stopped with "file ... has changed and must be reanalysed" and wrote empty `done=0` lines, so the whole
    batch was invalid. Copy the sources to a snapshot folder, make it read-only (`chmod -R a-w`), build the sim
    work folders from that snapshot only, and make further changes in a separate folder.
+
+## LESSONS_LEARNED (F172, 24 Nov 2026)
+
+Process lessons from the F172 MOVEM work, the SYNC test bench, and the vC1 verify run.
+
+1. **Rebuild every `/tmp` reference workdir after a test-bench commit.** Commit `06bab9c` added `SYNC`/`BASEW`
+   generics to `tb030.vhd`. The F170 s1r ref (`/tmp/w170s1r`) had been analysed against the previous test bench,
+   so GHDL refused to run it ("tb030.vhd has changed and must be reanalysed") and the regress compared against
+   empty output (`f156=None`). That looked like a DUT `REG_FAIL` but was not. After any test-bench change, rebuild
+   the refs (`mk.sh` on the frozen s1r snapshots plus the current repo test bench) before `run_verify.sh`.
+
+2. **The SYNC test bench only works with `BASEW=0` and `WS=0`.** `tb030` waits `BASEW+WS` clocks after asserting
+   AS before it performs the TT-region access. A 2-clock STERM cycle has already finished by then, so writes are
+   lost and stress runs time out (`done=0`) on both the new core and the F171 reference. Use `BASEW=0 WS=0` for
+   SYNC stress (`sim/run_{mv,lu}_sy.sh`); the `st=1` configuration times out on the F171 reference too (test-bench
+   limit, not a DUT failure).
+
+3. **Count mem-heavy `okc` from each `mh*.log` summary line, not from `grep -c` over several files.** `grep -c`
+   with more than one file prints `file:count` per file, so a wrapper that compares the result to `6` treats a
+   pass as `MH_FAIL` and prints `VERIFY_INCOMPLETE` even when every chunk is `ok=24 fail=0`. Read the
+   `ok=24 fail=0` line (and the `MATCH`/`FAIL` rows) in each `mh*.log`. Do not write `wave_*.ok` stamps by hand.

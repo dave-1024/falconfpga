@@ -17,6 +17,25 @@ All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmwa
 
 ## Status (24 Nov 2026, main)
 
+Current core: **F172** vC1 (speed `cf51baa`), which includes **F171** (`f6a5429`). Flash 0 still holds **F170**
+(`8968788`); F171 and F172 were tested from SRAM only and were not written to flash.
+clk_cpu030 Fmax 16.103 MHz / 43 levels (16 MHz target, margin 0.10 MHz; F171 was 16.400 MHz / 30 levels, F170
+17.516 MHz / 32 levels), clk32_core 32.497 MHz, 46837 LUT + 5465 ALU, timing_pairs passes, Gowin V1.9.12.03.
+Bitstream md5 `25da6102583779c79b944766fc1f3630`.
+TOS 2.06 from SRAM reaches the GEM desktop and the A: window (`193628 bytes used in 7 items`).
+EmuTOS 1.4 (desktop and A: window), LOOPTEST (325203 / 557103 / 1960784, matches F170/F171) and Linux
+(`linux68k30.st` to `#`, `uname` prints Linux, 2.98 BogoMIPS; F171 3.07, F170 2.96, calibration jitter) were
+verified on F172 vC1 from SRAM (24 Nov), and earlier that day on F171. F171 presents MOVE to `(An)` / `(An)+` /
+`-(An)` in the EXECUTE clock (board survey 1266.0 to 1258.0). F172 keeps one MOVEM read in flight (`F172_RA_IGO`;
+pop = 4 clocks/register, the manual, on all three bus models) and posts synchronous writes like DSACK writes
+(`F172_SP`; `movem8_push_pop` SYNC 89 to 53, manual 58). Board/DSACK survey 1243 (async 1148, SYNC 1104; F171
+1258, F170 1266, manual 1059, ratio 1.174); board `movem8_push_pop` 78 to 69. A 2-clock synchronous MOVEM push
+write buffer is a later item and needs Fmax work first. Next, in order: the remaining memory MOVE gap
+(`d16,d16` 12 against 8; `Dn,d16` 7 against 4), JSR/BSR/RTS, RTE, the bus bridge check, and the uncached
+TT-RAM LOOPTEST check. Front [`README.md`](../README.md#identified-to-do).
+
+## Status (24 Nov 2026, F170, history)
+
 Current core: **F170** (speed `8968788`), in flash 0 (written 24 Nov 2026 06:33-06:35 UK, verified).
 clk_cpu030 Fmax 17.516 MHz / 32 levels (16 MHz target; F169 was 16.008 MHz / 43 levels), clk32_core 35.461 MHz,
 46274 LUT + 5464 ALU, timing_pairs passes, Gowin V1.9.12.03. Bitstream md5 `a44381ac65b79245c4c147d71eb7c18b`.
@@ -27,9 +46,7 @@ off is 557103 against F166's 558659 (0.28% slower, still to investigate). F170 s
 via `PW_GO` after any cycle (`F170_WR_GO`) and chains a posted write's S5 into the next operand read
 (`F170_RW_GO` / `F170_RW_Q`): memory-to-memory MOVE and RMW ALU ops each lose 2 clocks (17 of 98 survey rows
 faster, none slower; total 1266.0 against the manual's 1059, ratio 1.195, F169 was 1290.5). LINK/UNLK is 14
-(was 15). Next, in order: the remaining memory MOVE gap (still about 3 clocks over the manual), large MOVEM,
-JSR/BSR/RTS, RTE, the bus bridge check, and the uncached TT-RAM LOOPTEST check. Front
-[`README.md`](../README.md#identified-to-do).
+(was 15).
 
 ## Status (23 Nov 2026, history)
 
