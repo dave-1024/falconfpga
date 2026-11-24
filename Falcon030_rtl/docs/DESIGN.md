@@ -168,7 +168,7 @@ Falcon030_rtl/
   docs/DESIGN.md        this file
   hdl/top/              falcon_top.sv (from console138k/top.sv), falcon_core.v, tos_loader.v
   hdl/bus/              falcon_bus.v, falcon_sdram_arb.v
-  hdl/video/            videl_regs.v, falcon_scanout.v (port of falcon_video.v)
+  hdl/video/            videl_regs.v, falcon_sdp_ram.v, falcon_scanout.v (port of falcon_video.v; RGB line buffer and Falcon palette are SDP BSRAM with syn_ramstyle = "block_ram")
   hdl/peri/             falcon_nvram.v, falcon_ym_stub.v, falcon_io.v (stubs + IO mux)
   sim/                  tb_falcon.vhd + run_tos.sh (TOS 4.04 on the shared core, behavioural bus)
 ```
@@ -191,7 +191,7 @@ Falcon030_rtl/
 | No FPU (F-line traps) | `falcon_m28.c` M24 |
 | TOS from the SD card, not flash; 512K at $E00000 | `HOWTO.md` "`ROM=`"; `falcon_m28.c` M9G/M10 ROM-from-card |
 | Blitter (v1 stub). When real: reads ROM (system font) and latches $FF8A3C as one word | `falcon_m28.c` M11g, M11f |
-| Scanout: decode-on-fetch line buffer, geometry guard against insane transient VIDEL values | `falcon_video.v` v6 header; `falcon_m28.c` M11d |
+| Scanout: decode-on-fetch, geometry guard against insane transient VIDEL values; RGB line buffer and 256x18 Falcon palette are `falcon_sdp_ram` (syn_ramstyle = "block_ram", same style as `st_fb_ram`). A 640-deep combinational-port rawbuf was inferred as 62k LUT and is gone. | `falcon_video.v` v6 header; `falcon_m28.c` M11d; Hybrid sync-read BSRAM comment; `st_fb_ram` |
 | Use the J9 SDRAM, not the SOM DDR3 (dead lanes, burst rules) | `AE350_ERRATA.md`, `README.md` "SOM DDR3" |
 | TOS 4.04 waits on missing hardware (EmuTOS fails cleanly) | `HOWTO.md` "EmuTOS vs TOS 4.04" |
 | VBL at 60 Hz on VGA (50 Hz option later) | `HOWTO.md` "F10" / `VBL=` |

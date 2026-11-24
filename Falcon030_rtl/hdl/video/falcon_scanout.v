@@ -3,17 +3,28 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Decode-on-fetch line buffer from Hybrid030 falcon_video.v v6.2: the clk_32
-// side fetches one native line through falcon_sdram_arb.v, then decodes it
-// into a 640-wide RGB888 ping-pong buffer; the clk_pixel side is a linear
-// reader at 640x480@60 (CEA VIC 1). Mailbox parse and DDR3 lane-5 bursts are
-// dropped; geometry comes from videl_regs.v (the same fields the mailbox
-// carried: fb_base, planes, hdbl, vdbl, height, linebytes, palettes).
+// Decode-on-fetch from Hybrid030 falcon_video.v v6.2, but the line memories
+// are explicit SDP BSRAM (falcon_sdp_ram, syn_ramstyle = "block_ram", the
+// same style as st_fb_ram). The first v1 coding (a 640x16 rawbuf with eight
+// combinational ports, plus dual-clock 640x24 rgbbuf0/1 without the
+// attribute) synthesised as 62136 LUT / 16586 FF / 5 BSRAM and made the
+// first full build fail PR0004 at 88% CLS.
+//
+// clk_32 fetches one native 16-pixel group (1/2/4/8 words, or one RGB565
+// word) through falcon_sdram_arb.v, holds the plane words in eight
+// registers, and writes finished RGB888 into a 1024x24 ping-pong BSRAM
+// (bank in addr[9]). The clk_pixel side is a linear reader at 640x480@60
+// (CEA VIC 1), two-cycle latency like Hybrid. The 256x18 Falcon palette is
+// also SDP BSRAM with a synchronous read; the 16-entry ST palette stays as
+// registers. Geometry comes from videl_regs.v.
+//
+// Prefetch: at cx==0 of display line cy, request the NEXT row's native line
+// into bank ndrow[0]. That is a full HDMI line (31.8 us, ~1016 clk32) and
+// is the correct bank/line for TOS 640x480 (vdbl=0). The earlier trigger
+// (H_TOT-8, current nline into the next-row bank) was an off-by-one.
 //
 // Guard: linebytes == 0 or > 640 yields black (Hybrid030 M11d / v6 header).
 // v1 needs the TOS boot modes (640x480 4-plane VGA, ST modes doubled).
-// A 640x480 4-plane line is 160 words = 40 us at one word/250 ns; the HDMI
-// line is 31.8 us, so that mode underruns until a burst path is added.
 module falcon_scanout (
     input  wire        clk_32,
     input  wire        clk_pixel,
@@ -74,50 +85,60 @@ module falcon_scanout (
     wire [9:0] disp_h = vdbl ? {nlines[8:0], 1'b0} : nlines;
     wire [9:0] vtop   = (disp_h >= V_ACT) ? 10'd0 : ((V_ACT - disp_h) >> 1);
     wire [9:0] vbot   = vtop + (disp_h >= V_ACT ? V_ACT : disp_h);
-    wire       in_pic = (cy >= vtop) && (cy < vbot);
-    wire [9:0] drow   = in_pic ? (cy - vtop) : 10'd0;
-    wire [9:0] nline  = vdbl ? {1'b0, drow[9:1]} : drow;
-    wire       need_fetch = in_pic && (!vdbl || !drow[0]);  // first of a doubled pair
 
-    // request a native line: toggle in the pixel domain at the start of the
-    // display row (a few pixels into HBLANK of the previous line so fetch
-    // can run during the previous display line + blanking)
+    // At cx==0 of line cy, prefetch the NEXT display row into its bank.
+    wire [9:0] next_cy = (cy == V_TOT-10'd1) ? 10'd0 : (cy + 10'd1);
+    wire       nin_pic = (next_cy >= vtop) && (next_cy < vbot);
+    wire [9:0] ndrow   = nin_pic ? (next_cy - vtop) : 10'd0;
+    wire [9:0] nnline  = vdbl ? {1'b0, ndrow[9:1]} : ndrow;
+    wire       nfetch  = nin_pic && (!vdbl || !ndrow[0]);
+
     reg        fetch_tgl;
     reg [9:0]  fetch_line;
-    reg        fetch_odd;               // display-row parity -> rgbbuf select
+    reg        fetch_odd;
     always @(posedge clk_pixel) begin
         if (reset) fetch_tgl <= 1'b0;
-        else if (cx == (H_TOT-10'd8) && need_fetch) begin
-            fetch_line <= (cy == V_TOT-10'd1) ? 10'd0 : (in_pic ? nline : 10'd0);
-            // next row's parity: the row that starts after this HBLANK
-            fetch_odd  <= (cy == V_TOT-10'd1) ? 1'b0 : (cy + 10'd1 - vtop); // 1-bit: row parity
+        else if (cx == 10'd0 && nfetch) begin
+            fetch_line <= nnline;
+            fetch_odd  <= ndrow[0];
             fetch_tgl  <= ~fetch_tgl;
         end
     end
 
     // --------------- clk_32: palettes, fetch, decode ---------------
     reg [11:0] pal [0:15];
-    reg [17:0] fpal [0:255];
     integer pi;
     always @(posedge clk_32) begin
         if (reset) begin
             for (pi = 0; pi < 16; pi = pi + 1) pal[pi] <= 12'd0;
         end else if (stpal_we) pal[stpal_wa] <= stpal_wd;
     end
-    always @(posedge clk_32) begin
-        if (fpal_we) fpal[fpal_wa] <= fpal_wd;
-    end
 
-    reg [15:0] rawbuf [0:639];
-    reg [23:0] rgbbuf0 [0:639];
-    reg [23:0] rgbbuf1 [0:639];
+    // Falcon palette: SDP BSRAM, both ports on clk_32, registered read
+    wire [17:0] fpal_q;
+    reg  [7:0]  fpal_ra;
+    falcon_sdp_ram #(.DEPTH(256), .AW(8), .DW(18)) u_fpal (
+        .wclk(clk_32), .we(fpal_we), .waddr(fpal_wa), .wdata(fpal_wd),
+        .rclk(clk_32), .raddr(fpal_ra), .rdata(fpal_q)
+    );
+
+    // Ping-pong RGB line buffer: 1024x24 SDP, bank in addr[9], dual clock
+    reg         rgb_we;
+    reg  [9:0]  rgb_wa;
+    reg  [23:0] rgb_wd;
+    wire [9:0]  rgb_ra;
+    wire [23:0] rgb_rd;
+    falcon_sdp_ram #(.DEPTH(1024), .AW(10), .DW(24)) u_rgb (
+        .wclk(clk_32), .we(rgb_we), .waddr(rgb_wa), .wdata(rgb_wd),
+        .rclk(clk_pixel), .raddr(rgb_ra), .rdata(rgb_rd)
+    );
 
     // CDC of the fetch toggle
     reg [2:0] tgl_s;
     always @(posedge clk_32) tgl_s <= {tgl_s[1:0], fetch_tgl};
     wire fetch_go = tgl_s[1] != tgl_s[2];
 
-    // latched geometry for this line (guard insane transients)
+    // latched geometry for this line
     reg [23:0] base_l;
     reg [3:0]  planes_l;
     reg        hdbl_l, vdbl_l, odd_l, ok_l;
@@ -126,109 +147,141 @@ module falcon_scanout (
     wire [11:0] lb_now = linebytes;
     wire        lb_ok  = (lb_now != 12'd0) && (lb_now <= 12'd640);
 
-    localparam S_IDLE=0, S_FETCH=1, S_DEC=2, S_DEC2=3;
-    reg [1:0]  st;
-    reg [9:0]  widx, wmax, dcol, dcol_w;
+    localparam S_IDLE=3'd0, S_START=3'd1, S_WAIT=3'd2, S_PRIME=3'd3, S_PIX=3'd4, S_FILL=3'd5;
+    reg [2:0]  st;
+    reg [9:0]  dcol, dcol_w;
     reg [23:1] line_a;
     reg        wrbuf;
     reg        busy_line;
+    reg [3:0]  wneed, wgot;
+    reg [15:0] pw [0:7];
+    reg [23:0] rgb_np;
 
-    // decode helpers (same as falcon_video.v, but rawbuf is 16-bit BE words)
-    wire [1:0] pshift = planes_l[3] ? 2'd3 : planes_l[2] ? 2'd2 :
-                        (planes_l == 4'd2) ? 2'd1 : 2'd0;
-    wire [9:0] dx     = hdbl_l ? {1'b0, dcol[9:1]} : dcol;
-    wire [8:0] grp    = {4'd0, dx[9:4]};
-    wire [3:0] pk     = dx[3:0];
-    wire [8:0] wbase  = grp << pshift;
-    wire [15:0] pw0   = rawbuf[wbase + 9'd0];
-    wire [15:0] pw1   = rawbuf[wbase + 9'd1];
-    wire [15:0] pw2   = rawbuf[wbase + 9'd2];
-    wire [15:0] pw3   = rawbuf[wbase + 9'd3];
-    wire [15:0] pw4   = rawbuf[wbase + 9'd4];
-    wire [15:0] pw5   = rawbuf[wbase + 9'd5];
-    wire [15:0] pw6   = rawbuf[wbase + 9'd6];
-    wire [15:0] pw7   = rawbuf[wbase + 9'd7];
-    wire [7:0] idx8   = { (planes_l>4'd7) ? pw7[15-pk] : 1'b0,
-                          (planes_l>4'd6) ? pw6[15-pk] : 1'b0,
-                          (planes_l>4'd5) ? pw5[15-pk] : 1'b0,
-                          (planes_l>4'd4) ? pw4[15-pk] : 1'b0,
-                          (planes_l>4'd3) ? pw3[15-pk] : 1'b0,
-                          (planes_l>4'd2) ? pw2[15-pk] : 1'b0,
-                          (planes_l>4'd1) ? pw1[15-pk] : 1'b0,
-                          (planes_l>4'd0) ? pw0[15-pk] : 1'b0 };
-    wire [15:0] tcw   = rawbuf[dx];
+    // words in one 16-pixel native group (TC is one word per native pixel)
+    wire [3:0] words_per_grp = (planes_l == 4'd0) ? 4'd1 :
+                               planes_l[3]        ? 4'd8 :
+                               planes_l[2]        ? 4'd4 :
+                               (planes_l == 4'd2) ? 4'd2 : 4'd1;
+
+    // decode of the CURRENT compute column (dcol) from the latched plane words
+    wire [9:0] nat_x  = hdbl_l ? {1'b0, dcol[9:1]} : dcol;
+    wire [3:0] pk     = nat_x[3:0];
+    wire [7:0] idx8   = { (planes_l>4'd7) ? pw[7][15-pk] : 1'b0,
+                          (planes_l>4'd6) ? pw[6][15-pk] : 1'b0,
+                          (planes_l>4'd5) ? pw[5][15-pk] : 1'b0,
+                          (planes_l>4'd4) ? pw[4][15-pk] : 1'b0,
+                          (planes_l>4'd3) ? pw[3][15-pk] : 1'b0,
+                          (planes_l>4'd2) ? pw[2][15-pk] : 1'b0,
+                          (planes_l>4'd1) ? pw[1][15-pk] : 1'b0,
+                          (planes_l>4'd0) ? pw[0][15-pk] : 1'b0 };
+    wire [15:0] tcw   = pw[0];
     wire [23:0] c565  = { tcw[15:11], tcw[15:13], tcw[10:5], tcw[10:9], tcw[4:0], tcw[4:2] };
     wire [11:0] p12   = pal[idx8[3:0]];
     wire [23:0] cpal  = { p12[11:8], p12[11:8], p12[7:4], p12[7:4], p12[3:0], p12[3:0] };
-    reg  [17:0] fpal_q;
-    reg  [23:0] rgb_np;
     wire [23:0] f_rgb = { fpal_q[17:12], fpal_q[17:16],
                           fpal_q[11:6],  fpal_q[11:10],
                           fpal_q[5:0],   fpal_q[5:4] };
     wire [23:0] rgb_final = (planes_l == 4'd8) ? f_rgb : rgb_np;
 
+    // last display column of this group (the column being written, dcol_w)
+    wire last_in_grp = (planes_l == 4'd0) ? (hdbl_l ? dcol_w[0] : 1'b1) :
+                       (hdbl_l ? (dcol_w[4:0] == 5'd31) : (dcol_w[3:0] == 4'd15));
+
     always @(posedge clk_32) begin
         if (reset) begin
-            st <= S_IDLE; ram_req <= 1'b0; ram_rd2 <= 1'b0; underrun <= 1'b0; busy_line <= 1'b0;
+            st <= S_IDLE; ram_req <= 1'b0; ram_rd2 <= 1'b0;
+            underrun <= 1'b0; busy_line <= 1'b0;
+            rgb_we <= 1'b0; fpal_ra <= 8'd0;
         end else begin
+            rgb_we <= 1'b0;
             case (st)
                 S_IDLE: if (fetch_go) begin
                     if (busy_line) underrun <= 1'b1;
-                    base_l <= fb_base; planes_l <= planes; hdbl_l <= hdbl; vdbl_l <= vdbl;
-                    lb_l <= lb_now; nline_l <= fetch_line; odd_l <= fetch_odd;
-                    ok_l <= lb_ok;
-                    wrbuf <= fetch_odd;
+                    base_l   <= fb_base;
+                    planes_l <= planes;
+                    hdbl_l   <= hdbl;
+                    vdbl_l   <= vdbl;
+                    lb_l     <= lb_now;
+                    nline_l  <= fetch_line;
+                    odd_l    <= fetch_odd;
+                    ok_l     <= lb_ok;
+                    wrbuf    <= fetch_odd;
+                    dcol     <= 10'd0;
                     if (!lb_ok) begin
-                        dcol <= 10'd0; st <= S_DEC;      // fill black
-                    end else begin
-                        line_a <= fb_base[23:1] + nline * (lb_now >> 1); // word addr; nline from pixel domain
-                        // use latched nline after this edge: compute from fetch_line
-                        line_a <= fb_base[23:1] + fetch_line * (lb_now >> 1);
-                        widx <= 10'd0;
-                        wmax <= lb_now[11:1];            // words in the line
-                        ram_a <= fb_base[23:1] + fetch_line * (lb_now >> 1);
-                        ram_rd2 <= (lb_now[11:1] >= 12'd2) && ((fb_base[23:1] + fetch_line * (lb_now >> 1)) & 23'h1FF) != 23'h1FF;
-                        ram_req <= 1'b1;
                         busy_line <= 1'b1;
-                        st <= S_FETCH;
+                        st <= S_FILL;
+                    end else begin
+                        line_a    <= fb_base[23:1] + (fetch_line * lb_now[11:1]);
+                        ram_a     <= fb_base[23:1] + (fetch_line * lb_now[11:1]);
+                        busy_line <= 1'b1;
+                        wgot      <= 4'd0;
+                        st        <= S_START;
                     end
                 end
-                S_FETCH: if (ram_req && ram_ack) begin
-                    rawbuf[widx] <= ram_q;
-                    if (ram_rd2) rawbuf[widx + 10'd1] <= ram_q2;
+                S_START: begin
+                    wneed   <= words_per_grp;
+                    wgot    <= 4'd0;
+                    ram_a   <= line_a;
+                    ram_rd2 <= (words_per_grp >= 4'd2) && ((line_a & 23'h1FF) != 23'h1FF);
+                    ram_req <= 1'b1;
+                    st      <= S_WAIT;
+                end
+                S_WAIT: if (ram_req && ram_ack) begin
+                    pw[wgot] <= ram_q;
+                    if (ram_rd2) pw[wgot + 4'd1] <= ram_q2;
                     ram_req <= 1'b0;
+                    ram_rd2 <= 1'b0;
                     begin : nxt
-                        reg [9:0] ni;
-                        ni = widx + (ram_rd2 ? 10'd2 : 10'd1);
-                        if (ni >= wmax) begin
-                            dcol <= 10'd0; st <= S_DEC; ram_rd2 <= 1'b0;
+                        reg [3:0] ni;
+                        ni = wgot + (ram_rd2 ? 4'd2 : 4'd1);
+                        line_a <= line_a + (ram_rd2 ? 23'd2 : 23'd1);
+                        if (ni >= wneed) begin
+                            wgot <= ni;
+                            st   <= S_PRIME;        // pw settles this edge; use next cycle
                         end else begin
-                            widx <= ni;
-                            ram_a <= ram_a + (ram_rd2 ? 23'd2 : 23'd1);
-                            ram_rd2 <= ((wmax - ni) >= 10'd2) && ((ram_a + (ram_rd2 ? 23'd2 : 23'd1)) & 23'h1FF) != 23'h1FF;
+                            wgot    <= ni;
+                            ram_a   <= line_a + (ram_rd2 ? 23'd2 : 23'd1);
+                            ram_rd2 <= ((wneed - ni) >= 4'd2) &&
+                                       (((line_a + (ram_rd2 ? 23'd2 : 23'd1)) & 23'h1FF) != 23'h1FF);
                             ram_req <= 1'b1;
                         end
                     end
                 end else if (!ram_req) ram_req <= 1'b1;
-                S_DEC: begin
-                    // stage A: gather + ST pal / TC; issue Falcon pal read
+                // stage A for dcol: latch ST/TC colour, issue Falcon palette read
+                S_PRIME: begin
                     rgb_np  <= (planes_l == 4'd0) ? c565 : cpal;
-                    fpal_q  <= fpal[idx8];
+                    fpal_ra <= idx8;
                     dcol_w  <= dcol;
                     dcol    <= dcol + 10'd1;
-                    st      <= S_DEC2;
+                    st      <= S_PIX;
                 end
-                S_DEC2: begin
-                    if (ok_l) begin
-                        if (wrbuf) rgbbuf1[dcol_w] <= rgb_final;
-                        else       rgbbuf0[dcol_w] <= rgb_final;
-                    end else begin
-                        if (wrbuf) rgbbuf1[dcol_w] <= 24'd0;
-                        else       rgbbuf0[dcol_w] <= 24'd0;
-                    end
+                // stage B: write dcol_w; if the group continues, also stage A for dcol
+                S_PIX: begin
+                    rgb_we <= 1'b1;
+                    rgb_wa <= {wrbuf, dcol_w};
+                    rgb_wd <= rgb_final;
                     if (dcol_w == 10'd639) begin
-                        busy_line <= 1'b0; st <= S_IDLE;
-                    end else st <= S_DEC;
+                        busy_line <= 1'b0;
+                        st        <= S_IDLE;
+                    end else if (last_in_grp) begin
+                        // dcol already points at the first column of the next group
+                        st <= S_START;
+                    end else begin
+                        rgb_np  <= (planes_l == 4'd0) ? c565 : cpal;
+                        fpal_ra <= idx8;
+                        dcol_w  <= dcol;
+                        dcol    <= dcol + 10'd1;
+                    end
+                end
+                S_FILL: begin
+                    rgb_we <= 1'b1;
+                    rgb_wa <= {wrbuf, dcol};
+                    rgb_wd <= 24'd0;
+                    if (dcol == 10'd639) begin
+                        busy_line <= 1'b0;
+                        dcol      <= 10'd0;
+                        st        <= S_IDLE;
+                    end else dcol <= dcol + 10'd1;
                 end
                 default: st <= S_IDLE;
             endcase
@@ -251,17 +304,19 @@ module falcon_scanout (
     end
 
     // --------------- pixel read (2-cycle like Hybrid, +2 ahead) ---------------
+    // falcon_sdp_ram already registers rdata (1 cycle); q2 is the second.
     wire [9:0] hfetch = (cx >= H_TOT-10'd2) ? (cx - (H_TOT-10'd2)) : (cx + 10'd2);
     wire [9:0] yfetch = (cx >= H_TOT-10'd2) ? ((cy == V_TOT-10'd1) ? 10'd0 : cy + 10'd1) : cy;
     wire [9:0] drow_f = (yfetch >= vtop) && (yfetch < vbot) ? (yfetch - vtop) : 10'd0;
     wire       rsel   = drow_f[0];
-    wire       in_f   = (yfetch >= vtop) && (yfetch < vbot) && (hfetch < H_ACT);
-    reg [23:0] q1, q2;
-    always @(posedge clk_pixel) begin
-        q1 <= rsel ? rgbbuf1[hfetch] : rgbbuf0[hfetch];
-        q2 <= q1;
-    end
-    wire [23:0] pix = in_f ? q2 : 24'd0;
+    assign     rgb_ra = {rsel, hfetch};
+    // Address is +2 ahead; rdata is registered in the SDP, q2 is the second
+    // stage, so q2 at cx is the pixel for this cx (Hybrid / hdmi_640 contract:
+    // cx and rgb refer to the same pixel in the same clock). Blank from the
+    // current counters, not from the ahead in_f.
+    reg [23:0] q2;
+    always @(posedge clk_pixel) q2 <= rgb_rd;
+    wire [23:0] pix = ((cx < H_ACT) && (cy >= vtop) && (cy < vbot)) ? q2 : 24'd0;
     assign vr = pix[23:16];
     assign vg = pix[15:8];
     assign vb = pix[7:0];
