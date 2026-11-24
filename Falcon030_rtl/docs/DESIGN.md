@@ -183,3 +183,23 @@ Falcon030_rtl/
 | Use the J9 SDRAM, not the SOM DDR3 (dead lanes, burst rules) | `AE350_ERRATA.md`, `README.md` "SOM DDR3" |
 | TOS 4.04 waits on missing hardware (EmuTOS fails cleanly) | `HOWTO.md` "EmuTOS vs TOS 4.04" |
 | VBL at 60 Hz on VGA (50 Hz option later) | `HOWTO.md` "F10" / `VBL=` |
+
+## Third reference: AURA "Atari Falcon Hardware Registers" v0.4 (Aeon & Chris, 1993)
+
+Source: https://www.neperos.com/article/qs4f1491a6baa850 (plain text copy outside git:
+`/workspace/falcon_refs/neperos_qs4f.txt`). An early 1993 document, so it ranks below Hybrid030
+(hardware-checked against a real 68030) and next to Hatari. Checked against the v1 map:
+
+| Register | AURA v0.4 | Hybrid030 / Hatari | v1 | Note |
+|---|---|---|---|---|
+| IDE $FFF00000-$FFF0003F | one window, "new Falcon registers", contents unknown | one interface (M11q) | one interface, no device | agrees |
+| $FF8006 | b7:6 monitor (00 SM124, 01 SC1435, 10 VGA, 11 TV); sample value $56 | same monitor bits; TOS 4.04 RAM-size bits | $92 (VGA, 14 MB) | AURA's $56 decodes with TOS 4.04's formula to RAM code 5 = 14 MB, the same bits v1 uses. AURA does not name the RAM bits. |
+| $FF8266 SPSHIFT | b10 2-colour, b8 true colour, b4 256 colour, b5/b6 ext sync | same (Hatari) | same | agrees |
+| $FF82C2 VCO/VMODE | b1 interlace, b2 640 px; **bit 0 not described** | Hatari: b0 line doubling | b0 = line doubling | AURA silent on b0; v1 follows Hatari/Hybrid030 (falcon_video.v vdbl) |
+| $FF8210 VWRAP | 10-bit words per line, sample $0050 | same | same | agrees |
+| $FF860E/$FF860F | "new Falcon registers", no meaning given (sample $00/$80) | density select (Hybrid030 `flop_density` latch, both bytes) | density latch, bits 1:0 | AURA gives no bit meaning; v1 follows Hybrid030 |
+| $FF8800/$8802 | read data at $8800, write data at $8802 | same | same | agrees |
+| $FF8C80-$FF8C87 | SCC: odd bytes are the registers, even bytes unused | whitelist latch (Hybrid030) | latch | v1 latches even bytes too (harmless; Hybrid030 does the same) |
+| $FF9200 | fire buttons, sample $BF (bit 6 low) | Hybrid030 reads $FF | $FFFF | **differs**: on a real Falcon $FF9200 bit 6 is low in AURA's sample. Hybrid030 booted TOS 4.04 with $FF, so v1 keeps $FF; revisit if TOS 4.04 uses it (it reads $FF9200 at $E0042E). |
+| $FFA202 DSP ISR | sample $06 (TRDY, TXDE) | Hybrid030 falcon_m28 (shadow) / Hatari | $06 | agrees |
+| $FF8961/$FF8963 | NVRAM select / data | same | same | agrees |
