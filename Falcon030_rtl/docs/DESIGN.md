@@ -83,6 +83,17 @@ code 5 means 14 MB. Bits 7:6 are the monitor (00 mono, 01 RGB, 10 VGA, 11 TV). v
 | SDRAM clock | ST core `sdram.v` (shared ports: CPU, DMA, scanout) |
 | pixel 25.2 MHz / TMDS x5 | `gowin_pll_hdmi`, 640x480@60 |
 
+## Peripheral sub-bus (clk_32 blocks)
+
+The reused ST blocks (MFP, ACIAs, IKBD, dma.v, fdc1772) run on clk_32 with the ST enables (8 MHz, E clock for the
+ACIAs) and expect a 68000-style cycle: select held for the whole cycle, read side effects (MFP UDR, ACIA RDR)
+once per cycle. clk_cpu is phase-locked to clk_32 (16 = 32/2, same PLL, as in the ST build), so falcon_bus.v
+hands an IO cycle over synchronously: it holds select, address, R/W and data for the whole IO cycle and raises
+DSACK when the clk_32 side says done. The clk_32 side (`hdl/bus/falcon_pbus.v`, NEXT) makes one write strobe and
+one read-side-effect strobe per cycle, waits for the E clock for $FFFC0x (like the ST's VPA/VMA cycle), and
+returns MFP vectors on level 6 IACK. This is not `cpu030_st_bridge.v`: no ST bus timing, no GSTMCU, only the
+peripheral handshake.
+
 ## SDRAM ports
 
 The ST core's `sdram.v` is reused. In the ST build the GSTMCU sequenced CPU, DMA and shifter slots. The Falcon
