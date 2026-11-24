@@ -50,9 +50,12 @@ module falcon_io #(
     wire is_scsi= cyc && r[15:4] == 12'h878;
     wire is_joy = cyc && r[15:5] == 11'h490;
     wire is_dsp = cyc && r[15:3] == 13'h1440;
+    integer i;
     always @(posedge clk) begin
-        if (reset) fdc_hd <= 2'b00;
-        else if (wr) begin
+        if (reset) begin
+            fdc_hd <= 2'b00;
+            for (i = 0; i < 16; i = i + 1) cfg[i] <= 8'h00;
+        end else if (wr) begin
             if (is_dens && lds) fdc_hd <= din[1:0];
             if (is_snd) begin if (uds) snd[{r[6:1], 1'b0}] <= din[15:8]; if (lds) snd[{r[6:1], 1'b1}] <= din[7:0]; end
             if (is_blt) begin if (uds) blt[{r[5:1], 1'b0}] <= (r == 16'h8A3C) ? (din[15:8] & 8'h7F) : din[15:8]; if (lds) blt[{r[5:1], 1'b1}] <= din[7:0]; end  // $FF8A3C busy: stub completes at once (M11f)
@@ -70,7 +73,9 @@ module falcon_io #(
         else if (sel_acia) dout = {acia_d, acia_d};
         else if (sel_dma)  dout = dma_d;
         else if (is_dens)  dout = {8'hFF, 6'h00, fdc_hd};
-        else if (is_cfg && r == 16'h8006) dout = {MONITOR, 1'b0, MEMCODE[2:1], 1'b0, MEMCODE[0], 1'b0, cfg[7]};
+        // TOS 4.04 at $E0013A: memcfg = (($FF8006>>1)&1) | (($FF8006>>3)&6).
+        // Hybrid030 falcon_m28.c: $A2 = VGA (b7:6=10) + MEMCODE 5 (b5:4=10, b1=1) = 14 MB.
+        else if (is_cfg && r == 16'h8006) dout = {MONITOR, MEMCODE[2:1], 2'b00, MEMCODE[0], 1'b0, cfg[7]};
         else if (is_cfg)   dout = {cfg[{r[3:1], 1'b0}], cfg[{r[3:1], 1'b1}]};
         else if (is_snd)   dout = {snd[{r[6:1], 1'b0}], snd[{r[6:1], 1'b1}]};
         else if (is_blt)   dout = {(r == 16'h8A3C) ? (blt[{r[5:1], 1'b0}] & 8'h7F) : blt[{r[5:1], 1'b0}], blt[{r[5:1], 1'b1}]};

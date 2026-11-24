@@ -70,7 +70,7 @@ autovector, MFP level 6 vectored (vector from the MFP), as on the Falcon.
 
 ### $FF8006 (monitor and RAM size)
 
-TOS 4.04 at $E0013A reads the word at $FF8006: `code = ((hi>>1)&1) | ((hi>>2)&6)`, RAM = 512K << code, and
+TOS 4.04 at $E0013A reads the word at $FF8006: `code = ((hi>>1)&1) | ((hi>>3)&6)`, RAM = 512K << code, and
 code 5 means 14 MB. Bits 7:6 are the monitor (00 mono, 01 RGB, 10 VGA, 11 TV). v1 returns hi = $92
 (VGA, 14 MB). The sim bench uses code 1 (1 MB) so the RAM clear loop takes 1.6 M clocks, not 22 M.
 
@@ -204,7 +204,7 @@ the SDRAM arbiter. ACSI in `dma.v` gets no images (stub).
 | NVRAM at power-up | zeroed user cells, invalid checksum (M11h: removed its own pre-planted mode because a stock Falcon has none) | file or defaults | **Hybrid030 stock** (`PRESET=0`, the v1 default). David (24 Nov): TOS writes its defaults from a bad checksum, as a stock Falcon does. `PRESET=1` remains a parameter ($001A VGA, 80 col, 4 planes, valid checksum) for a faster sim; run at least one check with `PRESET=0` before the board test. |
 | Address bus | 24-bit by default (`BUS=24`, "matched Hatari and this bench for TOS") | 24-bit on Falcon | 24-bit, A31:24 ignored |
 | IDE | one interface answers at $FFF00000-3F (M11q); TOS 4.04 BERRed on alt status +$39 before that | IDE emulated | one interface answers, no device |
-| $FF8006 | io_shadow $FF (TV, code 7) | monitor + RAM config | $92xx (VGA, 14 MB), so TOS sizes 14 MB without probing |
+| $FF8006 | io_shadow $A2 (VGA, code 5) | monitor + RAM config | $A2xx (VGA, 14 MB), so TOS sizes 14 MB without probing |
 | GPIP7 | mono-detect XOR sound DMA | mono detect | Hybrid030 (no sound DMA: reads 1) |
 | IO whitelist | coarse ranges | per register | Hybrid030 ranges |
 | YM shadows $8804-$88FF | mirror $8800-$8803 | same | same |
@@ -255,7 +255,7 @@ Source: https://www.neperos.com/article/qs4f1491a6baa850 (plain text copy outsid
 | Register | AURA v0.4 | Hybrid030 / Hatari | v1 | Note |
 |---|---|---|---|---|
 | IDE $FFF00000-$FFF0003F | one window, "new Falcon registers", contents unknown | one interface (M11q) | one interface, no device | agrees |
-| $FF8006 | b7:6 monitor (00 SM124, 01 SC1435, 10 VGA, 11 TV); sample value $56 | same monitor bits; TOS 4.04 RAM-size bits | $92 (VGA, 14 MB) | AURA's $56 decodes with TOS 4.04's formula to RAM code 5 = 14 MB, the same bits v1 uses. AURA does not name the RAM bits. |
+| $FF8006 | b7:6 monitor (00 SM124, 01 SC1435, 10 VGA, 11 TV); sample value $56 | same monitor bits; TOS 4.04 RAM-size bits | $A2 (VGA, 14 MB) | Hybrid030 `io_shadow[0x0006]=0xA2` (VGA, code 5) is the value that booted TOS 4.04. Bits: b7:6=monitor, b5:4=MEMCODE[2:1], b1=MEMCODE[0]. AURA's $56 is a different packing (not used). |
 | $FF8266 SPSHIFT | b10 2-colour, b8 true colour, b4 256 colour, b5/b6 ext sync | same (Hatari) | same | agrees |
 | $FF82C2 VCO/VMODE | b1 interlace, b2 640 px; **bit 0 not described** | Hatari: b0 line doubling | b0 = line doubling | AURA silent on b0; v1 follows Hatari/Hybrid030 (falcon_video.v vdbl) |
 | $FF8210 VWRAP | 10-bit words per line, sample $0050 | same | same | agrees |

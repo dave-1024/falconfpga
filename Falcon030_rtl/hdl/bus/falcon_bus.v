@@ -102,7 +102,13 @@ module falcon_bus #(
     // io_wdata is sampled again in S_IO so a 030 write that presents data after
     // AS is still captured well before the clk32 write strobe.
     assign iack_mfp  = state == S_IACK && cpu_a[3:1] == 3'd6;
-    assign io_cyc    = state == S_IO;
+    // io_wr is registered and rises on the clock that leaves S_IO, so
+    // cyc would already be 0 if it only followed the state. Hold cyc
+    // for that one strobe cycle so VIDEL / falcon_io / NVRAM / YM see
+    // sel && wr together (otherwise every IO write is silently dropped;
+    // board HUD 6d7ae40: HHT stays 0 after TOS's MOVE.W #16,$FF8282,
+    // last IO shows $8266 but SPSHIFT is the reset default).
+    assign io_cyc    = (state == S_IO) || io_wr;
 
     localparam S_IDLE = 3'd0, S_MEM = 3'd1, S_IO = 3'd2, S_IACK = 3'd3,
                S_END = 3'd4, S_WEND = 3'd5, S_WAITACK = 3'd6;
