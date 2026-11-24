@@ -296,6 +296,7 @@ signal WR_EARLY                 : bit; -- [F3]
 signal WR_TAKE                  : bit;
 signal F3_BYP                   : bit;
 signal ADR_FAST                 : bit;
+signal ADR_FAST_MV              : bit; -- [F171]
 signal ALU_RESULT_MV            : std_logic_vector(31 downto 0);
 signal ALU_BSY                  : bit;
 signal ALU_COND                 : boolean;
@@ -978,7 +979,7 @@ begin
 
     DATA_FROM_CORE <= DATA_EXH when BUSY_EXH = '1' else
                       DR_OUT_2 when OP_WB = CAS or OP_WB = CAS2 else -- Update operands.
-                      ALU_RESULT_MV when F3_BYP = '1' else -- [F3] Next MOVEM register, in the clock its write is presented.
+                      ALU_RESULT_MV when F3_BYP = '1' else -- [F3] Next MOVEM register, in the clock its write is presented. [F171] MOVE write in EXECUTE.
                       ALU_RESULT(31 downto 0);
 
     SP_ADD_DISPL <= SP_ADD_DISPL_MAIN or SP_ADD_DISPL_EXH;
@@ -1440,6 +1441,7 @@ begin
             ADR_OFFSET              => ADR_OFFSET, -- Byte aligned.
             ADR_MARK_USED           => ADR_MARK_USED,
             ADR_FAST                => ADR_FAST,
+            ADR_FAST_MV             => ADR_FAST_MV, -- [F171]
             ADR_IN_USE              => ADR_IN_USE,
             ADR_MODE                => ADR_MODE,
             AMODE_SEL               => AMODE_SEL,
@@ -1777,6 +1779,7 @@ begin
             WR_TAKE                 => WR_TAKE,
             F3_BYP                  => F3_BYP,
             ADR_FAST                => ADR_FAST,
+            ADR_FAST_MV             => ADR_FAST_MV, -- [F171]
             BKPT_CYCLE              => BKPT_CYCLE,
             BKPT_INSERT             => BKPT_INSERT,
             LOOP_BSY                => LOOP_BSY,

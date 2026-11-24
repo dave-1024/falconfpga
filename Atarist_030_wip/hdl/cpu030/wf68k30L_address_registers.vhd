@@ -56,6 +56,8 @@
 --     INDEX_PEND has already dropped; port 1 is no longer the index.
 --   2026-11-23 F169: MSBIT (which stack pointer an A7 write uses) follows a new AR_MARK_USED even in the
 --     clock of the previous operation's UNMARK (user-mode UNLK after a memory write wrote the ISP).
+--   2026-11-24 F171: ADR_FAST_MV loads ADR_WB in the ADR_MARK_USED clock from the unregistered effective
+--     address (ADR_EFF_NXT = the D input of ADR_EFF_I), the value the DELAY path loads one clock later.
 -- 
 
 use work.WF68K30L_PKG.all;
@@ -97,6 +99,7 @@ entity WF68K30L_ADDRESS_REGISTERS is
         ADR_OFFSET          : in std_logic_vector(31 downto 0);
         ADR_MARK_USED       : in bit;
         ADR_FAST            : in bit; -- [F3] Load the write address without the calculation delay.
+        ADR_FAST_MV         : in bit; -- [F171] MOVE (An)/(An)+ destination: load ADR_WB from ADR_EFF_NXT now.
         USE_APAIR           : in boolean;
         ADR_IN_USE          : out bit;
 
@@ -172,6 +175,7 @@ signal DB_TRK   : std_logic_vector(7 downto 0) := (others => '0');
 signal DB_IN, DB_LIVE0, DB_IDX2, DB_IDX6, DB_LIVE6, DB_EA6, DB_PC : std_logic_vector(31 downto 0) := (others => '0');
 type AR_TYPE is array(0 to 6) of std_logic_vector(31 downto 0);
 signal ADR_EFF_I        : std_logic_vector(31 downto 0);
+signal ADR_EFF_NXT      : std_logic_vector(31 downto 0); -- [F171] D input of ADR_EFF_I (normal operation).
 signal AR               : AR_TYPE; -- Address registers A0 to A6.
 signal AR_OUT_1_I       : std_logic_vector(31 downto 0);
 signal AR_OUT_2_I       : std_logic_vector(31 downto 0);
@@ -247,6 +251,9 @@ begin
         --
         if RESET = '1' or UNMARK = '1' then
             ADR_WB(32) <= '0';
+            DELAY := false;
+        elsif ADR_MARK_USED = '1' and ADR_FAST_MV = '1' then
+            ADR_WB <= '1' & ADR_EFF_NXT; -- [F171] MOVE (An)/(An)+: same value the DELAY clock would load.
             DELAY := false;
         elsif ADR_MARK_USED = '1' and ADR_FAST = '1' then
             ADR_WB <= '1' & ADR_EFF_I; -- [F3] MOVEM: the next register's address is already calculated.
@@ -599,6 +606,7 @@ begin
                 ADR_EFF_VAR := (others => '-'); -- Result not required.
         end case;
         --
+        ADR_EFF_NXT <= ADR_EFF_VAR + ADR_OFFSET; -- [F171]
         if CLK = '1' and CLK' event then
             if RESTORE_ISP_PC = '1' then
                 ADR_EFF_I <= ADR_OFFSET; -- During system initialization.

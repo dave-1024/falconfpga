@@ -176,6 +176,13 @@
 --     UNLK_WAIT_ALU use a flip flop (UNLK_FO_Q) set in SWITCH / FETCH_OPERAND so the ready clock
 --     only ANDs the flop with RD_RDY / DATA_VALID / ALU_BSY / fault guards (as F166 WR_OLAP_Q).
 --     (F168_LU_Q).
+--   2026-11-24 F171: MOVE <ea>,(An)/(An)+/-(An) (not #imm) presents its write in the EXECUTE clock instead of WRITE_DEST
+--     (F171_MV_WX). In the INIT clock (ADR_MARK_USED) the destination address goes straight into ADR_WB
+--     (ADR_FAST_MV: ADR_EFF_NXT, the unregistered EA; F166_MV_AMODE selects the destination mode in INIT)
+--     and a flop (MVX_Q) marks the ALU load. In the next clock (EXECUTE, ALU_REQ) DATA_WR is raised and the
+--     write data comes from the unregistered ALU operand (RESULT_MV through F3_BYP), as the F3 MOVEM bypass.
+--     WRITE_DEST then simply holds the request. -1 clock for MOVE to (An)/(An)+/-(An). ADR_EFF_NXT is the value the DELAY clock would load,
+--     so the address is the same for every mode (the -(An) decrement is already in An at the mark clock).
 --   2026-11-23 F169: UNLK_SW output (UNLK in SWITCH_STATE) for the top AR_IN_1 select. Under F167_LU_GO the
 --     SWITCH clock can follow the end of a previous memory write (DATA_WR already 0, ALU_BSY still 1), and
 --     the F167 select wrote ALU_RESULT (the MOVE's data) into SP (TOS 2.06 busy bee hang, board only).
@@ -403,6 +410,7 @@ entity WF68K30L_CONTROL is
         WR_TAKE             : out bit; -- [F3]
         F3_BYP              : out bit; -- [F3]
         ADR_FAST            : out bit; -- [F3]
+        ADR_FAST_MV         : out bit; -- [F171]
 
         BKPT_CYCLE          : out bit;
         BKPT_INSERT         : out bit;
@@ -543,6 +551,9 @@ constant F165_WR_OLAP       : boolean := true; -- [F165] next op loads in the wr
     signal WR_OLAP              : bit; -- [F165]
 constant F166_MV_OLAP       : boolean := true; -- [F166] WR_OLAP for a following MOVE, registered operation qualifier.
 constant F166_MV_AMODE      : boolean := true; -- [F166] MOVE destination address mode for the whole INIT_EXEC_WB stay.
+constant F171_MV_WX         : boolean := true; -- [F171] MOVE <ea>,(An)/(An)+: write requested in EXECUTE (ADR_FAST + RESULT_MV bypass).
+    signal MVX_FAST             : bit; -- [F171] ADR_FAST term for MOVE (An)/(An)+ destination in INIT_EXEC_WB.
+    signal MVX_Q                : bit := '0'; -- [F171] registered: MOVE (An)/(An)+ loaded the ALU with ADR_FAST last clock.
 constant F170_RW_EARLY      : boolean := true; -- [F170] operand read requested in a posted write's DATA_RDY clock (bus RW_GO chain).
     signal F170_RW_Q            : bit := '0'; -- [F170] registered: FETCH_OPERAND of a qualifying operation in the clock before.
 constant F167_UNLK_EARLY    : boolean := true; -- [F167] UNLK: write An from DATA_TO_CORE in the read-ready clock.
@@ -646,8 +657,19 @@ begin
                          OP = MOVEM and BIW_0(10) = '0' and FETCH_STATE = INIT_EXEC_WB and MOVEM_COND = true and
                          WRITE_CYCLE = '1' and WFLT = '0' and ALU_BSY = '1' else '0';
     WR_TAKE <= F3_EARLY and ALU_INIT_I;
+    -- [F171] MOVE <ea>,(An)/(An)+ (no PHASE2): the destination address is final in INIT_EXEC_WB (F166_MV_AMODE),
+    -- so ADR_WB loads in the ADR_MARK_USED clock itself (registered terms only; the address unit ANDs ADR_MARK_USED).
+    MVX_FAST <= '1' when F171_MV_WX and OP = MOVE and FETCH_STATE = INIT_EXEC_WB and PHASE2 = false and
+                         (BIW_0(8 downto 6) = "010" or BIW_0(8 downto 6) = "011" or BIW_0(8 downto 6) = "100") and
+                         BIW_0(5 downto 0) /= "111100" else '0'; -- Not #imm: its fetch side is the limit and the F165 WR_OLAP would be lost (survey 4 -> 5).
     ADR_FAST <= F3_EARLY and ALU_INIT_I;
-    F3_BYP <= F3_BYP_I;
+    ADR_FAST_MV <= MVX_FAST; -- [F171]
+    P_F171_MVX: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        MVX_Q <= MVX_FAST and ADR_MARK_USED_I and ALU_INIT_I;
+    end process P_F171_MVX;
+    F3_BYP <= F3_BYP_I or MVX_Q; -- [F171] RESULT_MV (the MOVE's operand) in the clock after its ALU load.
     P_F3: process
     begin
         wait until CLK = '1' and CLK' event;
@@ -898,7 +920,8 @@ begin
                  '0' when CAS2_WGAP = '1' else -- [C1] CAS2: ADR_EFF_WB is loaded one clock after ADR_MARK_USED.
                  '0' when READ_CYCLE = '1' else -- Do not write during a read cycle.
                  '0' when DATA_RDY = '1' else
-                 '1' when EXEC_WB_STATE = WRITE_DEST else '0';
+                 '1' when EXEC_WB_STATE = WRITE_DEST else
+                 '1' when MVX_Q = '1' and EXEC_WB_STATE = EXECUTE and ALU_REQ = '1' else '0'; -- [F171]
 
     RMC <= '1' when (OP = CAS or OP = CAS2 or OP = TAS) and FETCH_STATE /= START_OP else '0';
 

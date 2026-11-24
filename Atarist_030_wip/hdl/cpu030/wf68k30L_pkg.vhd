@@ -43,6 +43,7 @@
 --   2026-11-18 F164: LK_HALF on the I-cache, IC_LK_HALF on the bus interface (per-word I-cache valid bits).
 --   2026-11-18 F163: XNZVC_OUT port on the ALU (CCR forwarded to the early Bcc.B).
 --   2026-11-18 F161: DBCC_DNZ / DR_DEC ports (control, data registers) for the early taken DBcc.
+--   2026-11-24 F171: ADR_FAST_MV port (control out, address registers in).
 --   2026-11-18 F160: CCR_IN port on the control unit (taken Bcc.B in its OPD_ACK clock).
 --   2026-11-09 F156: OPCODE_RDY_2 into the exception handler (REFILL_PIPE word count).
 --   2026-11-04 F147: OPCODE_RDY_2/OPCODE_VALID_2/second opcode word ports (bus interface out, decoder in).
@@ -176,6 +177,7 @@ component WF68K30L_ADDRESS_REGISTERS
         ADR_OFFSET          : in std_logic_vector(31 downto 0);
         ADR_MARK_USED       : in bit;
         ADR_FAST            : in bit;
+        ADR_FAST_MV         : in bit; -- [F171]
         ADR_IN_USE          : out bit;
         ADR_MODE            : in std_logic_vector(2 downto 0);
         AMODE_SEL           : in std_logic_vector(2 downto 0);
@@ -511,6 +513,7 @@ component WF68K30L_CONTROL
         WR_TAKE             : out bit;
         F3_BYP              : out bit;
         ADR_FAST            : out bit;
+        ADR_FAST_MV         : out bit; -- [F171]
         BKPT_CYCLE          : out bit;
         BKPT_INSERT         : out bit;
         LOOP_BSY            : in bit;
