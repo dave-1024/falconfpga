@@ -101,6 +101,12 @@ build has no GSTMCU, so a small arbiter (`hdl/bus/falcon_sdram_arb.v`, NEXT) giv
 (line bursts in blanking), then the floppy DMA (`dma.v` rdy_i/rdy_o word transfers), then the CPU word port of
 falcon_bus.v. The TOS loader uses the same port before the CPU leaves reset.
 
+Open point for the next step: the ST `sdram.v` (`hdl/tang/mega138kpro/sdram.v`) has two ports. The ST port
+(cs/we/ds/addr, 22-bit word address) is driven with GSTMCU slot timing; the TTRAM port (tt_req/tt_ack, 32-bit,
+long address = byte A23:2, banks 1/2 only) is a clean request/ack handshake but interleaves with ST slots. Options:
+(a) the arbiter generates the GSTMCU-style slot cadence on the ST port (proven timing, 16-bit); (b) a request/ack
+wrapper derived from the TT engine for all 4 banks. Pick (a) for v1 unless timing says otherwise.
+
 ## Video
 
 `videl_regs.v` decodes the VIDEL/shifter registers and outputs exactly the fields the Hybrid030 mailbox
