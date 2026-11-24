@@ -678,3 +678,12 @@ Process lessons from the F170 memory-operand MOVE / RMW work and its verify run.
    still in the environment silently ran against F169, so the C-only F170 result was invalid. `run_verify.sh`
    must export `WORKDIR` for the build under test itself; check the workdir path in the log before trusting a
    survey total.
+
+## LESSONS_LEARNED (F171, 24 Nov 2026)
+
+1. **Run stress batches from a frozen, read-only source snapshot, and never edit sources while a batch runs.**
+   The GHDL simulator (mcode) re-reads and re-checks the VHDL sources each time a test starts. During F171 the
+   sources were edited while the first MOVE stress batch was running: from the eighth configuration on, every
+   run stopped with "file ... has changed and must be reanalysed" and wrote empty `done=0` lines, so the whole
+   batch was invalid. Copy the sources to a snapshot folder, make it read-only (`chmod -R a-w`), build the sim
+   work folders from that snapshot only, and make further changes in a separate folder.
