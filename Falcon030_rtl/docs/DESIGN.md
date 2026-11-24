@@ -209,6 +209,31 @@ The Falcon has one floppy drive and no second floppy port. `fdc1772.v` and `dma.
 clock select and reported back on read. DMA is the sector-count/address DMA at $FF8604-$FF860D, its RAM side on
 the SDRAM arbiter. ACSI in `dma.v` gets no images (stub).
 
+## Blitter ($FF8A00-$FF8A3F)
+
+The instant-complete byte-latch stub is gone. `hdl/peri/falcon_blitter.v` wraps the FX ST/STE blitter
+`Atarist_030_wip/hdl/atarist/stBlitter.sv` (Jorge Cwik, 2019/2021), shared by path and unchanged. That file is the
+one the ST core already ships and that passed BLTTEST/BLTMASK on the board. Licence: its header carries only
+"Copyright (c) 2019,2021 by Jorge Cwik" with no licence text; it came in with MiSTeryNano (see
+`Atarist_030_wip/LICENSE-NOTES.md`: files without a licence header have no stated licence of their own; the
+author's fx68k is GPL-3). The Falcon build uses it on the same terms as the ST build; this needs confirming
+before any binary release. The wrapper itself is GPL-3.0-or-later.
+
+- Private 68000-style bus on clk_32, enPhi1/enPhi2 alternate every clock (16 MHz bus, like atarist.v with
+  cpu_16mhz_enable).
+- CPU register cycles are clk_32 io_ext cycles (falcon_core `sel_blt`), with AS held 2 clocks (one enPhi1 latch
+  edge) and FC=101.
+- Arbitration: the blitter's BR/BGACK become `br_want`. falcon_bus grants only in S_IDLE (between CPU cycles) and
+  starts no CPU cycle until `br_want` drops. This is the BR/BG/BGACK effect without using the WF68K30L pins (no
+  shared-CPU change). While it's granted, falcon_soc gives the arbiter CPU port to the blitter.
+- Shared mode: each CPU cycle start (falcon_bus `cyc_tog`) puts a 2-clock AS pulse on the private bus, so the
+  blitter's 64-bus-cycle counter includes CPU cycles, as on real hardware.
+- Writes at or above $E00000 are dropped and acknowledged. Reads go to SDRAM, so ROM font reads work (Hybrid030
+  M11g). INTn goes to MFP GPIP3.
+- Bench: `sim/blit/run.sh`. `blit_model.py` follows the BLTTEST.S STE model and covers HOP 0-3, OPs, skew,
+  FXSR/NFSR, masks, negative increments, HOG and shared mode with the TOS restart loop. On the NFSR last word,
+  stBlitter shifts in the last bus word, including a destination read; the model follows that.
+
 ## Differences from Hybrid030 and Hatari
 
 | Item | Hybrid030 (falcon_m28.c) | Hatari | v1 |

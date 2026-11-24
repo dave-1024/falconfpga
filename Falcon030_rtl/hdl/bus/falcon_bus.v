@@ -53,7 +53,11 @@ module falcon_bus #(
     input  wire        io_done,       // ... which has finished it (data valid on io_rdata)
     output wire        iack_mfp,      // level 6 IACK in progress
     input  wire [7:0]  mfp_vector,
-    input  wire        mfp_dtack      // MFP supplies its vector
+    input  wire        mfp_dtack,     // MFP supplies its vector
+    // blitter bus arbitration (falcon_blitter.v): BR/BG equivalent without the 030 pins
+    input  wire        br_want,       // clk_32 level: blitter requests / owns the bus
+    output reg         bus_grant,     // CPU parked in S_IDLE; no new cycle until br_want drops
+    output reg         cyc_tog        // toggles at each CPU cycle start (blitter shared-mode count)
 );
     wire [23:0] a24 = cpu_a[23:0];
     wire top_ok = 1'b1;   // 24-bit bus (Hybrid030 BUS=24, the mode that matched Hatari and the bench for TOS)
@@ -124,16 +128,21 @@ module falcon_bus #(
     end
     reg [2:0] state;
     reg [3:0] wcnt;
+    reg [1:0] br_s;
+    always @(posedge clk) br_s <= reset ? 2'b00 : {br_s[0], br_want};
     always @(posedge clk) begin
         io_wr <= 1'b0;
         if (reset) begin
+            bus_grant <= 1'b0; cyc_tog <= 1'b0;
             state <= S_IDLE; mem_req <= 1'b0;
             mem_a <= 23'd0; mem_we <= 1'b0; mem_be <= 2'b00; mem_wdata <= 16'd0;
             io_a <= 15'd0; io_uds <= 1'b0; io_lds <= 1'b0; io_rw <= 1'b1; io_wdata <= 16'd0;
             cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1;
         end else case (state)
-            S_IDLE: if (!cpu_as_n) begin
-                wcnt <= 4'd0;
+            S_IDLE: if (bus_grant || br_s[1]) begin
+                bus_grant <= br_s[1];             // grant only between cycles; release when BR drops
+            end else if (!cpu_as_n) begin
+                wcnt <= 4'd0; cyc_tog <= ~cyc_tog;
                 if (iack) state <= S_IACK;
                 else if (is_ram || is_rom || is_vec) begin
                     if (!cpu_rw && !is_ram) begin cpu_dsack_n <= 2'b01; state <= S_WEND; end  // ROM write: dropped

@@ -10,7 +10,7 @@
 //   $FF8006   monitor type b7:6 + RAM size code (MONITOR, MEMCODE), b7:0 of $FF8007 latch
 //   $FF860E   floppy density latch (bits 1:0, 11 = HD) -> fdc_hd
 //   $FF8780   NCR5380: reg 1 ICR (AIP follows mode bit 0), reg 2 mode reads back, rest 0
-//   $FF8900-$FF897F, $FF8A00-$FF8A3D, $FF8C80, $FF8000-$FF800F (except $8006): byte latches
+//   $FF8900-$FF897F, $FF8C80, $FF8000-$FF800F (except $8006): byte latches
 //   $FF9200   joypads/DIP: $FF
 //   $FFA200   DSP host: ISR ($A202) reads $06 (TXDE|TRDY), others $FF
 module falcon_io #(
@@ -41,10 +41,10 @@ module falcon_io #(
     assign sel_acia    = cyc && r >= 16'hFC00 && r <= 16'hFC06;
     assign sel_dma     = cyc && r >= 16'h8604 && r <= 16'h860C;
     wire   is_dens     = cyc && r == 16'h860E;
-    // byte latch stubs: 128 bytes sound/xbar ($8900-$897F), 64 blitter ($8A00), 16 config ($8000), 8 SCC
-    reg [7:0] snd [0:127]; reg [7:0] blt [0:63]; reg [7:0] cfg [0:15]; reg [7:0] scc [0:7]; reg [7:0] scsi [0:7];
+    // byte latch stubs: 128 bytes sound/xbar ($8900-$897F), 16 config ($8000), 8 SCC
+    reg [7:0] snd [0:127]; reg [7:0] cfg [0:15]; reg [7:0] scc [0:7]; reg [7:0] scsi [0:7];
     wire is_snd = cyc && r[15:7] == 9'h112 && !(r == 16'h8960 || r == 16'h8962);
-    wire is_blt = cyc && r[15:6] == 10'h228;
+    // $FF8A00-$FF8A3F: real blitter, falcon_blitter.v (clk_32 io_ext cycle in falcon_core)
     wire is_cfg = cyc && r[15:4] == 12'h800;
     wire is_scc = cyc && r[15:3] == 13'h1190;
     wire is_scsi= cyc && r[15:4] == 12'h878;
@@ -58,7 +58,6 @@ module falcon_io #(
         end else if (wr) begin
             if (is_dens && lds) fdc_hd <= din[1:0];
             if (is_snd) begin if (uds) snd[{r[6:1], 1'b0}] <= din[15:8]; if (lds) snd[{r[6:1], 1'b1}] <= din[7:0]; end
-            if (is_blt) begin if (uds) blt[{r[5:1], 1'b0}] <= (r == 16'h8A3C) ? (din[15:8] & 8'h7F) : din[15:8]; if (lds) blt[{r[5:1], 1'b1}] <= din[7:0]; end  // $FF8A3C busy: stub completes at once (M11f)
             if (is_cfg) begin if (uds) cfg[{r[3:1], 1'b0}] <= din[15:8]; if (lds) cfg[{r[3:1], 1'b1}] <= din[7:0]; end
             if (is_scc) begin if (uds) scc[{r[2:1], 1'b0}] <= din[15:8]; if (lds) scc[{r[2:1], 1'b1}] <= din[7:0]; end
             if (is_scsi && lds) scsi[r[3:1]] <= din[7:0];
@@ -78,7 +77,6 @@ module falcon_io #(
         else if (is_cfg && r == 16'h8006) dout = {MONITOR, MEMCODE[2:1], 2'b00, MEMCODE[0], 1'b0, cfg[7]};
         else if (is_cfg)   dout = {cfg[{r[3:1], 1'b0}], cfg[{r[3:1], 1'b1}]};
         else if (is_snd)   dout = {snd[{r[6:1], 1'b0}], snd[{r[6:1], 1'b1}]};
-        else if (is_blt)   dout = {(r == 16'h8A3C) ? (blt[{r[5:1], 1'b0}] & 8'h7F) : blt[{r[5:1], 1'b0}], blt[{r[5:1], 1'b1}]};
         else if (is_scc)   dout = {scc[{r[2:1], 1'b0}], scc[{r[2:1], 1'b1}]};
         else if (is_scsi)  dout = {8'hFF, r[3:1] == 3'd1 ? ((scsi[1] & 8'h9F) | (scsi[2][0] ? 8'h40 : 8'h00)) :
                                           r[3:1] == 3'd2 ? scsi[2] : 8'h00};

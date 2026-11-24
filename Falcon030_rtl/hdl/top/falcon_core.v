@@ -26,6 +26,14 @@ module falcon_core (
     output wire [15:0] p_wdata,
     input  wire [15:0] p_rdata,          // falcon_pbus.v latched read data
     input  wire        p_done,           // falcon_pbus.v cycle finished
+    // blitter ($FF8A00-$FF8A3F, falcon_blitter.v on clk_32) register port + bus arbitration
+    output wire        p_sel_blt,
+    output wire        p_uds, p_lds,
+    input  wire [15:0] blt_rdata,
+    input  wire        blt_done,
+    input  wire        blt_br,           // blitter wants/owns the bus (clk_32 level)
+    output wire        blt_bg,           // CPU parked between cycles (clk_cpu)
+    output wire        cpu_cyc_tog,      // toggles on each CPU bus cycle start
     output wire        p_iack_mfp,
     input  wire [7:0]  mfp_vector,
     input  wire        mfp_dtack,
@@ -237,7 +245,8 @@ module falcon_core (
         .CIINn(cpu_ciin_n), .MMU_ON(), .CDISn(1'b1), .CBACKn(1'b1), .CBREQn(), .CIOUTn());
 
     wire sel_videl, sel_nv_a, sel_nv_d, sel_ym, sel_mfp, sel_acia, sel_dma;
-    wire io_ext = sel_mfp || sel_acia || sel_dma;
+    wire sel_blt = io_cyc && (io_a[15:5] == 11'h450);   // $FF8A00-$FF8A3F
+    wire io_ext = sel_mfp || sel_acia || sel_dma || sel_blt;
     wire io_cyc, io_uds, io_lds, io_wr, io_rw; wire [15:1] io_a; wire [15:0] io_wdata, io_rdata;
     falcon_bus bus (
         .clk(clk_cpu), .reset(reset),
@@ -247,7 +256,8 @@ module falcon_core (
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be), .mem_wdata(mem_wdata),
         .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_rw(io_rw), .io_wr(io_wr), .io_wdata(io_wdata),
-        .io_rdata(io_ext ? p_rdata : io_rdata), .io_ext(io_ext), .io_done(p_done), .iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack));
+        .io_rdata(sel_blt ? blt_rdata : io_ext ? p_rdata : io_rdata), .io_ext(io_ext),
+        .io_done(sel_blt ? blt_done : p_done), .br_want(blt_br), .bus_grant(blt_bg), .cyc_tog(cpu_cyc_tog), .iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack));
 
     wire [15:0] videl_d; wire [7:0] nv_d, ym_d;
     falcon_io io (
@@ -260,6 +270,7 @@ module falcon_core (
     assign p_sel_mfp = sel_mfp; assign p_sel_acia = sel_acia; assign p_sel_dma = sel_dma && !io_a[3];
     assign p_sel_dmaaddr = sel_dma && io_a[3];
     assign p_a = io_a; assign p_rw = io_rw; assign p_wdata = io_wdata;
+    assign p_sel_blt = sel_blt; assign p_uds = io_uds; assign p_lds = io_lds;
 
     falcon_nvram nvram (.clk(clk_cpu), .reset(reset), .sel_addr(sel_nv_a), .sel_data(sel_nv_d), .wr(io_wr),
         .din(io_wdata[7:0]), .dout(nv_d));

@@ -32,7 +32,8 @@ module tb_bus_io;
         .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds),
         .io_rw(io_rw), .io_wr(io_wr), .io_wdata(io_wdata),
         .io_rdata(io_rdata), .io_ext(1'b0), .io_done(1'b0),
-        .iack_mfp(), .mfp_vector(8'h00), .mfp_dtack(1'b0)
+        .iack_mfp(), .mfp_vector(8'h00), .mfp_dtack(1'b0),
+        .br_want(1'b0), .bus_grant(), .cyc_tog()
     );
 
     falcon_io #(.MONITOR(2'b10), .MEMCODE(3'd5)) u_io (

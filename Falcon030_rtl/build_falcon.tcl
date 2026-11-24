@@ -39,6 +39,7 @@ add_file $F/hdl/peri/falcon_nvram.v
 add_file $F/hdl/peri/falcon_ym_stub.v
 add_file $F/hdl/peri/falcon_fdc.v
 add_file $F/hdl/peri/falcon_ikbd_acia.v
+add_file $F/hdl/peri/falcon_blitter.v
 add_file $F/osd/falcon_xml.hex
 # sysctrl.v $readmemh("falcon_xml.hex") searches the gw_sh cwd, not add_file's
 # path. 85ca498: WARN EX3988, empty XML ROM, helper config[0]=00.
@@ -61,6 +62,7 @@ add_file $ST/hdl/cpu030/wf68k30L_top.vhd
 
 # ST peripherals reused as-is
 add_file $ST/hdl/atarist/acia.v
+add_file $ST/hdl/atarist/stBlitter.sv
 add_file $ST/hdl/atarist/acsi.v
 add_file $ST/hdl/atarist/dma.v
 add_file $ST/hdl/atarist/io_fifo.v

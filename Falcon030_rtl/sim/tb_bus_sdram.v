@@ -45,7 +45,8 @@ module tb_bus_sdram;
         .mem_wdata(mem_wdata), .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(), .io_a(), .io_uds(), .io_lds(), .io_rw(), .io_wr(), .io_wdata(),
         .io_rdata(16'h0), .io_ext(1'b0), .io_done(1'b0),
-        .iack_mfp(), .mfp_vector(8'h0), .mfp_dtack(1'b0)
+        .iack_mfp(), .mfp_vector(8'h0), .mfp_dtack(1'b0),
+        .br_want(1'b0), .bus_grant(), .cyc_tog()
     );
     falcon_sdram_arb u_arb (
         .clk(clk32), .reset(reset_32), .ram_ready(ram_ready),

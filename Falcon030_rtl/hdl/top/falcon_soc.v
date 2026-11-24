@@ -120,6 +120,16 @@ module falcon_soc (
     wire        cpu_req  = cpu_reset ? 1'b0 : mem_req;
     wire        use_ld   = cpu_reset & ld_req;
 
+    // blitter master shares the CPU arbiter port while falcon_bus has parked the CPU (blt_g32)
+    wire        blt_g32, blt_mreq, blt_mwe;
+    wire [23:1] blt_ma;
+    wire [15:0] blt_mwd;
+    wire        a_cpu_req = blt_g32 ? blt_mreq : cpu_req;
+    wire [23:1] a_cpu_a   = blt_g32 ? blt_ma : mem_a;
+    wire        a_cpu_we  = blt_g32 ? blt_mwe : mem_we;
+    wire [1:0]  a_cpu_be  = blt_g32 ? 2'b11 : mem_be;
+    wire [15:0] a_cpu_d   = blt_g32 ? blt_mwd : mem_wdata;
+
     falcon_sdram_arb arb (
         .clk(clk_32), .reset(por), .ram_ready(ram_ready),
         .sd_cs(sd_cs_i), .sd_we(sd_we_i), .sd_refresh(sd_refresh), .sd_ecs(sd_ecs),
@@ -128,8 +138,8 @@ module falcon_soc (
         .vid_req(vid_req), .vid_a(vid_a), .vid_ack(vid_ack), .vid_q(vid_q), .vid_q2(vid_q2),
         .dma_req(dma_req), .dma_we(dma_we), .dma_a(dma_a), .dma_d(dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
         .ld_req(use_ld), .ld_a(ld_a), .ld_d(ld_d), .ld_ack(ld_ack),
-        .cpu_req(cpu_req), .cpu_a(mem_a), .cpu_we(mem_we), .cpu_be(mem_be),
-        .cpu_d(mem_wdata), .cpu_ack(mem_ack), .cpu_q(mem_rdata)
+        .cpu_req(a_cpu_req), .cpu_a(a_cpu_a), .cpu_we(a_cpu_we), .cpu_be(a_cpu_be),
+        .cpu_d(a_cpu_d), .cpu_ack(mem_ack), .cpu_q(mem_rdata)
     );
 
     sdram sdram (
@@ -201,6 +211,8 @@ module falcon_soc (
         .mem_wdata(mem_wdata), .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .p_sel_mfp(p_sel_mfp), .p_sel_acia(p_sel_acia), .p_sel_dma(p_sel_dma), .p_sel_dmaaddr(p_sel_dmaaddr),
         .p_a(p_a), .p_rw(p_rw), .p_wdata(p_wdata), .p_rdata(p_rdata), .p_done(p_done),
+        .p_sel_blt(p_sel_blt), .p_uds(p_uds), .p_lds(p_lds), .blt_rdata(blt_rdata), .blt_done(blt_done),
+        .blt_br(blt_br), .blt_bg(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .p_iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack),
         .mfp_irq(mfp_irq), .vbl(vbl), .hbl(hbl),
         .vcount(vcount), .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl),
@@ -227,6 +239,18 @@ module falcon_soc (
     wire [383:0] dbg_cycs;
     wire [3:0]   dbg_ncyc;
     wire [255:0] dbg_io_ring, dbg_pc_ring;
+
+    // ---- blitter $FF8A00 (falcon_blitter.v wraps the proven stBlitter.sv) ----
+    wire        p_sel_blt, p_uds, p_lds, blt_done, blt_br, blt_bg, cpu_cyc_tog, blt_irq_n;
+    wire [15:0] blt_rdata;
+    falcon_blitter blitter (
+        .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
+        .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
+        .rdata(blt_rdata), .done(blt_done),
+        .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
+        .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),
+        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n)
+    );
 
     // ---- peripheral sub-bus (clk_32) ----
     // MFP_CLK=24 / DMA_CLK=16: enough 4/8 MHz enables for dtack and the dma.v edge.
@@ -287,8 +311,8 @@ module falcon_soc (
     );
 
     // GPIP: Hybrid030 / DESIGN.md. GPIP7 reads 1 (no sound DMA). GPIP5 = !FDC IRQ
-    // (IDE later shares it). GPIP4 = !ACIA IRQ. Blitter stub: no done IRQ (1).
-    wire [7:0] mfp_gpio_in = {1'b1, 1'b1, !fdc_irq, !acia_irq, 1'b1, 2'b11, 1'b1};
+    // (IDE later shares it). GPIP4 = !ACIA IRQ. GPIP3 = blitter INTn (low = done), as atarist.v.
+    wire [7:0] mfp_gpio_in = {1'b1, 1'b1, !fdc_irq, !acia_irq, blt_irq_n, 2'b11, 1'b1};
     wire       mfp_int;
     assign mfp_irq = mfp_int;
     assign mfp_vector = mfp_d;   // during IACK, mfp.v puts the vector on dout
