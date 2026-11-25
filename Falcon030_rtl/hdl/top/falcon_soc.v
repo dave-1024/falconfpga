@@ -208,6 +208,7 @@ module falcon_soc (
     wire        p_done;
     wire [7:0]  mfp_vector;
     wire        mfp_dtack, mfp_irq;
+    wire        tb_de;      // MFP TBI from falcon_scanout (FB-1)
     wire [7:0]  ym_porta;
 
     wire [23:0] fb_base, vcount;
@@ -381,7 +382,7 @@ module falcon_soc (
         .serial_status_out(),
         .serial_data_out_available(), .serial_strobe_out(1'b0), .serial_data_out(),
         .serial_data_in_free(), .serial_strobe_in(1'b0), .serial_data_in(8'd0),
-        .clk_ext(clk_mfp_en), .t_i({hbl, 1'b0}), .i(mfp_gpio_in)
+        .clk_ext(clk_mfp_en), .t_i({tb_de, 1'b0}), .i(mfp_gpio_in)
     );
 
     falcon_scanout scanout (
@@ -394,7 +395,7 @@ module falcon_soc (
         .ram_ack(vid_ack), .ram_q(vid_q), .ram_q2(vid_q2),
         .cx(cx), .cy(cy), .hsync(hsync), .vsync(vsync), .de(de),
         .vr(scan_r), .vg(scan_g), .vb(scan_b),
-        .vbl(vbl), .hbl(hbl), .vcount(vcount), .underrun(scan_underrun)
+        .vbl(vbl), .hbl(hbl), .tb_de(tb_de), .vcount(vcount), .underrun(scan_underrun)
     );
 
     // Colour bars + a bottom debug tray while the TOS loader holds the CPU

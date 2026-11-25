@@ -57,6 +57,7 @@ module falcon_scanout (
     output wire [7:0]  vr, vg, vb,
     // interrupts / VIDEL counter (levels in clk_32, synced from pixel timing)
     output reg         vbl, hbl,
+    output reg         tb_de,           // MFP TBI (Timer B event count): ST-style DE, one line per native line, see below
     output reg  [23:0] vcount,
     output reg         underrun,
     output wire [191:0] dbg_pal,        // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
@@ -100,6 +101,18 @@ module falcon_scanout (
     reg        fetch_tgl;
     reg [9:0]  fetch_line;
     reg        fetch_odd;
+    // TBI (FB-1): the ST/Falcon Timer B counts DE falling edges, one per displayed native
+    // line, none in the border or blanking. hbl (every 31 kHz hsync, 523 per frame) made
+    // FrontBench's 168-line panel split land at native line 48. Palettes are applied when a
+    // native line is decoded, one HDMI row before its first copy, so the DE pulse is made in
+    // the row that fetches/decodes the line: a palette write from the Timer B ISR then has a
+    // full row (~38 us) before the next native line is decoded. de_fetch falls at cx == H_ACT.
+    reg        fetch_row;
+    always @(posedge clk_pixel) begin
+        if (reset) fetch_row <= 1'b0;
+        else if (cx == 10'd0) fetch_row <= nfetch;
+    end
+    wire de_fetch_l = (cx < H_ACT) && ((cx == 10'd0) ? nfetch : fetch_row);  // no 1-px glitch at cx 0
     always @(posedge clk_pixel) begin
         if (reset) fetch_tgl <= 1'b0;
         else if (cx == 10'd0 && nfetch) begin
@@ -326,10 +339,12 @@ module falcon_scanout (
     end
 
     // VBL/HBL in clk_32, synced from pixel timing
-    reg [2:0] vs_s, hs_s;
+    reg [2:0] vs_s, hs_s, tb_s;
     always @(posedge clk_32) begin
         vs_s <= {vs_s[1:0], vs_l};
         hs_s <= {hs_s[1:0], hs_l};
+        tb_s <= {tb_s[1:0], de_fetch_l};
+        tb_de <= tb_s[2];
         vbl  <= vs_s[2];
         hbl  <= hs_s[2] && !vs_s[2];
     end
