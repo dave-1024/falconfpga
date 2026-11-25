@@ -247,6 +247,7 @@ module falcon_soc (
     wire [15:0] blt_rdata;
     wire [127:0] blt_dbg;
     wire [255:0] blt_snap;
+    wire [31:0]  scan_probe;
     falcon_blitter blitter (
         .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
         .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
@@ -366,7 +367,7 @@ module falcon_soc (
     falcon_scanout scanout (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(por),
         .fb_base(fb_base), .planes(planes), .st_shifter(st_shifter), .hdbl(hdbl), .vdbl(vdbl),
-        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal),
+        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal), .dbg_probe(scan_probe),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(fpal_we), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd),
         .ram_req(vid_req), .ram_rd2(vid_rd2), .ram_a(vid_a),
@@ -530,7 +531,8 @@ module falcon_soc (
         // HUD row 9: slots 4-5 live blitter debug, slots 6-7 keyboard ACIA/IKBD, once the ring has frozen at
         // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.
         // (dialog debug build: slots 4-7 = blitter flags, {halftone0, fills}, fill history; IKBD dropped)
-        pcring_s<= (dbg_berr_count != 16'd0) ? {blt_dbg[127:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
+        // (BLI-9: row 9 slot 7 = scanout pixel probe at native line 100, col 320 instead of blitter d_first)
+        pcring_s<= (dbg_berr_count != 16'd0) ? {scan_probe, blt_dbg[95:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
         pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.

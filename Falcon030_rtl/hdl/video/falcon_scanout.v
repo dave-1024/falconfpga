@@ -59,7 +59,8 @@ module falcon_scanout (
     output reg         vbl, hbl,
     output reg  [23:0] vcount,
     output reg         underrun,
-    output wire [191:0] dbg_pal         // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
+    output wire [191:0] dbg_pal,        // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
+    output reg  [31:0]  dbg_probe       // HUD debug (BLI-9): {Falcon pal, 3'b0, pixel index 3:0, RGB} at native line 100, col 320
 );
     // CEA VIC 1: 640x480@60, 25.2 MHz, negative syncs
     localparam [9:0] H_ACT = 10'd640, H_FP = 10'd16, H_SYNC = 10'd96, H_BP = 10'd48;
@@ -279,6 +280,7 @@ module falcon_scanout (
                 end
                 // stage B: write dcol_w; if the group continues, also stage A for dcol
                 S_PIX: begin
+                    if (nline_l == 10'd100 && dcol_w == 10'd320) dbg_probe <= {fpal_l, 3'b000, fpal_ra[3:0], rgb_final};
                     rgb_we <= 1'b1;
                     rgb_wa <= {wrbuf, dcol_w};
                     rgb_wd <= rgb_final;
