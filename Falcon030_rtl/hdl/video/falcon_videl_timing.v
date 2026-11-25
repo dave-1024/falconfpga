@@ -15,11 +15,11 @@
 //        at vstart = HDMI vtop, so each native line's DE (and the Timer B ISR's palette
 //        write) lands in the HDMI row before that line is decoded (d8e6a1f contract,
 //        FrontBench split at native 168) without any HDMI signal reaching the CPU side.
-//   RGB: free-running. Lines/frame from Videl VFT (half-lines): >= 576 half-lines ->
-//        313 lines x 2048 clk32 (50.08 Hz, 15.625 kHz), else 263 x 2032 (59.87 Hz).
-//        Picture starts at VDB/2. Not locked to HDMI (rate differs): until VID-SPLIT
-//        step 3 (native-time decode into a frame buffer) raster palette splits will
-//        roll in the HDMI picture on RGB 50; interrupt timing is correct.
+//   RGB: free-running, FORCED 50 Hz: 313 lines x 2048 clk32 (49.92 Hz, 15.625 kHz)
+//        whatever VFT says (step 3; the 263 x 2032 60 Hz branch is kept but unused).
+//        Picture starts at VDB/2. Not locked to HDMI: falcon_scanout decodes each
+//        native line at native time (line_go) into an on-chip frame buffer that the
+//        HDMI side reads (VID-SPLIT step 3), so raster splits do not roll.
 // DE: one active period per native picture line (only the first monitor line of a
 // doubled pair, vdbl = VMODE bit 0), so Timer B counts native lines (200 in ST low).
 module falcon_videl_timing (
@@ -39,11 +39,20 @@ module falcon_videl_timing (
     output reg         vbl,             // level, IPL4
     output reg         frame_start,     // 1-clk pulse at native line 0
     output reg  [23:0] vcount,          // live $FF8205/07/09
+    output reg         line_go,         // VID-SPLIT 3: 1-clk pulse at hc 0 of each native picture line (first of a doubled pair)
+    output reg  [9:0]  pline_o,         // VID-SPLIT 3: native picture line index for line_go
     output reg  [9:0]  vl_o,            // native monitor line (debug/sim)
     output reg  [11:0] hc_o
 );
     // ---- per-monitor constants ----
-    wire        rgb50   = (vft == 16'd0) || (vft >= 16'd576);
+    // RGB is FORCED to 50 Hz (David 25 Nov 16:20 UK): 313 x 2048 whatever VFT TOS writes.
+    // TOS 4 picks PAL/NTSC Videl values from the NVRAM mode word (VsetMode bit 5), not from
+    // the monitor sense, so it may still program NTSC VFT/VDB; the Videl registers read back
+    // exactly what TOS wrote, only the beam is PAL. With NTSC values (VFT < 576 half-lines)
+    // the picture start is moved down by PAL_VOFS lines (ST: 60 Hz first line 34, 50 Hz 63).
+    wire        vft_ntsc = (vft != 16'd0) && (vft < 16'd576);
+    wire        rgb50   = 1'b1;
+    localparam [9:0] PAL_VOFS = 10'd29;
     wire [11:0] htot    = !mon_rgb ? 12'd1016 : (rgb50 ? 12'd2048 : 12'd2032);
     wire [9:0]  vtot    = !mon_rgb ? 10'd525  : (rgb50 ? 10'd313  : 10'd263);
     wire [11:0] hde_end = !mon_rgb ? 12'd812  : 12'd1280;  // active length (640 px @25.2 / 320 px @8 MHz)
@@ -53,7 +62,7 @@ module falcon_videl_timing (
     localparam [11:0] LOCK_HC = 12'd6;                     // HDMI cx 0 -> clk_32 after the 3-flop sync
 
     wire [9:0]  nlines  = (height == 10'd0) ? 10'd200 : height;
-    wire [9:0]  vdb_l   = vdb[10:1];
+    wire [9:0]  vdb_l   = vdb[10:1] + (vft_ntsc ? PAL_VOFS : 10'd0);
     wire [9:0]  vst_rgb = (vdb_l + nlines + 10'd4 > vtot) ? 10'd16 : vdb_l;
     wire [9:0]  vstart  = !mon_rgb ? hdmi_vtop : vst_rgb;
     wire [10:0] span    = vdbl ? {nlines, 1'b0} : {1'b0, nlines};
@@ -90,6 +99,8 @@ module falcon_videl_timing (
         hbl         <= (hc >= hs0) && (hc < hs0 + hsw) && !((vl == vs0) || (vl == vs0 + 10'd1));
         frame_start <= (hc == 12'd0) && (vl == 10'd0);
         vl_o <= vl; hc_o <= hc;
+        line_go <= in_pic && first && (hc == 12'd0);
+        if (in_pic && first && (hc == 12'd0)) pline_o <= pline;
         if (vl == 10'd0 && hc == 12'd0) line_base <= fb_base;
         if (hc == 12'd0 || (de && !de_n)) begin acc <= 12'd0; off <= 12'd0; end
         else if (de_n) begin

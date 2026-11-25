@@ -36,6 +36,10 @@ module falcon_scanout (
     input  wire        hdbl, vdbl,
     input  wire [9:0]  height,          // native visible lines
     input  wire [11:0] linebytes,
+    // VID-SPLIT step 3: RGB monitor = native-time decode into a 640x240x12 frame buffer
+    input  wire        use_fb,          // mon_rgb (quasi-static); fb used when also height <= 240
+    input  wire        nat_go,          // clk_32 pulse: decode native picture line nat_line now
+    input  wire [9:0]  nat_line,
     // ST palette write (from videl_regs, clk_cpu; sampled in clk_32)
     input  wire        stpal_we,
     input  wire [3:0]  stpal_wa,
@@ -158,14 +162,37 @@ module falcon_scanout (
     wire [9:0]  rgb_ra;
     wire [23:0] rgb_rd;
     falcon_sdp_ram #(.DEPTH(1024), .AW(10), .DW(24)) u_rgb (
-        .wclk(clk_32), .we(rgb_we), .waddr(rgb_wa), .wdata(rgb_wd),
+        .wclk(clk_32), .we(rgb_we && !fbm_l), .waddr(rgb_wa), .wdata(rgb_wd),
         .rclk(clk_pixel), .raddr(rgb_ra), .rdata(rgb_rd)
     );
 
     // CDC of the fetch toggle
     reg [2:0] tgl_s;
     always @(posedge clk_32) tgl_s <= {tgl_s[1:0], fetch_tgl};
-    wire fetch_go = tgl_s[1] != tgl_s[2];
+    wire fetch_go_h = tgl_s[1] != tgl_s[2];
+
+    // ---- VID-SPLIT step 3: RGB frame buffer (640 x 240 x 12 bit, SDP BSRAM) ----
+    // In fb mode the fetch/decode engine runs on the native beam (falcon_videl_timing
+    // line_go at the start of each native picture line), so palette writes land on the
+    // native line they were made on, and finished pixels go to row nat_line of the frame
+    // buffer. The HDMI reader (640x480@60) line-doubles the buffer; no lock, single
+    // buffer, an occasional tear is accepted (David 25 Nov). VGA keeps the HDMI-row fetch.
+    reg  fbm32;
+    always @(posedge clk_32) fbm32 <= use_fb && (height != 10'd0) && (height <= 10'd240);
+    wire        fetch_go   = fbm32 ? nat_go : fetch_go_h;
+    wire [9:0]  go_line    = fbm32 ? nat_line : fetch_line;
+    wire        go_odd     = fbm32 ? 1'b0 : fetch_odd;
+    reg         fbm_l;
+    reg  [17:0] fb_rowb;
+    wire [17:0] fb_wa = fb_rowb + {8'd0, rgb_wa};
+    wire        fb_we = rgb_we && fbm_l;
+    wire [11:0] fb_rd;
+    reg  [17:0] fb_ra;
+    falcon_sdp_ram #(.DEPTH(153600), .AW(18), .DW(12)) u_fb (
+        .wclk(clk_32), .we(fb_we && (fb_wa < 18'd153600)), .waddr(fb_wa),
+        .wdata({rgb_wd[23:20], rgb_wd[15:12], rgb_wd[7:4]}),
+        .rclk(clk_pixel), .raddr(fb_ra), .rdata(fb_rd)
+    );
 
     // latched geometry for this line
     reg [23:0] base_l;
@@ -246,17 +273,19 @@ module falcon_scanout (
                     hdbl_l   <= hdbl;
                     vdbl_l   <= vdbl;
                     lb_l     <= lb_now;
-                    nline_l  <= fetch_line;
-                    odd_l    <= fetch_odd;
+                    nline_l  <= go_line;
+                    odd_l    <= go_odd;
                     ok_l     <= lb_ok;
-                    wrbuf    <= fetch_odd;
+                    wrbuf    <= go_odd;
+                    fbm_l    <= fbm32;
+                    fb_rowb  <= ({8'd0, go_line} << 9) + ({8'd0, go_line} << 7);   // line * 640
                     dcol     <= 10'd0;
                     if (!lb_ok) begin
                         busy_line <= 1'b1;
                         st <= S_FILL;
                     end else begin
-                        line_a    <= fb_base[23:1] + (fetch_line * lb_now[11:1]);
-                        ram_a     <= fb_base[23:1] + (fetch_line * lb_now[11:1]);
+                        line_a    <= fb_base[23:1] + (go_line * lb_now[11:1]);
+                        ram_a     <= fb_base[23:1] + (go_line * lb_now[11:1]);
                         busy_line <= 1'b1;
                         wgot      <= 4'd0;
                         st        <= S_START;
@@ -369,7 +398,15 @@ module falcon_scanout (
     // current counters, not from the ahead in_f.
     reg [23:0] q2;
     always @(posedge clk_pixel) q2 <= rgb_rd;
-    wire [23:0] pix = ((cx < H_ACT) && (cy >= vtop) && (cy < vbot)) ? q2 : 24'd0;
+    // fb reader (step 3): same +2 ahead / 2-stage contract; buffer row = native line
+    reg  [1:0]  fbm_ps;
+    always @(posedge clk_pixel) fbm_ps <= {fbm_ps[0], fbm32};
+    wire [9:0]  frow   = vdbl ? {1'b0, drow_f[9:1]} : drow_f;
+    always @(*) fb_ra = ({8'd0, frow} << 9) + ({8'd0, frow} << 7) + {8'd0, hfetch};
+    reg  [11:0] fq2;
+    always @(posedge clk_pixel) fq2 <= fb_rd;
+    wire [23:0] fpix   = {fq2[11:8], fq2[11:8], fq2[7:4], fq2[7:4], fq2[3:0], fq2[3:0]};
+    wire [23:0] pix = ((cx < H_ACT) && (cy >= vtop) && (cy < vbot)) ? (fbm_ps[1] ? fpix : q2) : 24'd0;
     assign vr = pix[23:16];
     assign vg = pix[15:8];
     assign vb = pix[7:0];

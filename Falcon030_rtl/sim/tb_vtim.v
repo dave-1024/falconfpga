@@ -33,15 +33,16 @@ module tb_vtim;
     always @(posedge clk_32) ram_ack <= ram_req && !ram_ack;
     wire [9:0] cx, cy; wire hsync, vsync, de; wire [7:0] vr, vg, vb;
     wire s_vbl, s_hbl, s_tb_de, underrun; wire [23:0] s_vcount;
-    wire [9:0] vtop; wire fs_tgl;
+    wire [9:0] vtop; wire fs_tgl; wire nat_go; wire [9:0] nat_line;
     wire vbl, hbl, tb_de, fstart; wire [23:0] vcount; wire [9:0] vl; wire [11:0] hc;
     falcon_videl_timing vt (.clk_32(clk_32), .reset(reset), .mon_rgb(`MON), .vft(`VFT), .vdb(`VDB), .vdbl(`VDBL),
         .height(10'd200), .fb_base(24'h3F8000), .linebytes(12'd160), .hdmi_vtop(vtop), .hdmi_fs_tgl(fs_tgl),
-        .de(tb_de), .hbl(hbl), .vbl(vbl), .frame_start(fstart), .vcount(vcount), .vl_o(vl), .hc_o(hc));
+        .line_go(nat_go), .pline_o(nat_line), .de(tb_de), .hbl(hbl), .vbl(vbl), .frame_start(fstart), .vcount(vcount), .vl_o(vl), .hc_o(hc));
     falcon_scanout dut (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(reset),
         .fb_base(24'h0), .planes(4'd4), .st_shifter(1'b1), .hdbl(1'b1), .vdbl(1'b1),
         .height(10'd200), .linebytes(12'd160),
+        .use_fb(`MON), .nat_go(nat_go), .nat_line(nat_line),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(1'b0), .fpal_wa(8'd0), .fpal_wd(18'd0),
         .ram_req(ram_req), .ram_rd2(ram_rd2), .ram_a(ram_a),
@@ -86,12 +87,15 @@ module tb_vtim;
         end
     end
     reg got_l = 0, got_r = 0;
-    always @(posedge clk_pixel) if (frames == 3) begin
+    always @(posedge clk_pixel) if (frames >= 3) begin
         if (cy == 0) begin got_l <= 0; got_r <= 0; end
         if (de && cx == 8   && !got_l && vr != 0) begin got_l <= 1; $display("  first grey row at x=8:   %0d (native %0d)", cy, (cy-40)/2); end
         if (de && cx == 632 && !got_r && vr != 0) begin got_r <= 1; $display("  first grey row at x=632: %0d", cy); end
     end
     always @(posedge clk_pixel) if (frames == 3 && cy >= 372 && cy <= 377 && (cx == 8 || cx == 320 || cx == 632))
         $display("    row %0d x %0d: r=%0d", cy, cx, vr);
-    initial begin #(4*16_700_000); $finish; end
+`ifndef SIMT
+ `define SIMT (4*16_700_000)
+`endif
+    initial begin #(`SIMT); $finish; end
 endmodule

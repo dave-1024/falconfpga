@@ -390,10 +390,13 @@ module falcon_soc (
         .clk_ext(clk_mfp_en), .t_i({tb_de, 1'b0}), .i(mfp_gpio_in)
     );
 
+    wire        nat_go;     // VID-SPLIT 3: native line start (RGB frame-buffer decode)
+    wire [9:0]  nat_line;
     falcon_scanout scanout (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(por),
         .fb_base(fb_base), .planes(planes), .st_shifter(st_shifter), .hdbl(hdbl), .vdbl(vdbl),
-        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal), .dbg_probe(scan_probe), .dbg_probe_a(scan_probe_a),
+        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal),
+        .use_fb(mon_rgb), .nat_go(nat_go), .nat_line(nat_line), .dbg_probe(scan_probe), .dbg_probe_a(scan_probe_a),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(fpal_we), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd),
         .ram_req(vid_req), .ram_rd2(vid_rd2), .ram_a(vid_a),
@@ -411,7 +414,8 @@ module falcon_soc (
         .vft(dbg_vft), .vdb(nat_vdb), .vdbl(nat_vdbl), .height(height),
         .fb_base(fb_base), .linebytes(linebytes),
         .hdmi_vtop(scan_vtop), .hdmi_fs_tgl(scan_fs_tgl),
-        .de(tb_de), .hbl(hbl), .vbl(vbl), .frame_start(), .vcount(vcount), .vl_o(), .hc_o()
+        .de(tb_de), .hbl(hbl), .vbl(vbl), .frame_start(), .vcount(vcount),
+        .line_go(nat_go), .pline_o(nat_line), .vl_o(), .hc_o()
     );
 
     // Colour bars + a bottom debug tray while the TOS loader holds the CPU
