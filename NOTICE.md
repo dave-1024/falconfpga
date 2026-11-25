@@ -14,6 +14,7 @@ David’s original files are **GPL-3.0-or-later**. See `LICENSE-ORIGINAL.md`.
 | `reference/Hybrid030/` original glue | David Dunne | **GPL-3.0-or-later** |
 | `docs/history/patches/` that only edit upstream | this project | same as the file they patch |
 | `Atarist_030_wip/` | MiSTeryNano + wf68k30L + TF534-style bridge | Mixed; see `Atarist_030_wip/LICENSE-NOTES.md` |
+| `Falcon030_rtl/` | MiSTeryNano-derived peripherals, wf68k30L, FPGA-Companion helper, Falcon-native RTL | Mixed; the CPU is CERN OHL v1.2 (VHDL headers). Helper and many peripherals follow the same map as `Atarist_030_wip/LICENSE-NOTES.md`. Falcon-native RTL is GPL-3.0-or-later unless a file header says otherwise |
 | TF534 files, if copied later | Stephen J. Leary | **GPL-2** — keep that `LICENSE` |
 
 ## Not in this repository

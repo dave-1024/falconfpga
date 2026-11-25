@@ -2,7 +2,8 @@
 REM Builds FPGA-Companion for the AE350 (ST_HELPER build, docs\ST_HELPER.md
 REM section 7, port steps 1-3). Output: output\helper_companion.bin.
 REM Flash it at 0x0600000 (leading 0, not 0x6000000) with programmer_cli
-REM op 56 --mcuFile --spiaddr 0x600000. Never write 0x500000 (TOS slot).
+REM op 56 --mcuFile --spiaddr 0x600000. Falcon TOS is on the SD card, not flash.
+REM Still never write 0x500000 by accident. See Falcon030_rtl\BUILD.md.
 REM Same toolchain, BSP, start-up files and linker script as
 REM ..\mailbox\build_mailbox.bat: loader.c holds the BUILD_BURN boot_loader
 REM (.bootloader at 0x80000000) that copies the DDR-linked image out of flash.

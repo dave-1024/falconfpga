@@ -10,6 +10,22 @@
 This guide is for anyone who wants to build this project themselves. It tries to use plain words.
 You only need to type the commands shown in the grey boxes.
 
+
+> **The live core is the Falcon, on branch `falcon`.** Check out that branch and follow
+> [`Falcon030_rtl/BUILD.md`](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/BUILD.md) and the
+> [`Falcon030_rtl/README.md`](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md).
+> Build with `gw_sh Falcon030_rtl/build_falcon.tcl` from the repo root, Gowin V1.9.12.03 only.
+> TOS 4.04 is loaded from the SD card (default `TOS404.IMG`), not from the 0x500000 flash slot.
+> Flash the core bitstream at address 0 (op 53). Do not rebuild or reflash the helper firmware
+> until the helper cleanup is started. Never touch the BL616, and do not use a bulk erase.
+> Overview and status: the top [README](../README.md).
+
+The rest of this guide describes the retired ST/STE 68030 core in `Atarist_030_wip/`
+(TOS 2.06 or EmuTOS written to flash at 0x500000). It is left here as a record. Some later
+sections (for example the note about branch `tt-ram`) are also out of date for that core:
+TT-RAM was merged there long ago.
+
+
 > **Please read first.** This is a personal workbench, not a finished product. David does not give support for
 > it. See the "This is not a product" part of the main [README](../README.md) before you buy anything.
 

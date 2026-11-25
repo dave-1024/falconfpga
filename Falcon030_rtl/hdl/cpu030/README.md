@@ -1,3 +1,8 @@
+> This is the Falcon core's local copy of WF68K30L (`Falcon030_rtl/hdl/cpu030/`).
+> The status text below is from the earlier ST integration and is historical.
+> Current Falcon status: [`Falcon030_rtl/README.md`](../../README.md) and the root
+> [`README.md`](../../../README.md).
+
 # cpu030: WF68K30L (68030) in place of fx68k (first integration, Atarist_030_wip)
 
 Current status (23 Oct 2026, main): board build tt26 (d270586; +1.344 ns, clk_cpu030 24.09 MHz, 40308 LUT + 5042 ALU)

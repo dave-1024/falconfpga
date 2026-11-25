@@ -1,3 +1,11 @@
+> **Retired for now (25 Nov 2026).** This ST/STE 68030 core is archived and left untouched.
+> The live work is the Falcon core on branch [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon),
+> in [`Falcon030_rtl/`](https://github.com/dave-1024/falconfpga/tree/falcon/Falcon030_rtl).
+> If the Falcon needs another module from here, that module is copied into `Falcon030_rtl/`.
+> The status sections below are a historical record. The old project front page, including the
+> ST screenshots, is at [`docs/README_ST_core_archive.md`](../docs/README_ST_core_archive.md).
+> Current front page: [`README.md`](../README.md).
+
 # Atarist_030_wip: a 68030 Atari ST, as a test bed for the Falcon
 
 **In one paragraph:** an Atari ST/STE (MiSTeryNano core) whose 68000 is replaced by a 68030 (Wolfgang Foerster's

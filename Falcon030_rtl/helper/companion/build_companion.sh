@@ -5,7 +5,8 @@
 # github.com/andestech/Andes-Development-Kit release ast-v5_1_1-release-linux.
 # BSP: Gowin RiscV_AE350_SOC_V1.3 library/bsp (copied from the laptop).
 # Output: output/helper_companion.bin -> flash at 0x0600000 with programmer_cli
-# op 56 --mcuFile --spiaddr 0x600000. Never write 0x500000 (TOS slot).
+# op 56 --mcuFile --spiaddr 0x600000. The Falcon core loads TOS from the SD card,
+# not from flash. Still never write 0x500000 by accident. See Falcon030_rtl/BUILD.md.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 FALCON_TC=${FALCON_TC:-$HOME/andes/5_1_1/nds32le-elf-newlib-v5/bin}
