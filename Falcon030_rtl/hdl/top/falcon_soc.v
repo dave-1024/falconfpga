@@ -290,18 +290,50 @@ module falcon_soc (
     wire        acia_irq = kbd_acia_irq | midi_acia_irq;
     assign acia_d = p_a[2] ? midi_acia_d : kbd_acia_d;
 
-    // Keyboard ACIA + IKBD: Hybrid030 falcon_m28.c M5 stub (Falcon-side only).
-    // The shared ST HD63701 + acia.v are not used for the keyboard in this
-    // build: MCU_BIROM $readmemh("ikbd.hex") is not copied into the gw_sh
-    // cwd, and TOS 4.04 / EmuTOS wait on a $Fx self-test byte after $80 $01.
-    // MIDI still uses the ST acia.v (TDRE, no RX).
-    falcon_ikbd_acia kbd_acia (
-        .clk(clk_32), .reset(por | user_reset),
-        .sel(acia_cs && !p_a[2]), .rs(p_a[1]), .rw(p_rw),
-        .din(p_wdata[15:8]), .dout(kbd_acia_d), .irq(kbd_acia_irq)
+    // Keyboard ACIA + IKBD: the ST core's real path (atarist.v), unchanged modules.
+    // ikbd.sv (HD63701 + MCU_BIROM ikbd.hex) on clk_32 with DIV=4 (2 MHz enables,
+    // as the ST core); acia.v on the pbus E enable, 500 kHz rx/tx clock from clk_32.
+    // Matrix/mouse/joystick come from the same helper hid.v as the ST core.
+    // falcon_ikbd_acia.v (Hybrid030 M5 stub) is no longer instantiated.
+    ikbd #(.DIV(4)) ikbd (
+        .clk(clk_32), .res(por | user_reset),
+        .tx(ikbd_tx), .rx(ikbd_rx),
+        .matrix_out(keyboard_matrix_out), .matrix_in(keyboard_matrix_in),
+        .caps_lock(),
+        .joystick0({joy0[5:4], joy0[0], joy0[1], joy0[2], joy0[3]}),
+        .joystick1({joy1[4], joy1[0], joy1[1], joy1[2], joy1[3]})
     );
-    assign ikbd_tx = 1'b1;
-    assign ikbd_rx = 1'b1;
+
+    acia #(.INPUT_FILTER(0)) kbd_acia (
+        .clk(clk_32), .E(acia_E), .reset(por | user_reset),
+        .din(p_wdata[15:8]), .sel(acia_cs && !p_a[2]), .rs(p_a[1]), .rw(p_rw),
+        .dout(kbd_acia_d), .irq(kbd_acia_irq),
+        .rxtxclk_sel(1'b0), .dout_strobe(),
+        .rx(ikbd_tx), .tx(ikbd_rx)
+    );
+
+    // HUD: keyboard ACIA traffic (clk_32). RX = CPU reads of RDR ($FFFC02),
+    // TX = CPU writes of TDR. joy_chg counts changes of the helper mouse/joy0 bits.
+    wire kacc = acia_cs && !p_a[2] && p_a[1];
+    reg  kacc_d;
+    reg [15:0] k_rxc;
+    reg [11:0] k_txc;
+    reg [7:0]  k_rxd, k_txd, k_jch;
+    reg [5:0]  joy0_d;
+    always @(posedge clk_32) begin
+        kacc_d <= kacc;
+        joy0_d <= joy0;
+        if (por) begin
+            k_rxc <= 16'd0; k_txc <= 12'd0; k_rxd <= 8'd0; k_txd <= 8'd0; k_jch <= 8'd0;
+        end else begin
+            if (kacc && !kacc_d && p_rw)  begin k_rxc <= k_rxc + 16'd1; k_rxd <= kbd_acia_d; end
+            if (kacc && !kacc_d && !p_rw) begin k_txc <= k_txc + 12'd1; k_txd <= p_wdata[15:8]; end
+            if (joy0 != joy0_d) k_jch <= k_jch + 8'd1;
+        end
+    end
+    // s6 = {rx count, last rx, last tx}; s7 = {tx count, 0, 0, kbd irq, GPIP4 pin, joy changes, 00, joy0}
+    wire [63:0] ikbd_dbg = { {k_txc, 2'b00, kbd_acia_irq, !acia_irq, k_jch, 2'b00, joy0},
+                             {k_rxc, k_rxd, k_txd} };
 
     acia midi_acia (
         .clk(clk_32), .E(acia_E), .reset(por | user_reset),
@@ -490,9 +522,9 @@ module falcon_soc (
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
         ioring_s<= dbg_io_ring;    ioring_p<= ioring_s;
-        // HUD row 9 (pc_ring slots 4-7) shows live blitter debug once the ring has frozen at
+        // HUD row 9: slots 4-5 live blitter debug, slots 6-7 keyboard ACIA/IKBD, once the ring has frozen at
         // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.
-        pcring_s<= (dbg_berr_count != 16'd0) ? {blt_dbg, dbg_pc_ring[127:0]} : dbg_pc_ring;
+        pcring_s<= (dbg_berr_count != 16'd0) ? {ikbd_dbg, blt_dbg[63:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
         pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.

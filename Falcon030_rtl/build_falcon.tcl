@@ -38,7 +38,6 @@ add_file $F/hdl/peri/falcon_io.v
 add_file $F/hdl/peri/falcon_nvram.v
 add_file $F/hdl/peri/falcon_ym_stub.v
 add_file $F/hdl/peri/falcon_fdc.v
-add_file $F/hdl/peri/falcon_ikbd_acia.v
 add_file $F/hdl/peri/falcon_blitter.v
 add_file $F/osd/falcon_xml.hex
 # sysctrl.v $readmemh("falcon_xml.hex") searches the gw_sh cwd, not add_file's
@@ -83,6 +82,9 @@ add_file $ST/hdl/ikbd/hd63701/HD63701_defs.i
 add_file $ST/hdl/ikbd/ikbd.sv
 add_file $ST/hdl/ikbd/rom/MCU_BIROM.v
 add_file $ST/hdl/ikbd/rom/ikbd.hex
+# MCU_BIROM.v $readmemh("ikbd.hex"): earlier builds found it next to MCU_BIROM.v (no EX3988),
+# but copy it into the gw_sh cwd too, as for falcon_xml.hex, so the HD63701 ROM is never empty.
+file copy -force $ST/hdl/ikbd/rom/ikbd.hex ikbd.hex
 
 # HDMI, SDRAM, helper, PLL, SD (same board pins as the ST helper image)
 add_file $ST/hdl/hdmi/audio_clock_regeneration_packet.sv
