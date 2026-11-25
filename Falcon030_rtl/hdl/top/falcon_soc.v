@@ -130,6 +130,22 @@ module falcon_soc (
     wire [1:0]  a_cpu_be  = blt_g32 ? 2'b11 : mem_be;
     wire [15:0] a_cpu_d   = blt_g32 ? blt_mwd : mem_wdata;
 
+    // Dialog debug 6 (BLI-9): write watch on the 8-byte plane group the scanout probe shows (native line 100,
+    // col 320). Every write accepted on the arbiter CPU port (CPU or blitter) to that group is logged into an
+    // 8-entry ring {blitter, A2:1 (plane), UDS, LDS, seq11, data16}, HUD slot 0 oldest; w_cnt = {all, blitter} counts.
+    reg         w_ack_q = 1'b0;
+    reg [255:0] w_ring = 256'd0;
+    reg [10:0]  w_seq = 11'd0;
+    reg [15:0]  w_nblt = 16'd0;
+    always @(posedge clk_32) begin
+        w_ack_q <= mem_ack;
+        if (a_cpu_req && a_cpu_we && mem_ack && !w_ack_q && a_cpu_a[23:3] == scan_probe_a[23:3]) begin
+            w_ring <= {blt_g32, a_cpu_a[2:1], a_cpu_be, w_seq, a_cpu_d, w_ring[255:32]};
+            w_seq  <= w_seq + 11'd1;
+            if (blt_g32) w_nblt <= w_nblt + 16'd1;
+        end
+    end
+
     falcon_sdram_arb arb (
         .clk(clk_32), .reset(por), .ram_ready(ram_ready),
         .sd_cs(sd_cs_i), .sd_we(sd_we_i), .sd_refresh(sd_refresh), .sd_ecs(sd_ecs),
@@ -248,6 +264,7 @@ module falcon_soc (
     wire [127:0] blt_dbg;
     wire [255:0] blt_snap;
     wire [31:0]  scan_probe;
+    wire [23:1]  scan_probe_a;
     falcon_blitter blitter (
         .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
         .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
@@ -367,7 +384,7 @@ module falcon_soc (
     falcon_scanout scanout (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(por),
         .fb_base(fb_base), .planes(planes), .st_shifter(st_shifter), .hdbl(hdbl), .vdbl(vdbl),
-        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal), .dbg_probe(scan_probe),
+        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal), .dbg_probe(scan_probe), .dbg_probe_a(scan_probe_a),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(fpal_we), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd),
         .ram_req(vid_req), .ram_rd2(vid_rd2), .ram_a(vid_a),
@@ -526,13 +543,13 @@ module falcon_soc (
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
         // (dialog debug build 2: rows 6-7 = frozen blitter start ring, slot k = entry k, oldest first)
-        ioring_s<= blt_snap;
+        ioring_s<= w_ring;
         ioring_p<= ioring_s;
         // HUD row 9: slots 4-5 live blitter debug, slots 6-7 keyboard ACIA/IKBD, once the ring has frozen at
         // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.
         // (dialog debug build: slots 4-7 = blitter flags, {halftone0, fills}, fill history; IKBD dropped)
         // (BLI-9: row 9 slot 7 = scanout pixel probe at native line 100, col 320 instead of blitter d_first)
-        pcring_s<= (dbg_berr_count != 16'd0) ? {scan_probe, blt_dbg[95:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
+        pcring_s<= (dbg_berr_count != 16'd0) ? {scan_probe, {5'd0, w_seq, w_nblt}, {8'd0, scan_probe_a, 1'b0}, blt_dbg[31:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
         pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.

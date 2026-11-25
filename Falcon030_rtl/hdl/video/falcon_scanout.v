@@ -60,7 +60,8 @@ module falcon_scanout (
     output reg  [23:0] vcount,
     output reg         underrun,
     output wire [191:0] dbg_pal,        // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
-    output reg  [31:0]  dbg_probe       // HUD debug (BLI-9): {Falcon pal, 3'b0, pixel index 3:0, RGB} at native line 100, col 320
+    output reg  [31:0]  dbg_probe,      // HUD debug (BLI-9): {Falcon pal, 3'b0, pixel index 3:0, RGB} at native line 100, col 320
+    output reg  [23:1]  dbg_probe_a     // HUD debug (BLI-9 dlg6): word address of the first plane word of that pixel group
 );
     // CEA VIC 1: 640x480@60, 25.2 MHz, negative syncs
     localparam [9:0] H_ACT = 10'd640, H_FP = 10'd16, H_SYNC = 10'd96, H_BP = 10'd48;
@@ -242,6 +243,7 @@ module falcon_scanout (
                     end
                 end
                 S_START: begin
+                    if (nline_l == 10'd100 && dcol == 10'd320) dbg_probe_a <= line_a;
                     wneed   <= words_per_grp;
                     wgot    <= 4'd0;
                     ram_a   <= line_a;
