@@ -1306,7 +1306,8 @@ begin
     -- there on the S5 edge (it is registered in the control unit, so this is
     -- not a loop through BUS_BSY), and every cancel takes the old IDLE path.
     OP_CHAIN_RAW <= '1' when OP_CHAIN = '1' and PF_ACC = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000"
-                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0' and RA_HELD = '0' -- [F2] a held read-ahead is handed over instead and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC]
+                   and (OP_RD = '1' or OP_WR = '1') and RMC = '0' and RA_HELD = '0' -- [F2] a held read-ahead is handed over instead
+                   and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC] (ab1f3ec F2 had commented this guard out)
                    and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                    and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
     OP_CHAIN_GO <= (OP_CHAIN_RAW and not DC_CHIT) or
