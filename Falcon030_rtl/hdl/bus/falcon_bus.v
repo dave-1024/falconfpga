@@ -135,10 +135,10 @@ module falcon_bus #(
     reg        buf2_v, rd2_pend;
     wire       long_rd = cpu_rw && cpu_siz == 2'b00 && !a24[1];
     wire       buf_hit = buf2_v && cpu_rw && cpu_siz == 2'b10 && a24[3:1] == buf2_a;
-    // BLI-11 (25 Nov 2026): caching OFF again (CIIN asserted on every cycle). With ROM I+D and RAM program
-    // cachable (d3bfb3d) TOS hung at the $E00D5A vsync wait (white screen); WF68K30L cache fills over this
-    // 16-bit port are not yet proven. Re-enable once bisected: (is_rom && !is_vec) || (is_ram && cpu_fc[1:0] == 2'b10)
-    wire       cachable = 1'b0;
+    // BLI-11 (25 Nov 2026): ROM instruction fetches cachable only (bisect2: boots to the desktop).
+    // d3bfb3d (ROM I+D and ST-RAM program space cachable) hung TOS at the $E00D5A vsync wait; bisecting
+    // ROM data / ST-RAM program caching separately. Full target: (is_rom && !is_vec) || (is_ram && cpu_fc[1:0] == 2'b10)
+    wire       cachable = is_rom && !is_vec && cpu_fc[1:0] == 2'b10;
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;
