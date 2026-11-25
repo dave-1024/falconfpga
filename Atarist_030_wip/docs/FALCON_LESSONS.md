@@ -1,3 +1,5 @@
+> A living copy of this file, including later Falcon-core findings, is kept in [`Falcon030_rtl/docs/FALCON_LESSONS.md`](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/docs/FALCON_LESSONS.md) on branch `falcon`. This original is left in place as the ST-era record.
+
 # Lessons for the Falcon core
 
 What we learned on the 030 ST core (Atarist_030_wip, Tang Console 138K, AE350 helper) and want to keep

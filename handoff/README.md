@@ -1,3 +1,7 @@
+> The live core is now the Falcon on branch `falcon` (`Falcon030_rtl/`). The ST core is
+> retired for now. Project overview: the root [`README.md`](../README.md). The notes
+> below still describe the older ST-era handoff flow.
+
 # handoff/
 
 **Agents: read [`CONTEXT.md`](CONTEXT.md) first** (goals, rules, access, board state, build, next fixes). Update it at each milestone.

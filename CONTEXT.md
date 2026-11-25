@@ -3,12 +3,15 @@
 **Update this file whenever the project state changes.** Detailed state and next steps: [`handoff/CONTEXT.md`](handoff/CONTEXT.md).
 
 ## Goal
-A cycle-exact 68030 (WF68K30L, Wolfgang Foerster) on an Atari ST/STE core on the Tang Console 138K (GW5AST-138),
-via a TF534-style bridge, with the SOM's AE350 RISC-V as helper (OSD, SD, floppy images). Later: a Falcon build
-with the DSP56001.
+A cycle-exact 68030 (WF68K30L, Wolfgang Foerster) as a full Atari Falcon on the Tang Console 138K
+(GW5AST-138), with TOS 4.04 from the SD card, HDMI 640x480@60, and native Falcon VGA 60 / RGB 50
+timing. clk_cpu030 must stay at or above 16 MHz. The ST/STE 68030 test bed in `Atarist_030_wip/`
+is retired for now.
+
 
 ## Repo layout and key docs
-- `Atarist_030_wip/`: the live core. Main build `build_st_helper.tcl` = the board build (cart off, no SD debug);
+- `Falcon030_rtl/`: the live Falcon core (branch `falcon`). Build `gw_sh Falcon030_rtl/build_falcon.tcl` from the repo root, Gowin V1.9.12.03 only. Helper source is a copy in `Falcon030_rtl/helper/`; do not build or flash it until the helper cleanup is started.
+- `Atarist_030_wip/`: the ST/STE 68030 core, retired for now. Main build was `build_st_helper.tcl` (cart off, no SD debug);
   `debug_builds/` (e.g. `build_st_helper_hdn.tcl` = main + `SD_WRITE_DEBUG`), `build_legacy/` (retired scripts).
 - Docs: [`handoff/CONTEXT.md`](handoff/CONTEXT.md) (state, next steps) · `Atarist_030_wip/docs/TODO.md` (work order) ·
   `Atarist_030_wip/docs/HISTORY.md` · `Atarist_030_wip/docs/FALCON_LESSONS.md` (lessons, bugs found) · `docs/TOS_COMPAT.md` (top-level `docs/`) ·
@@ -44,13 +47,13 @@ with the DSP56001.
 - Main tcl = board build; variants in `debug_builds/`, retired in `build_legacy/`.
 - Bulk erase, BL616, other flash areas: check with David first (writing the helper at 0x600000 to restore it is fine).
 
-## Current state (summary, 11 Nov 2026)
-main = speed merged (F140-F157x). Flash 0 holds **F157x** (`3ff7c63`): clk_cpu030 Fmax 22.079 MHz, 46633 LUT + 5464 ALU.
-EmuTOS desktop and clicks OK, LOOPTEST = F156, Linux 2.13 BogoMIPS, GEMBench 4.03 (EmuTOS, ST Medium) 107%. Phase A
-(F157a) is off pending a fix. Next (Monday 16 Nov 2026): fix and re-enable Phase A, then the BogoMIPS / taken-branch
-speedup (sim: 10.98 clocks per pass against the manual's 8; board ~15). Notes:
-[`Atarist_030_wip/docs/BOGOMIPS_LOOP.md`](Atarist_030_wip/docs/BOGOMIPS_LOOP.md). Build with Gowin V1.9.12.03 only.
-Status and open items: front [`README.md`](README.md).
+## Current state (summary, 25 Nov 2026)
+Live work is the Falcon core on branch `falcon`. Flash 0 holds **7f0611e**: TOS 4.04 from the SD card
+reaches the GEM desktop; clk_cpu030 Fmax 17.548 MHz; HDMI 640x480@60 with native VGA 60 / RGB 50
+timing; FrontBench lastcount 1079 (VGA) / 1319 (RGB 50). The tree is self-contained as of `ce97945`
+(not flashed; same timing as 7f0611e). Data cache work is in progress. The ST core is retired for now.
+Details: front [`README.md`](README.md).
+
 
 ## State (summary, 31 Oct 2026, history)
 main = 8972091 (9fe250b merged `pmmu`; 8972091 restored the `syn_keep` on `ae350_flash_clk` for Gowin V1.9.12.04).

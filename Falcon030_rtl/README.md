@@ -1,11 +1,17 @@
 # Falcon030_rtl
 
-This folder is where the RTL for the **Atari Falcon030** core will live.
+The live Falcon core is on branch [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon),
+in [`Falcon030_rtl/`](https://github.com/dave-1024/falconfpga/tree/falcon/Falcon030_rtl).
 
-The WF68K30L 68030 CPU core is being developed and made cycle-exact against
-the MC68030 user's manual inside the Atari ST/STE test bed in
-[`Atarist_030_wip/`](../Atarist_030_wip/). The ST bus bridge there is only a test bed.
-Once the CPU core is ready, it moves here along with the Falcon-specific hardware
-(Falcon bus, VIDEL, DSP 56001, Combel, SDMA/Codec and so on).
+Start here:
 
-Status: empty, reserved for the Falcon hardware (November 2026).
+- Project overview: the root [README](https://github.com/dave-1024/falconfpga/blob/falcon/README.md)
+- Step-by-step build and flash: [BUILD.md](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/BUILD.md)
+- Technical status: [README.md](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md)
+- Lessons and bugs found: [FALCON_LESSONS.md](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/docs/FALCON_LESSONS.md)
+
+This folder is only a placeholder on the `main` branch. Check out `falcon` for the source:
+
+```
+git clone -b falcon https://github.com/dave-1024/falconfpga.git
+```

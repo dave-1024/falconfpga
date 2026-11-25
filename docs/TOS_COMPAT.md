@@ -1,3 +1,8 @@
+> This page is about the retired ST/STE 68030 core (`Atarist_030_wip/`), which loads TOS
+> from flash at 0x500000. The live Falcon core loads **TOS 4.04** from the SD card
+> (`TOS404.IMG`) and does not need that flash slot. Project overview: the top
+> [README](../README.md).
+
 # Which TOS works on the 68030 ST core
 
 ## What every TOS image needs

@@ -1,6 +1,6 @@
 # reference/: older trees kept for comparison
 
-None of these is the live core (that is [`Atarist_030_wip/`](../Atarist_030_wip/)). Each builds on its own and
+None of these is the live core. The live work is the Falcon core on branch [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon), in [`Falcon030_rtl/`](https://github.com/dave-1024/falconfpga/tree/falcon/Falcon030_rtl). The ST/STE 68030 core in [`Atarist_030_wip/`](../Atarist_030_wip/) is retired for now. Each tree below builds on its own and
 uses only paths inside its own folder.
 
 | Folder | What it is | Why it is kept |
