@@ -19,6 +19,8 @@ module falcon_core (
     output wire [15:0] mem_wdata,
     input  wire        mem_ack,
     input  wire [15:0] mem_rdata,
+    output wire        mem_rd2,         // BUS-1 burst-2 long read
+    input  wire [15:0] mem_rdata2,
     // clk_32 peripheral sub-bus (MFP, ACIAs, floppy DMA/FDC)
     output wire        p_sel_mfp, p_sel_acia, p_sel_dma, p_sel_dmaaddr,
     output wire [15:1] p_a,
@@ -89,7 +91,8 @@ module falcon_core (
     // 24 Nov 20:1x bring-up: CIIN asserted for EVERY cycle, like the ST bridge's ST side (the
     // cache was validated there on 32-bit TT-RAM only; I-cache fills over this 16-bit DSACK port
     // are untested). Hybrid030 (Musashi) has no cache model. Re-enable ROM caching once TOS boots.
-    wire cpu_ciin_n = 1'b0;
+    // BUS-1 (25 Nov 2026): CIIN now comes from falcon_bus (ROM I+D, ST-RAM instruction fetches only).
+    wire cpu_ciin_n;
     always @(posedge clk_cpu) ipl_r <= mfp_irq ? 3'b001 : vbl ? 3'b011 : hbl ? 3'b101 : 3'b111;
 
     assign dbg_reset_out = cpu_reset_out;
@@ -257,7 +260,7 @@ module falcon_core (
         .clk(clk_cpu), .reset(reset),
         .cpu_a(cpu_a), .cpu_dout(cpu_dout), .cpu_din(cpu_din), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n),
         .cpu_rw(cpu_rw), .cpu_siz(cpu_siz), .cpu_fc(cpu_fc), .cpu_dsack_n(cpu_dsack_n), .cpu_berr_n(cpu_berr_n),
-        .cpu_avec_n(cpu_avec_n),
+        .cpu_avec_n(cpu_avec_n), .cpu_ciin_n(cpu_ciin_n), .mem_rd2(mem_rd2), .mem_rdata2(mem_rdata2),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be), .mem_wdata(mem_wdata),
         .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_rw(io_rw), .io_wr(io_wr), .io_wdata(io_wdata),

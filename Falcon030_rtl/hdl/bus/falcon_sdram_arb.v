@@ -58,8 +58,10 @@ module falcon_sdram_arb (
     input  wire        cpu_we,
     input  wire [1:0]  cpu_be,          // {UDS,LDS} active high
     input  wire [15:0] cpu_d,
+    input  wire        cpu_rd2,         // BUS-1: aligned long read, fetch A and A+2 in one slot (burst-2)
     output reg         cpu_ack,
-    output reg  [15:0] cpu_q
+    output wire [15:0] cpu_q,           // BUS-1: sdram.v dout itself (valid from the phase-4 edge to the next read)
+    output wire [15:0] cpu_q2           // BUS-1: sdram.v dout2 (second burst word, valid from the phase-5 edge)
 );
     assign sd_ecs = 1'b0;
 
@@ -68,8 +70,17 @@ module falcon_sdram_arb (
 
     reg [2:0] ph;                       // 0..7 slot phase
     reg [2:0] win;
-    reg [3:0] refdiv;                   // 0 -> refresh this slot
+
     reg       vid_burst;                // this slot issued st_rd2
+    // BUS-1 (25 Nov 2026): the slot cadence parks at phase 7 while no master wants the SDRAM, so a request
+    // starts a slot on the next clk32 edge instead of waiting up to 7 clocks for the free-running phase 7.
+    // sdram.v starts a cycle on any rising cs while it is idle (8 clocks per cycle, auto precharge), and a
+    // parked phase 7 is always >= 8 clocks after the previous start. Refresh therefore comes from its own
+    // 4 us timer (128 clk32) instead of counting slots: pending refresh wins the next slot.
+    reg [6:0] reftmr;
+    reg       ref_pend;
+    assign cpu_q  = sd_dout;
+    assign cpu_q2 = sd_dout2;
 
     wire [23:1] a_vid = vid_a, a_dma = dma_a, a_ld = ld_a, a_cpu = cpu_a;
     function [21:0] waddr; input [23:1] a; begin waddr = a[22:1]; end endfunction
@@ -82,10 +93,10 @@ module falcon_sdram_arb (
 
     always @(posedge clk) begin
         if (reset || !ram_ready) begin
-            ph <= 3'd0; win <= WIN_NONE; refdiv <= 4'd15;
+            ph <= 3'd0; win <= WIN_NONE; reftmr <= 7'd0; ref_pend <= 1'b0;
             sd_cs <= 1'b0; sd_we <= 1'b0; sd_refresh <= 1'b0; sd_rd2 <= 1'b0;
             sd_ds <= 2'b00; sd_addr <= 22'd0; sd_ba <= 2'b00; sd_din <= 16'd0;
-            vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0; cpu_q <= 16'd0;
+            vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0;
             vid_burst <= 1'b0;
         end else begin
             if (vid_ack && !vid_req) vid_ack <= 1'b0;
@@ -93,7 +104,10 @@ module falcon_sdram_arb (
             if (ld_ack  && !ld_req)  ld_ack  <= 1'b0;
             if (cpu_ack && !cpu_req) cpu_ack <= 1'b0;
 
-            ph <= ph + 3'd1;
+            reftmr <= reftmr + 7'd1;
+            if (reftmr == 7'd127) ref_pend <= 1'b1;
+            // park at phase 7 when nothing is wanted (see BUS-1 above)
+            if (ph != 3'd7 || ref_pend || take_vid || take_dma || take_ld || take_cpu) ph <= ph + 3'd1;
 
             // sdram.v samples cs with a 1-cycle csD delay: to start a cycle on
             // our phase 0 (ACTIVE) we drop cs at phase 6 and raise it, with
@@ -105,12 +119,11 @@ module falcon_sdram_arb (
             end
 
             if (ph == 3'd7) begin
-                if (refdiv == 4'd0) begin
-                    win <= WIN_REF; refdiv <= 4'd15;
+                if (ref_pend) begin
+                    win <= WIN_REF; ref_pend <= 1'b0;
                     sd_cs <= 1'b1; sd_we <= 1'b0; sd_refresh <= 1'b1;
                     sd_ds <= 2'b00; sd_ba <= 2'b00;
                 end else begin
-                    refdiv <= refdiv - 4'd1;
                     sd_refresh <= 1'b0;
                     if (take_vid) begin
                         win <= WIN_VID;
@@ -128,9 +141,12 @@ module falcon_sdram_arb (
                         sd_cs <= 1'b1; sd_we <= 1'b1; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_ld); sd_ba <= bank(a_ld); sd_din <= ld_d;
                     end else if (take_cpu) begin
-                        win <= WIN_CPU; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
+                        win <= WIN_CPU; vid_burst <= 1'b0; sd_rd2 <= cpu_rd2 && !cpu_we;
                         sd_cs <= 1'b1; sd_we <= cpu_we; sd_ds <= cpu_we ? ~cpu_be : 2'b00;
                         sd_addr <= waddr(a_cpu); sd_ba <= bank(a_cpu); sd_din <= cpu_d;
+                        // BUS-1: a write is posted. Address, masks and data are in the sd_* registers now
+                        // and sdram.v takes them at phase 0/1, so the master may end its cycle at once.
+                        if (cpu_we) cpu_ack <= 1'b1;
                     end else begin
                         win <= WIN_NONE; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
                         sd_cs <= 1'b0; sd_we <= 1'b0;
@@ -150,14 +166,18 @@ module falcon_sdram_arb (
                     WIN_VID: begin vid_q <= sd_dout; if (!vid_burst) vid_ack <= 1'b1; end
                     WIN_DMA: begin dma_q <= sd_dout; dma_ack <= 1'b1; end
                     WIN_LD:  begin ld_ack <= 1'b1; end
-                    WIN_CPU: begin cpu_q <= sd_dout; end
+                    WIN_CPU: ;
                     default: ;
                 endcase
             end
             if (ph == 3'd6 && win == WIN_VID && vid_burst) begin
                 vid_q2 <= sd_dout2; vid_ack <= 1'b1; sd_rd2 <= 1'b0;
             end
-            if (ph == 3'd6 && win == WIN_CPU) cpu_ack <= 1'b1;
+            // BUS-1: read ack on the phase-4 edge, the same edge sdram.v writes dout (cpu_q is that register,
+            // so a master that samples ack on any later edge sees the word). A burst-2 CPU read's second word
+            // (cpu_q2) is written on the phase-5 edge; falcon_bus samples it one clk_cpu after the ack.
+            if (ph == 3'd4 && win == WIN_CPU && !sd_we) cpu_ack <= 1'b1;
+            if (ph == 3'd6 && win == WIN_CPU) sd_rd2 <= 1'b0;
         end
     end
 endmodule

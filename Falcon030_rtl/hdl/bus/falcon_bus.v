@@ -33,6 +33,7 @@ module falcon_bus #(
     output reg  [1:0]  cpu_dsack_n,
     output reg         cpu_berr_n,
     output reg         cpu_avec_n,
+    output reg         cpu_ciin_n,    // BUS-1: cache inhibit, registered with the cycle start, held to the next
     // SDRAM word port (RAM and ROM copy), 16-bit, byte enables
     output reg         mem_req,
     output reg  [23:1] mem_a,
@@ -41,6 +42,8 @@ module falcon_bus #(
     output reg  [15:0] mem_wdata,
     input  wire        mem_ack,
     input  wire [15:0] mem_rdata,
+    output reg         mem_rd2,       // BUS-1: aligned long read, the arbiter also fetches A+2 (burst-2)
+    input  wire [15:0] mem_rdata2,    // BUS-1: that second word
     // IO byte/word port to the peripherals (falcon_io.v)
     output wire        io_cyc,        // valid IO cycle in progress (whitelisted)
     output reg  [15:1] io_a,          // $FF8000 + .., latched with the cycle
@@ -116,16 +119,23 @@ module falcon_bus #(
 
     localparam S_IDLE = 3'd0, S_MEM = 3'd1, S_IO = 3'd2, S_IACK = 3'd3,
                S_END = 3'd4, S_WEND = 3'd5, S_WAITACK = 3'd6;
-    // clk32 ack/data into clk_cpu. The arbiter writes cpu_q one clk32 before
-    // cpu_ack, so a coincident-edge sample of ack still has stable data.
+    // BUS-1 (25 Nov 2026): mem_ack and mem_rdata are clk32 registers (the arbiter ack and sdram.v dout,
+    // written on the same phase-4 edge) and clk_cpu rises on a clk32 edge, so they are sampled directly
+    // (timed clk32 -> clk_cpu path, one clk32 = 31.25 ns) without the old extra mem_ack_s stage.
     // A leftover ack (still high from the previous word) is not accepted:
     // wait for it to fall, then raise mem_req.
-    reg        mem_ack_s;
-    reg [15:0] mem_rdata_s;
-    always @(posedge clk) begin
-        mem_ack_s <= mem_ack;
-        if (mem_ack) mem_rdata_s <= mem_rdata;
-    end
+    wire       mem_ack_s   = mem_ack;
+    wire [15:0] mem_rdata_s = mem_rdata;
+    // BUS-1: long-read split buffer. The 030 reads a long from this 16-bit port as SIZ=long at A (A1=0)
+    // then SIZ=word at A+2 straight after (UM 7.2.1 dynamic bus sizing). The first portion fetches both
+    // words in one SDRAM slot (sd_rd2); the second portion is answered from buf2 with no SDRAM slot.
+    // buf2 is good only for the very next cycle (cleared by any other cycle start and by a blitter grant).
+    reg [15:0] buf2;
+    reg [3:1]  buf2_a;
+    reg        buf2_v, rd2_pend;
+    wire       long_rd = cpu_rw && cpu_siz == 2'b00 && !a24[1];
+    wire       buf_hit = buf2_v && cpu_rw && cpu_siz == 2'b10 && a24[3:1] == buf2_a;
+    wire       cachable = (is_rom && !is_vec) || (is_ram && cpu_fc[1:0] == 2'b10);
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;
@@ -138,17 +148,29 @@ module falcon_bus #(
             mem_a <= 23'd0; mem_we <= 1'b0; mem_be <= 2'b00; mem_wdata <= 16'd0;
             io_a <= 15'd0; io_uds <= 1'b0; io_lds <= 1'b0; io_rw <= 1'b1; io_wdata <= 16'd0;
             cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1;
+            cpu_ciin_n <= 1'b0; mem_rd2 <= 1'b0; buf2_v <= 1'b0; rd2_pend <= 1'b0;
         end else case (state)
             S_IDLE: if (bus_grant || br_s[1]) begin
                 bus_grant <= br_s[1];             // grant only between cycles; release when BR drops
+                buf2_v <= 1'b0;
             end else if (!cpu_as_n) begin
                 wcnt <= 4'd0; cyc_tog <= ~cyc_tog;
+                buf2_v <= 1'b0;
+                // BUS-1 caching (MC68030 UM 5.7.1 CIIN; real Falcon: TOS flushes the D-cache after
+                // blitter and DMA, tos4x hbbitblt.s / dmaread.s). ROM: I and D. ST-RAM: instruction
+                // fetches only (program space FC=x10), data reads stay inhibited so blitter/DMA writes
+                // can never leave a stale D-cache line. IO, IDE, cartridge, vector mirror: inhibited.
+                cpu_ciin_n <= cachable;
                 if (iack) state <= S_IACK;
+                else if (buf_hit) begin
+                    cpu_din <= {buf2, buf2}; cpu_dsack_n <= 2'b01; state <= S_END;
+                end
                 else if (is_ram || is_rom || is_vec) begin
                     if (!cpu_rw && !is_ram) begin cpu_dsack_n <= 2'b01; state <= S_WEND; end  // ROM write: dropped
                     else begin
                         mem_a <= mem_a_c; mem_we <= mem_we_c;
                         mem_be <= mem_be_c; mem_wdata <= mem_wdata_c;
+                        mem_rd2 <= long_rd; rd2_pend <= long_rd; buf2_a <= a24[3:1] + 3'd1;
                         // 4-phase: do not raise req while a leftover ack is still high
                         if (mem_ack_s) state <= S_WAITACK;
                         else begin mem_req <= 1'b1; state <= S_MEM; end
@@ -177,8 +199,12 @@ module falcon_bus #(
                     if (mfp_dtack) begin cpu_din <= {4{mfp_vector}}; cpu_dsack_n <= 2'b01; state <= S_END; end
                 end else begin cpu_avec_n <= 1'b0; state <= S_END; end
             end
-            S_END, S_WEND: if (cpu_as_n) begin
+            S_END, S_WEND: begin
+                // second burst word: written by sdram.v one clk32 after the ack edge, so one clk_cpu later
+                if (rd2_pend) begin buf2 <= mem_rdata2; buf2_v <= 1'b1; rd2_pend <= 1'b0; end
+                if (cpu_as_n) begin
                 cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1; state <= S_IDLE;
+                end
             end
             default: state <= S_IDLE;
         endcase

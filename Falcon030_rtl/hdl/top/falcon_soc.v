@@ -71,7 +71,8 @@ module falcon_soc (
     wire        mem_req, mem_we, mem_ack;
     wire [23:1] mem_a;
     wire [1:0]  mem_be;
-    wire [15:0] mem_wdata, mem_rdata;
+    wire [15:0] mem_wdata, mem_rdata, mem_rdata2;
+    wire        mem_rd2;
 
     wire        ld_req, ld_ack;
     wire [23:1] ld_a;
@@ -155,7 +156,8 @@ module falcon_soc (
         .dma_req(dma_req), .dma_we(dma_we), .dma_a(dma_a), .dma_d(dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
         .ld_req(use_ld), .ld_a(ld_a), .ld_d(ld_d), .ld_ack(ld_ack),
         .cpu_req(a_cpu_req), .cpu_a(a_cpu_a), .cpu_we(a_cpu_we), .cpu_be(a_cpu_be),
-        .cpu_d(a_cpu_d), .cpu_ack(mem_ack), .cpu_q(mem_rdata)
+        .cpu_d(a_cpu_d), .cpu_ack(mem_ack), .cpu_q(mem_rdata),
+        .cpu_rd2(!blt_g32 && !cpu_reset && mem_rd2), .cpu_q2(mem_rdata2)
     );
 
     sdram sdram (
@@ -227,6 +229,7 @@ module falcon_soc (
         .clk_cpu(clk_cpu), .clk_cpu_n(clk_cpu_n), .reset(core_reset),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be),
         .mem_wdata(mem_wdata), .mem_ack(mem_ack), .mem_rdata(mem_rdata),
+        .mem_rd2(mem_rd2), .mem_rdata2(mem_rdata2),
         .p_sel_mfp(p_sel_mfp), .p_sel_acia(p_sel_acia), .p_sel_dma(p_sel_dma), .p_sel_dmaaddr(p_sel_dmaaddr),
         .p_a(p_a), .p_rw(p_rw), .p_wdata(p_wdata), .p_rdata(p_rdata), .p_done(p_done),
         .p_sel_blt(p_sel_blt), .p_uds(p_uds), .p_lds(p_lds), .blt_rdata(blt_rdata), .blt_done(blt_done),
