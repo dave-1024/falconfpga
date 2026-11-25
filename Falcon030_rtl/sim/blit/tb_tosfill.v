@@ -10,11 +10,12 @@ module tb_tosfill;
     wire [15:0] rd; wire done;
     wire br_want, grant_32, m_req, m_we, irq_n; wire [23:1] m_a; wire [15:0] m_wdata;
     reg bus_grant = 0, tog = 0; reg m_ack = 0; reg [15:0] m_rdata = 0;
+    wire [127:0] dbg; wire [255:0] snap;
     falcon_blitter dut (.clk_32(clk), .reset(reset), .pwr_up(reset),
         .sel(sel), .a(a), .rw(rw), .uds(uds), .lds(lds), .wdata(wd), .rdata(rd), .done(done),
         .br_want(br_want), .bus_grant(bus_grant), .cpu_cyc_tog(tog),
         .grant_32(grant_32), .m_req(m_req), .m_a(m_a), .m_we(m_we), .m_wdata(m_wdata),
-        .m_ack(m_ack), .m_rdata(m_rdata), .irq_n(irq_n));
+        .m_ack(m_ack), .m_rdata(m_rdata), .irq_n(irq_n), .dbg(dbg), .dbg_snap(snap));
     reg [15:0] mem [0:65535];
     integer lat = 0, errs = 0, cpu_cycles = 0, blt_cycles = 0, grant_viol = 0;
     // memory
@@ -100,6 +101,7 @@ module tb_tosfill;
             end
             $display("fill%0d colour %0d done, errs so far %0d", e, col, errs);
         end
+        $display("snap %h dbg %h", snap, dbg);
         $display("DONE errs=%0d grant_viol=%0d blt_cycles=%0d cpu_cycles=%0d", errs, grant_viol, blt_cycles, cpu_cycles);
         $finish;
     end

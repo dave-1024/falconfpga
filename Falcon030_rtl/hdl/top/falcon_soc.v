@@ -246,13 +246,14 @@ module falcon_soc (
     wire        p_sel_blt, p_uds, p_lds, blt_done, blt_br, blt_bg, cpu_cyc_tog, blt_irq_n;
     wire [15:0] blt_rdata;
     wire [127:0] blt_dbg;
+    wire [255:0] blt_snap;
     falcon_blitter blitter (
         .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
         .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
         .rdata(blt_rdata), .done(blt_done),
         .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),
-        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n), .dbg(blt_dbg)
+        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n), .dbg(blt_dbg), .dbg_snap(blt_snap)
     );
 
     // ---- peripheral sub-bus (clk_32) ----
@@ -523,11 +524,8 @@ module falcon_soc (
         vd_s  <= vdbl;             vd_p  <= vd_s;
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
-        // (dialog debug build: rows 6-7 = scanout ST palette, slot k = {0,pal[2k], 0,pal[2k+1]})
-        ioring_s<= {4'h0, scan_pal[15*12 +: 12], 4'h0, scan_pal[14*12 +: 12], 4'h0, scan_pal[13*12 +: 12], 4'h0, scan_pal[12*12 +: 12],
-                    4'h0, scan_pal[11*12 +: 12], 4'h0, scan_pal[10*12 +: 12], 4'h0, scan_pal[ 9*12 +: 12], 4'h0, scan_pal[ 8*12 +: 12],
-                    4'h0, scan_pal[ 7*12 +: 12], 4'h0, scan_pal[ 6*12 +: 12], 4'h0, scan_pal[ 5*12 +: 12], 4'h0, scan_pal[ 4*12 +: 12],
-                    4'h0, scan_pal[ 3*12 +: 12], 4'h0, scan_pal[ 2*12 +: 12], 4'h0, scan_pal[ 1*12 +: 12], 4'h0, scan_pal[ 0*12 +: 12]};
+        // (dialog debug build 2: rows 6-7 = frozen blitter start ring, slot k = entry k, oldest first)
+        ioring_s<= blt_snap;
         ioring_p<= ioring_s;
         // HUD row 9: slots 4-5 live blitter debug, slots 6-7 keyboard ACIA/IKBD, once the ring has frozen at
         // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.

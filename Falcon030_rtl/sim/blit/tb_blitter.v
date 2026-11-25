@@ -14,7 +14,7 @@ module tb_blitter;
         .sel(sel), .a(a), .rw(rw), .uds(uds), .lds(lds), .wdata(wd), .rdata(rd), .done(done),
         .br_want(br_want), .bus_grant(bus_grant), .cpu_cyc_tog(tog),
         .grant_32(grant_32), .m_req(m_req), .m_a(m_a), .m_we(m_we), .m_wdata(m_wdata),
-        .m_ack(m_ack), .m_rdata(m_rdata), .irq_n(irq_n));
+        .m_ack(m_ack), .m_rdata(m_rdata), .irq_n(irq_n), .dbg(), .dbg_snap());
     reg [15:0] mem [0:65535];
     integer lat = 0, errs = 0, cpu_cycles = 0, blt_cycles = 0, grant_viol = 0;
     // memory

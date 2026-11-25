@@ -48,7 +48,8 @@ module falcon_blitter (
     input  wire        m_ack,
     input  wire [15:0] m_rdata,
     output wire        irq_n,
-    output wire [127:0] dbg          // HUD: 4 x 32-bit live slots (clk_32, no handshake)
+    output wire [127:0] dbg,         // HUD: 4 x 32-bit live slots (clk_32, no handshake)
+    output wire [255:0] dbg_snap     // HUD: frozen 8-entry blit-start ring (dialog debug)
 );
     // 16 MHz bus phases
     reg ph = 1'b0;
@@ -178,30 +179,52 @@ module falcon_blitter (
         if (b_ctrlOe && grant_32 && !b_oASn && !b_oDSn && !m_busy && !m_ack &&
             !b_oRWn && b_oA[23:21] == 3'b111) d_wc <= d_wc + 16'd1;
     end
-    // Fill history (BLI dialog debug): shadows of the CPU register writes. On every word write to
-    // $FF8A3C with GO set (hb_rect/hb_line start; TAS restarts are byte writes and are skipped) and a
-    // HOP without source (HOP[1]=0), push {dst A3:A1, HOP[0], OP} (8 bits, newest in [7:0]).
+    // Fill history (BLI dialog debug 2): shadows of the CPU register writes. Every word write to $FF8A3C
+    // with GO set (hb_rect/hb_line start; TAS restarts are byte writes and are skipped) starts an entry
+    // {HOP, OP, dst A2:A1, first master write A8:A1, first master write data}. The previous entry is
+    // pushed into an 8-deep ring at the next start. The ring is copied to a snapshot (dbg_snap) the first
+    // time the newest four pushed entries are a pen-7 fill (HOP 1, OPs 3,3,3,0 = VDI LWHITE, the AES 3D
+    // dialog background).
     reg [1:0]  s_hop = 2'd0;
     reg [3:0]  s_op = 4'd0;
-    reg [3:1]  s_dlo = 3'd0;
-    reg [15:0] s_ht0 = 16'd0, s_fills = 16'd0;
-    reg [63:0] s_hist = 64'd0;
+    reg [2:1]  s_dlo = 2'd0;
+    reg [15:0] s_ht0 = 16'd0, s_fills = 16'd0, s_p7 = 16'd0;
+    reg [31:0] s_cur = 32'd0;
+    reg        s_needw = 1'b0, s_frozen = 1'b0;
+    reg [255:0] s_ring = 256'd0, s_snap = 256'd0;
+    wire       s_go = c_st == C_AS && c_cnt == 2'd1 && enPhi2 && !c_rw &&
+                      c_a[5:1] == 5'h1E && !c_uds_n && !c_lds_n && wdata[15];
+    wire [255:0] s_ring_n = {s_cur, s_ring[255:32]};      // newest in [255:224]
+    function p7; input [255:0] r; begin
+        p7 = r[255:250] == 6'h10 && r[223:218] == 6'h13 && r[191:186] == 6'h13 && r[159:154] == 6'h13;
+    end endfunction
     always @(posedge clk_32) begin
         if (c_st == C_AS && c_cnt == 2'd1 && enPhi2 && !c_rw) begin
             if (c_a[5:1] == 5'h1D) begin
                 if (!c_uds_n) s_hop <= wdata[9:8];
                 if (!c_lds_n) s_op  <= wdata[3:0];
             end
-            if (c_a[5:1] == 5'h1A && !c_lds_n) s_dlo <= wdata[3:1];
+            if (c_a[5:1] == 5'h1A && !c_lds_n) s_dlo <= wdata[2:1];
             if (c_a[5:1] == 5'h00 && !c_uds_n && !c_lds_n) s_ht0 <= wdata;
-            if (c_a[5:1] == 5'h1E && !c_uds_n && !c_lds_n && wdata[15] && !s_hop[1]) begin
-                s_hist  <= {s_hist[55:0], s_dlo, s_hop[0], s_op};
-                s_fills <= s_fills + 16'd1;
+        end
+        if (s_go) begin
+            s_ring  <= s_ring_n;
+            s_cur   <= {s_hop, s_op, s_dlo, 8'h00, 16'h0000};
+            s_needw <= 1'b1;
+            s_fills <= s_fills + 16'd1;
+            if (p7(s_ring_n)) begin
+                s_p7 <= s_p7 + 16'd1;
+                if (!s_frozen) begin s_snap <= s_ring_n; s_frozen <= 1'b1; end
             end
+        end else if (s_needw && m_req && m_ack && m_we) begin
+            s_cur[23:0] <= {m_a[8:1], m_wdata};
+            s_needw <= 1'b0;
         end
     end
-    // slot4 flags/last master addr, slot5 {halftone word 0, fill starts}, slot6 older 4 fills, slot7 newest 4
-    assign dbg = {s_hist[31:0], s_hist[63:32], {s_ht0, s_fills},
+    assign dbg_snap = s_snap;
+    // slot4 flags/last master addr, slot5 {halftone word 0, fill starts}, slot6 {pen-7 fills seen, frozen},
+    // slot7 newest pushed ring entry
+    assign dbg = {s_ring[255:224], {s_p7, 15'd0, s_frozen}, {s_ht0, s_fills},
                   {b_INTn, br_want, bus_grant, grant_32, m_req, m_ack, m_we, b_ctrlOe, m_a, 1'b0}};
 
     stBlitter blt (
