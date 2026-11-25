@@ -135,10 +135,10 @@ module falcon_bus #(
     reg        buf2_v, rd2_pend;
     wire       long_rd = cpu_rw && cpu_siz == 2'b00 && !a24[1];
     wire       buf_hit = buf2_v && cpu_rw && cpu_siz == 2'b10 && a24[3:1] == buf2_a;
-    // BLI-11 (25 Nov 2026): ROM instruction fetches cachable only (bisect2: boots to the desktop).
-    // d3bfb3d (ROM I+D and ST-RAM program space cachable) hung TOS at the $E00D5A vsync wait; bisecting
-    // ROM data / ST-RAM program caching separately. Full target: (is_rom && !is_vec) || (is_ram && cpu_fc[1:0] == 2'b10)
-    wire       cachable = is_rom && !is_vec && cpu_fc[1:0] == 2'b10;
+    // BLI-11 (25 Nov 2026): instruction fetches from ROM and ST-RAM cachable (bisect4: boots, GEMBENCH
+    // CPU 234% vs 218% ROM-I only). Data reads stay inhibited: ROM data caching (bisect3) halts TOS at
+    // $E1C3B8, under investigation (WF68K30L D-cache fill path). Full target: (is_rom && !is_vec) || is_ram.
+    wire       cachable = ((is_rom && !is_vec) || is_ram) && cpu_fc[1:0] == 2'b10;
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;

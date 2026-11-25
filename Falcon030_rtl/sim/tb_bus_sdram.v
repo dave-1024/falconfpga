@@ -27,13 +27,14 @@ module tb_bus_sdram;
     wire        mem_req, mem_we, mem_ack;
     wire [23:1] mem_a;
     wire [1:0]  mem_be;
-    wire [15:0] mem_wdata, mem_rdata;
+    wire [15:0] mem_wdata, mem_rdata, mem_rdata2;
+    wire        mem_rd2, cpu_ciin_n;          // BUS-1 (d3bfb3d): burst-2 second word, CIIN
 
     wire        sd_cs, sd_we, sd_refresh, sd_ecs, sd_rd2;
     wire [21:0] sd_addr;
     wire [1:0]  sd_ds, sd_ba;
     wire [15:0] sd_din;
-    reg  [15:0] sd_dout = 16'hxxxx;
+    reg  [15:0] sd_dout = 16'hxxxx, sd_dout2 = 16'hxxxx;
 
     falcon_bus #(.IO_WAIT(2)) u_bus (
         .clk(clk_cpu), .reset(reset_cpu),
@@ -41,6 +42,7 @@ module tb_bus_sdram;
         .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw(cpu_rw),
         .cpu_siz(cpu_siz), .cpu_fc(cpu_fc),
         .cpu_dsack_n(cpu_dsack_n), .cpu_berr_n(cpu_berr_n), .cpu_avec_n(cpu_avec_n),
+        .cpu_ciin_n(cpu_ciin_n), .mem_rd2(mem_rd2), .mem_rdata2(mem_rdata2),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be),
         .mem_wdata(mem_wdata), .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(), .io_a(), .io_uds(), .io_lds(), .io_rw(), .io_wr(), .io_wdata(),
@@ -52,17 +54,31 @@ module tb_bus_sdram;
         .clk(clk32), .reset(reset_32), .ram_ready(ram_ready),
         .sd_cs(sd_cs), .sd_we(sd_we), .sd_refresh(sd_refresh), .sd_ecs(sd_ecs),
         .sd_addr(sd_addr), .sd_ds(sd_ds), .sd_din(sd_din), .sd_dout(sd_dout),
-        .sd_dout2(16'h0), .sd_rd2(sd_rd2), .sd_ba(sd_ba),
+        .sd_dout2(sd_dout2), .sd_rd2(sd_rd2), .sd_ba(sd_ba),
         .vid_req(1'b0), .vid_a(23'd0), .vid_ack(), .vid_q(), .vid_q2(),
         .dma_req(1'b0), .dma_we(1'b0), .dma_a(23'd0), .dma_d(16'h0), .dma_ack(), .dma_q(),
         .ld_req(1'b0), .ld_a(23'd0), .ld_d(16'h0), .ld_ack(),
         .cpu_req(mem_req), .cpu_a(mem_a), .cpu_we(mem_we), .cpu_be(mem_be),
-        .cpu_d(mem_wdata), .cpu_ack(mem_ack), .cpu_q(mem_rdata)
+        .cpu_d(mem_wdata), .cpu_ack(mem_ack), .cpu_q(mem_rdata),
+        .cpu_rd2(mem_rd2), .cpu_q2(mem_rdata2)
     );
 
     // sdram.v: dout is written on STATE_READ (ph 4) and is visible at ph 5.
     // Combinational lookup from the issued address is enough: the arbiter
     // captures it into cpu_q at ph 5.
+    function [15:0] rom_w(input [21:0] a, input ba0);
+        if (ba0)
+            case (a)
+                22'h300000: rom_w = 16'h602E;
+                22'h300001: rom_w = 16'h0404;
+                22'h300002: rom_w = 16'h00E0;
+                22'h300003: rom_w = 16'h0030;
+                default:    rom_w = 16'hDEAD;
+            endcase
+        else rom_w = 16'hDEAD;
+    endfunction
+    // sdram.v burst-2 (st_rd2): dout2 = the next word, written at state 5.
+    always @(*) sd_dout2 = rom_w(sd_addr + 22'd1, sd_ba[0]);
     always @(*) begin
         // $E00000: A23=1 (sd_ba[0]), A22:A1 = 22'h300000
         if (sd_ba[0] == 1'b1)
@@ -170,11 +186,13 @@ module tb_bus_sdram;
             cpu_ds_n <= 1'b0;
             // hold leftover for a few clk_cpu so S_MEM would have seen it
             repeat (3) @(posedge clk_cpu);
-            if (cpu_dsack_n !== 2'b11) begin
+            // BUS-1 burst-2: the second word of a long may DSACK at once from the rd2 buffer
+            // (correct data); only the stale DEAD word counts as a leftover ack taken.
+            if (cpu_dsack_n !== 2'b11 && cpu_din[31:16] === 16'hDEAD) begin
                 $display("FAIL: leftover ack accepted, D=%h", cpu_din[31:16]);
                 errors = errors + 1;
-                d1 = cpu_din[31:16];
             end
+            if (cpu_dsack_n !== 2'b11) $display("  (second word DSACKed from the rd2 buffer, D=%h)", cpu_din[31:16]);
             release u_arb.cpu_ack;
             release u_arb.cpu_q;
             wait_dsack;

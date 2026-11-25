@@ -29,7 +29,10 @@ entity tb_falcon is
            VBLPER  : integer := 266667;  -- 16 MHz / 60
            TCPER   : integer := 80000;   -- 16 MHz / 200
            IRQON   : integer := 1;
-           MEMCODE : integer := 5);  -- $FF8006 RAM size code TOS 4.04 reads: 5 = 14 MB, else 512K << code (sim: 1 = 1 MB, faster)
+           MEMCODE : integer := 5;   -- $FF8006 RAM size code TOS 4.04 reads: 5 = 14 MB, else 512K << code (sim: 1 = 1 MB, faster)
+           CIMODE  : integer := 0;
+           TRFROM  : integer := 0;   -- log every bus cycle with TRFROM <= clk < TRTO (0 = off)
+           TRTO    : integer := 0);  -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4), 5 ROM+RAM I+D
 end;
 architecture sim of tb_falcon is
   signal clk : std_logic := '0';
@@ -41,6 +44,7 @@ architecture sim of tb_falcon is
   signal ipl : std_logic_vector(2 downto 0) := "111";
   signal dbgx : std_logic_vector(104 downto 0);
   signal halto, reso, ipendn, rmcn : std_logic;
+  signal ciinn : std_logic := '0';
   type rom_t is array (0 to 262143) of std_logic_vector(15 downto 0);  -- 512K
   impure function load return rom_t is
     file f : text open read_mode is ROMFILE; variable l : line; variable m : rom_t := (others => x"FFFF");
@@ -88,7 +92,7 @@ begin
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
     ASn => asn, RWn => rwn, RMCn => rmcn, DSn => dsn, ECSn => open, OCSn => open, DBENn => open,
     BUS_EN => open, STERMn => '1', STATUSn => open, REFILLn => open, BRn => '1', BGn => open, BGACKn => '1',
-    CIINn => '0', CDISn => '1', CBACKn => '1', CBREQn => open, CIOUTn => open);
+    CIINn => ciinn, CDISn => '1', CBACKn => '1', CBREQn => open, CIOUTn => open);
 
   -- interrupt sources: VBL = level 4 autovector; MFP timer C = level 6 vectored
   irq : process
@@ -229,8 +233,21 @@ begin
             else wrb(b, nat(dout(31 downto 24))); wrb(b + 1, nat(dout(23 downto 16))); end if;
           end if;
         end if;
+        ciinn <= '0';   -- falcon_bus: cpu_ciin_n <= cachable, registered at the cycle start
+        if (CIMODE = 2 and isrom and a24 >= 8 and fc(1 downto 0) = "10") or
+           (CIMODE = 3 and isrom and a24 >= 8) or
+           (CIMODE = 4 and ((isrom and a24 >= 8) or isram) and fc(1 downto 0) = "10") or
+           (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) then ciinn <= '1'; end if;
         for k in 1 to 2 loop wait until rising_edge(clk); n := n + 1; end loop;
         din <= w & w;
+        if n >= TRFROM and n < TRTO then
+          write(l, string'("T ")); write(l, n, right, 9);
+          if rwn = '1' then write(l, string'(" R A=")); else write(l, string'(" W A=")); end if;
+          hwrite(l, adr); write(l, string'(" FC=")); write(l, to_integer(unsigned(fc)));
+          write(l, string'(" SIZ=")); write(l, to_integer(unsigned(siz)));
+          if rwn = '1' then write(l, string'(" D=")); hwrite(l, w); else write(l, string'(" W=")); hwrite(l, dout); end if;
+          write(l, string'(" CI=")); write(l, std_ulogic'image(ciinn)); writeline(output, l);
+        end if;
         if iack then
           if a(3 downto 1) = "110" then   -- level 6: MFP vector = VR high nibble + 5 (timer C)
             s := (io(16#7A17#) / 16) * 16 + 5; w := std_logic_vector(to_unsigned(s * 257, 16)); din <= w & w;
