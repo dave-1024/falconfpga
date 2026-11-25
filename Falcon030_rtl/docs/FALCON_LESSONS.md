@@ -776,3 +776,24 @@ commit that those sources do not state.
   the RGB grabs. *Still open, recorded with this work:* RGB modes taller than 240 lines (interlaced)
   still use the HDMI-row fetch path; the RGB buffer stores 4 bits per colour (the Falcon palette is
   6).
+
+- **Data-cache guard commented out in the CPU core (`901047d`).** *Symptom:* with ROM data reads
+  made cachable (bisect3), TOS 4.04 halted the CPU (double fault, HUD halted flag on) at
+  `$E1C3B8`, the RTE at the end of a BIOS/XBIOS trap, soon after TOS turns the caches on
+  (CACR `$3111` at `$E0063E`). Instruction caching alone (ROM and ST-RAM) was fine. A GHDL
+  simulation of the same setup ran 8 million clocks without halting. *Cause:* in October the F2
+  MOVEM read-ahead change (`ab1f3ec`) put a comment in front of the data-cache guard
+  `and FILL_PEND = '0' and DC_DECIDE = '0'` on `OP_CHAIN_RAW` in `wf68k30L_bus_interface.vhd`,
+  so the guard had been switched off since then. That let a prefetch hand straight over to an
+  operand cycle while data-cache fill cycles were still pending or being decided. It does nothing
+  while every data read is cache-inhibited, which is why nothing broke until data caching was
+  tried. Supporting evidence from the earlier trace runs (without the guard): the first difference
+  in RAM contents between ROM-I and ROM-I+D simulation is a word written to `$AB2` straight after
+  an extra data-cache fill read at `$E4984A`; the trace shows `$0001` going out, but a later read
+  returns `$0000`. *Fix (`901047d`, 25 Nov 2026, approved by David):* the guard line is restored
+  and always on. With ROM data caching (build B) the halt is gone: the CPU keeps running and the
+  halted flag stays off. *Still open:* data caching still doesn't boot. With ROM data caching, TOS
+  loops in the floppy wait at `$E0451A` and the bus-error count keeps climbing (it looks like
+  repeated boots). With ROM and RAM data caching, TOS bombs at `$E1C3C0`. So data reads stay
+  cache-inhibited in `falcon_bus.v`, and caching of ROM and ST-RAM instructions (`c563143`) is
+  what's in use.
