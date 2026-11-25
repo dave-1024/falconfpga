@@ -1,17 +1,19 @@
 # Falcon030 v1, Console 138K, Gowin V1.9.12.03 only. device_version C. Replicate on.
 # Run from the worktree root: gw_sh Falcon030_rtl/build_falcon.tcl
-# Template: Atarist_030_wip/build_st_helper.tcl. No seed sweeps, no relaxed constraints.
+# Originally based on Atarist_030_wip/build_st_helper.tcl. This folder is self-contained:
+# CPU, peripherals, board support and helper HDL are local copies under hdl/.
+# No seed sweeps, no relaxed constraints.
 # timing_pairs must pass; clk_cpu030 floor 16 MHz. Output: impl/pnr/falcon.fs.
 #
 # falcon_top.sv + falcon_soc.v are in. HDMI is scanout -> hdmi_640 (own 25.2 MHz
 # PLL). Helper SPI/sysctrl/sd_card/HID are in the top; TOS ROM is image 4,
 # floppy A: is image 0. MFP/ACIA/IKBD/FDC/falcon_pbus are in falcon_soc.
 # SDC: Falcon030_rtl/hdl/top/falcon.sdc (not the ST helper SDC).
+# jt49/ and gstmcu/ are local copies for later sound work; they are not in this file list.
 
-set ST "Atarist_030_wip"
 set F  "Falcon030_rtl"
 
-set fh [open $ST/hdl/tang/console138k/build_sel.vh w]
+set fh [open $F/hdl/tang/console138k/build_sel.vh w]
 puts $fh "`define FALCON"
 puts $fh "`define ST_HELPER"
 puts $fh "`define ST_HELPER_USB"
@@ -46,93 +48,93 @@ add_file $F/osd/falcon_xml.hex
 file copy -force $F/osd/falcon_xml.hex falcon_xml.hex
 
 
-# Shared WF68K30L (by path, no fork)
-add_file $ST/hdl/cpu030/wf68k30L_pkg.vhd
-add_file $ST/hdl/cpu030/wf68k30L_address_registers.vhd
-add_file $ST/hdl/cpu030/wf68k30L_alu.vhd
-add_file $ST/hdl/cpu030/wf68k30L_bus_interface.vhd
-add_file $ST/hdl/cpu030/wf68k30L_control.vhd
-add_file $ST/hdl/cpu030/wf68k30L_data_registers.vhd
-add_file $ST/hdl/cpu030/wf68k30L_exception_handler.vhd
-add_file $ST/hdl/cpu030/wf68k30L_opcode_decoder.vhd
-add_file $ST/hdl/cpu030/wf68k30L_icache.vhd
-add_file $ST/hdl/cpu030/wf68k30L_dcache.vhd
-add_file $ST/hdl/cpu030/wf68k30L_mmu.vhd
-add_file $ST/hdl/cpu030/wf68k30L_top.vhd
+# WF68K30L (local copy under hdl/cpu030)
+add_file $F/hdl/cpu030/wf68k30L_pkg.vhd
+add_file $F/hdl/cpu030/wf68k30L_address_registers.vhd
+add_file $F/hdl/cpu030/wf68k30L_alu.vhd
+add_file $F/hdl/cpu030/wf68k30L_bus_interface.vhd
+add_file $F/hdl/cpu030/wf68k30L_control.vhd
+add_file $F/hdl/cpu030/wf68k30L_data_registers.vhd
+add_file $F/hdl/cpu030/wf68k30L_exception_handler.vhd
+add_file $F/hdl/cpu030/wf68k30L_opcode_decoder.vhd
+add_file $F/hdl/cpu030/wf68k30L_icache.vhd
+add_file $F/hdl/cpu030/wf68k30L_dcache.vhd
+add_file $F/hdl/cpu030/wf68k30L_mmu.vhd
+add_file $F/hdl/cpu030/wf68k30L_top.vhd
 
-# ST peripherals reused as-is
-add_file $ST/hdl/atarist/acia.v
-add_file $ST/hdl/atarist/stBlitter.sv
-add_file $ST/hdl/atarist/acsi.v
-add_file $ST/hdl/atarist/dma.v
-add_file $ST/hdl/atarist/io_fifo.v
-add_file $ST/hdl/atarist/mfp.v
-add_file $ST/hdl/atarist/mfp_hbit16.v
-add_file $ST/hdl/atarist/mfp_srff16.v
-add_file $ST/hdl/atarist/mfp_timer.v
-add_file $ST/hdl/fdc1772/fdc1772.v
-add_file $ST/hdl/fdc1772/floppy.v
-add_file $ST/hdl/ikbd/hd63701/HD63701.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_ALU.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_CORE.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_EXEC.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_MCODE.i
-add_file $ST/hdl/ikbd/hd63701/HD63701_MCROM.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_SEQ.v
-add_file $ST/hdl/ikbd/hd63701/HD63701_defs.i
-add_file $ST/hdl/ikbd/ikbd.sv
-add_file $ST/hdl/ikbd/rom/MCU_BIROM.v
-add_file $ST/hdl/ikbd/rom/ikbd.hex
+# Peripherals (local copies, originally from the ST core)
+add_file $F/hdl/atarist/acia.v
+add_file $F/hdl/atarist/stBlitter.sv
+add_file $F/hdl/atarist/acsi.v
+add_file $F/hdl/atarist/dma.v
+add_file $F/hdl/atarist/io_fifo.v
+add_file $F/hdl/atarist/mfp.v
+add_file $F/hdl/atarist/mfp_hbit16.v
+add_file $F/hdl/atarist/mfp_srff16.v
+add_file $F/hdl/atarist/mfp_timer.v
+add_file $F/hdl/fdc1772/fdc1772.v
+add_file $F/hdl/fdc1772/floppy.v
+add_file $F/hdl/ikbd/hd63701/HD63701.v
+add_file $F/hdl/ikbd/hd63701/HD63701_ALU.v
+add_file $F/hdl/ikbd/hd63701/HD63701_CORE.v
+add_file $F/hdl/ikbd/hd63701/HD63701_EXEC.v
+add_file $F/hdl/ikbd/hd63701/HD63701_MCODE.i
+add_file $F/hdl/ikbd/hd63701/HD63701_MCROM.v
+add_file $F/hdl/ikbd/hd63701/HD63701_SEQ.v
+add_file $F/hdl/ikbd/hd63701/HD63701_defs.i
+add_file $F/hdl/ikbd/ikbd.sv
+add_file $F/hdl/ikbd/rom/MCU_BIROM.v
+add_file $F/hdl/ikbd/rom/ikbd.hex
 # MCU_BIROM.v $readmemh("ikbd.hex"): earlier builds found it next to MCU_BIROM.v (no EX3988),
 # but copy it into the gw_sh cwd too, as for falcon_xml.hex, so the HD63701 ROM is never empty.
-file copy -force $ST/hdl/ikbd/rom/ikbd.hex ikbd.hex
+file copy -force $F/hdl/ikbd/rom/ikbd.hex ikbd.hex
 
-# HDMI, SDRAM, helper, PLL, SD (same board pins as the ST helper image)
-add_file $ST/hdl/hdmi/audio_clock_regeneration_packet.sv
-add_file $ST/hdl/hdmi/audio_info_frame.sv
-add_file $ST/hdl/hdmi/audio_sample_packet.sv
-add_file $ST/hdl/hdmi/auxiliary_video_information_info_frame.sv
-add_file $ST/hdl/hdmi/hdmi.sv
-add_file $ST/hdl/hdmi/packet_assembler.sv
-add_file $ST/hdl/hdmi/packet_picker.sv
-add_file $ST/hdl/hdmi/serializer.sv
-add_file $ST/hdl/hdmi/source_product_description_info_frame.sv
-add_file $ST/hdl/hdmi/tmds_channel.sv
-add_file $ST/hdl/misc/dualshock2.v
-add_file $ST/hdl/misc/hid.v
-add_file $ST/hdl/misc/mcu_spi.v
-add_file $ST/hdl/misc/osd_u8g2.v
-add_file $ST/hdl/misc/sd_card.v
-add_file $ST/hdl/misc/sd_rw.v
-add_file $ST/hdl/misc/sdcmd_ctrl.v
-add_file $ST/hdl/misc/sysctrl.v
-add_file $ST/hdl/misc/atarist_keymap.v
-add_file $ST/hdl/tang/mega138kpro/sdram.v
-add_file $ST/hdl/tang/mega138kpro/gowin_dpb/fdc_dpram.v
-add_file $ST/hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
-add_file $ST/hdl/tang/console138k/gowin_pll/pll_160m.v
-add_file $ST/hdl/tang/console138k/gowin_pll/pll_160m_mod.v
-add_file $ST/hdl/tang/console138k/pll_init.v
-add_file $ST/hdl/tang/console138k/pll_wdog.v
-add_file $ST/hdl/tang/console138k/flash_unstick.v
-add_file $ST/hdl/tang/console138k/reset_sync.v
-add_file $ST/hdl/helper/key_debounce.v
-add_file $ST/hdl/helper/gowin_pll_ae350/gowin_pll_ae350.v
-add_file $ST/hdl/helper/gowin_pll_ae350/gowin_pll_ae350_mod.v
-add_file $ST/hdl/helper/gowin_pll_ddr3/gowin_pll_ddr3.v
-add_file $ST/hdl/helper/gowin_pll_ddr3/gowin_pll_ddr3_mod.v
-add_file $ST/hdl/helper/riscv_ae350_soc/riscv_ae350_soc.v
-add_file $ST/hdl/tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v
-add_file $ST/hdl/tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v
-add_file $ST/hdl/tang/console138k/hdmi_640.sv
-add_file $ST/hdl/tang/console138k/st_helper_ctrl.v
-add_file $ST/hdl/tang/console138k/st_helper_mailbox.v
-add_file $ST/hdl/tang/console138k/st_helper_mculink.v
-add_file $ST/hdl/tang/console138k/st_helper_usb.v
-add_file $ST/hdl/tang/console138k/st_helper_osd.v
-add_file $ST/hdl/tang/console138k/usb_hid_host.v
-add_file $ST/hdl/tang/console138k/usb_hid_host_rom.hex
-add_file $ST/hdl/tang/console138k/atarist_st_helper.cst
+# HDMI, SDRAM, helper HDL, PLL, SD (local copies; same board pins as the ST helper image)
+add_file $F/hdl/hdmi/audio_clock_regeneration_packet.sv
+add_file $F/hdl/hdmi/audio_info_frame.sv
+add_file $F/hdl/hdmi/audio_sample_packet.sv
+add_file $F/hdl/hdmi/auxiliary_video_information_info_frame.sv
+add_file $F/hdl/hdmi/hdmi.sv
+add_file $F/hdl/hdmi/packet_assembler.sv
+add_file $F/hdl/hdmi/packet_picker.sv
+add_file $F/hdl/hdmi/serializer.sv
+add_file $F/hdl/hdmi/source_product_description_info_frame.sv
+add_file $F/hdl/hdmi/tmds_channel.sv
+add_file $F/hdl/misc/dualshock2.v
+add_file $F/hdl/misc/hid.v
+add_file $F/hdl/misc/mcu_spi.v
+add_file $F/hdl/misc/osd_u8g2.v
+add_file $F/hdl/misc/sd_card.v
+add_file $F/hdl/misc/sd_rw.v
+add_file $F/hdl/misc/sdcmd_ctrl.v
+add_file $F/hdl/misc/sysctrl.v
+add_file $F/hdl/misc/atarist_keymap.v
+add_file $F/hdl/tang/mega138kpro/sdram.v
+add_file $F/hdl/tang/mega138kpro/gowin_dpb/fdc_dpram.v
+add_file $F/hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
+add_file $F/hdl/tang/console138k/gowin_pll/pll_160m.v
+add_file $F/hdl/tang/console138k/gowin_pll/pll_160m_mod.v
+add_file $F/hdl/tang/console138k/pll_init.v
+add_file $F/hdl/tang/console138k/pll_wdog.v
+add_file $F/hdl/tang/console138k/flash_unstick.v
+add_file $F/hdl/tang/console138k/reset_sync.v
+add_file $F/hdl/helper/key_debounce.v
+add_file $F/hdl/helper/gowin_pll_ae350/gowin_pll_ae350.v
+add_file $F/hdl/helper/gowin_pll_ae350/gowin_pll_ae350_mod.v
+add_file $F/hdl/helper/gowin_pll_ddr3/gowin_pll_ddr3.v
+add_file $F/hdl/helper/gowin_pll_ddr3/gowin_pll_ddr3_mod.v
+add_file $F/hdl/helper/riscv_ae350_soc/riscv_ae350_soc.v
+add_file $F/hdl/tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi.v
+add_file $F/hdl/tang/console138k/gowin_pll_hdmi/gowin_pll_hdmi_mod.v
+add_file $F/hdl/tang/console138k/hdmi_640.sv
+add_file $F/hdl/tang/console138k/st_helper_ctrl.v
+add_file $F/hdl/tang/console138k/st_helper_mailbox.v
+add_file $F/hdl/tang/console138k/st_helper_mculink.v
+add_file $F/hdl/tang/console138k/st_helper_usb.v
+add_file $F/hdl/tang/console138k/st_helper_osd.v
+add_file $F/hdl/tang/console138k/usb_hid_host.v
+add_file $F/hdl/tang/console138k/usb_hid_host_rom.hex
+add_file $F/hdl/tang/console138k/atarist_st_helper.cst
 add_file $F/hdl/top/falcon.sdc
 
 set_option -synthesis_tool gowinsynthesis

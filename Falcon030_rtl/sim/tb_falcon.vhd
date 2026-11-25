@@ -4,7 +4,7 @@
 -- SPDX-License-Identifier: GPL-3.0-or-later
 --
 -- Purpose: run Atari TOS 4.04 (512K, base $E00000) from reset on the cycle-tuned
--- WF68K30L (Atarist_030_wip/hdl/cpu030, shared by path, not copied) and log what
+-- WF68K30L (Falcon030_rtl/hdl/cpu030, local copy) and log what
 -- TOS probes, to find what the Falcon RTL must answer before the board build.
 -- Behaviour follows reference/Hybrid030/hybrid_musashi/falcon_m28.c (which booted
 -- TOS 4.04 under Musashi) and Hatari:

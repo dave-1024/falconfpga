@@ -1,7 +1,7 @@
 // tb_ldrate.v - FAL_01: tos_loader at the board's SD byte rate (sd_card CLK_DIV 0: 1 byte / 4 clk32)
 // into falcon_sdram_arb + real sdram.v + sdram_model, with optional scanout traffic; reads every
 // loaded word back through the CPU port and counts mismatches.
-// iverilog -g2012 -DNSEC=32 tb_ldrate.v ../hdl/top/tos_loader.v ../hdl/bus/falcon_sdram_arb.v $ST/hdl/tang/mega138kpro/sdram.v $ST/hdl/cpu030/sim/ttram/sdram_model.v
+// iverilog -g2012 -DNSEC=32 tb_ldrate.v ../hdl/top/tos_loader.v ../hdl/bus/falcon_sdram_arb.v ../hdl/tang/mega138kpro/sdram.v ../hdl/cpu030/sim/ttram/sdram_model.v
 `timescale 1ns/1ps
 `ifndef NSEC
 `define NSEC 32

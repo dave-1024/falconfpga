@@ -3,7 +3,7 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Same coding style as Atarist_030_wip st_fb_ram, which Gowin V1.9.12.03
+// Same coding style as the ST core st_fb_ram, which Gowin V1.9.12.03
 // infers as SDP BSRAM: separate write and registered-read clocks, no array
 // reset, and an explicit syn_ramstyle = "block_ram" attribute. Hybrid030
 // falcon_video.v relied on a sync read "to keep it inferable as a real SDP

@@ -1,0 +1,727 @@
+------------------------------------------------------------------------
+----                                                                ----
+---- WF68K30L IP Core: this is the package file containing the data ----
+---- types and the component declarations.                          ----
+----                                                                ----
+---- Author(s):                                                     ----
+---- - Wolfgang Foerster, wf@experiment-s.de; wf@inventronik.de     ----
+----                                                                ----
+------------------------------------------------------------------------
+----                                                                ----
+---- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+----                                                                ----
+---- This documentation describes Open Hardware and is licensed     ----
+---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
+---- this documentation under the terms of the CERN OHL v.1.2.      ----
+---- (http://ohwr.org/cernohl). This documentation is distributed   ----
+---- WITHOUT ANY EXPRESS OR IMPLIED WARRANTY, INCLUDING OF          ----
+---- MERCHANTABILITY, SATISFACTORY QUALITY AND FITNESS FOR A        ----
+---- PARTICULAR PURPOSE. Please see the CERN OHL v.1.2 for          ----
+---- applicable conditions                                          ----
+----                                                                ----
+------------------------------------------------------------------------
+-- 
+-- Revision History
+-- 
+-- Revision 2K14B 20141201 WF
+--   Initial Release.
+-- Later revisions
+--   Modifications according to changes of the entity in other modules.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-09-30 F1/F13/F14/F15: bus fault SSW and address latched at the faulting cycle.
+--   2026-09-30 F21-F25: bit field byte count, register wrap, BFINS pattern, width, BFSET typo.
+--   2026-09-30 F28: SSW RB bit for address errors (checked on MC68030).
+--   2026-10-03 F56: combinational loops and BF_NZ latch removed; hazard selects.
+--   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
+--   2026-10-08 F62/F62b/F62c: opcode prefetch queue (PREFETCH_Q).
+--   2026-10-09 F65: FAST_HANDOFF generic, prefetch S5-to-S0 chain (off by default).
+--   2026-10-16 PH2: bus interface ports ADR_NXT, FC_NXT, OP_CHAIN_LD (prefetch S5 to operand S0).
+--   2026-10-16 PH2-FMAX: bus interface ports ADR_LAT, FC_LAT (registered bus address and function code).
+--   2026-10-14 DIAG: DBG_EXC/DBG_ADR/DBG_A5 debug ports (unused ports are removed).
+--   2026-11-18 F164: LK_HALF on the I-cache, IC_LK_HALF on the bus interface (per-word I-cache valid bits).
+--   2026-11-18 F163: XNZVC_OUT port on the ALU (CCR forwarded to the early Bcc.B).
+--   2026-11-18 F161: DBCC_DNZ / DR_DEC ports (control, data registers) for the early taken DBcc.
+--   2026-11-24 F171: ADR_FAST_MV port (control out, address registers in).
+--   2026-11-24 F172: MOVEM_RA2 (control out) and RA_MORE2/RA_ILD/RA_IADR/RA_IFC (bus interface) ports.
+--   2026-11-18 F160: CCR_IN port on the control unit (taken Bcc.B in its OPD_ACK clock).
+--   2026-11-09 F156: OPCODE_RDY_2 into the exception handler (REFILL_PIPE word count).
+--   2026-11-04 F147: OPCODE_RDY_2/OPCODE_VALID_2/second opcode word ports (bus interface out, decoder in).
+--   2026-11-03 F140: OPC_RD_NEXT ports (decoder out, bus interface in).
+-- 
+
+library ieee;
+use ieee.std_logic_1164.all;
+
+package WF68K30L_PKG is
+type OP_SIZETYPE is (LONG, WORD, BYTE);
+
+-- F21/H29: shared by the control unit (fetch/write sizing) and the ALU
+-- (bit field bounds). Indexed by [bit position within byte, width].
+type BF_BYTEMATRIX is array (0 to 7, 1 to 32) of integer range 1 to 5;
+-- The BF_BYTES constant selects the number of bytes required for read
+-- or write during the bit field operations. This table is valid for
+-- positive and negative offsets when using the twos complement in
+-- the offset field.
+constant BF_BYTES_I : BF_BYTEMATRIX := 
+    ((1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4),
+     (1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5),
+     (1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5),
+     (1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5),
+     (1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5),
+     (1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5),
+     (1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5),
+     (1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5));
+
+-- The OPCODES AND, NOT, OR, ROR and ROL are defined keywords in VHDL. Therefore the assignment is
+-- AND_B, NOT_B, OR_B, ROTR and ROTL.
+type OP_68K is (ABCD, ADD, ADDA, ADDI, ADDQ, ADDX, AND_B, ANDI, ANDI_TO_CCR, ANDI_TO_SR, ASL, ASR, Bcc, BCHG, BCLR, 
+                BFCHG, BFCLR, BFEXTS, BFEXTU, BFFFO, BFINS, BFSET, BFTST, BKPT, BRA, BSET, BSR, BTST, CAS, CAS2, 
+                CHK, CHK2, CLR, CMP, CMP2, CMPA, CMPI, CMPM, DBcc, DIVS, DIVU, EOR, EORI, EORI_TO_CCR, 
+                EORI_TO_SR, EXG, EXT, EXTB, ILLEGAL, JMP, JSR, LEA, LINK, LSL, LSR, MOVE, MOVE_FROM_CCR, MOVE_TO_CCR, 
+                MOVE_FROM_SR, MOVE_TO_SR, MOVE_USP, MOVEA, MOVEC, MOVEM, MOVEP, MOVEQ, MOVES, MULS, MULU, NBCD, NEG, 
+                NEGX, NOP, NOT_B, OR_B, ORI, ORI_TO_CCR, ORI_TO_SR, PACK, PEA, PMOVE, RESET, ROTL, ROTR, ROXL, ROXR, RTD, 
+                RTE, RTR, RTS, SBCD, Scc, STOP, SUB, SUBA, SUBI, SUBQ, SUBX, SWAP, TAS, TRAP, TRAPcc, TRAPV, TST, 
+                UNLK, UNPK, UNIMPLEMENTED);
+
+type TRAPTYPE_OPC is(NONE, T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV, T_RTE); -- None is the first entry and default.
+
+
+component WF68K30L_ICACHE -- [IC] 68030 instruction cache (rewritten 2026-10-17)
+    port (
+        CLK       : in std_logic;
+        RESET     : in bit;
+        EI        : in std_logic;
+        FI        : in std_logic;
+        CDIS      : in std_logic;
+        CLR_ALL   : in std_logic;
+        CLR_ENT   : in std_logic;
+        CLR_IDX   : in std_logic_vector(7 downto 2);
+        LK_ADR    : in std_logic_vector(31 downto 2);
+        LK_FC2    : in std_logic;
+        LK_HALF   : in std_logic := '0'; -- [F164]
+        HIT       : out std_logic;
+        HIT_DATA  : out std_logic_vector(31 downto 0);
+        FILL      : in std_logic;
+        FILL_MIS  : in std_logic;
+        FILL_OK   : in std_logic_vector(1 downto 0);
+        BREAK     : in std_logic;
+        FILL_ADR  : in std_logic_vector(31 downto 2);
+        FILL_FC2  : in std_logic;
+        FILL_DATA : in std_logic_vector(31 downto 0)
+    );
+end component;
+
+
+component WF68K30L_DCACHE -- [DC] 68030 data cache (rewritten 2026-10-17)
+    port (
+        CLK       : in std_logic;
+        RESET     : in bit;
+        ED        : in std_logic;
+        FD        : in std_logic;
+        WA        : in std_logic;
+        CDIS      : in std_logic; -- '1': disabled (registered CDIS pin).
+        CLR_ALL   : in std_logic;
+        CLR_ENT   : in std_logic;
+        CLR_IDX   : in std_logic_vector(7 downto 2);
+        LK_ADR    : in std_logic_vector(31 downto 0);
+        LK_FC     : in std_logic_vector(2 downto 0);
+        LK_SZ     : in std_logic_vector(2 downto 0); -- Bytes: 1, 2 or 4.
+        LK_HIT    : out std_logic;
+        LK_DATA   : out std_logic_vector(31 downto 0);
+        WR_GO     : in std_logic;
+        WR_ADR    : in std_logic_vector(31 downto 0);
+        WR_FC     : in std_logic_vector(2 downto 0);
+        WR_SZ     : in std_logic_vector(2 downto 0);
+        WR_DATA   : in std_logic_vector(31 downto 0); -- Right-justified.
+        FL_GO     : in std_logic;
+        FL_A0     : in std_logic_vector(31 downto 2);
+        FL_FC     : in std_logic_vector(2 downto 0);
+        FL_U1     : in std_logic; -- E1 touched.
+        FL_D0     : in std_logic_vector(31 downto 0);
+        FL_D1     : in std_logic_vector(31 downto 0);
+        FL_OK0    : in std_logic_vector(1 downto 0); -- Bit 1: word at offset 0 (D 31:16), bit 0: offset 2.
+        FL_OK1    : in std_logic_vector(1 downto 0);
+        FL_BE0    : in std_logic;
+        FL_BE1    : in std_logic
+    );
+end component;
+
+component WF68K30L_ADDRESS_REGISTERS
+    port (
+        CLK                 : in std_logic;
+        RESET               : in bit;
+        AR_IN_1             : in std_logic_vector(31 downto 0);
+        AR_IN_2             : in std_logic_vector(31 downto 0);
+        AR_OUT_1            : out std_logic_vector(31 downto 0);
+        AR_OUT_2            : out std_logic_vector(31 downto 0);
+        INDEX_IN            : in std_logic_vector(31 downto 0);
+        INDEX_LIVE          : in std_logic_vector(31 downto 0) := x"00000000"; -- [F97]
+        INDEX_PEND          : in bit := '0';                                   -- [F97]
+        IDX_SEL             : out std_logic_vector(2 downto 0);                -- [F97]
+        PC                  : out std_logic_vector(31 downto 0);
+        PC_EW_OFFSET        : in std_logic_vector(3 downto 0);
+        FETCH_MEM_ADR       : in bit;
+        STORE_ADR_FORMAT    : in bit;
+        STORE_ABS_HI        : in bit;
+        STORE_ABS_LO        : in bit;
+        STORE_D16           : in bit;
+        STORE_D32_LO        : in bit;
+        STORE_D32_HI        : in bit;
+        STORE_DISPL         : in bit;
+        STORE_MEM_ADR       : in bit;
+        STORE_OD_HI         : in bit;
+        STORE_OD_LO         : in bit;
+        STORE_AEFF          : in bit;
+        OP_SIZE             : in OP_SIZETYPE;
+        ADR_OFFSET          : in std_logic_vector(31 downto 0);
+        ADR_MARK_USED       : in bit;
+        ADR_FAST            : in bit;
+        ADR_FAST_MV         : in bit; -- [F171]
+        ADR_IN_USE          : out bit;
+        ADR_MODE            : in std_logic_vector(2 downto 0);
+        AMODE_SEL           : in std_logic_vector(2 downto 0);
+        USE_DREG            : in bit;
+        ADR_EFF             : out std_logic_vector(31 downto 0);
+        ADR_EFF_WB          : out std_logic_vector(31 downto 0);
+        DFC                 : out std_logic_vector(2 downto 0);
+        DFC_WR              : in bit;
+        SFC                 : out std_logic_vector(2 downto 0);
+        SFC_WR              : in bit;
+        ISP_DEC             : in bit;
+        ISP_EARLY           : in bit; -- [XT1]
+        ISP_RD              : in bit;
+        ISP_WR              : in bit;
+        MSP_RD              : in bit;
+        MSP_WR              : in bit;
+        USP_RD              : in bit;
+        USP_WR              : in bit;
+        AR_MARK_USED        : in bit;
+        USE_APAIR           : in boolean;
+        AR_IN_USE           : out bit;
+        AR_SEL_RD_1         : in std_logic_vector(2 downto 0);
+        AR_SEL_RD_2         : in std_logic_vector(2 downto 0);
+        AR_SEL_WR_1         : in std_logic_vector(2 downto 0);
+        AR_SEL_WR_2         : in std_logic_vector(2 downto 0);
+        AR_DEC              : in bit;
+        MV_SAVE             : in bit;
+        MV_RESTORE          : in bit;
+        AR_INC              : in bit;
+        AR_WR_1             : in bit;
+        AR_WR_2             : in bit;
+        UNMARK              : in bit;
+        EXT_WORD            : in std_logic_vector(15 downto 0);
+        MBIT                : in std_logic;
+        SBIT                : in std_logic;
+        SP_ADD_DISPL        : in bit;
+        RESTORE_ISP_PC      : in bit;
+        DISPLACEMENT        : in std_logic_vector(31 downto 0);
+        PC_ADD_DISPL        : in bit;
+        PC_INC              : in bit;
+        PC_LOAD             : in bit;
+        PC_RESTORE          : in bit;
+        PC_OFFSET           : in std_logic_vector(7 downto 0);
+        DBG_A5              : out std_logic_vector(31 downto 0);
+        DBG_SP              : out std_logic_vector(31 downto 0);
+        DBG_AR              : out std_logic_vector(319 downto 0); -- [F77]
+        DBG_IDX             : out std_logic_vector(239 downto 0)  -- [F100]
+    );
+end component;
+
+component WF68K30L_ALU
+    port (
+        CLK                 : in std_logic;
+        RESET               : in bit;
+        LOAD_OP1            : in bit;
+        LOAD_OP2            : in bit;
+        LOAD_OP3            : in bit;
+        OP1_IN              : in std_logic_vector(31 downto 0);
+        OP2_IN              : in std_logic_vector(31 downto 0);
+        OP3_IN              : in std_logic_vector(31 downto 0);
+        BF_OFFSET_IN        : in Std_Logic_Vector(31 downto 0);
+        BF_WIDTH_IN         : in Std_Logic_Vector(5 downto 0);
+        BF_BYTES_IN         : in integer range 0 to 5;
+        BITPOS_IN           : in Std_Logic_Vector(4 downto 0);
+        RESULT              : out std_logic_vector(63 downto 0);
+        RESULT_MV           : out std_logic_vector(31 downto 0);
+        ADR_MODE_IN         : in std_logic_vector(2 downto 0);
+        OP_SIZE_IN          : in OP_SIZETYPE;
+        OP_IN               : in OP_68K;
+        OP_WB               : in OP_68K;
+        BIW_0_IN            : in std_logic_vector(11 downto 0);
+        BIW_1_IN            : in std_logic_vector(15 downto 0);
+        SR_WR               : in bit;
+        SR_INIT             : in bit;
+        SR_CLR_MBIT         : in bit;
+        CC_UPDT             : in bit;
+        STATUS_REG_OUT	    : out std_logic_vector(15 downto 0);
+        ALU_COND            : out boolean;
+        XNZVC_OUT           : out std_logic_vector(4 downto 0); -- [F163]
+        ALU_INIT            : in bit;
+        ALU_BSY             : out bit;
+        ALU_REQ             : out bit;
+        ALU_ACK             : in bit;
+        USE_DREG            : in bit;
+        HILOn               : in bit;
+        IRQ_PEND            : in std_logic_vector(2 downto 0);
+        TRAP_CHK            : out bit;
+        TRAP_DIVZERO        : out bit
+    );
+end component;
+
+component WF68K30L_BUS_INTERFACE
+    generic (PREFETCH_Q : integer := 0; -- [F62]
+             FAST_HANDOFF : integer := 0); -- [F65] prefetch S5-to-S0; 0 keeps IDLE
+    port (
+        CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58]
+        ADR_IN_P            : in std_logic_vector(31 downto 0);
+        ADR_OUT_P           : out std_logic_vector(31 downto 0);
+        FC_IN               : in std_logic_vector(2 downto 0);
+        FC_OUT              : out std_logic_vector(2 downto 0);
+        DATA_PORT_IN        : in std_logic_vector(31 downto 0); 
+        DATA_PORT_OUT       : out std_logic_vector(31 downto 0);
+        DATA_FROM_CORE      : in std_logic_vector(31 downto 0);
+        DATA_TO_CORE        : out std_logic_vector(31 downto 0);
+        OPCODE_TO_CORE      : out std_logic_vector(15 downto 0);
+        DATA_PORT_EN        : out std_logic;
+        BUS_EN              : out std_logic;
+        SIZE                : out std_logic_vector(1 downto 0);
+        OP_SIZE             : in OP_SIZETYPE;
+        RD_REQ_IN           : in bit;
+        WR_REQ_IN           : in bit;
+        DATA_RDY            : out bit;
+        DATA_VALID          : out std_logic;
+        WR_EARLY            : out bit;
+        WR_TAKE             : in bit;
+        OPCODE_REQ          : in bit;
+        OPCODE_RDY          : out bit;
+        OPCODE_RDY_2        : out bit; -- [F147]
+        OPCODE_VALID_2      : out std_logic; -- [F147]
+        OPCODE_TO_CORE_2    : out std_logic_vector(15 downto 0); -- [F147]
+        OPCODE_VALID        : out std_logic;
+        RMC                 : in bit;
+        BUSY_EXH            : in bit;
+        OPC_RD              : in bit; -- [F62]
+        OPC_RD_NEXT         : in bit; -- [F140]
+        PIPE_FULL           : in bit; -- [F140]
+        OPC_ADR             : in std_logic_vector(31 downto 0); -- [F62]
+        OPC_FC              : in std_logic_vector(2 downto 0); -- [F62]
+        OPC_DISMISS         : in bit; -- [F62c] Decoder OPCODE_FLUSH (pending opcode request is dismissed).
+        PF_HOLD             : in bit; -- [PFCOF]
+        PF_NOEARLY          : in bit; -- [XH3]
+        EXH_STK             : in bit; -- [XT2]
+        Q_STREAM            : out std_logic_vector(63 downto 0); -- [PFCOF2]
+        Q_COUNT             : out integer range 0 to 4; -- [PFCOF2]
+        DBG_IC              : out std_logic_vector(15 downto 0); -- FalconFPGA DIAG STR {lookup F_ADR7:1, fill F_CUR7:2, IC_HIT, IC_FILL, FILL_MIS}
+        DBG_QF              : out std_logic_vector(3 downto 0); -- FalconFPGA DIAG STR {Q_HIT, IC_TAKE, PF_DONE, Q_MISS}
+        Q_HEAD              : out std_logic_vector(31 downto 1); -- [FRM]
+        Q_FAULT             : out bit_vector(0 to 3); -- [FRM]
+        OP_RD               : in bit; -- [F65] Live data-read request, not masked by BUS_BSY.
+        OP_WR               : in bit; -- [F65] Live data-write request, not masked by BUS_BSY.
+        ADR_NXT             : in std_logic_vector(31 downto 0); -- [PH2] Address of the live operand request.
+        FC_NXT              : in std_logic_vector(2 downto 0); -- [PH2] Its function code.
+        ADR_LAT             : in std_logic_vector(31 downto 0); -- [PH2-FMAX] Registered address of the running cycle.
+        FC_LAT              : in std_logic_vector(2 downto 0); -- [PH2-FMAX]
+        OP_CHAIN_LD         : out bit; -- [PH2] Strobe on an S5 edge that rolls an operand cycle in or out.
+        RA_MORE             : in bit; -- [F2] MOVEM memory to register: the running read is not the last register.
+        RA_LD               : out bit; -- [F2] S5 edge of a MOVEM read-ahead: the address latch steps to the next operand.
+        RA_MORE2            : in bit; -- [F172] MOVEM memory to register: the operand requested now is not the last register.
+        RA_ILD              : out bit; -- [F172] IDLE edge of a MOVEM read-ahead started from IDLE: load RA_IADR/RA_IFC.
+        RA_IADR             : out std_logic_vector(31 downto 0); -- [F172] Its address.
+        RA_IFC              : out std_logic_vector(2 downto 0); -- [F172] Its function code.
+        IC_LK_ADR           : out std_logic_vector(31 downto 2); -- [IC] Long word the queue fetches next (F_ADR).
+        IC_LK_FC2           : out std_logic; -- [IC]
+        IC_LK_HALF          : out std_logic; -- [F164]
+        IC_HIT              : in std_logic; -- [IC] The instruction cache holds it.
+        IC_HIT_DATA         : in std_logic_vector(31 downto 0); -- [IC]
+        IC_FILL             : out std_logic; -- [IC] Strobe: a bus prefetch long ended (last portion).
+        IC_FILL_MIS         : out std_logic; -- [IC] ... it started at 4n+2 (stream start at a misaligned word).
+        IC_FILL_OK          : out std_logic_vector(1 downto 0); -- [IC] Per word (1 = first): no bus error, CIIN negated.
+        IC_BREAK            : out std_logic; -- [IC] The stream restarts (Q_MISS).
+        IC_FILL_ADR         : out std_logic_vector(31 downto 2); -- [IC]
+        IC_FILL_FC2         : out std_logic; -- [IC]
+        IC_FILL_DATA        : out std_logic_vector(31 downto 0); -- [IC]
+        CIINn               : in std_logic; -- [IC] Cache inhibit in (MC68030UM 5.7.1).
+        DC_FILL_EN          : in std_logic; -- [DC] ED set, FD clear, CDIS negated: a cachable read miss fills.
+        DC_ON               : in std_logic; -- [DC] ED set, CDIS negated: reads are looked up.
+        DC_LK_ADR           : out std_logic_vector(31 downto 0); -- [DC] Lookup of the read request in START_CYCLE.
+        DC_LK_FC            : out std_logic_vector(2 downto 0);
+        DC_LK_SZ            : out std_logic_vector(2 downto 0);
+        DC_HIT              : in std_logic;
+        DC_HIT_DATA         : in std_logic_vector(31 downto 0);
+        DC_WR_GO            : out std_logic; -- [DC] A write started (registered, the clock after).
+        DC_WR_ADR           : out std_logic_vector(31 downto 0);
+        DC_WR_FC            : out std_logic_vector(2 downto 0);
+        DC_WR_SZ            : out std_logic_vector(2 downto 0);
+        DC_WR_DATA          : out std_logic_vector(31 downto 0);
+        DC_FL_GO            : out std_logic; -- [DC] A read and its fill cycles ended.
+        DC_FL_A0            : out std_logic_vector(31 downto 2);
+        DC_FL_FC            : out std_logic_vector(2 downto 0);
+        DC_FL_U1            : out std_logic;
+        DC_FL_D0            : out std_logic_vector(31 downto 0);
+        DC_FL_D1            : out std_logic_vector(31 downto 0);
+        DC_FL_OK0           : out std_logic_vector(1 downto 0);
+        DC_FL_OK1           : out std_logic_vector(1 downto 0);
+        DC_FL_BE0           : out std_logic;
+        DC_FL_BE1           : out std_logic;
+        INBUFFER            : out std_logic_vector(31 downto 0);
+        OUTBUFFER           : out std_logic_vector(31 downto 0);
+        SSW_80              : out std_logic_vector(8 downto 0);
+        BFLT_SSW            : out std_logic_vector(8 downto 0); -- F1
+        BFLT_ADR            : out std_logic_vector(31 downto 0); -- F1
+        BFLT_VALID          : out bit; -- F1
+        DSACKn              : in std_logic_vector(1 downto 0);
+        ASn                 : out std_logic;
+        DSn                 : out std_logic;
+        RWn                 : out std_logic;
+        RMCn                : out std_logic;
+        RMC_LKn             : out std_logic; -- [F67]
+        ECSn                : out std_logic;
+        OCSn                : out std_logic;
+        DBENn               : out std_logic;
+        STERMn              : in std_logic;
+        BRn                 : in std_logic;
+        BGACKn              : in std_logic;
+        BGn                 : out std_logic;
+        RESET_STRB          : in bit;
+        RESET_IN            : in std_logic;
+        RESET_OUT           : out std_logic;
+        RESET_CPU           : out bit;
+        AVECn               : in std_logic;
+        HALTn               : in std_logic;
+        BERRn               : in std_logic;
+        AERR                : out bit;
+        BUS_BSY             : out bit
+    );
+end component;
+
+component WF68K30L_CONTROL
+    generic(NO_PIPELINE     : boolean := false); -- If true the controller work in scalar mode.
+    port(
+        CLK                 : in std_logic;
+        RESET_CPU           : in bit;
+        BUSY                : out bit;
+        BUSY_EXH            : in bit;
+        EXH_REQ             : in bit;
+        INT_TRIG            : out bit;
+        IRQ_HOT             : in bit; -- [F141]
+        OW_REQ              : out bit;
+        OW_VALID            : in std_logic;
+        EW_REQ              : out bit;
+        EW_ACK              : in bit;
+        OPD_ACK             : in bit;
+        ADR_MARK_USED       : out bit;
+        ADR_IN_USE          : in bit;
+        ADR_OFFSET          : out std_logic_vector(5 downto 0);
+        DATA_RD             : out bit;
+        DATA_WR             : out bit;
+        DATA_RDY            : in bit;
+        DATA_VALID          : in std_logic;
+        RMC                 : out bit;
+        FETCH_MEM_ADR       : out bit;
+        MI_HOLD             : out bit; -- [MI1]
+        LOAD_OP2            : out bit;
+        LOAD_OP3            : out bit;
+        LOAD_OP1            : out bit;
+        STORE_ADR_FORMAT    : out bit;
+        STORE_D16           : out bit;
+        STORE_D32_LO        : out bit;
+        STORE_D32_HI        : out bit;
+        STORE_DISPL         : out bit;
+        STORE_OD_HI         : out bit;
+        STORE_OD_LO         : out bit;
+        STORE_ABS_HI        : out bit;
+        STORE_ABS_LO        : out bit;
+        STORE_IDATA_B2      : out bit;
+        STORE_IDATA_B1      : out bit;
+        STORE_MEM_ADR       : out bit;
+        STORE_AEFF          : out bit;
+        OP                  : in OP_68K;
+        OP_SIZE             : out OP_SIZETYPE;
+        BIW_0               : in std_logic_vector(13 downto 0);
+        BIW_1               : in std_logic_vector(15 downto 0);
+        BIW_2               : in std_logic_vector(15 downto 0);
+        EXT_WORD            : in std_logic_vector(15 downto 0);
+        ADR_MODE            : out std_logic_vector(2 downto 0);
+        AMODE_SEL           : out std_logic_vector(2 downto 0);
+        USE_DREG            : out bit;
+        HILOn               : out bit;
+        BF_BYTES_OUT        : out integer range 0 to 5;
+        OP_WB               : out OP_68K;
+        OP_SIZE_WB          : out OP_SIZETYPE;
+        BIW_0_WB_73         : out std_logic_vector(7 downto 3);
+        AR_MARK_USED        : out bit;
+        USE_APAIR           : out boolean;
+        AR_IN_USE           : in bit;
+        AR_SEL_RD_1         : out std_logic_vector(2 downto 0);
+        AR_SEL_RD_2         : out std_logic_vector(2 downto 0);
+        AR_SEL_WR_1         : out std_logic_vector(2 downto 0);
+        AR_SEL_WR_2         : out std_logic_vector(2 downto 0);
+        AR_INC              : out bit;
+        AR_DEC              : out bit;
+        MV_SAVE             : out bit;
+        MV_RESTORE          : out bit;
+        AR_WR_1             : out bit;
+        AR_WR_2             : out bit;
+        DR_MARK_USED        : out bit;
+        USE_DPAIR           : out boolean;
+        DR_IN_USE           : in bit;
+        DR_SEL_RD_1         : out std_logic_vector(2 downto 0);
+        DR_SEL_RD_2         : out std_logic_vector(2 downto 0);
+        DR_SEL_ADH_2        : out std_logic_vector(2 downto 0); -- F56: data hazard check selects
+        DR_SEL_ADH_3        : out std_logic_vector(2 downto 0);
+        DR_SEL_WR_1         : out std_logic_vector(2 downto 0);
+        DR_SEL_WR_2         : out std_logic_vector(2 downto 0);
+        DR_WR_1             : out bit;
+        DR_WR_2             : out bit;
+        UNMARK              : out bit;
+        UNLK_SW             : out bit; -- [F169]
+        DISPLACEMENT        : out std_logic_vector(31 downto 0);
+        PC_ADD_DISPL        : out bit;
+        PC_LOAD             : out bit;
+        PC_INC_EXH          : in bit;
+        SP_ADD_DISPL        : out bit;
+        DFC_WR              : out bit;
+        DFC_RD              : out bit;
+        SFC_WR              : out bit;
+        SFC_RD              : out bit;
+        VBR_WR              : out bit;
+        VBR_RD              : out bit;
+        CACR_WR             : out bit;
+        PMMU_WR             : out bit;
+        PMMU_WR_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_FD             : out std_logic;
+        PMMU_OP             : out std_logic;
+        PMMU_EXT            : out std_logic_vector(15 downto 0);
+        MMU_BUSY            : in std_logic := '0';
+        PMMU_RD_SEL         : out std_logic_vector(5 downto 0);
+        PMMU_LD_HI          : out bit;
+        PMMU_LO             : out bit;
+        CACR_RD             : out bit;
+        CAAR_WR             : out bit;
+        CAAR_RD             : out bit;
+        ISP_RD              : out bit;
+        ISP_WR              : out bit;
+        MSP_RD              : out bit;
+        MSP_WR              : out bit;
+        USP_RD              : out bit;
+        USP_WR              : out bit;
+        IPIPE_FLUSH         : out bit;
+        COF_PEND            : out bit; -- [PFCOF]
+        ALU_INIT            : out bit;
+        ALU_BSY             : in bit;
+        ALU_REQ             : in bit;
+        ALU_ACK             : out bit;
+        WR_EARLY            : in bit;
+        WR_TAKE             : out bit;
+        F3_BYP              : out bit;
+        ADR_FAST            : out bit;
+        ADR_FAST_MV         : out bit; -- [F171]
+        BKPT_CYCLE          : out bit;
+        BKPT_INSERT         : out bit;
+        LOOP_BSY            : in bit;
+        LOOP_SPLIT          : out boolean;
+        LOOP_EXIT           : out bit;
+        BF_OFFSET           : in Std_Logic_Vector(2 downto 0);
+        BF_WIDTH            : in Std_Logic_Vector(5 downto 0);
+        SR_WR               : out bit;
+        MOVEM_ADn           : out bit;
+        MOVEP_PNTR          : out integer range 0 to 3;
+        CC_UPDT             : out bit;
+        TRACE_MODE          : in std_logic_vector(1 downto 0);
+        VBIT                : in std_logic;
+        ALU_COND            : in boolean;
+        CCR_IN              : in std_logic_vector(4 downto 0); -- [F160]
+        DBCC_DNZ            : in bit; -- [F161]
+        DR_DEC              : out bit; -- [F161]
+        DBcc_COND           : in boolean;
+        BRANCH_ATN          : in bit;
+        RESET_STRB          : out bit;
+        BERR                : out bit;
+        BERR_IBOUND         : out bit;
+        BERR_PCSTALE        : out bit;
+        MOVEM_RA            : out bit; -- [F2]
+        MOVEM_RA2           : out bit; -- [F172]
+        STATUSn             : out bit;
+        EX_TRACE            : out bit;
+        TRAP_cc             : out bit;
+        TRAP_ILLEGAL        : out bit;
+        TRAP_V              : out bit
+    );
+end component;
+
+component WF68K30L_DATA_REGISTERS
+    port (
+        CLK                 : in std_logic;
+        RESET               : in bit;
+        DR_IN_1             : in std_logic_vector(31 downto 0);
+        DR_IN_2             : in std_logic_vector(31 downto 0);
+        DR_OUT_1            : out std_logic_vector(31 downto 0);
+        DR_OUT_2            : out std_logic_vector(31 downto 0);
+        DR_SEL_WR_1         : in std_logic_vector(2 downto 0);
+        DR_SEL_WR_2         : in std_logic_vector(2 downto 0);
+        DR_SEL_RD_1         : in std_logic_vector(2 downto 0);
+        DR_SEL_RD_2         : in std_logic_vector(2 downto 0);
+        DR_SEL_ADH_2        : in std_logic_vector(2 downto 0); -- F56: data hazard check selects
+        DR_SEL_ADH_3        : in std_logic_vector(2 downto 0);
+        DR_FC_SEL           : in std_logic_vector(2 downto 0) := "000";
+        DR_FC_OUT           : out std_logic_vector(2 downto 0);
+        DR_WR_1             : in bit;
+        DR_DEC              : in bit := '0'; -- [F161]
+        DR_DNZ              : out bit; -- [F161]
+        DR_WR_2             : in bit;
+        DR_MARK_USED        : in bit;
+        USE_DPAIR           : in boolean;
+        DR_IN_USE           : out bit;
+        DR_IDX_SEL          : in std_logic_vector(2 downto 0) := "000"; -- [F97] index Dn of the last ext word
+        DR_IDX_OUT          : out std_logic_vector(31 downto 0);        -- [F97] live value of that Dn
+        DR_IDX_PEND         : out bit;                                  -- [F97] that Dn still has a write-back pending
+        DR_FWD_1            : out std_logic_vector(31 downto 0);        -- [F157o]
+        DR_FWD_2            : out std_logic_vector(31 downto 0);
+        UNMARK              : in bit;
+        OP_SIZE             : in OP_SIZETYPE;
+        DBG_DR              : out std_logic_vector(255 downto 0) -- [F77]
+    );
+end component;
+
+component WF68K30L_EXCEPTION_HANDLER
+    generic(VERSION         : std_logic_vector(15 downto 0));
+    port (
+        CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58]
+        RESET               : in bit;
+        BUSY_MAIN           : in bit;
+        BUSY_OPD            : in bit;
+        EXH_REQ             : out bit;
+        BUSY_EXH            : out bit;
+        ADR_IN              : in std_logic_vector(31 downto 0);
+        ADR_CPY             : out std_logic_vector(31 downto 0);
+        ADR_OFFSET          : out std_logic_vector(31 downto 0);
+        CPU_SPACE           : out bit;
+        DATA_0              : in std_logic;
+        DATA_RD             : out bit;
+        DATA_WR             : out bit;
+        DATA_IN             : in std_logic_vector(31 downto 0);
+        OP_SIZE             : out OP_SIZETYPE;
+        DATA_RDY            : in bit;
+        DATA_VALID          : in std_logic;
+        OPCODE_RDY          : in bit;
+        OPCODE_RDY_2        : in bit; -- [F156]
+        OPD_ACK             : in bit; -- Opword is available.
+        OW_VALID            : in std_logic;
+        STATUS_REG_IN       : in std_logic_vector(15 downto 0);
+        SR_CPY              : out std_logic_vector(15 downto 0);
+        SR_INIT             : out bit;
+        SR_CLR_MBIT         : out bit;
+        SR_WR               : out bit;
+        ISP_DEC             : out bit;
+        ISP_EARLY           : out bit; -- [XT1]
+        EXH_STK             : out bit; -- [XT2]
+        ISP_LOAD            : out bit;
+        PC_INC              : out bit;
+        PC_LOAD             : out bit;
+        PC_RESTORE          : out bit;
+        STACK_FORMAT        : out std_logic_vector(3 downto 0);
+        STACK_POS           : out integer range 0 to 46;
+        SP_ADD_DISPL        : out bit;
+        DISPLACEMENT        : out std_logic_vector(7 downto 0);
+        IPIPE_FILL          : out bit;
+        IPIPE_FLUSH         : out bit;
+        REFILLn             : out std_logic;
+        RESTORE_ISP_PC      : out bit;
+        HALT_OUTn           : out std_logic;
+        STATUSn             : out bit;
+        INT_TRIG            : in bit;
+        IRQ_HOT             : out bit; -- [F141]
+        IRQ_IN              : in std_logic_vector(2 downto 0);
+        IRQ_PEND            : out std_logic_vector(2 downto 0);
+        AVECn               : in std_logic;
+        IPENDn              : out std_logic;
+        IVECT_OFFS          : out std_logic_vector(9 downto 0);
+        TRAP_AERR           : in bit;
+        TRAP_BERR           : in bit;
+        BERR_IBOUND         : in bit;
+        BERR_PCSTALE        : in bit;
+        TRAP_CHK            : in bit;
+        TRAP_DIVZERO        : in bit;
+        TRAP_ILLEGAL        : in bit;
+        TRAP_CODE_OPC       : in TRAPTYPE_OPC;
+        TRAP_VECTOR         : in std_logic_vector(3 downto 0);
+        TRAP_cc             : in bit;
+        TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
+        EX_TRACE_IN         : in bit;
+        VBR_WR              : in bit;
+        VBR                 : out std_logic_vector(31 downto 0);
+
+        EX_IS_AERR          : out std_logic;
+        -- [PMMU3] RTE of a format $A frame with SSW DF = 1 and RW = 0 reruns the faulted write (MC68030UM 8.2.1,
+        -- 8.1.2): address ($10), data output buffer ($18), FC and size from the SSW ($0A).
+        RERUN_WR            : out std_logic;
+        RERUN_ADR           : out std_logic_vector(31 downto 0);
+        RERUN_DATA          : out std_logic_vector(31 downto 0);
+        RERUN_FC            : out std_logic_vector(2 downto 0) -- F28/H22.
+    );
+end component;
+
+component WF68K30L_OPCODE_DECODER
+    generic(NO_LOOP         : boolean := false); -- If true the DBcc loop mechanism is disabled.
+    port (
+        CLK                 : in std_logic;
+        OW_REQ_MAIN         : in bit;
+        EW_REQ_MAIN         : in bit;
+        EXH_REQ             : in bit;
+        BUSY_EXH            : in bit;
+        BUSY_MAIN           : in bit;
+        BUSY_OPD            : out bit;
+        BKPT_INSERT         : in bit;
+        BKPT_DATA           : in std_logic_vector(15 downto 0);
+        LOOP_EXIT           : in bit;
+        LOOP_BSY            : out bit;
+        OPD_ACK_MAIN        : out bit;
+        EW_ACK              : out bit;
+        PC_EW_OFFSET        : out std_logic_vector(3 downto 0);
+        PC_INC              : out bit;
+        PC_INC_EXH          : in bit;
+        PC_ADR_OFFSET       : out std_logic_vector(7 downto 0);
+        PC_OFFSET           : out std_logic_vector(7 downto 0);
+        OPCODE_RD           : out bit;
+        OPC_RD_NEXT         : out bit; -- [F140]
+        PIPE_FULL           : out bit; -- [F140]
+        OPCODE_RDY          : in bit;
+        OPCODE_RDY_2        : in bit; -- [F147]
+        OPCODE_VALID_2      : in std_logic; -- [F147]
+        OPCODE_DATA_2       : in std_logic_vector(15 downto 0); -- [F147]
+        OPCODE_VALID        : in std_logic;
+        OPCODE_DATA         : in std_logic_vector(15 downto 0);
+        IPIPE_FILL          : in bit;
+        IPIPE_FLUSH         : in bit;
+        OPCODE_DISMISS      : out bit; -- [F62c]
+        COF_PEND            : in bit; -- [PFCOF]
+        PF_HOLD             : out bit; -- [PFCOF]
+        Q_STREAM            : in std_logic_vector(63 downto 0); -- [PFCOF2]
+        Q_COUNT             : in integer range 0 to 4; -- [PFCOF2]
+        COF_ANY             : out bit; -- [XH3]
+        OW_VALID            : out std_logic;
+        RC                  : out std_logic;
+        RB                  : out std_logic;
+        FC                  : out std_logic;
+        FB                  : out std_logic;
+        STG_C               : out std_logic_vector(15 downto 0); -- [FRM]
+        STG_B               : out std_logic_vector(15 downto 0);
+        STG_CA              : out std_logic;
+        STG_BA              : out std_logic;
+        STG_CF              : out std_logic;
+        STG_BF              : out std_logic;
+        SBIT                : in std_logic;
+        TRAP_CODE           : out TRAPTYPE_OPC;
+        OP                  : out OP_68K;
+        BIW_0               : out std_logic_vector(15 downto 0);
+        BIW_1               : out std_logic_vector(15 downto 0);
+        BIW_2               : out std_logic_vector(15 downto 0);
+        EXT_WORD            : out std_logic_vector(15 downto 0)
+    );
+end component;
+end WF68K30L_PKG;

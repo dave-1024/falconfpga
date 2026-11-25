@@ -3,8 +3,8 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later  (this wrapper only; stBlitter.sv keeps its own header)
 //
-// Reuses the proven FX ST/STE blitter (Atarist_030_wip/hdl/atarist/stBlitter.sv, Jorge Cwik,
-// shared by path, unchanged; board-tested on the ST core with BLTTEST/BLTMASK). It is a 68000-bus
+// Reuses the proven FX ST/STE blitter (hdl/atarist/stBlitter.sv, Jorge Cwik,
+// local copy, unchanged; board-tested on the ST core with BLTTEST/BLTMASK). It is a 68000-bus
 // part, so this block gives it a small private 68000-style bus on clk_32 (enPhi1/enPhi2 alternate
 // every clk_32 = 16 MHz bus, like atarist.v with cpu_16mhz_enable):
 //   - CPU register cycles: falcon_core routes $FF8A00-$FF8A3F as a clk_32 ("io_ext") cycle. While

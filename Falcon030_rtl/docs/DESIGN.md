@@ -19,7 +19,7 @@ from ([Sources](#sources-per-decision)). Read for this note: `README.md`, `HOWTO
 
 | Block | v1 | Source |
 |---|---|---|
-| CPU | real | WF68K30L, **shared by path** from `Atarist_030_wip/hdl/cpu030/wf68k30L_*.vhd` (no copy, no fork, so every timing fix lands in both builds). Not `cpu030_st_bridge.v`. |
+| CPU | real | WF68K30L, local copy in `hdl/cpu030/wf68k30L_*.vhd`. Not `cpu030_st_bridge.v`. The ST core is retired; fixes here stay in this folder. |
 | Bus | real | `hdl/bus/falcon_bus.v`: 24-bit decode, async DSACK, 16 MHz, BERR on anything unmapped |
 | ST-RAM | real | 14 MB in the J9 SDRAM (W9825G6KH), ST core's `sdram.v` controller. **No TT/fast RAM.** |
 | TOS ROM | real | 512K TOS 4.04, SDRAM copy at $E00000, loaded from the SD card (see [TOS load](#tos-load-path)) |
@@ -212,10 +212,9 @@ the SDRAM arbiter. ACSI in `dma.v` gets no images (stub).
 ## Blitter ($FF8A00-$FF8A3F)
 
 The instant-complete byte-latch stub is gone. `hdl/peri/falcon_blitter.v` wraps the FX ST/STE blitter
-`Atarist_030_wip/hdl/atarist/stBlitter.sv` (Jorge Cwik, 2019/2021), shared by path and unchanged. That file is the
-one the ST core already ships and that passed BLTTEST/BLTMASK on the board. Licence: its header carries only
+`hdl/atarist/stBlitter.sv` (Jorge Cwik, 2019/2021), a local copy of the ST-core file that passed BLTTEST/BLTMASK on the board, unchanged. Licence: its header carries only
 "Copyright (c) 2019,2021 by Jorge Cwik" with no licence text; it came in with MiSTeryNano (see
-`Atarist_030_wip/LICENSE-NOTES.md`: files without a licence header have no stated licence of their own; the
+`Atarist_030_wip/LICENSE-NOTES.md` in this repo: files without a licence header have no stated licence of their own; the
 author's fx68k is GPL-3). The Falcon build uses it on the same terms as the ST build; this needs confirming
 before any binary release. The wrapper itself is GPL-3.0-or-later.
 
@@ -251,13 +250,18 @@ before any binary release. The wrapper itself is GPL-3.0-or-later.
 
 ```
 Falcon030_rtl/
-  build_falcon.tcl      Gowin V1.9.12.03 build (template: Atarist_030_wip/build_st_helper.tcl)
+  build_falcon.tcl      Gowin V1.9.12.03 build (self-contained; originally based on the ST helper tcl)
   docs/DESIGN.md        this file
-  hdl/top/              falcon_top.sv (from console138k/top.sv), falcon_core.v, tos_loader.v
+  hdl/top/              falcon_top.sv, falcon_core.v, tos_loader.v
   hdl/bus/              falcon_bus.v, falcon_sdram_arb.v
   hdl/video/            videl_regs.v, falcon_sdp_ram.v, falcon_scanout.v (port of falcon_video.v; RGB line buffer and Falcon palette are SDP BSRAM with syn_ramstyle = "block_ram")
   hdl/peri/             falcon_nvram.v, falcon_ym_stub.v, falcon_io.v (stubs + IO mux)
-  sim/                  tb_falcon.vhd + run_tos.sh (TOS 4.04 on the shared core, behavioural bus)
+  hdl/cpu030/           WF68K30L (local copy)
+  hdl/atarist/ etc.     local copies of reused ST modules (see README)
+  hdl/jt49/, hdl/gstmcu/  YM2149 + STE DMA sound copies, not wired yet
+  osd/                  falcon.xml / falcon_xml.hex (build)
+  helper/               helper firmware source copy + helper/osd/ (no FW build/flash yet)
+  sim/                  tb_falcon.vhd + run_tos.sh (TOS 4.04 on the local CPU copy, behavioural bus)
 ```
 
 ## Sources per decision

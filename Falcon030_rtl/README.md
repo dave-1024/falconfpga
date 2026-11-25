@@ -1,20 +1,26 @@
 # Falcon030_rtl
 
-This folder is where the RTL for the **Atari Falcon030** core will live.
+RTL for the **Atari Falcon030** core. This folder is self-contained: the WF68K30L
+CPU, reused ST peripherals, board support, helper HDL, and a copy of the helper
+firmware source all live here. The ST core in [`Atarist_030_wip/`](../Atarist_030_wip/)
+is retired for now and is left untouched; if something else is needed from it later,
+the module is copied in.
 
-The WF68K30L 68030 CPU core is being developed and made cycle-exact against
-the MC68030 user's manual inside the Atari ST/STE test bed in
-[`Atarist_030_wip/`](../Atarist_030_wip/). The ST bus bridge there is only a test bed.
-Once the CPU core is ready, it moves here along with the Falcon-specific hardware
-(Falcon bus, VIDEL, DSP 56001, Combel, SDMA/Codec and so on).
+Build: `gw_sh Falcon030_rtl/build_falcon.tcl` from the worktree root, Gowin
+V1.9.12.03 only. Constraints are `hdl/top/falcon.sdc`. `timing_pairs` must pass
+with `clk_cpu030` at least 16 MHz. No seed sweeps and no relaxed constraints.
 
-Status (24 Nov 2026, branch `falcon`, FAL_01): design note in [docs/DESIGN.md](docs/DESIGN.md).
-RTL written and iverilog-clean: bus, IO stubs, NVRAM (`PRESET=0` default, Hybrid stock), YM stub,
-VIDEL register file, floppy A:, peripheral sub-bus, TOS loader, SDRAM arbiter (GSTMCU 8-clock
-slots, scanout > floppy DMA > loader/CPU; `st_ba` on the shared `sdram.v` for 16 MB), and
-`falcon_scanout.v` (port of Hybrid030 `falcon_video.v` onto that arbiter and the ST HDMI path).
-OSD entry "TOS ROM" is in `osd/falcon.xml`. `build_falcon.tcl` is the Gowin file list; `falcon_top.sv`
-is still NEXT, so there is no bitstream yet. The GHDL bench `sim/run_tos.sh` runs TOS 4.04 on the
-shared WF68K30L against a behavioural Falcon bus (VBL fix: past `$E00D60`, VIDEL `$FF82C2` written,
-GEMDOS/XBIOS traps). CPU source is shared by path from `../Atarist_030_wip/hdl/cpu030/`. No ROM
-images in git: TOS 4.04 comes from the SD card.
+Layout:
+
+- `hdl/top`, `hdl/bus`, `hdl/video`, `hdl/peri` — Falcon-native RTL
+- `hdl/cpu030` — WF68K30L (local copy)
+- `hdl/atarist`, `hdl/fdc1772`, `hdl/ikbd`, `hdl/hdmi`, `hdl/misc`, `hdl/tang`,
+  `hdl/helper` — local copies of the modules the Falcon build uses
+- `hdl/jt49`, `hdl/gstmcu` — YM2149 and STE DMA sound (copied, not wired yet)
+- `osd/falcon.xml`, `osd/falcon_xml.hex` — Falcon OSD menu used by the build
+- `helper/` — copy of the AE350 helper firmware source, plus `helper/osd/`
+  (the same Falcon XML/hex). Copy only: do not build or flash this firmware
+  until David starts the helper cleanup.
+- `sim/` — GHDL/iverilog benches; `docs/DESIGN.md` — design note
+
+No ROM images in git: TOS 4.04 comes from the SD card.

@@ -1,6 +1,6 @@
 // falcon.sdc - FAL_01: timing constraints for the Falcon030 v1 Console 138K top
 //
-// Based on Atarist_030_wip/hdl/tang/console138k/atarist_st_helper.sdc.
+// Based on the ST helper SDC (atarist_st_helper.sdc).
 // Differences: HDMI clocks are on pll_hdmi640 / clkdiv_hdmi640 (not hdmi_tp);
 // the ST-bridge MMU multicycle (misterynano/atarist/cpu030/...) is dropped
 // (no ST bus bridge). pll_160m is still instanced as pll_hdmi; clk32_core /
@@ -39,7 +39,7 @@ create_clock -name clk_hdmi640_pix -period 39.683 -waveform {0 19.841} [get_pins
 // referenced) so it can go into the core's asynchronous group. Only the BSRAM
 // and the double-synchronised mono flag cross between the two domains.
 create_generated_clock -name clk32_core -source [get_ports {clk}] -master_clock clk_osc -multiply_by 16 -divide_by 25 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT1}]
-// Atarist_030_wip: the WF68K30L 68030 runs from pll_hdmi CLKOUT5 = 16 MHz
+// The WF68K30L 68030 runs from pll_hdmi CLKOUT5 = 16 MHz
 // (VCO 800 MHz / 50), the same VCO as clk32_core (800/25), phase 0. It uses
 // both clock edges, so its internal falling-edge paths get half a period.
 // It is related to clk32_core (every clk_cpu030 edge is a clk32 rising edge):

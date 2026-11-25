@@ -3,8 +3,8 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Same board pins and helper (AE350, flash mux, USB, mailbox) as
-// Atarist_030_wip/hdl/tang/console138k/top.sv. The ST core (misterynano)
+// Same board pins and helper (AE350, flash mux, USB, mailbox) as the
+// ST console138k top. The ST core (misterynano)
 // is replaced by falcon_soc (WF68K30L, SDRAM arbiter, scanout, TOS loader).
 // HDMI is 640x480@60 from the scanout through hdmi_640 and its own 25.2 MHz
 // PLL (gowin_pll_hdmi). Do not treat pll_160m clkout1 as a pixel clock: it

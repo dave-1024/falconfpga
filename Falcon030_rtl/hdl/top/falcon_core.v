@@ -5,7 +5,7 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The CPU is the shared WF68K30L (Atarist_030_wip/hdl/cpu030/wf68k30L_*.vhd, by path) with the
+// The CPU is the WF68K30L (hdl/cpu030/wf68k30L_*.vhd, local copy) with the
 // same generics as the ST build's board bitstreams (CLK_N_EXT 1, FAST_HANDOFF 1). No ST bridge.
 module falcon_core (
     input  wire        clk_cpu,

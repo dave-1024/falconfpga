@@ -3,7 +3,7 @@
 // FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The WF68K30L (Atarist_030_wip/hdl/cpu030, shared by path) talks to this block directly at
+// The WF68K30L (hdl/cpu030, local copy) talks to this block directly at
 // 16 MHz, both clocked by clk_cpu. There is no ST bridge: the Falcon's 030 bus is async DSACK.
 // Every port here is 16 bits wide (DSACK1 only), like the Falcon's ST-RAM/ROM/IO bus; the CPU
 // does its own dynamic bus sizing. Map (24-bit bus: A31:24 are not decoded and everything aliases,

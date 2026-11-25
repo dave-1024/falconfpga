@@ -2,7 +2,7 @@
 # tb_ikbd_real: keyboard ACIA through falcon_bus/falcon_io/falcon_pbus to the ST acia.v + ikbd.sv (HD63701).
 # ~2 min. Usage: bash run_ikbd_real.sh [workdir]
 set -e
-R=$(cd "$(dirname "$0")/../.." && pwd); H=$R/Atarist_030_wip/hdl; F=$R/Falcon030_rtl/hdl
+R=$(cd "$(dirname "$0")/../.." && pwd); H=$R/Falcon030_rtl/hdl; F=$R/Falcon030_rtl/hdl
 W=${1:-/tmp/ikbdsim}; mkdir -p "$W"; cd "$W"; cp "$H/ikbd/rom/ikbd.hex" .
 IV=${IVERILOG:-iverilog}; VVP=${VVP:-vvp}
 $IV -g2012 -o tb -I $H/ikbd/hd63701 $R/Falcon030_rtl/sim/tb_ikbd_real.v $F/bus/falcon_bus.v $F/peri/falcon_io.v \

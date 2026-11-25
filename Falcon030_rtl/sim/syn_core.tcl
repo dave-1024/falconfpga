@@ -3,7 +3,7 @@
 set W /workspace/falcon_wt
 set_device GW5AST-LV138PG484AC1/I0 -device_version C
 foreach f {pkg address_registers alu bus_interface control data_registers exception_handler opcode_decoder icache dcache mmu top} {
-    add_file $W/Atarist_030_wip/hdl/cpu030/wf68k30L_$f.vhd
+    add_file $W/Falcon030_rtl/hdl/cpu030/wf68k30L_$f.vhd
 }
 foreach f {top/falcon_core.v bus/falcon_bus.v peri/falcon_io.v peri/falcon_nvram.v peri/falcon_ym_stub.v video/videl_regs.v} {
     add_file $W/Falcon030_rtl/hdl/$f

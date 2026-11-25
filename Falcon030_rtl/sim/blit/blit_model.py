@@ -22,7 +22,7 @@ class Blt:
         def shin(w):
             if not back: s.buf = ((s.buf << 16) | w) & 0xFFFFFFFF
             else: s.buf = ((w << 16) | (s.buf >> 16)) & 0xFFFFFFFF
-        # source rules from the board-proven BLTTEST.S STE model (Atarist_030_wip/tests/blitter):
+        # source rules from the board-proven BLTTEST.S STE model (retired ST-core tests/blitter):
         # FXSR: extra fetch on the first word (+sxi). NFSR: set when x goes 2 -> 1; the fetch at x=2 (stBlitter: x=1 shifts in the last bus word, dest read included)
         # then adds syi, and x=1 neither fetches nor shifts. Ops 0,5,A,F and HOP 0/1 (no smudge) read no source.
         opsrc = op not in (0, 5, 10, 15)

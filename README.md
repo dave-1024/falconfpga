@@ -376,9 +376,9 @@ window on the TeraDesk desktop.*
   No ready-made bitstreams are published: this repository is source only.
 
 ## How to try it
-1. Build the core: `cd Atarist_030_wip` then `gw_sh build_st_helper.tcl`.
-2. Build the helper firmware: `Atarist_030_wip/helper_fw/companion/build_companion.sh`.
-3. Flash with Gowin's `programmer_cli` from a fresh power-cycle: TOS at 0x500000, helper (`helper_companion.bin`, the AE350 firmware, not BL616) at 0x600000, then the core (op 53); power-cycle after. Put floppy images on the SD card.
+The live core is the Falcon (branch `falcon`): from the repo root, `gw_sh Falcon030_rtl/build_falcon.tcl` (Gowin V1.9.12.03 only). TOS 4.04 is loaded from the SD card. The helper firmware source is copied in `Falcon030_rtl/helper/`; do not rebuild or reflash it until the helper cleanup is started.
+
+The ST core in `Atarist_030_wip/` is retired for now. If you still want that build: `cd Atarist_030_wip` then `gw_sh build_st_helper.tcl`; helper `Atarist_030_wip/helper_fw/companion/build_companion.sh`. Flash with Gowin's `programmer_cli` from a fresh power-cycle: TOS at 0x500000, helper (`helper_companion.bin`, the AE350 firmware, not BL616) at 0x600000, then the core (op 53); power-cycle after. Put floppy images on the SD card.
 
 Step by step, in plain words: [`docs/HOWTO_BUILD.md`](docs/HOWTO_BUILD.md). Engineer's version (switches, flash
 map, rules): [`Atarist_030_wip/docs/BUILD.md`](Atarist_030_wip/docs/BUILD.md). All docs: [`docs/README.md`](docs/README.md).
@@ -434,7 +434,8 @@ the header in each file wins.
 ## Repository layout
 | Path | What it is |
 |---|---|
-| [`Atarist_030_wip/`](Atarist_030_wip/) | **The live core:** ST(E) with the 68030 in place of the 68000 via a TF534-style bridge, AE350 helper. Main build `build_st_helper.tcl`; `debug_builds/`, `build_legacy/`; design docs in `docs/`; status in its [README](Atarist_030_wip/README.md). |
+| [`Falcon030_rtl/`](Falcon030_rtl/) | **The live Falcon core** (branch `falcon`). Self-contained: CPU, reused peripherals, board support and a copy of the helper firmware source all live in this folder. Build: `gw_sh Falcon030_rtl/build_falcon.tcl` from the repo root, Gowin V1.9.12.03 only. See its [README](Falcon030_rtl/README.md). |
+| [`Atarist_030_wip/`](Atarist_030_wip/) | ST(E) core with the 68030 via a TF534-style bridge. **Retired for now** (left untouched). If the Falcon needs another module from it, that module is copied into `Falcon030_rtl/`. Status in its [README](Atarist_030_wip/README.md). |
 | [`docs/`](docs/) | Project-wide docs ([index](docs/README.md)), images, and [`history/`](docs/history/README.md) (old workflow files, handovers, patches, investigations). |
 | [`reference/`](reference/) | Older trees kept for comparison: `rigsdram/`, `misterynano_tc138k/`, `Hybrid030/` ([what each is for](reference/README.md)). |
 | [`handoff/`](handoff/) | Current engineering state and next steps ([`handoff/CONTEXT.md`](handoff/CONTEXT.md)). |

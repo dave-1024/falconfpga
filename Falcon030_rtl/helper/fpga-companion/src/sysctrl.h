@@ -1,0 +1,45 @@
+/*
+  sysctrl.h
+
+  MiSTeryNano system control interface
+*/
+
+#ifndef SYS_CTRL_H
+#define SYS_CTRL_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "config.h"
+#include "spi.h"
+
+struct port_serial_status {
+  uint32_t bitrate :24;
+  uint8_t stopbits:2;
+  uint8_t parity:2;
+  uint8_t databits:4;
+} __attribute__((packed));
+
+int  sys_status_is_valid(void);
+void sys_set_leds(char);
+void sys_set_rgb(unsigned long);
+unsigned char sys_get_buttons(void);
+void sys_set_val(char, int8_t);
+unsigned char sys_irq_ctrl(unsigned char);
+void sys_handle_interrupts(unsigned char, bool);
+bool sys_wait4fpga(void);
+char *sys_get_config(void);
+void sys_jtagsel(char);
+
+void sys_run_action(config_action_t *);
+void sys_run_action_by_name(char *);
+const char *sys_get_config_name(void);
+
+void sys_port_write(unsigned char, const unsigned char*, int);
+bool sys_port_get_status(unsigned char);
+
+#define SYS_TIME_FLAGS_NTP   (1<<0)
+#define SYS_TIME_FLAGS_DST   (1<<1)
+void sys_set_time(uint8_t flags, uint8_t year, uint8_t month, uint8_t day,
+		  uint8_t hour, uint8_t minute, uint8_t second); 
+
+#endif // SYS_CTRL_H

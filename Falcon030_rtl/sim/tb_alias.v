@@ -1,6 +1,6 @@
 // tb_alias.v - FAL_01: falcon_sdram_arb + real sdram.v + sdram_model (W9825 4 banks x 8K rows x 512 cols):
 // probes every CPU address bit, vectors/sysvars/TOS, then clears $DF8000-$DFFFFF (TOS screen clear) and checks nothing aliased.
-// iverilog -g2012 tb_alias.v ../hdl/bus/falcon_sdram_arb.v $ST/hdl/tang/mega138kpro/sdram.v $ST/hdl/cpu030/sim/ttram/sdram_model.v
+// iverilog -g2012 tb_alias.v ../hdl/bus/falcon_sdram_arb.v ../hdl/tang/mega138kpro/sdram.v ../hdl/cpu030/sim/ttram/sdram_model.v
 `timescale 1ns/1ps
 module tb_alias;
   reg clk=0; always #15.625 clk=~clk;
