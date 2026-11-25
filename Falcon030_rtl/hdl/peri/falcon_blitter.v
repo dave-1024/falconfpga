@@ -187,24 +187,29 @@ module falcon_blitter (
     reg [3:0]  r_op = 4'd0;
     reg [1:0]  r_hop = 2'd0;
     reg [1:0]  s_hop = 2'd0;
-    reg [3:0]  s_op = 4'd0, s_prev_op = 4'd0;
+    reg [3:0]  s_op = 4'd0;
     reg [2:1]  s_dlo = 2'd0;
-    reg [15:0] s_lm = 16'hFFFF, w1 = 16'd0;
+    reg [15:0] w1 = 16'd0;
     reg        r_seen = 1'b0, f_dchg = 1'b0, f_lost = 1'b0;
     reg [15:0] n_anom = 16'd0, n_dchg = 16'd0, n_fills = 16'd0;
     reg [7:0]  n_lost = 8'd0, n_own = 8'd0;
     reg [31:0] s_cur = 32'd0, d_first = 32'd0;     // d_first: first data change {a5:1,3'b0, w1[7:0], wdata[15:0]}
     reg        s_needw = 1'b0, s_frozen = 1'b0;
-    reg [1:0]  s_cd = 2'd0;
     reg [255:0] s_ring = 256'd0, s_snap = 256'd0;
     wire       c_end = c_st == C_AS && c_cnt == 2'd1 && enPhi2;
     wire       s_go  = c_end && !c_rw && c_a[5:1] == 5'h1E && !c_uds_n && !c_lds_n && wdata[15];
-    // anomaly of the entry being pushed: no master write, or an OP 0 / OP F plane whose first write
-    // (left endmask) is not all-0 / all-1 inside the mask
-    // (first write data 15:8 against left endmask 15:8)
-    wire       anom = !s_cur[16] || (s_cur[31:28] == 4'h0 && (s_cur[7:0] & s_lm[15:8]) != 8'd0) ||
-                      (s_cur[31:28] == 4'hF && (~s_cur[7:0] & s_lm[15:8]) != 8'd0);
-    wire [255:0] s_ring_n = {s_cur[31:28], s_cur[27:22], s_cur[21:20], anom, s_cur[18:0], s_ring[255:32]};
+    // entry {shadow OP4, real OP4 at first write, real HOP2, dst A2:1, D=data changed in C_AS, L=lost latch,
+    //        Z=some write was $0000, F=some write was $FFFF, writes8 (sat), first write data 15:8}
+    wire [255:0] s_ring_n = {s_cur, s_ring[255:32]};
+    // dialog fill trigger: the four newest entries are planes 0-3 (dA 0,1,2,3) with HOP 1 and the OPs of
+    // VDI pen hw 7 (3,3,3,0) or hw 8 (0,0,0,3); freeze four starts later
+    wire [3:0] o0 = s_ring_n[159:156], o1 = s_ring_n[191:188], o2 = s_ring_n[223:220], o3 = s_ring_n[255:252];
+    wire       g_pl = s_ring_n[149:148] == 2'd0 && s_ring_n[181:180] == 2'd1 &&
+                      s_ring_n[213:212] == 2'd2 && s_ring_n[245:244] == 2'd3 &&
+                      s_ring_n[151:150] == 2'd1 && s_ring_n[247:246] == 2'd1;
+    wire       g_mix = g_pl && ((o0 == 4'h3 && o1 == 4'h3 && o2 == 4'h3 && o3 == 4'h0) ||
+                                (o0 == 4'h0 && o1 == 4'h0 && o2 == 4'h0 && o3 == 4'h3));
+    reg  [2:0] s_cd3 = 3'd0;
     always @(posedge clk_32) begin
         // replica of the stBlitter OP/HOP latch
         if (enPhi1 && r_wr && bus_a[4:1] == 4'hD) begin
@@ -231,32 +236,32 @@ module falcon_blitter (
                 if (!c_lds_n) s_op  <= wdata[3:0];
             end
             if (c_a[5:1] == 5'h1A && !c_lds_n) s_dlo <= wdata[2:1];
-            if (c_a[5:1] == 5'h14 && !c_uds_n && !c_lds_n) s_lm <= wdata;
         end
-        // plane-start ring: entry {shadow OP4, real OP4 at first write, real HOP2, dst A2:1,
-        //   anomaly, data-changed, lost-latch, wrote, first write A8:1, first write data 15:8}
         if (s_go) begin
             s_ring   <= s_ring_n;
-            s_prev_op <= s_op;
-            s_cur    <= {s_op, 4'h0, 2'b00, s_dlo, 1'b0, f_dchg, f_lost, 1'b0, 16'h0000};
+            s_cur    <= {s_op, 4'h0, 2'b00, s_dlo, f_dchg, f_lost, 2'b00, 8'h00, 8'h00};
             f_dchg   <= 1'b0; f_lost <= 1'b0;
             s_needw  <= 1'b1;
             n_fills  <= n_fills + 16'd1;
-            if (anom && n_fills > 16'd8 && n_anom != 16'hFFFF) n_anom <= n_anom + 16'd1;
+            if (g_mix && n_anom != 16'hFFFF) n_anom <= n_anom + 16'd1;
             if (!s_frozen) begin
-                if (s_cd == 2'd1) begin s_snap <= s_ring_n; s_frozen <= 1'b1; end
-                if (s_cd != 2'd0) s_cd <= s_cd - 2'd1;
-                else if (anom && n_fills > 16'd8) s_cd <= 2'd2;
+                if (s_cd3 == 3'd1) begin s_snap <= s_ring_n; s_frozen <= 1'b1; end
+                if (s_cd3 != 3'd0) s_cd3 <= s_cd3 - 3'd1;
+                else if (g_mix) s_cd3 <= 3'd4;
             end
-        end else if (s_needw && m_req && m_ack && m_we) begin
-            s_cur[27:20] <= {r_op, r_hop, s_cur[21:20]};
-            s_cur[16]    <= 1'b1;
-            s_cur[15:0]  <= {m_a[8:1], m_wdata[15:8]};
-            s_needw <= 1'b0;
+        end else if (m_req && m_ack && m_we) begin
+            if (s_needw) begin
+                s_cur[27:22] <= {r_op, r_hop};
+                s_cur[7:0]   <= m_wdata[15:8];
+                s_needw <= 1'b0;
+            end
+            if (m_wdata == 16'h0000) s_cur[17] <= 1'b1;
+            if (m_wdata == 16'hFFFF) s_cur[16] <= 1'b1;
+            if (s_cur[15:8] != 8'hFF) s_cur[15:8] <= s_cur[15:8] + 8'd1;
         end
     end
     assign dbg_snap = s_snap;
-    // slot4 flags/last master addr, slot5 {anomalies, data changes}, slot6 {lost latches8, BGACK addr writes8,
+    // slot4 flags/last master addr, slot5 {hw7/hw8 dialog fills seen, data changes}, slot6 {lost latches8, BGACK addr writes8,
     // frozen, fills15}, slot7 = first data change {A5:1,000, w1 7:0, final wdata}
     assign dbg = {d_first, {n_lost, n_own, s_frozen, n_fills[14:0]}, {n_anom, n_dchg},
                   {b_INTn, br_want, bus_grant, grant_32, m_req, m_ack, m_we, b_ctrlOe, m_a, 1'b0}};
