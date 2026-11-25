@@ -74,9 +74,9 @@ Parts of the Falcon that are not finished:
 **Screen modes.** The memory that holds the screen is not yet fast enough for the heavier Falcon
 video modes. A 640-pixel-wide line in 256 colours still takes longer to fetch than one HDMI line,
 so those wider 256-colour modes, and other high-colour, true-colour and larger-resolution modes,
-are not reliable yet. This is why [faster memory](#planned) is planned. Separately, RGB modes
-taller than 240 lines (interlaced 400 or 480 lines) still roll, because they do not use the
-native-time frame buffer.
+are not reliable yet. This is why [faster memory](#planned) is planned. Separately, in RGB modes
+taller than 240 lines (interlaced 400 or 480 lines) the picture drifts slowly up or down
+the screen, because they do not use the native-time frame buffer.
 
 Open problems still carried over from the earlier work:
 
@@ -101,9 +101,11 @@ This is a map of the work, not a timetable. After the data cache:
    [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md#planned).
 2. **Faster memory.** First, start each memory access sooner. Then run the memory chips twice as
    fast (64 MHz). That should also help the [heavier screen modes](#what-doesnt-work-yet).
-3. **The rest of the Falcon chipset:** the YM2149 sound chip, then DMA sound and the codec, then
+3. **A full-height frame buffer for tall RGB modes.** The earlier hybrid used DDR3 for this;
+   the Tang 138K also has DDR3.
+4. **The rest of the Falcon chipset:** the YM2149 sound chip, then DMA sound and the codec, then
    SCSI-2 and IDE, then the DSP.
-4. **A cleanup of the helper** (the small program that looks after the SD card, the menu, and the
+5. **A cleanup of the helper** (the small program that looks after the SD card, the menu, and the
    keyboard). That work has not started yet. The helper already on the board is left as it is
    until then.
 
