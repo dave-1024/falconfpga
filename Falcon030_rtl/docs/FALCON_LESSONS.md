@@ -797,3 +797,19 @@ commit that those sources do not state.
   repeated boots). With ROM and RAM data caching, TOS bombs at `$E1C3C0`. So data reads stay
   cache-inhibited in `falcon_bus.v`, and caching of ROM and ST-RAM instructions (`c563143`) is
   what's in use.
+
+- **Second data-cache race: operand write from IDLE overtook pending fills (BLI-11e, 25 Nov 2026).**
+  *Symptom:* with the `901047d` guard in, the ROM-I+D and ROM+RAM-I+D simulations still wrote
+  different RAM values from the instruction-only run: TOS's ROM-to-RAM copy at `$E0065A`
+  (`move.l (a0)+,(a1)+` from `$E4984A` to `$AD4`) left `$0000` at `$AD8` although `$005F0055`
+  was written, so later `W $87B4` got `$0001` instead of `$0060`. *Cause:* the trace shows the
+  operand write `W $AD4` going out *between* the data-cache fill cycles (the second fill read of
+  `$E4984E` only ran after the write). Only `PW_GO` (the IDLE -> S0 start of `[PH2-WP]` and
+  F170_WR_GO, "an operand write after any cycle") can do that: unlike `OP_CHAIN_RAW` (`901047d`),
+  `RW_GO` and the START_CYCLE path (fill first), it had no `FILL_PEND`/`DC_DECIDE` guard, and the
+  write left with stale data. *Fix (approved by David 20:51 UK):* `PW_GO` also requires
+  `FILL_PEND = '0' and DC_DECIDE = '0'`. Scratch sim before applying: fills now complete before
+  `W $AD4`, `R $AD8` = `$005F`, `W $87B4` = `$0060`. *Lesson:* every path that starts a bus cycle
+  (START_CYCLE, OP_CHAIN, PW_GO, RW_GO, WW_GO, RA_GO) needs the same data-cache fill rule; check all
+  of them when adding a new fast start. Also: `tb_falcon` used `WA_ADR_HI = -1` while the board uses
+  1 (new generic `WAHI`), and answers ROM/RAM in 2 clocks (new generic `MEMWAIT`).

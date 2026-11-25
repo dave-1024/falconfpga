@@ -1355,6 +1355,7 @@ begin
                        (F170_WR_GO and OP_RD = '0' and OP_WR = '1') or -- [F170]
                        (F170_RD_GO and OP_RD = '1' and DC_ON = '0')) -- [F170]
                       and RA_HELD = '0' -- [F2]
+                      and FILL_PEND = '0' and DC_DECIDE = '0' -- [DC] BLI-11e: no operand cycle from IDLE ahead of pending D-cache fills
                       and RMC = '0' and (BUSY_EXH = '0' or EXH_STK = '1') and SIZE_N = "000" -- [XT2]
                       and READ_ACCESS = '0' and WRITE_ACCESS = '0' and OPCODE_ACCESS = '0'
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE

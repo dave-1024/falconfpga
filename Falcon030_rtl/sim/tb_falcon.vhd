@@ -32,7 +32,9 @@ entity tb_falcon is
            MEMCODE : integer := 5;   -- $FF8006 RAM size code TOS 4.04 reads: 5 = 14 MB, else 512K << code (sim: 1 = 1 MB, faster)
            CIMODE  : integer := 0;
            TRFROM  : integer := 0;   -- log every bus cycle with TRFROM <= clk < TRTO (0 = off)
-           TRTO    : integer := 0);  -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4), 5 ROM+RAM I+D
+           TRTO    : integer := 0;
+           WAHI    : integer := -1;  -- BLI-11e: WF68K30L WA_ADR_HI (board falcon_core = 1: CACR WA allocates only A31:24=$01, i.e. never on the Falcon)
+           MEMWAIT : integer := 2);  -- BLI-11e: clocks from AS to data for ROM/RAM cycles (board BUS-1 ~5-7)  -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4), 5 ROM+RAM I+D
 end;
 architecture sim of tb_falcon is
   signal clk : std_logic := '0';
@@ -86,7 +88,7 @@ architecture sim of tb_falcon is
   end;
 begin
   clk <= not clk after 31.25 ns when not done;   -- 16 MHz
-  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1) port map (
+  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1, WA_ADR_HI => WAHI) port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
@@ -238,7 +240,11 @@ begin
            (CIMODE = 3 and isrom and a24 >= 8) or
            (CIMODE = 4 and ((isrom and a24 >= 8) or isram) and fc(1 downto 0) = "10") or
            (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) then ciinn <= '1'; end if;
-        for k in 1 to 2 loop wait until rising_edge(clk); n := n + 1; end loop;
+        if isrom or isram then
+          for k in 1 to MEMWAIT loop wait until rising_edge(clk); n := n + 1; end loop;
+        else
+          for k in 1 to 2 loop wait until rising_edge(clk); n := n + 1; end loop;
+        end if;
         din <= w & w;
         if n >= TRFROM and n < TRTO then
           write(l, string'("T ")); write(l, n, right, 9);
