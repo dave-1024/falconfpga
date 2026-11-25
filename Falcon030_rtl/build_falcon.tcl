@@ -33,6 +33,7 @@ add_file $F/hdl/bus/falcon_sdram_arb.v
 add_file $F/hdl/video/videl_regs.v
 add_file $F/hdl/video/falcon_sdp_ram.v
 add_file $F/hdl/video/falcon_scanout.v
+add_file $F/hdl/video/falcon_videl_timing.v
 add_file $F/hdl/video/falcon_dbg_hud.v
 add_file $F/hdl/peri/falcon_io.v
 add_file $F/hdl/peri/falcon_nvram.v

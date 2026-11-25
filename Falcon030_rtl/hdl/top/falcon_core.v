@@ -43,6 +43,9 @@ module falcon_core (
     input  wire        vbl, hbl,         // level 4 / level 2 autovector
     // video
     input  wire [23:0] vcount,
+    input  wire        mon_rgb,          // VID-SPLIT: $FF8006 monitor sense (helper option V)
+    output wire [15:0] nat_vdb,
+    output wire        nat_vdbl,
     output wire [23:0] fb_base,
     output wire [3:0]  planes,
     output wire        hdbl, vdbl,
@@ -269,7 +272,7 @@ module falcon_core (
 
     wire [15:0] videl_d; wire [7:0] nv_d, ym_d;
     falcon_io io (
-        .clk(clk_cpu), .reset(reset), .cyc(io_cyc), .a(io_a), .uds(io_uds), .lds(io_lds), .wr(io_wr),
+        .clk(clk_cpu), .reset(reset), .mon_rgb(mon_rgb), .cyc(io_cyc), .a(io_a), .uds(io_uds), .lds(io_lds), .wr(io_wr),
         .din(io_wdata), .dout(io_rdata),
         .sel_videl(sel_videl), .sel_nvram_a(sel_nv_a), .sel_nvram_d(sel_nv_d), .sel_ym(sel_ym),
         .sel_mfp(sel_mfp), .sel_acia(sel_acia), .sel_dma(sel_dma),
@@ -290,5 +293,5 @@ module falcon_core (
         .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd), .st_shifter(st_shifter),
         .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode),
-        .dbg_vco(dbg_vco));
+        .dbg_vco(dbg_vco), .nat_vdb(nat_vdb), .nat_vdbl(nat_vdbl));
 endmodule

@@ -18,6 +18,7 @@ module falcon_soc (
     input  wire        por,              // async/sync reset, clk_32 domain (includes helper_hold)
     input  wire        loader_reset,     // por32 only: do not hold the loader with helper_hold
     input  wire        user_reset,       // helper OSD reset (CPU/chipset only; TOS stays in SDRAM)
+    input  wire        mon_rgb,          // VID-SPLIT: helper option V (sysctrl system_video): 0 VGA 60, 1 RGB 50/60
     // sdram.v chip pins (16-bit)
     output wire        sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas,
     inout  wire [31:0] sd_data,
@@ -208,7 +209,11 @@ module falcon_soc (
     wire        p_done;
     wire [7:0]  mfp_vector;
     wire        mfp_dtack, mfp_irq;
-    wire        tb_de;      // MFP TBI from falcon_scanout (FB-1)
+    wire        tb_de;      // MFP TBI = native DE from falcon_videl_timing (VID-SPLIT; FB-1 had it from the scanout)
+    wire [15:0] nat_vdb;
+    wire        nat_vdbl;
+    wire [9:0]  scan_vtop;
+    wire        scan_fs_tgl;
     wire [7:0]  ym_porta;
 
     wire [23:0] fb_base, vcount;
@@ -237,7 +242,7 @@ module falcon_soc (
         .blt_br(blt_br), .blt_bg(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .p_iack_mfp(p_iack_mfp), .mfp_vector(mfp_vector), .mfp_dtack(mfp_dtack),
         .mfp_irq(mfp_irq), .vbl(vbl), .hbl(hbl),
-        .vcount(vcount), .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl),
+        .vcount(vcount), .mon_rgb(mon_rgb), .nat_vdb(nat_vdb), .nat_vdbl(nat_vdbl), .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl),
         .height(height), .linebytes(linebytes),
         .st_pal_idx(st_pal_idx), .st_pal_rd(st_pal_rd),
         .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
@@ -395,7 +400,18 @@ module falcon_soc (
         .ram_ack(vid_ack), .ram_q(vid_q), .ram_q2(vid_q2),
         .cx(cx), .cy(cy), .hsync(hsync), .vsync(vsync), .de(de),
         .vr(scan_r), .vg(scan_g), .vb(scan_b),
-        .vbl(vbl), .hbl(hbl), .tb_de(tb_de), .vcount(vcount), .underrun(scan_underrun)
+        .vbl(), .hbl(), .tb_de(), .vcount(), .underrun(scan_underrun),
+        .vtop_o(scan_vtop), .fs_tgl(scan_fs_tgl)
+    );
+
+    // VID-SPLIT step 1+2: native Videl beam timing (clk_32) drives TBI, HBL, VBL and the
+    // $FF8205/07/09 counter, as gstmcu does in the ST core; HDMI stays a reader.
+    falcon_videl_timing vtim (
+        .clk_32(clk_32), .reset(por), .mon_rgb(mon_rgb),
+        .vft(dbg_vft), .vdb(nat_vdb), .vdbl(nat_vdbl), .height(height),
+        .fb_base(fb_base), .linebytes(linebytes),
+        .hdmi_vtop(scan_vtop), .hdmi_fs_tgl(scan_fs_tgl),
+        .de(tb_de), .hbl(hbl), .vbl(vbl), .frame_start(), .vcount(vcount), .vl_o(), .hc_o()
     );
 
     // Colour bars + a bottom debug tray while the TOS loader holds the CPU

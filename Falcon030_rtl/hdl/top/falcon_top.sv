@@ -906,6 +906,8 @@ wire [7:0]  hid_joy [4];
 assign rom_fetch   = ~cpu_reset & ram_ready & ~tos_err;
 assign leds_int_n  = {4'b1111, cpu_halted_n, ~(cpu_reset | tos_err)};
 
+// VID-SPLIT: helper option "V" (falcon.xml list Monitor): 0 = VGA 60 Hz, 1 = RGB 50/60 Hz -> $FF8006 b7:6
+wire system_video;
 falcon_soc u_soc (
     .clk_32          ( clk32        ),
     .clk_cpu         ( clk_cpu030   ),
@@ -914,6 +916,7 @@ falcon_soc u_soc (
     .por             ( soc_reset    ),
     .loader_reset    ( por32        ),
     .user_reset      ( system_reset[0] ),
+    .mon_rgb         ( system_video ),
     .sd_clk          ( sd_clk_unused ),
     .sd_cke          ( sd_cke_unused ),
     .sd_cs           ( O_sdram_cs_n ),
@@ -1002,7 +1005,7 @@ sysctrl sysctrl (
     .port_status(loader_status), .port_out_available(8'd0), .port_out_strobe(),
     .port_out_data(8'd0), .port_in_available(8'd0), .port_in_strobe(), .port_in_data(),
     .rtc(),
-    .system_chipset(), .system_memory(), .system_video(), .system_reset(system_reset),
+    .system_chipset(), .system_memory(), .system_video(system_video), .system_reset(system_reset),
     .system_scanlines(), .system_volume(), .system_screen(),
     .system_floppy_wprot(system_floppy_wprot), .system_cubase_en(),
     .system_port_mouse(), .system_port_joy(), .system_tos_slot()

@@ -19,6 +19,7 @@ module falcon_io #(
 ) (
     input  wire        clk,
     input  wire        reset,
+    input  wire        mon_rgb,        // VID-SPLIT: helper option V: 1 = RGB monitor (b7:6 = 01), 0 = MONITOR (VGA)
     input  wire        cyc,            // falcon_bus io_cyc
     input  wire [15:1] a,
     input  wire        uds, lds,
@@ -74,7 +75,7 @@ module falcon_io #(
         else if (is_dens)  dout = {8'hFF, 6'h00, fdc_hd};
         // TOS 4.04 at $E0013A: memcfg = (($FF8006>>1)&1) | (($FF8006>>3)&6).
         // Hybrid030 falcon_m28.c: $A2 = VGA (b7:6=10) + MEMCODE 5 (b5:4=10, b1=1) = 14 MB.
-        else if (is_cfg && r == 16'h8006) dout = {MONITOR, MEMCODE[2:1], 2'b00, MEMCODE[0], 1'b0, cfg[7]};
+        else if (is_cfg && r == 16'h8006) dout = {(mon_rgb ? 2'b01 : MONITOR), MEMCODE[2:1], 2'b00, MEMCODE[0], 1'b0, cfg[7]};
         else if (is_cfg)   dout = {cfg[{r[3:1], 1'b0}], cfg[{r[3:1], 1'b1}]};
         else if (is_snd)   dout = {snd[{r[6:1], 1'b0}], snd[{r[6:1], 1'b1}]};
         else if (is_scc)   dout = {scc[{r[2:1], 1'b0}], scc[{r[2:1], 1'b1}]};

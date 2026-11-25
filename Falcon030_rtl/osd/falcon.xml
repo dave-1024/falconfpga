@@ -30,6 +30,12 @@
       <fileselector label="Disk A:" ext="st" index="0" default="disk_a.st"/>
     </menu>
     <menu label="Settings">
+      <!-- VID-SPLIT: monitor sense ($FF8006 b7:6) and native Videl timing; HDMI stays 640x480@60.
+           Takes effect at the next reset (TOS reads the monitor type at boot). -->
+      <list label="Monitor:" id="V" default="0">
+        <listentry label="VGA 60Hz" value="0"/>
+        <listentry label="RGB 50Hz" value="1"/>
+      </list>
       <button label="Save settings" action="save"/>
     </menu>
     <button label="Reset" action="reset_hide"/>

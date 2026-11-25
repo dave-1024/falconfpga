@@ -43,7 +43,10 @@ module videl_regs (
     output wire [15:0] dbg_vft,
     output wire [15:0] dbg_spshift,
     output wire [7:0]  dbg_shmode,
-    output wire [15:0] dbg_vco
+    output wire [15:0] dbg_vco,
+    // VID-SPLIT: native timing inputs (falcon_videl_timing)
+    output wire [15:0] nat_vdb,
+    output wire        nat_vdbl       // VMODE bit 0 (native line doubling); vdbl above is the HDMI doubling
 );
     reg [7:0]  base_h, base_m, base_l;
     reg [15:0] lineoff, vwrap, spshift;
@@ -66,6 +69,8 @@ module videl_regs (
     wire [15:0] vmode = vt[(16'h82C2 - 16'h8280) >> 1];
     wire [15:0] vde   = vt[(16'h82AA - 16'h8280) >> 1];
     wire [15:0] vdb   = vt[(16'h82A8 - 16'h8280) >> 1];
+    assign nat_vdb  = vdb;
+    assign nat_vdbl = vmode[0];
     integer i;
     // merge byte lanes into a stored word
     function [15:0] mrg; input [15:0] old; input [15:0] nw; input u; input l; begin
@@ -139,7 +144,9 @@ module videl_regs (
             2'd0: planes = 4'd4; 2'd1: planes = 4'd2; default: planes = 4'd1;
         endcase
         hdbl   = (linebytes <= 12'd320) && (planes != 4'd0) ? (linebytes < (planes * 12'd80)) : 1'b0;
-        vdbl   = vmode[0];                           // VMODE bit 0: line doubling
         height = (vde > vdb) ? ((vde - vdb) >> (vmode[0] ? 1 : 0)) >> 1 : 10'd480;  // half-lines on VGA
+        // HDMI doubling: VMODE bit 0 (VGA double-scan), or a <= 240-line picture (RGB monitor ST/Falcon
+        // modes are not double-scanned natively but are shown line-doubled on the 640x480 HDMI output).
+        vdbl   = vmode[0] || ((height != 10'd0) && (height <= 10'd240));
     end
 endmodule

@@ -60,6 +60,8 @@ module falcon_scanout (
     output reg         tb_de,           // MFP TBI (Timer B event count): ST-style DE, one line per native line, see below
     output reg  [23:0] vcount,
     output reg         underrun,
+    output wire [9:0]  vtop_o,          // VID-SPLIT: picture top row, for the native timing genlock
+    output reg         fs_tgl,          // VID-SPLIT: toggles at HDMI frame start (cx 0, cy 0), clk_pixel
     output wire [191:0] dbg_pal,        // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
     output reg  [31:0]  dbg_probe,      // HUD debug (BLI-9): {Falcon pal, 3'b0, pixel index 3:0, RGB} at native line 100, col 320
     output reg  [23:1]  dbg_probe_a     // HUD debug (BLI-9 dlg6): word address of the first plane word of that pixel group
@@ -90,6 +92,11 @@ module falcon_scanout (
     wire [9:0] disp_h = vdbl ? {nlines[8:0], 1'b0} : nlines;
     wire [9:0] vtop   = (disp_h >= V_ACT) ? 10'd0 : ((V_ACT - disp_h) >> 1);
     wire [9:0] vbot   = vtop + (disp_h >= V_ACT ? V_ACT : disp_h);
+    assign vtop_o = vtop;
+    always @(posedge clk_pixel) begin
+        if (reset) fs_tgl <= 1'b0;
+        else if (cx == 10'd0 && cy == 10'd0) fs_tgl <= ~fs_tgl;
+    end
 
     // At cx==0 of line cy, prefetch the NEXT display row into its bank.
     wire [9:0] next_cy = (cy == V_TOT-10'd1) ? 10'd0 : (cy + 10'd1);
