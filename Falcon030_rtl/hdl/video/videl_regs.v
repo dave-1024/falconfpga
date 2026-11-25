@@ -37,6 +37,7 @@ module videl_regs (
     output reg         stpal_we,
     output reg  [3:0]  stpal_wa,
     output reg  [11:0] stpal_wd,
+    output reg         st_shifter,    // 1 = last shifter write was ST $8260 (ST palette), 0 = SPSHIFT $8266
     // debug shadow (same clk; HHT $8282, VFT $82A2)
     output wire [15:0] dbg_hht,
     output wire [15:0] dbg_vft,
@@ -50,7 +51,9 @@ module videl_regs (
     reg [15:0] st_pal [0:15];
     reg [15:0] vt [0:35];             // $8280-$82C7 word file
     reg [15:0] fpal_hi [0:255];       // R:G word of each Falcon palette long
+    reg [7:0]  fpal_lo [0:255];       // blue byte (low byte of the low word)
     reg [15:0] fpal_rd;
+    reg [7:0]  fpal_rdl;
     wire [15:0] o = {a, 1'b0};
     assign fb_base   = {base_h, base_m, base_l[7:1], 1'b0};
     assign linebytes = {vwrap[10:0], 1'b0};
@@ -73,14 +76,17 @@ module videl_regs (
         stpal_we <= 1'b0;
         if (reset) begin
             base_h <= 8'h00; base_m <= 8'h00; base_l <= 8'h00; shmode <= 8'h00;
-            spshift <= 16'h0000; vwrap <= 16'd40; lineoff <= 16'd0;
+            spshift <= 16'h0000; vwrap <= 16'd40; lineoff <= 16'd0; st_shifter <= 1'b1;
             for (i = 0; i < 36; i = i + 1) vt[i] <= 16'h0000;
         end else if (sel && wr) begin
             if (o >= 16'h9800) begin
+                // Falcon palette long (Hatari videl.c, tos4x VsetRGB rgb2sp): RRRRRRxx GGGGGGxx xxxxxxxx BBBBBBxx.
+                // High word = R (UDS) : G (LDS); low word = unused (UDS) : B (LDS). Blue is din[7:2].
                 if (!o[1]) fpal_hi[o[9:2]] <= mrg(fpal_hi[o[9:2]], din, uds, lds);
                 else begin   // low word (blue) completes the entry
+                    if (lds) fpal_lo[o[9:2]] <= din[7:0];
                     fpal_wa <= o[9:2];
-                    fpal_wd <= {fpal_hi[o[9:2]][15:10], fpal_hi[o[9:2]][7:2], (uds ? din[15:10] : 6'd0)};
+                    fpal_wd <= {fpal_hi[o[9:2]][15:10], fpal_hi[o[9:2]][7:2], (lds ? din[7:2] : fpal_lo[o[9:2]][7:2])};
                     fpal_we <= 1'b1;
                 end
             end else if (o >= 16'h8280) vt[(o - 16'h8280) >> 1] <= mrg(vt[(o - 16'h8280) >> 1], din, uds, lds);
@@ -96,16 +102,18 @@ module videl_regs (
                 16'h820C: if (lds) base_l <= din[7:0];
                 16'h820E: lineoff <= mrg(lineoff, din, uds, lds);
                 16'h8210: vwrap <= mrg(vwrap, din, uds, lds);
-                16'h8260: if (uds) begin shmode <= din[15:8]; spshift <= 16'h0000; end  // ST mode write clears SPSHIFT
-                16'h8266: spshift <= mrg(spshift, din, uds, lds);
+                // Hatari videl.c bUseSTShifter: an ST shift write selects the ST palette, an SPSHIFT write the
+                // Falcon palette (tos4x vtg.c: ST-low/med write $8260 after $8266; Falcon 1/4/8bpp only $8266).
+                16'h8260: if (uds) begin shmode <= din[15:8]; spshift <= 16'h0000; st_shifter <= 1'b1; end  // ST mode write clears SPSHIFT
+                16'h8266: begin spshift <= mrg(spshift, din, uds, lds); st_shifter <= 1'b0; end
                 default: ;
             endcase
         end
     end
-    always @(posedge clk) fpal_rd <= fpal_hi[o[9:2]];
+    always @(posedge clk) begin fpal_rd <= fpal_hi[o[9:2]]; fpal_rdl <= fpal_lo[o[9:2]]; end
     always @(*) begin
         dout = 16'hFFFF;
-        if (o >= 16'h9800) dout = o[1] ? 16'h0000 : fpal_rd;
+        if (o >= 16'h9800) dout = o[1] ? {8'h00, fpal_rdl} : fpal_rd;
         else if (o >= 16'h8280) dout = vt[(o - 16'h8280) >> 1];
         else if (o >= 16'h8240 && o < 16'h8260) dout = st_pal[o[4:1]];
         else case (o)

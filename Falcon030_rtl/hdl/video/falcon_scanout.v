@@ -32,6 +32,7 @@ module falcon_scanout (
     // geometry (videl_regs, clk_cpu / treated as false-path or loosely timed)
     input  wire [23:0] fb_base,
     input  wire [3:0]  planes,          // 0 = RGB565, 1/2/4/8 = bitplanes
+    input  wire        st_shifter,      // 1 = ST palette ($FF8240) for 1/2/4 planes, 0 = Falcon palette
     input  wire        hdbl, vdbl,
     input  wire [9:0]  height,          // native visible lines
     input  wire [11:0] linebytes,
@@ -57,7 +58,8 @@ module falcon_scanout (
     // interrupts / VIDEL counter (levels in clk_32, synced from pixel timing)
     output reg         vbl, hbl,
     output reg  [23:0] vcount,
-    output reg         underrun
+    output reg         underrun,
+    output wire [191:0] dbg_pal         // HUD debug: ST palette copy as displayed, entry 0 in [11:0]
 );
     // CEA VIC 1: 640x480@60, 25.2 MHz, negative syncs
     localparam [9:0] H_ACT = 10'd640, H_FP = 10'd16, H_SYNC = 10'd96, H_BP = 10'd48;
@@ -114,6 +116,11 @@ module falcon_scanout (
         end else if (stpal_we) pal[stpal_wa] <= stpal_wd;
     end
 
+    genvar gp;
+    generate for (gp = 0; gp < 16; gp = gp + 1) begin : g_dpal
+        assign dbg_pal[gp*12 +: 12] = pal[gp];
+    end endgenerate
+
     // Falcon palette: SDP BSRAM, both ports on clk_32, registered read
     wire [17:0] fpal_q;
     reg  [7:0]  fpal_ra;
@@ -141,7 +148,7 @@ module falcon_scanout (
     // latched geometry for this line
     reg [23:0] base_l;
     reg [3:0]  planes_l;
-    reg        hdbl_l, vdbl_l, odd_l, ok_l;
+    reg        hdbl_l, vdbl_l, odd_l, ok_l, fpal_l;
     reg [11:0] lb_l;
     reg [9:0]  nline_l;
     wire [11:0] lb_now = linebytes;
@@ -193,7 +200,7 @@ module falcon_scanout (
     wire [23:0] f_rgb = { fpal_q[17:12], fpal_q[17:16],
                           fpal_q[11:6],  fpal_q[11:10],
                           fpal_q[5:0],   fpal_q[5:4] };
-    wire [23:0] rgb_final = (planes_l == 4'd8) ? f_rgb : rgb_np;
+    wire [23:0] rgb_final = fpal_l ? f_rgb : rgb_np;
 
     // last display column of this group (the column being written, dcol_w)
     wire last_in_grp = (planes_l == 4'd0) ? (hdbl_l ? dcol_w[0] : 1'b1) :
@@ -211,6 +218,9 @@ module falcon_scanout (
                     if (busy_line) underrun <= 1'b1;
                     base_l   <= fb_base;
                     planes_l <= planes;
+                    // Falcon palette for 8 planes, and for 1/4 planes when the last shifter write was SPSHIFT
+                    // (Hatari bUseSTShifter; tos4x VsetRGB writes the SP palette for those modes).
+                    fpal_l   <= (planes == 4'd8) || ((planes != 4'd0) && !st_shifter);
                     hdbl_l   <= hdbl;
                     vdbl_l   <= vdbl;
                     lb_l     <= lb_now;

@@ -54,6 +54,7 @@ module falcon_core (
     output wire        stpal_we,
     output wire [3:0]  stpal_wa,
     output wire [11:0] stpal_wd,
+    output wire        st_shifter,
     output wire [7:0]  ym_porta,
     output wire [1:0]  fdc_hd,
     output wire        cpu_halted_n,
@@ -284,7 +285,7 @@ module falcon_core (
         .wr(io_wr), .din(io_wdata), .dout(videl_d), .vcount(vcount),
         .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl), .height(height), .linebytes(linebytes),
         .st_pal_rd(st_pal_rd), .st_pal_idx(st_pal_idx), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
-        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
+        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd), .st_shifter(st_shifter),
         .dbg_hht(dbg_hht), .dbg_vft(dbg_vft), .dbg_spshift(dbg_spshift), .dbg_shmode(dbg_shmode),
         .dbg_vco(dbg_vco));
 endmodule

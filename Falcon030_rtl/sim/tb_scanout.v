@@ -54,7 +54,7 @@ module tb_scanout;
 
     falcon_scanout dut (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(reset),
-        .fb_base(24'h000000), .planes(4'd4), .hdbl(1'b0), .vdbl(1'b0),
+        .fb_base(24'h000000), .planes(4'd4), .st_shifter(1'b1), .hdbl(1'b0), .vdbl(1'b0),
         .height(10'd480), .linebytes(12'd320),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(1'b0), .fpal_wa(8'd0), .fpal_wd(18'd0),

@@ -204,6 +204,8 @@ module falcon_soc (
     wire        fpal_we, stpal_we;
     wire [3:0]  stpal_wa;
     wire [11:0] stpal_wd;
+    wire        st_shifter;
+    wire [191:0] scan_pal;    // debug: scanout ST palette copy, 16 x 12
 
     falcon_core core (
         .clk_cpu(clk_cpu), .clk_cpu_n(clk_cpu_n), .reset(core_reset),
@@ -219,7 +221,7 @@ module falcon_soc (
         .height(height), .linebytes(linebytes),
         .st_pal_idx(st_pal_idx), .st_pal_rd(st_pal_rd),
         .fpal_wa(fpal_wa), .fpal_wd(fpal_wd), .fpal_we(fpal_we),
-        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
+        .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd), .st_shifter(st_shifter),
         .ym_porta(ym_porta), .fdc_hd(), .cpu_halted_n(cpu_halted_n),
         .dbg_pc(dbg_pc), .dbg_berr_count(dbg_berr_count), .dbg_berr_addr(dbg_berr_addr),
         .dbg_reset_out(dbg_reset_out), .dbg_io_addr(dbg_io_addr), .dbg_io_data(dbg_io_data),
@@ -362,8 +364,8 @@ module falcon_soc (
 
     falcon_scanout scanout (
         .clk_32(clk_32), .clk_pixel(clk_pixel), .reset(por),
-        .fb_base(fb_base), .planes(planes), .hdbl(hdbl), .vdbl(vdbl),
-        .height(height), .linebytes(linebytes),
+        .fb_base(fb_base), .planes(planes), .st_shifter(st_shifter), .hdbl(hdbl), .vdbl(vdbl),
+        .height(height), .linebytes(linebytes), .dbg_pal(scan_pal),
         .stpal_we(stpal_we), .stpal_wa(stpal_wa), .stpal_wd(stpal_wd),
         .fpal_we(fpal_we), .fpal_wa(fpal_wa), .fpal_wd(fpal_wd),
         .ram_req(vid_req), .ram_rd2(vid_rd2), .ram_a(vid_a),
@@ -521,10 +523,16 @@ module falcon_soc (
         vd_s  <= vdbl;             vd_p  <= vd_s;
         cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
-        ioring_s<= dbg_io_ring;    ioring_p<= ioring_s;
+        // (dialog debug build: rows 6-7 = scanout ST palette, slot k = {0,pal[2k], 0,pal[2k+1]})
+        ioring_s<= {4'h0, scan_pal[15*12 +: 12], 4'h0, scan_pal[14*12 +: 12], 4'h0, scan_pal[13*12 +: 12], 4'h0, scan_pal[12*12 +: 12],
+                    4'h0, scan_pal[11*12 +: 12], 4'h0, scan_pal[10*12 +: 12], 4'h0, scan_pal[ 9*12 +: 12], 4'h0, scan_pal[ 8*12 +: 12],
+                    4'h0, scan_pal[ 7*12 +: 12], 4'h0, scan_pal[ 6*12 +: 12], 4'h0, scan_pal[ 5*12 +: 12], 4'h0, scan_pal[ 4*12 +: 12],
+                    4'h0, scan_pal[ 3*12 +: 12], 4'h0, scan_pal[ 2*12 +: 12], 4'h0, scan_pal[ 1*12 +: 12], 4'h0, scan_pal[ 0*12 +: 12]};
+        ioring_p<= ioring_s;
         // HUD row 9: slots 4-5 live blitter debug, slots 6-7 keyboard ACIA/IKBD, once the ring has frozen at
         // the first BERR (always the expected $FF8E09 probe); row 8 keeps the frozen context.
-        pcring_s<= (dbg_berr_count != 16'd0) ? {ikbd_dbg, blt_dbg[63:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
+        // (dialog debug build: slots 4-7 = blitter flags, {halftone0, fills}, fill history; IKBD dropped)
+        pcring_s<= (dbg_berr_count != 16'd0) ? {blt_dbg[127:0], dbg_pc_ring[127:0]} : dbg_pc_ring;
         pcring_p<= pcring_s;
     end
     // Freeze a consistent snapshot at the first pixel of the frame.
