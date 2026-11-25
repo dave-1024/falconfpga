@@ -264,14 +264,19 @@ module falcon_scanout (
                             wgot <= ni;
                             st   <= S_PRIME;        // pw settles this edge; use next cycle
                         end else begin
+                            // next word(s) of the group: req stays LOW here; it is raised below only
+                            // after the arbiter has dropped ack (4-phase). falcon_sdram_arb holds
+                            // vid_ack until vid_req falls, so re-raising req on this edge kept req
+                            // high, the stale ack was taken again next clock and words 2..7 of every
+                            // group were copies of words 0/1 (BLI-9: pixel 7 grey showed as 15 black,
+                            // the teal desktop pixel 14 as 10 green, 8-plane colours wrong).
                             wgot    <= ni;
                             ram_a   <= line_a + (ram_rd2 ? 23'd2 : 23'd1);
                             ram_rd2 <= ((wneed - ni) >= 4'd2) &&
                                        (((line_a + (ram_rd2 ? 23'd2 : 23'd1)) & 23'h1FF) != 23'h1FF);
-                            ram_req <= 1'b1;
                         end
                     end
-                end else if (!ram_req) ram_req <= 1'b1;
+                end else if (!ram_req && !ram_ack) ram_req <= 1'b1;
                 // stage A for dcol: latch ST/TC colour, issue Falcon palette read
                 S_PRIME: begin
                     rgb_np  <= (planes_l == 4'd0) ? c565 : cpal;
