@@ -101,8 +101,8 @@ This is a map of the work, not a timetable. After the data cache:
    [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md#planned).
 2. **Faster memory.** First, start each memory access sooner. Then run the memory chips twice as
    fast (64 MHz). That should also help the [heavier screen modes](#what-doesnt-work-yet).
-3. **A full-height picture buffer so tall RGB modes stop drifting.** First choice: the
-   FPGA's own block RAM (estimated to fit); fallback: the board's DDR3 memory.
+3. **A full-height picture buffer so tall RGB modes stop drifting,** using the board's
+   DDR3 memory (keeping the FPGA's block RAM free for the DSP).
 4. **The rest of the Falcon chipset:** the YM2149 sound chip, then DMA sound and the codec, then
    SCSI-2 and IDE, then the DSP.
 5. **A cleanup of the helper** (the small program that looks after the SD card, the menu, and the
