@@ -813,3 +813,19 @@ commit that those sources do not state.
   (START_CYCLE, OP_CHAIN, PW_GO, RW_GO, WW_GO, RA_GO) needs the same data-cache fill rule; check all
   of them when adding a new fast start. Also: `tb_falcon` used `WA_ADR_HI = -1` while the board uses
   1 (new generic `WAHI`), and answers ROM/RAM in 2 clocks (new generic `MEMWAIT`).
+
+- **ROM data caching made MOVEM from ROM slower (BLI-11f, 26 Nov 2026).**
+  *Symptom:* build B2 (ROM I+D, RAM I) scored GEMBENCH ROM Access 61.8 s against 49.2 s for
+  `c563143` (instructions only), although every bus cycle was the same. GEMBENCH 6.08's ROM test
+  (`BIN/ALLTEST.o` at `$35E`) streams 10 KB from `*$4F2` with `movem.l (a6)+,d3-d7/a1-a3`, so the
+  data cache never hits. *Cause:* the MOVEM read-ahead (`RA_GO`, F2/F172) only chained behind a
+  cache-inhibited read (`DC_ON = '0' or CIIN_LAT = '0'`), so with ROM data cachable every register
+  went IDLE -> START_CYCLE -> S0: 16 clocks per long instead of 11 in `tb_falcon` (+35% for the loop).
+  A real 68030 runs a cachable miss with the same bus cycles as an inhibited read (UM 6.1.3.1: one
+  long-word entry; on a 16-bit port the aligned long's own two cycles fill it). *Fix (approved by
+  David 07:06 UK):* `RA_GO` is also allowed when the running read is an aligned long (`RA_NOFL`),
+  which can never need a fill; the fill guards stay. Sim: 11 clocks per long, RAM writes identical
+  (`sim/romtest/`). *Still different from a 68030:* read-aheads are not looked up or allocated, so
+  data read by MOVEM does not enter the data cache. *Lesson:* measure a slower benchmark against
+  the actual test loop (disassemble it) before blaming fill cycles; `tb_falcon` `CIMODE=6` and
+  `BUF2W` model the board's B2 settings.

@@ -456,6 +456,7 @@ signal DC_DECIDE            : bit := '0'; -- [DC] The clock after a tracked read
 signal DC_NEED              : std_logic; -- [DC] ... and its entries are to be completed by fill cycles.
 signal DC_MISS              : std_logic_vector(3 downto 0); -- [DC] Words still to fill: E0 w0, E0 w1, E1 w0, E1 w1.
 signal FILL_PEND            : bit := '0'; -- [DC] Fill cycles of the last read are pending.
+signal RA_NOFL              : bit; -- [BLI-11f] The running MOVEM read is a long at A1:0 = 0: it reads its whole cache entry, no fill can follow.
 signal DC_DPBLK             : bit; -- [DC] The read may need fill cycles: no chain into a prefetch.
 signal DC_WSTB              : bit; -- [DC] A write starts on this edge.
 signal DC_WR_GO_I           : std_logic := '0';
@@ -1375,9 +1376,14 @@ begin
     -- the ST bridge does on every cycle): nothing of that memory is cached, so the read the 68030 would run is a bus
     -- read too, and no fill is pending (a read-ahead is never looked up or filled, like the other chained reads).
     RA_GO <= '1' when RA_ARM = '1' and READ_ACCESS = '1' and BUS_CYC_RDY = '1' and SIZE_N = "000" and RA_MORE = '1'
-                      and RMC = '0' and BUSY_EXH = '0' and (DC_ON = '0' or CIIN_LAT = '0') and FILL_PEND = '0' and DC_DECIDE = '0'
+                      and RMC = '0' and BUSY_EXH = '0' and (DC_ON = '0' or CIIN_LAT = '0' or RA_NOFL = '1') and FILL_PEND = '0' and DC_DECIDE = '0' -- [BLI-11f]
                       and HALT_In = '1' and BR_In = '1' and BGACK_In = '1' and ARB_STATE = IDLE
                       and RETRY = '0' and BUS_FLT = '0' and RESET_CPU_I = '0' else '0';
+    -- [BLI-11f] MC68030UM 6.1.3.1: a long word read at A1:0 = 0 transfers the whole long-word entry (all portions
+    -- on a 16-bit port), so no single-entry fill cycle can follow it and the read-ahead may chain behind a cachable
+    -- read too (as on the 68030, a cachable miss runs the same bus cycles as a cache-inhibited read). The read-ahead
+    -- itself is not looked up or filled, as before.
+    RA_NOFL <= '1' when OP_SIZE = LONG and ADR_LAT(1 downto 0) = "00" else '0';
     RA_LD <= RA_GO;
     -- [F172] MOVEM memory to register, one read always in flight (MC68030UM 11.6: 4 clocks per register on a
     -- 2-clock bus). When a read-ahead is handed over to the control unit in its CALC_AEFF clock (held: RA_TAKE;
