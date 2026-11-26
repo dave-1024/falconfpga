@@ -34,7 +34,9 @@ entity tb_falcon is
            TRFROM  : integer := 0;   -- log every bus cycle with TRFROM <= clk < TRTO (0 = off)
            TRTO    : integer := 0;
            WAHI    : integer := -1;  -- BLI-11e: WF68K30L WA_ADR_HI (board falcon_core = 1: CACR WA allocates only A31:24=$01, i.e. never on the Falcon)
-           MEMWAIT : integer := 2);  -- BLI-11e: clocks from AS to data for ROM/RAM cycles (board BUS-1 ~5-7)  -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4), 5 ROM+RAM I+D
+           MEMWAIT : integer := 2;   -- BLI-11e: clocks from AS to data for ROM/RAM cycles (board BUS-1 ~5-7)
+           BUF2W   : integer := 0);  -- BLI-11f: clocks for the A+2 word right after an aligned long read (falcon_bus BUS-1 buf2; 0 = off, MEMWAIT)
+  -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4, c563143), 5 ROM+RAM I+D, 6 ROM I+D + RAM I (B2)
 end;
 architecture sim of tb_falcon is
   signal clk : std_logic := '0';
@@ -139,7 +141,7 @@ begin
     variable a : unsigned(31 downto 0); variable a24 : integer; variable r : integer;
     variable w : std_logic_vector(15 downto 0); variable l : line;
     variable n : integer := 0; variable nio : integer := 0; variable nberr : integer := 0;
-    variable isrom, isram, isio, iscart, iack, ok : boolean; variable wi, b, s : integer;
+    variable isrom, isram, isio, iscart, iack, ok : boolean; variable plong : integer := -1; variable mw : integer; variable wi, b, s : integer;
     variable lastpc : unsigned(31 downto 0) := (others => '0');
     variable hb : integer := 0; variable kind : string(1 to 2);
     procedure nv_init is variable sum : integer := 0; begin
@@ -239,9 +241,13 @@ begin
         if (CIMODE = 2 and isrom and a24 >= 8 and fc(1 downto 0) = "10") or
            (CIMODE = 3 and isrom and a24 >= 8) or
            (CIMODE = 4 and ((isrom and a24 >= 8) or isram) and fc(1 downto 0) = "10") or
-           (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) then ciinn <= '1'; end if;
+           (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) or
+           (CIMODE = 6 and ((isrom and a24 >= 8) or (isram and fc(1 downto 0) = "10"))) then ciinn <= '1'; end if;
+        mw := MEMWAIT;
+        if BUF2W > 0 and rwn = '1' and siz = "10" and a24 = plong + 2 then mw := BUF2W; end if;
+        if (isrom or isram) and rwn = '1' and siz = "00" and a(1 downto 0) = "00" then plong := a24; else plong := -1; end if;
         if isrom or isram then
-          for k in 1 to MEMWAIT loop wait until rising_edge(clk); n := n + 1; end loop;
+          for k in 1 to mw loop wait until rising_edge(clk); n := n + 1; end loop;
         else
           for k in 1 to 2 loop wait until rising_edge(clk); n := n + 1; end loop;
         end if;
