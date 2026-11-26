@@ -13,12 +13,13 @@ flashing, and SD card setup). Lessons and every bug found, including Falcon-era 
 
 ## Status (26 Nov 2026)
 
-Flash 0 holds **B3** (`4334f74` plus ROM data caching in `falcon_bus.v`: ROM instruction and data
-cachable, ST-RAM instruction fetches only). Written 26 Nov 2026, 07:50–07:52 UK, verified: start
-`0x000000`, end `0x04C2400` (`< 0x500000`), `Program Flash finished`, cost 132.59 s, same log shape
-as the previous flash. clk_cpu030 Fmax 17.051 MHz (16 MHz floor), clk32_core 37.423 MHz,
-clk_hdmi640_pix 35.505 MHz. `timing_pairs` passes, Gowin V1.9.12.03. Bitstream
-`falcon_bli11f_B3.fs`, md5 `d71b644a977dd56ff9a2093adad5038f`. Previous flash 0 was `c563143`.
+Flash 0 holds **C5** (`46d2de6`: full instruction and data cache for ROM and ST-RAM, write-allocate
+in ST-RAM only, and the two-word fill buffer dropped on DMA writes and after idle clocks). Written
+26 Nov 2026, 11:17:10–11:19:21 UK, verified: start `0x000000`, end `0x04B2100`
+(`< 0x500000`), `Program Flash finished`, cost 131.14 s. clk_cpu030 Fmax 17.619 MHz (34
+levels, 16 MHz floor), clk32_core 37.867 MHz, hdmi640 28.533 MHz. `timing_pairs` passes, Gowin
+V1.9.12.03. Bitstream `falcon_bli11h_C5.fs`, md5 `6aff47de0f551e6c66441d05b9b7d635`. Previous
+flash 0 was C3 (`3407acc`, md5 `661e15e73b8b71989b08bd757e62ef52`).
 
 - TOS 4.04 from the SD card (`TOS404.IMG`) boots to the GEM desktop. Default monitor is VGA.
 - HDMI output is 640x480@60. The core runs native Falcon VGA 60 Hz or RGB 50 Hz timing (RGB is forced to a
@@ -26,15 +27,16 @@ clk_hdmi640_pix 35.505 MHz. `timing_pairs` passes, Gowin V1.9.12.03. Bitstream
   with `var V=1` in `falcon.ini`. TOS is mounted only if `falcon.ini` contains `drive4=/sd/TOS404.IMG`
   (see [BUILD.md](BUILD.md)).
 - FrontBench (`FRNTBNCH.PRG`, ST-RAM) lastcount **1079** on VGA 60 Hz, **1319** on RGB 50 Hz, measured
-  on `7f0611e` (same video timing; not re-run on B3).
-- GEMBENCH 6.31 (ST medium, against a blitter STE) on B3: Display 124%, CPU 234%, average 170%.
-  ROM Access 49.180 s (same as `c563143`); a few GEM/VDI tests a little faster.
+  on `7f0611e` (same video timing; not re-run on C5). A FrontBench video of this build is planned.
+- GEMBENCH 6.31 (ST medium, against a blitter STE) on C5: Display 120%, CPU 237%, average 169%.
+  Every test matched or beat C3 (average 167%); ROM Access 48.355 s (C3 49.090 s). A few GEM/VDI
+  text tests are still a little slower than B3 (average 170%), which did not cache ST-RAM data.
 - Working: VIDEL boot modes, blitter, MFP, keyboard ACIA and IKBD, floppy A:, NVRAM/RTC, 14 MB ST-RAM,
-  instruction cache (ROM and ST-RAM) and the ROM data cache.
-- In progress: the data cache for ST-RAM (enabling RAM data caching still bombs at `$E1C3C0`; see
-  [FALCON_LESSONS.md](docs/FALCON_LESSONS.md#bugs-found-falcon-core)).
+  the instruction cache (ROM and ST-RAM) and the full data cache (ROM and ST-RAM) with write-allocate
+  in ST-RAM.
+- Next: faster SDRAM (also needed for the heavier Videl modes), then a FrontBench video of this build.
 - Not yet: DSP 56001, YM2149 / DMA sound and codec (JT49 and STE DMA sound are copied in but not wired),
-  SCSI-2 and IDE, faster SDRAM, EmuTOS, helper firmware cleanup.
+  SCSI-2 and IDE, EmuTOS, helper firmware cleanup.
 
 The timing goal is the MC68030 manual's cycle counts against zero-wait-state memory. If a count cannot match
 exactly, slightly faster is better than slower. No Fmax chasing beyond keeping clk_cpu030 at or above 16 MHz.
@@ -62,7 +64,8 @@ No ROM images in git: TOS 4.04 comes from the SD card.
 
 ## Planned
 
-In rough order after caching data from ST-RAM, and not a schedule.
+In rough order, and not a schedule. Next is faster memory (below), which is also what the
+heavier Videl modes need, and a FrontBench video of the current build.
 
 **CPU cycle counts** (from the ST-era 98-instruction survey of this 68030 core, F172 vC1, 24 Nov 2026:
 1243 clocks on the board/DSACK model against the manual's 1059). The biggest remaining gaps, in the
@@ -80,7 +83,7 @@ order they were listed:
 Other leftover CPU timing: a `DBF` loop of 8 passes is 59.5 against 54; some memory-indirect and CAS2
 forms still have idle clocks inside the sequence.
 
-**Faster memory**, after the cache work (this also matters for the heavier Videl modes; see the root
+**Faster memory** (this also matters for the heavier Videl modes; see the root
 README, [What doesn't work (yet)](../README.md#what-doesnt-work-yet)):
 
 - CPU-first SDRAM start at 32 MHz. On the Falcon bus, an ST-RAM word read is 7.1 clocks in

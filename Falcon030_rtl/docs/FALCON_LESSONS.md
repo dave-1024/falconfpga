@@ -849,3 +849,26 @@ commit that those sources do not state.
   the D-cache after floppy/ACSI DMA, blitter runs and self-patched code, so no snooping is needed.
   All `dc_*.S` (`dc_check.sh`, `WAHI=0 -gWALIM=14680064`) pass. *Lesson:* test user/supervisor
   traffic, not only supervisor code, and check a board-only generic against the real chip.
+  *Board:* build C3 booted past the memory test and completed GEMBENCH 6.31 ST medium (Display
+  119%, CPU 235%, average 167%). Flash 0 was later moved to C5 (see below).
+
+- **Stale fill-word buffer after a cached word miss (BLI-11h, C4 then C5, 26 Nov 2026).**
+  *Symptom:* to avoid an extra SDRAM slot on a cached byte/word miss (a real 68030 also fills the
+  rest of the long word, UM 6.1.3.1), C4 made `falcon_bus` fetch both words in one slot (`rd2` for
+  cachable byte/word reads at A1=0) and answer the CPU's follow-up fill from `buf2`. C4 booted to
+  the desktop, but launching GEMBENCH gave two bombs and a hang while the program loaded from
+  floppy. Fmax also fell (clk_cpu030 16.335 MHz, 39 levels, against C3's 17.020 / 33). C4 was not
+  left in flash. *Cause:* after a word read, `buf2` stayed valid until the next CPU cycle with no
+  time limit. A floppy DMA write to the other half of the long word in that gap did not clear it,
+  so the fill came back stale. Long reads had never shown this, because they only use the buffer
+  in the immediately following cycle. The C4 `buf_hit` compare was also on the critical path.
+  *Fix (C5, approved by David 10:03 UK):* drop `buf2` on every arbiter DMA/loader write slot
+  (`ext_wr_tog` from `falcon_sdram_arb`, synchronised in `falcon_bus`) and after four idle CPU
+  clocks (and, as before, at the start of any new CPU cycle). Byte/word hits are decided in a new
+  `S_CHK` state from a registered address compare, which recovered Fmax (clk_cpu030 17.619 MHz,
+  34 levels). New `sim/tb_buf_dma` reproduces the C4 bug (stale fill after a DMA write, and after
+  idle) and passes on C5; `tb_bus_sdram`, `tb_bus_lat`, blit, and all `dc_*.S` pass. *Board:* C5
+  ran the full GEMBENCH 6.31 ST medium with no bombs: Display 120%, CPU 237%, average 169%, equal
+  or faster than C3 on every test. *Lesson:* a buffered fill word can go stale if something else
+  writes memory while the CPU is idle; clear it on those writes and after idle, and add a
+  directed test for that case before a board build.
