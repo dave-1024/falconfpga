@@ -176,6 +176,15 @@ create_generated_clock -name clk_sd80 -source [get_ports {clk}] -master_clock cl
 // SDRAM pad clock: CLKOUT2, 80 MHz at 306 deg (-1.875 ns vs clk_sd80, the same lead in ns as the old 32 MHz 338.4 deg).
 create_generated_clock -name sdram_pll_clk -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 5 -phase 306 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}]
 create_generated_clock -name clk_32 -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}] -master_clock sdram_pll_clk -divide_by 1 [get_ports {O_sdram_clk}] -add
+// SDR-1 S4 (David 13:39 UK, 26 Nov 2026): model the real SDRAM clock-pin delay. clk_32 is a generated clock ON THE PORT,
+// so Gowin STA gave it zero network latency, while the SDRAM pin registers get the PLL->IOB clock insertion plus the OBUF
+// (S2/S3 reports). The pad clock leaves the same PLL through the same kind of clock route and an OBUF, so it gets the same
+// delay as source latency, per corner (Gowin: -late used in setup analysis = slow corner, -early in hold = fast corner):
+//   late  7.2 = tCL 2.599 + PLL->IOB tNET 2.096 + OBUF 2.528 (slow corner, S3 dq_in_2 / S2 sa_6 paths)
+//   early 4.8 = tCL 1.552 + PLL->IOB tNET 0.732 + OBUF 2.482 (fast corner, S3 sd_cmd_2 -> O_sdram_ras_n)
+// The -max 6.0 / -min 0.0 output budget and the DQ input delays are unchanged (not a relaxation).
+set_clock_latency -source -late  7.2 [get_clocks {clk_32}]
+set_clock_latency -source -early 4.8 [get_clocks {clk_32}]
 // SDRAM (W9825G6KH-6 class, CL2): tAC <= 6 ns, tOH >= 2.5 ns; tIS 1.5 ns, tIH 0.8 ns. Loose values (board + margin):
 // in max 8 / min 0.5, out max 6 / min 0 (also the starting values suggested by the Grok review).
 set_input_delay  -clock clk_32 -max 8.0 [get_ports {IO_sdram_dq[*]}]

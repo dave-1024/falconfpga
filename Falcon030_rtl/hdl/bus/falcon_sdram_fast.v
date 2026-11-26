@@ -90,9 +90,10 @@ module falcon_sdram_fast #(
     (* syn_useioff = 1 *) reg [15:0] dq_in  = 16'h0000;
     (* syn_useioff = 1 *) reg [12:0] sa_o = 13'h0000;
     (* syn_useioff = 1 *) reg [1:0]  sb_o = 2'b00;
-    reg        dq_oe = 1'b0;
+    // S4: one OE register per DQ pin (S3: a single fabric dq_oe fanning out to 16 OEN pins, -9.2 ns)
+    (* syn_useioff = 1, syn_preserve = 1 *) reg [15:0] dq_oe = 16'h0000;
     always @(posedge clk_sd) begin
-        sd_cmd <= cmd_f; sa_o <= sa; sb_o <= sb; dq_out <= dqo_f; dqm_r <= dqm_f; dq_oe <= oe_f;
+        sd_cmd <= cmd_f; sa_o <= sa; sb_o <= sb; dq_out <= dqo_f; dqm_r <= dqm_f; dq_oe <= {16{oe_f}};
     end
     assign sd_addr = sa_o;
     assign sd_ba   = sb_o;
@@ -102,12 +103,19 @@ module falcon_sdram_fast #(
     assign sd_ras = sd_cmd[2];
     assign sd_cas = sd_cmd[1];
     assign sd_we  = sd_cmd[0];
-    assign sd_data = {16'bz, dq_oe ? dq_out : 16'bz};
+    genvar gi;
+    generate for (gi = 0; gi < 16; gi = gi + 1) begin : g_dq
+        assign sd_data[gi] = dq_oe[gi] ? dq_out[gi] : 1'bz;
+    end endgenerate
+    assign sd_data[31:16] = 16'bz;
     assign sd_dqm  = {2'bzz, dqm_r};
 
     // ---- reset into clk_sd ----
+    // S4: reset taken into a local clk32 register first (S3: the 868-fanout POR sync drove rst_s directly, -0.032 ns)
+    reg       rst_p = 1'b1;
+    always @(posedge clk_32) rst_p <= reset;
     reg [1:0] rst_s = 2'b11;
-    always @(posedge clk_sd) rst_s <= {rst_s[0], reset};
+    always @(posedge clk_sd) rst_s <= {rst_s[0], rst_p};
     wire rst = rst_s[1];
 
     // ---- clk32 clients: registered once in clk32 first (S1: fdc dma_d logic + the 6.25 ns clk32->clk_sd pair failed) ----
@@ -264,11 +272,22 @@ module falcon_sdram_fast #(
     end
 
     // ---- clk32 copies for the clk32 clients ----
+    // S4: one extra clk_sd stage (*_x, acks and data together) so the long route from the DQ IOB side to the clk32 logic
+    // is on a 12.5 ns clk_sd pair, not the 6.25 ns clk_sd->clk32 pair (S3: vq -> vid_q -0.475 ns, pure route).
+    reg        rdy_x = 1'b0, vack_x = 1'b0, dack_x = 1'b0, lack_x = 1'b0, cack_x = 1'b0;
+    reg [15:0] vq_x = 16'h0, vq2_x = 16'h0, dq_x = 16'h0, cq_x = 16'h0;
+    always @(posedge clk_sd) begin
+        rdy_x <= ready && !rst;
+        vack_x <= vack; vq_x <= vq; vq2_x <= vq2;
+        dack_x <= dack; dq_x <= dq;
+        lack_x <= lack;
+        cack_x <= cpu_ack; cq_x <= cpu_q;
+    end
     always @(posedge clk_32) begin
-        ram_ready <= ready && !rst;
-        vid_ack <= vack; vid_q <= vq; vid_q2 <= vq2;
-        dma_ack <= dack; dma_q <= dq;
-        ld_ack  <= lack;
-        cpu_ack_32 <= cpu_ack; cpu_q_32 <= cpu_q;
+        ram_ready <= rdy_x;
+        vid_ack <= vack_x; vid_q <= vq_x; vid_q2 <= vq2_x;
+        dma_ack <= dack_x; dma_q <= dq_x;
+        ld_ack  <= lack_x;
+        cpu_ack_32 <= cack_x; cpu_q_32 <= cq_x;
     end
 endmodule
