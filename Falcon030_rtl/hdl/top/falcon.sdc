@@ -183,8 +183,11 @@ create_generated_clock -name clk_32 -source [get_pins {pll_hdmi/u_pll/PLL_inst/C
 //   late  7.2 = tCL 2.599 + PLL->IOB tNET 2.096 + OBUF 2.528 (slow corner, S3 dq_in_2 / S2 sa_6 paths)
 //   early 4.8 = tCL 1.552 + PLL->IOB tNET 0.732 + OBUF 2.482 (fast corner, S3 sd_cmd_2 -> O_sdram_ras_n)
 // The -max 6.0 / -min 0.0 output budget and the DQ input delays are unchanged (not a relaxation).
-set_clock_latency -source -late  7.2 [get_clocks {clk_32}]
-set_clock_latency -source -early 4.8 [get_clocks {clk_32}]
+// S5 (David 14:14 UK, option a): Gowin applies source latency per check type, not per corner (S4: setup capture took
+// -early 4.8 at the slow corner, hold capture took -late 7.2 at the fast corner, ~2.4 ns cross-corner pessimism each way).
+// One value, the FAST-corner 4.8 ns, for both: exact for hold (fast corner), pessimistic for output setup (real slow-corner
+// latency 7.2 is larger). Input setup with the slow 7.2 was +3.163 ns in S4 (DQ input regs in the IOB, fixed placement).
+set_clock_latency -source 4.8 [get_clocks {clk_32}]
 // SDRAM (W9825G6KH-6 class, CL2): tAC <= 6 ns, tOH >= 2.5 ns; tIS 1.5 ns, tIH 0.8 ns. Loose values (board + margin):
 // in max 8 / min 0.5, out max 6 / min 0 (also the starting values suggested by the Grok review).
 set_input_delay  -clock clk_32 -max 8.0 [get_ports {IO_sdram_dq[*]}]

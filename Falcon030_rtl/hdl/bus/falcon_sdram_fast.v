@@ -82,6 +82,7 @@ module falcon_sdram_fast #(
     reg [15:0] dqo_f = 16'h0000;
     reg [1:0]  dqm_f = 2'b00;
     reg        oe_f  = 1'b0;
+    reg        oe_hold = 1'b0;   // S5: keep DQ driven one more clk_sd after the WRITE (turn-off hold margin)
     reg [12:0] sa = 13'h0000;
     reg [1:0]  sb = 2'b00;
     (* syn_useioff = 1 *) reg [2:0]  sd_cmd = CMD_NOP;
@@ -90,10 +91,12 @@ module falcon_sdram_fast #(
     (* syn_useioff = 1 *) reg [15:0] dq_in  = 16'h0000;
     (* syn_useioff = 1 *) reg [12:0] sa_o = 13'h0000;
     (* syn_useioff = 1 *) reg [1:0]  sb_o = 2'b00;
-    // S4: one OE register per DQ pin (S3: a single fabric dq_oe fanning out to 16 OEN pins, -9.2 ns)
-    (* syn_useioff = 1, syn_preserve = 1 *) reg [15:0] dq_oe = 16'h0000;
+    // S4: one OE register per DQ pin (S3: a single fabric dq_oe fanning out to 16 OEN pins, -9.2 ns).
+    // S5: stored active-LOW (1 = tristate) so the register drives the buffer OEN pin with no inverter and can be IOB-packed
+    // (S4: active-high per-pin regs stayed in fabric, -1.518 ns).
+    (* syn_useioff = 1, syn_preserve = 1 *) reg [15:0] dq_oen = 16'hFFFF;
     always @(posedge clk_sd) begin
-        sd_cmd <= cmd_f; sa_o <= sa; sb_o <= sb; dq_out <= dqo_f; dqm_r <= dqm_f; dq_oe <= {16{oe_f}};
+        sd_cmd <= cmd_f; sa_o <= sa; sb_o <= sb; dq_out <= dqo_f; dqm_r <= dqm_f; dq_oen <= {16{~oe_f}};
     end
     assign sd_addr = sa_o;
     assign sd_ba   = sb_o;
@@ -105,7 +108,7 @@ module falcon_sdram_fast #(
     assign sd_we  = sd_cmd[0];
     genvar gi;
     generate for (gi = 0; gi < 16; gi = gi + 1) begin : g_dq
-        assign sd_data[gi] = dq_oe[gi] ? dq_out[gi] : 1'bz;
+        assign sd_data[gi] = dq_oen[gi] ? 1'bz : dq_out[gi];
     end endgenerate
     assign sd_data[31:16] = 16'bz;
     assign sd_dqm  = {2'bzz, dqm_r};
@@ -172,7 +175,8 @@ module falcon_sdram_fast #(
 
     always @(posedge clk_sd) begin
         cmd_f <= CMD_NOP;
-        oe_f  <= 1'b0;
+        oe_f  <= oe_hold;
+        oe_hold <= 1'b0;
         dqm_f <= 2'b00;
         dq_in  <= sd_data[15:0];
         rp0 <= {rp0[3:0], 1'b0};
@@ -209,7 +213,7 @@ module falcon_sdram_fast #(
                     sb <= s_ba;
                     if (s_we) begin
                         cmd_f <= CMD_WR; sa <= {4'b0000, s_col};
-                        dqo_f <= s_d; oe_f <= 1'b1; dqm_f <= ~s_be;
+                        dqo_f <= s_d; oe_f <= 1'b1; oe_hold <= 1'b1; dqm_f <= ~s_be;
                     end else begin
                         cmd_f <= CMD_RD; sa <= {4'b0000, s_col};
                         rp0[0] <= 1'b1; dwin <= win; d_rd2 <= s_rd2;
