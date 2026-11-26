@@ -232,6 +232,15 @@ always @(posedge clk32) begin
             s1_release <= 1'b1;
     end
 end
+// S8d DEBUG (SDR-1 bomb / USB-drop chase, David 17:16 UK): count main-PLL (pll_160m) lock losses after the first lock.
+// clk_g is the raw 50 MHz board clock (no PLL in its path) and this logic has no por reset, so the count survives a
+// lock glitch; shown on the HUD row 3 yellow slot as {wd_status[7:0], lk_loss[7:0]}.
+reg [1:0] lk_s = 2'b00; reg lk_seen = 1'b0; reg [7:0] lk_loss = 8'd0;
+always @(posedge clk_g) begin
+    lk_s <= {lk_s[0], pll_lock};
+    if (lk_s == 2'b11) lk_seen <= 1'b1;
+    if (lk_seen && lk_s == 2'b10 && lk_loss != 8'hFF) lk_loss <= lk_loss + 8'd1;
+end
 wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 // FalconFPGA 9 Oct 2026: por (= !pll_lock, a clk_osc flop in pll_hdmi's
 // pll_init) is asynchronous to every fabric clock. Each domain gets its own
@@ -964,6 +973,7 @@ falcon_soc u_soc (
     .dbg_mnt         ( sd_img_mounted[4] ),
     .dbg_mnt_size    ( sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r ),
     .dbg_hold        ( soc_reset ),
+    .dbg_lock        ( {wd_status, lk_loss} ),   // S8d DEBUG
     .dbg_sticky      ( tos_mnt_sticky ),
     .loader_status   ( loader_status )
 );

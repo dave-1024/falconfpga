@@ -67,6 +67,7 @@ module falcon_soc (
     input  wire        dbg_mnt,          // sd_card image_mounted[4] pulse
     input  wire [31:0] dbg_mnt_size,
     input  wire        dbg_hold,         // soc_reset = por32|helper_hold
+    input  wire [15:0] dbg_lock,         // S8d DEBUG: {pll_wdog status, main-PLL lock losses since config} (clk_g, sticky)
     input  wire        dbg_sticky,       // tos_mount_latch waiting
     output wire [31:0] loader_status     // flags[31:16], sect[9:0]
 );
@@ -562,7 +563,8 @@ module falcon_soc (
         vbll_s<= vbl;              vbll_p<= vbll_s;
         hd_s  <= hdbl;             hd_p  <= hd_s;
         vd_s  <= vdbl;             vd_p  <= vd_s;
-        cycs_s<= dbg_cycs;         cycs_p<= cycs_s;
+        // S8d DEBUG: HUD row 3 yellow slot (old _frclock, vlog1 = 0 since 8a0cc24) = 0000 + {pll_wdog status, lock losses}
+        cycs_s<= {dbg_cycs[383:192], 16'h0000, dbg_lock, dbg_cycs[159:0]};   cycs_p<= cycs_s;
         ncyc_s<= dbg_ncyc;         ncyc_p<= ncyc_s;
         // (dialog debug build 2: rows 6-7 = frozen blitter start ring, slot k = entry k, oldest first)
         ioring_s<= w_ring;

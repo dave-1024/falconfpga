@@ -4,7 +4,8 @@
 // Traffic: loader fills region L, then scanout (burst-2) reads L, floppy DMA writes/reads region D, the CPU
 // (030 bus BFM through falcon_bus) writes/reads region C and long-reads L, all at once. Every read is checked.
 // Run: iverilog -g2012 -s tb_sdram_fast -o t tb_sdram_fast.v ../hdl/bus/falcon_sdram_fast.v ../hdl/bus/falcon_bus.v \
-//        ../hdl/peri/falcon_fdc.v && vvp t        (add -DFDC_OLD for the pre-S7 FDC RAM master: the FDC stream test FAILS)
+//        ../hdl/peri/falcon_fdc.v && vvp t        (add -DFDC_OLD for the pre-S7 FDC RAM master: the FDC stream test FAILS;
+//        -DSTART: start-up order test, loader request during init + a por glitch, CPU released right after the last ack)
 // S7: FDC stream test = falcon_fdc_ram_master (the real falcon_fdc RAM master) fed like dma.v (registered FIFO word,
 // pointer advances on the rdy_i rising edge) writes 512 words back to back, then they are read back 4-phase and checked.
 `timescale 1ns/1ps
@@ -61,8 +62,13 @@ module tb_sdram_fast;
         .we(sd_we_i), .zmask(1'b0), .st_ba(sd_st_ba), .st_rd2(sd_rd2));
     wire ctl_clk = clk32; localparam real TCK = 31.25; wire ctl_oe = sd_cs_i && sd_we_i;
 `else
+    reg por_glitch = 0;
+    realtime t_por = 0, t_rdy = 0;
+    always @(negedge por) t_por = $realtime;
+    always @(negedge por_glitch) begin t_por = $realtime; t_rdy = 0; end
+    always @(posedge clk32) if (t_rdy == 0 && t_por > 0 && !por_glitch && ram_ready === 1'b1) t_rdy = $realtime;
     falcon_sdram_fast #(.INIT_WAIT(200), .REF_INT(300)) dut (
-        .clk_sd(clk_sd), .clk_32(clk32), .reset(por),
+        .clk_sd(clk_sd), .clk_32(clk32), .reset(por | por_glitch),
         .sd_clk(), .sd_cke(), .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .sd_data(sd_data), .sd_addr(sd_addr), .sd_dqm(sd_dqm), .sd_ba(sd_ba), .ram_ready(ram_ready),
         .vid_req(vid_req), .vid_a(vid_a), .vid_ack(vid_ack), .vid_q(vid_q), .vid_q2(vid_q2),
@@ -164,8 +170,17 @@ module tb_sdram_fast;
     // loader (clk32): fill region 0 with pat()
     initial begin
         @(negedge por);
+`ifdef START
+        // -DSTART: start-up order test. The loader raises its first request straight after por (during the 200 us
+        // init, before ram_ready), and a por glitch (PLL lock drop) re-runs the init while a request is pending.
+        @(posedge clk32); ld_a <= wa(2'd0, 0); ld_d <= pat(0); ld_req <= 1;
+        repeat (40) @(posedge clk32); por_glitch = 1; repeat (6) @(posedge clk32); por_glitch = 0;
+        k = 1; while (!ld_ack) @(posedge clk32);
+        for (k = 1; k < 4096; k = k + 1) begin
+`else
         @(posedge clk32); while (!ram_ready) @(posedge clk32);
         for (k = 0; k < 4096; k = k + 1) begin
+`endif
             @(posedge clk32); while (ld_req || ld_ack) begin if (ld_req && ld_ack) ld_req <= 0; @(posedge clk32); end
             ld_a <= wa(2'd0, k); ld_d <= pat(k); ld_req <= 1;
         end
@@ -206,11 +221,30 @@ module tb_sdram_fast;
             rd = cpu_din[31:16]; clocks = t + 1;
             @(posedge clk_cpu); cpu_as_n <= 1; cpu_ds_n <= 1;
         end endtask
+    // long access as the 030 does it on this 16-bit port (dynamic bus sizing, DSACK1 only): SIZ=long at A with the
+    // high word, then SIZ=word at A+2 with the low word (on D31:16), straight after
+    task cycl(input rw, input [23:0] a, input [31:0] wd, output [31:0] rd);
+        reg [15:0] h, l; integer x; begin
+            cyc(rw, a, 2'b00, wd[31:16], h, x);
+            cyc(rw, a + 24'd2, 2'b10, wd[15:0], l, x);
+            rd = {h, l};
+        end endtask
+    reg [31:0] l0; integer lbad;
     reg [15:0] r0, r1; integer c0, c1, ci;
     initial begin
         for (k = 0; k < 4096; k = k + 1) cshadow[k] = 16'hxxxx;
         repeat (20) @(posedge clk32); por <= 0;
+`ifdef START
+        // CPU released on the clk_cpu edge right after the loader's last ack, and its first cycles read back the last
+        // and the first loader words (the last write was acked at its slot start: posted)
+        wait (ldone); @(posedge clk_cpu); reset_cpu <= 0;
+        cyc(1, {wa(2'd0, 4095), 1'b0}, 2'b10, 0, r0, c0);
+        cyc(1, {wa(2'd0, 0), 1'b0}, 2'b10, 0, r1, c1);
+        $display("START: ram_ready rose %0.0f ns after the (glitch) reset fell; last loader word %h exp %h, first %h exp %h", t_rdy - t_por, r0, pat(4095), r1, pat(0));
+        if (r0 !== pat(4095) || r1 !== pat(0)) begin errors = errors + 1; $display("START ERR"); end
+`else
         wait (ldone); repeat (4) @(posedge clk_cpu); reset_cpu <= 0; repeat (4) @(posedge clk_cpu);
+`endif
         // idle-SDRAM latency (no other traffic): word read, long read (2 cycles), word write
         for (k = 0; k < 8; k = k + 1) begin
             cyc(1, {wa(2'd0, 2*k), 1'b0}, 2'b10, 0, r0, c0);
@@ -245,6 +279,16 @@ module tb_sdram_fast;
         end
         $display("FDC stream (falcon_fdc_ram_master WAIT_ACK_LOW=%0d): 512 words, dma_a advanced %0d, bad %0d", FDC_WAIT, fdc_a - wa(2'd3, 0), c0);
         if (c0 != 0 || fdc_a - wa(2'd3, 0) != 512) errors = errors + 1;
+        // TOS cold-boot memory clear style: back-to-back long writes, descending (movem.l d0-d3/a0-a3,-(a4)), region 2
+        // words 0..1023, then long read-back (with scanout + floppy DMA traffic running)
+        traffic = 1; lbad = 0;
+        for (k = 510; k >= 0; k = k - 2) cycl(0, {wa(2'd2, k), 1'b0}, {pat(k) ^ 16'h0F0F, pat(k+1) ^ 16'hF0F0}, l0);
+        for (k = 0; k < 512; k = k + 2) begin cycl(1, {wa(2'd2, k), 1'b0}, 0, l0);
+            if (l0 !== {pat(k) ^ 16'h0F0F, pat(k+1) ^ 16'hF0F0}) begin lbad = lbad + 1;
+                if (lbad < 6) $display("%t LONG WR ERR k=%0d %h exp %h", $time, k, l0, {pat(k) ^ 16'h0F0F, pat(k+1) ^ 16'hF0F0}); end
+            cshadow[k] = pat(k) ^ 16'h0F0F; cshadow[k+1] = pat(k+1) ^ 16'hF0F0; end
+        $display("long-write clear test: 256 longs descending, bad %0d", lbad);
+        if (lbad != 0) errors = errors + 1;
         // everything at once
         traffic = 1;
         lat_min = 99; lat_max = 0; lat_sum = 0; lat_n = 0;
