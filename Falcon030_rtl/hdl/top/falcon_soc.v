@@ -127,11 +127,27 @@ module falcon_soc (
     wire        blt_g32, blt_mreq, blt_mwe;
     wire [23:1] blt_ma;
     wire [15:0] blt_mwd;
-    wire        a_cpu_req = blt_g32 ? blt_mreq : cpu_req;
-    wire [23:1] a_cpu_a   = blt_g32 ? blt_ma : mem_a;
-    wire        a_cpu_we  = blt_g32 ? blt_mwe : mem_we;
-    wire [1:0]  a_cpu_be  = blt_g32 ? 2'b11 : mem_be;
-    wire [15:0] a_cpu_d   = blt_g32 ? blt_mwd : mem_wdata;
+    // SDR-1 S8f: the blitter (clk_32) reaches the 80 MHz controller through clk_cpu registers, never directly. clk_cpu and
+    // clk_32 edges coincide (clk_32 -> clk_cpu >= 31.25 ns, clk_cpu -> clk_sd >= 12.5 ns, as falcon_bus already does), so the
+    // 6.25 ns clk_32 <-> clk_sd edge pair is gone for the grant, request, address and write data (S8e -0.526 g_s -> cd_r).
+    // Grant and request are sampled on the same clk_cpu edge from clk_32 registers, so the mux never mixes stale halves.
+    reg         blt_g_c = 1'b0, blt_mreq_c = 1'b0, blt_mwe_c = 1'b0;
+    reg  [23:1] blt_ma_c = 23'd0;
+    reg  [15:0] blt_mwd_c = 16'h0000;
+    always @(posedge clk_cpu) begin
+        blt_g_c <= blt_g32; blt_mreq_c <= blt_mreq; blt_mwe_c <= blt_mwe; blt_ma_c <= blt_ma; blt_mwd_c <= blt_mwd;
+    end
+    // Read side: ack and data from the controller's clk_sd outputs into clk_cpu on the same edge (12.5 ns pair, like
+    // falcon_bus), then the blitter / write watch take them in clk_32 (31.25 ns pair). Data and ack move together and the
+    // data is held until the next CPU-port read, i.e. stable whenever the clk_32 side samples it (S8e -0.401 cq -> cpu_q_32).
+    reg         m_ack_c = 1'b0;
+    reg  [15:0] m_rdata_c = 16'h0000;
+    always @(posedge clk_cpu) begin m_ack_c <= mem_ack; m_rdata_c <= mem_rdata; end
+    wire        a_cpu_req = blt_g_c ? blt_mreq_c : cpu_req;
+    wire [23:1] a_cpu_a   = blt_g_c ? blt_ma_c : mem_a;
+    wire        a_cpu_we  = blt_g_c ? blt_mwe_c : mem_we;
+    wire [1:0]  a_cpu_be  = blt_g_c ? 2'b11 : mem_be;
+    wire [15:0] a_cpu_d   = blt_g_c ? blt_mwd_c : mem_wdata;
 
     // Dialog debug 6 (BLI-9): write watch on the 8-byte plane group the scanout probe shows (native line 100,
     // col 320). Every write accepted on the arbiter CPU port (CPU or blitter) to that group is logged into an
@@ -141,11 +157,11 @@ module falcon_soc (
     reg [10:0]  w_seq = 11'd0;
     reg [15:0]  w_nblt = 16'd0;
     always @(posedge clk_32) begin
-        w_ack_q <= mem_ack32;
-        if (a_cpu_req && a_cpu_we && mem_ack32 && !w_ack_q && a_cpu_a[23:3] == scan_probe_a[23:3]) begin
-            w_ring <= {blt_g32, a_cpu_a[2:1], a_cpu_be, w_seq, a_cpu_d, w_ring[255:32]};
+        w_ack_q <= m_ack_c;
+        if (a_cpu_req && a_cpu_we && m_ack_c && !w_ack_q && a_cpu_a[23:3] == scan_probe_a[23:3]) begin
+            w_ring <= {blt_g_c, a_cpu_a[2:1], a_cpu_be, w_seq, a_cpu_d, w_ring[255:32]};
             w_seq  <= w_seq + 11'd1;
-            if (blt_g32) w_nblt <= w_nblt + 16'd1;
+            if (blt_g_c) w_nblt <= w_nblt + 16'd1;
         end
     end
 
@@ -159,9 +175,9 @@ module falcon_soc (
         .dma_req(dma_req), .dma_we(dma_we), .dma_a(dma_a), .dma_d(dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
         .ld_req(use_ld), .ld_a(ld_a), .ld_d(ld_d), .ld_ack(ld_ack),
         .cpu_req(a_cpu_req), .cpu_a(a_cpu_a), .cpu_we(a_cpu_we), .cpu_be(a_cpu_be), .cpu_d(a_cpu_d),
-        .cpu_rd2(!blt_g32 && !cpu_reset && mem_rd2),
+        .cpu_rd2(!blt_g_c && !cpu_reset && mem_rd2),
         .cpu_ack(mem_ack), .cpu_q(mem_rdata), .cpu_q2(mem_rdata2),
-        .cpu_ack_32(mem_ack32), .cpu_q_32(mem_rdata32), .ext_wr_tog(ext_wr_tog)
+        .cpu_ack_32(), .cpu_q_32(), .ext_wr_tog(ext_wr_tog)
     );
 
     // ---- clk_32 enables, same idea as atarist.v (no GSTMCU) ----
@@ -279,7 +295,7 @@ module falcon_soc (
         .rdata(blt_rdata), .done(blt_done),
         .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),
-        .m_ack(mem_ack32), .m_rdata(mem_rdata32), .irq_n(blt_irq_n), .dbg(blt_dbg), .dbg_snap(blt_snap)
+        .m_ack(m_ack_c), .m_rdata(m_rdata_c), .irq_n(blt_irq_n), .dbg(blt_dbg), .dbg_snap(blt_snap)
     );
 
     // ---- peripheral sub-bus (clk_32) ----

@@ -280,22 +280,18 @@ module falcon_sdram_fast #(
     // is on a 12.5 ns clk_sd pair, not the 6.25 ns clk_sd->clk32 pair (S3: vq -> vid_q -0.475 ns, pure route).
     reg        rdy_x = 1'b0, vack_x = 1'b0, dack_x = 1'b0, lack_x = 1'b0, cack_x = 1'b0;
     reg [15:0] vq_x = 16'h0, vq2_x = 16'h0, dq_x = 16'h0, cq_x = 16'h0;
-    // S8e: S8d cq_x -> cpu_q_32 was -0.170 ns (6.25 ns clk_sd -> clk32 pair, pure route): a second stage near the clk32 regs
-    reg        cack_y = 1'b0;
-    reg [15:0] cq_y = 16'h0;
     always @(posedge clk_sd) begin
         rdy_x <= ready && !rst;
         vack_x <= vack; vq_x <= vq; vq2_x <= vq2;
         dack_x <= dack; dq_x <= dq;
         lack_x <= lack;
         cack_x <= cpu_ack; cq_x <= cpu_q;
-        cack_y <= cack_x;  cq_y <= cq_x;    // S8e: one more clk_sd stage for the blitter/write-watch copy (ack and data together)
     end
     always @(posedge clk_32) begin
         ram_ready <= rdy_x;
         vid_ack <= vack_x; vid_q <= vq_x; vid_q2 <= vq2_x;
         dma_ack <= dack_x; dma_q <= dq_x;
         ld_ack  <= lack_x;
-        cpu_ack_32 <= cack_y; cpu_q_32 <= cq_y;
+        cpu_ack_32 <= cack_x; cpu_q_32 <= cq_x;
     end
 endmodule

@@ -148,6 +148,13 @@ module falcon_scanout (
         end else if (stpal_we_r) pal[stpal_wa_r] <= stpal_wd_r;
     end
 
+    // SDR-1 S8f: Falcon palette write re-registered in clk_32 before the palette RAM, like the ST palette (S8e hold -0.017 ns
+    // clk_cpu fpal_wd -> RAM). The clk_cpu pulse is two clk_32 long; the copy writes the same entry one clk_32 later.
+    reg        fpal_we_r = 1'b0;
+    reg [7:0]  fpal_wa_r = 8'd0;
+    reg [17:0] fpal_wd_r = 18'd0;
+    always @(posedge clk_32) begin fpal_we_r <= fpal_we; fpal_wa_r <= fpal_wa; fpal_wd_r <= fpal_wd; end
+
     genvar gp;
     generate for (gp = 0; gp < 16; gp = gp + 1) begin : g_dpal
         assign dbg_pal[gp*12 +: 12] = pal[gp];
@@ -157,7 +164,7 @@ module falcon_scanout (
     wire [17:0] fpal_q;
     reg  [7:0]  fpal_ra;
     falcon_sdp_ram #(.DEPTH(256), .AW(8), .DW(18)) u_fpal (
-        .wclk(clk_32), .we(fpal_we), .waddr(fpal_wa), .wdata(fpal_wd),
+        .wclk(clk_32), .we(fpal_we_r), .waddr(fpal_wa_r), .wdata(fpal_wd_r),
         .rclk(clk_32), .raddr(fpal_ra), .rdata(fpal_q)
     );
 
