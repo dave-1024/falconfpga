@@ -202,7 +202,10 @@ set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*
 // SDR-1: DQ (write data) and DQM are registered in falcon_sdram_fast now (launched with the WRITE command), so they get the
 // same output timing as the command pins.
 set_output_delay -clock clk_32 -max 6.0 [get_ports {IO_sdram_dq[*] O_sdram_dqm[*]}]
-set_output_delay -clock clk_32 -min 0.0 [get_ports {IO_sdram_dq[*] O_sdram_dqm[*]}]
+// S6 (David 14:40 UK): DQ hold budget = the W9825G6KH datasheet tIH 0.8 ns (min output delay -0.8). S5 missed by 59 ps on the
+// DQ output-enable turn-on (IOB OEN path 0.485 ns). Setup budget (-max 6.0) unchanged; DQM keeps -min 0.0.
+set_output_delay -clock clk_32 -min -0.8 [get_ports {IO_sdram_dq[*]}]
+set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_dqm[*]}]
 // Flash SCK: pll_hdmi CLKOUT4, 100 MHz at 22.5 deg, through the AE350/ST pad mux to mspi_clk.
 create_generated_clock -name st_sck_pll -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 -phase 22.5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}]
 create_generated_clock -name clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}] -master_clock st_sck_pll -divide_by 1 [get_ports {mspi_clk}]
