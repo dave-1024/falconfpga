@@ -138,7 +138,7 @@ module falcon_bus #(
     // BLI-11 (25 Nov 2026): instruction fetches from ROM and ST-RAM cachable (bisect4: boots, GEMBENCH
     // CPU 234% vs 218% ROM-I only). Data reads stay inhibited: ROM data caching (bisect3) halts TOS at
     // $E1C3B8, under investigation (WF68K30L D-cache fill path). Full target: (is_rom && !is_vec) || is_ram.
-    wire       cachable = (is_rom && !is_vec) || (is_ram && cpu_fc[1:0] == 2'b10); // BUILD B: ROM I+D, RAM I
+    wire       cachable = (is_rom && !is_vec) || is_ram; // BLI-11g BUILD C3: ROM and ST-RAM I+D (with CACR WA in ST-RAM, falcon_core)
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;

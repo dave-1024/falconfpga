@@ -834,3 +834,18 @@ commit that those sources do not state.
   completed GEMBENCH 6.31 ST medium with Display 124%, CPU 234%, average 170% (ROM Access 49.180 s,
   same as `c563143`), and was written to flash 0 (bitstream md5 `d71b644a977dd56ff9a2093adad5038f`).
   RAM data caching remains open (C2 still bombs at `$E1C3C0`).
+- **ST-RAM data caching needs CACR WA (BLI-11g, 26 Nov 2026).** Build C2 (all caching) bombed at
+  `$E1C3C0` (GEMDOS/BIOS trap exit) right after the memory test. Cause: `falcon_core.v` built the CPU
+  with `WA_ADR_HI(1)` (an ST-core workaround), so write allocation never happened on the Falcon.
+  The 68030 data cache tags include FC2-0; a user write (FC=1) misses a line the supervisor cached
+  with FC=5 and, without write allocation, neither updates nor evicts it (MC68030UM 6.1.2 p6-8:
+  write allocation is what removes this supervisor/user stale data). TOS 4.04 sets CACR `$3111` (WA)
+  and its trap dispatcher reads user-pushed parameters through USP with FC=5, so it read stale
+  parameters as soon as user code ran. Sim: `sim/romtest/dc_user.S` reads 7,7,7... with the old
+  setting. *Fix (approved by David 08:34 UK):* new `WF68K30L_TOP` generic `WA_ADR_LIM`;
+  `falcon_core.v` `WA_ADR_HI(0), WA_ADR_LIM(14680064)` = write allocation in ST-RAM only (what TOS's
+  page-table CI gives a real Falcon; our cache writes honour TT CI but not page CI, so I/O must stay
+  out explicitly); `falcon_bus.v` caches ROM and ST-RAM instructions and data (build C3). TOS flushes
+  the D-cache after floppy/ACSI DMA, blitter runs and self-patched code, so no snooping is needed.
+  All `dc_*.S` (`dc_check.sh`, `WAHI=0 -gWALIM=14680064`) pass. *Lesson:* test user/supervisor
+  traffic, not only supervisor code, and check a board-only generic against the real chip.

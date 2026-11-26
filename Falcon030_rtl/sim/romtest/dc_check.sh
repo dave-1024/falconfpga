@@ -7,7 +7,7 @@
 # on a cached stack), dc_irq.S (dc_ram x3 with VBL interrupts: add -gIRQON=1 -gVBLPER=1013),
 # dc_flush.S (MOVES FC=1 write behind an FC=5 entry, then CACR CD; without the CD the check FAILs, so the harness is sensitive).
 P=$(readlink -f "$1"); W=$2; shift 2; D=$(cd "$(dirname "$0")" && pwd)
-mkdir -p $W; for c in 4 5; do bash $D/run.sh $P $W/c$c -gCIMODE=$c -gWAHI=1 -gMEMWAIT=6 -gBUF2W=1 "$@" > $W/c$c.out 2>&1 &
+mkdir -p $W; for c in 4 5; do bash $D/run.sh $P $W/c$c -gCIMODE=$c -gWAHI=${WAHI:-1} -gMEMWAIT=6 -gBUF2W=1 "$@" > $W/c$c.out 2>&1 &
 done; wait
 for c in 4 5; do grep -E " W A=0000([34]|040[89A-F]|041)" $W/c$c/run.log | awk '{print $4,$6,$7}' > $W/c$c.w; done
 if diff -q $W/c4.w $W/c5.w >/dev/null && [ -s $W/c4.w ]; then echo "PASS $(wc -l < $W/c4.w) writes identical"; else echo FAIL; diff $W/c4.w $W/c5.w | head; fi

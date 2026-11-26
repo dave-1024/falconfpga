@@ -35,7 +35,8 @@ entity tb_falcon is
            TRTO    : integer := 0;
            WAHI    : integer := -1;  -- BLI-11e: WF68K30L WA_ADR_HI (board falcon_core = 1: CACR WA allocates only A31:24=$01, i.e. never on the Falcon)
            MEMWAIT : integer := 2;   -- BLI-11e: clocks from AS to data for ROM/RAM cycles (board BUS-1 ~5-7)
-           BUF2W   : integer := 0);  -- BLI-11f: clocks for the A+2 word right after an aligned long read (falcon_bus BUS-1 buf2; 0 = off, MEMWAIT)
+           BUF2W   : integer := 0;   -- BLI-11f: clocks for the A+2 word right after an aligned long read (falcon_bus BUS-1 buf2; 0 = off, MEMWAIT)
+           WALIM   : integer := -1); -- BLI-11g: WF68K30L WA_ADR_LIM (Falcon: 16#E00000# = WA in ST-RAM only)
   -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4, c563143), 5 ROM+RAM I+D, 6 ROM I+D + RAM I (B2)
 end;
 architecture sim of tb_falcon is
@@ -90,7 +91,7 @@ architecture sim of tb_falcon is
   end;
 begin
   clk <= not clk after 31.25 ns when not done;   -- 16 MHz
-  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1, WA_ADR_HI => WAHI) port map (
+  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1, WA_ADR_HI => WAHI, WA_ADR_LIM => WALIM) port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
