@@ -18,8 +18,8 @@ this work stands on cores and tools written by other people.
 **Where it stands (26 Nov 2026).** TOS 4.04 boots to the desktop. Keyboard, mouse, floppy images and
 HDMI video work. Usual tests such as GEMBENCH and FrontBench run. The processor's instruction cache
 is on, and so is its full data cache (TOS in ROM and the computer's main memory), with write-allocate
-as on a real Falcon. Next is making the memory faster, which is also what the missing screen modes
-need, and a FrontBench video of this build. Sound, hard disk and the Falcon's DSP chip are not ready yet.
+as on a real Falcon. The memory chips now run at 80 MHz (build S8f, in flash 0). Next are the
+missing screen modes, which needed the faster memory. Sound, hard disk and the Falcon's DSP chip are not ready yet.
 
 The live source is on the [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon) branch.
 A step-by-step guide to building and flashing it is in
@@ -35,9 +35,11 @@ This GitHub repository's default branch is `main`; clone or check out `falcon` f
 
 ## Screenshots
 
-![GEMBENCH 6.31 results on the current board build](docs/img/gembench_C5.png)
+![GEMBENCH 6.31 results on build S8 (80 MHz memory)](docs/img/gembench_S8.png)
 
-GEMBENCH 6.31 in ST medium on the current board build: Display 120%, CPU 237%, average 169%.
+GEMBENCH 6.31 in ST medium on build S8 (the first 80 MHz memory build; the S8f build in flash 0 has
+the same memory controller): Display 147%, CPU 278%, average 202%. The previous build, C5, scored
+120%, 237% and 169%.
 
 ## What works
 
@@ -54,10 +56,10 @@ GEMBENCH 6.31 in ST medium on the current board build: Display 120%, CPU 237%, a
 - **The processor's instruction cache** is on, for both TOS in ROM and programs in main memory.
 - **The data cache** is on for TOS in ROM and for the computer's main memory, with write-allocate
   (the same setting a real Falcon uses).
-- **GEMBENCH** and **FrontBench** both run. On the current board build (C5, in flash 0), GEMBENCH 6.31
-  in ST medium scored Display 120%, CPU 237% and an average of 169% (compared with a blitter STE).
-  FrontBench's lastcount was 1079 in VGA 60 Hz and 1319 in RGB 50 Hz, measured on an earlier build
-  with the same video timing. More detail is in the
+- **80 MHz memory.** The memory chips (the Tang SDRAM module) run at 80 MHz instead of 32 MHz.
+- **GEMBENCH** and **FrontBench** both run. Measured on build S8 (80 MHz memory), GEMBENCH 6.31
+  in ST medium scored Display 147%, CPU 278% and an average of 202% (compared with a blitter STE;
+  C5 scored 120/237/169). FrontBench's lastcount on S8 was 1612 (C5 1317 in the same set-up). More detail is in the
   [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md).
 
 The processor runs at 16 MHz. The long-term aim is that each instruction takes the same number of
@@ -99,9 +101,9 @@ Falcon README).
 
 This is a map of the work, not a timetable. Next:
 
-1. **Faster memory.** First, start each memory access sooner. Then run the memory chips twice as
-   fast (64 MHz). That should also help the [heavier screen modes](#what-doesnt-work-yet). A
-   FrontBench video of the current build is also planned around this work.
+1. **Heavier screen modes** on the faster (80 MHz) memory, see
+   [What doesn't work (yet)](#what-doesnt-work-yet). An S8 bomb seen once on the first boot after
+   writing it to flash is being checked.
 2. **Make the processor as fast as a real 68030.** A long list of instruction timings is still a
    little slower than Motorola's manual. The list, and the order of work, is in the
    [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md#planned).
@@ -173,7 +175,8 @@ in `NOTICE.md` and in their files. Nothing here assigns their work to David.
 - **exxos**: GEMBENCH and the ST536 TOS 2.06 images used as test references
 - **agranlund**: `tftools` (fastram, maprom, blitfix) referenced for the ST536/TF536 TOS notes
 - **Łukasz Jokiel**: bug testing on his own Tang Console 138K, finding that Gowin V1.9.12.04 builds give no HDMI sync,
-  and finding the bug where the TOS 2.06 menu bar text was squashed up (stacked)
+  finding the bug where the TOS 2.06 menu bar text was squashed up (stacked), and finding that unpacking
+  the Andes toolchain with Midnight Commander corrupts it (`Bad fd number`; use `tar xf`)
 
 If a name is missing or something is credited wrongly, please say so and it
 will be fixed.
@@ -287,7 +290,7 @@ Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano
 ### Where it is headed
 
 1. ~~An ST/STE test bed with a 68030, caches, TT-RAM and the PMMU~~ (done, October 2026).
-2. **Now:** the Falcon core (TOS 4.04 desktop is up). The instruction cache and the full data cache (ROM and main memory, with write-allocate) are on. Next is faster memory (also needed for the remaining screen modes), a FrontBench video of this build, then the remaining 68030 timing work, the rest of the Falcon chipset and the helper cleanup. See [Planned](#planned).
+2. **Now:** the Falcon core (TOS 4.04 desktop is up). The instruction cache and the full data cache (ROM and main memory, with write-allocate) are on. The memory now runs at 80 MHz. Next are the remaining screen modes, then the remaining 68030 timing work, the rest of the Falcon chipset and the helper cleanup. See [Planned](#planned).
 
 ### Methods
 

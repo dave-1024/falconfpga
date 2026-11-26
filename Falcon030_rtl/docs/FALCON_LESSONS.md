@@ -716,6 +716,36 @@ Process lessons from the F172 MOVEM work, the SYNC test bench, and the vC1 verif
    `ok=24 fail=0` line (and the `MATCH`/`FAIL` rows) in each `mh*.log`. Do not write `wave_*.ok` stamps by hand.
 
 
+## LESSONS_LEARNED (SDR-1: SDRAM at 80 MHz, S1-S8f, 25-26 Nov 2026)
+
+- **80/32 MHz clock crossings are fragile; route them through clk_cpu registers.** The 80 MHz
+  controller clock (clk_sd) and clk32 come from the same PLL, but their closest edges are only
+  6.25 ns apart. Every direct clk32 <-> clk_sd path (the blitter's request/grant mux into the write
+  data, clk32 copies of the CPU-port ack/read data, palette writes) passed in one build and failed by
+  0.02-0.5 ns in the next as placement moved (S8d, S8e). Adding stages or re-registering only moved the
+  failure to another path. *Fix (S8f):* the blitter reaches the controller through clk_cpu (16 MHz)
+  registers: clk32 -> clk_cpu has 31.25 ns, clk_cpu -> clk_sd 12.5 ns, the same as `falcon_bus`.
+  The ack and read data come back together the same way. The grant is registered with the request,
+  so the mux never mixes stale halves. Palette write ports from clk_cpu are re-registered in clk32
+  before the RAM. *Lesson:* do not cross the 6.25 ns pair with anything wide; when a crossing fails,
+  change the structure rather than adding stages.
+- **Every RAM client needs a 4-phase handshake (S7).** The 80 MHz controller's clk32 ack falls
+  3 clk32 after the request drops. The old FDC RAM master asked again after 2 and took the stale
+  ack as a new one: it skipped words, and the floppy directory came out garbled (S5). *Fix:* the
+  master waits for `ram_ack` low before the next request (`falcon_fdc_ram_master`). The blitter was
+  already 4-phase. `sim/tb_sdram_fast` has a 512-word back-to-back FDC stream test (`-DFDC_OLD`
+  must still FAIL).
+- **Simulate start-up and the TOS cold clear.** `tb_sdram_fast -DSTART` raises a loader request
+  during the 200 us SDRAM init, drops PLL lock mid-init and releases the CPU right after the last
+  loader word. The long-write test copies the TOS cold-path memory clear (long writes as two
+  word cycles on the 16-bit port). Both pass on S8f.
+- **USB debugger and flash 0 (unproven lead).** With S8 in flash 0, the SIPEED USB debugger
+  dropped during a series of boots and only came back after FPGA recovery mode (no flash-0 load).
+  This looks like the old flash-release bug. Five forced cold boots each of S8f and C5 from SRAM
+  never dropped USB. Flash-0 boots of S8f are the next check.
+- **Board numbers (S8, flash 0):** GEMBENCH 6.31 ST medium Display 147%, CPU 278%, average 202%
+  (C5 120/237/169). FrontBench lastcount 1612 (C5 1317 in the same set-up).
+
 ## Bugs found (Falcon core)
 
 Findings from the Falcon build on branch `falcon`, in the same format. Sources: the

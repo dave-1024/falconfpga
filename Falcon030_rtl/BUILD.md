@@ -39,6 +39,9 @@ Project overview: the top [README](../README.md). Technical status:
    - The **Andes AST v5.1.1** toolchain (`nds32le-elf-newlib-v5`), from GitHub
      `andestech/Andes-Development-Kit`, release `ast-v5_1_1-release-linux`.
      A normal RISC-V compiler will **not** do instead.
+     Unpack the release archive with `tar xf` on the command line. Do **not** unpack it with
+     Midnight Commander: mc 4.8.30's xz unpack silently corrupts `riscv32-elf-gcc.gnu`, and the
+     build then stops with `Bad fd number`. Found by Łukasz Jokiel.
    - Gowin's **RiscV_AE350_SOC_V1.3** package (the "BSP", the helper's basic support files).
 
 Where to download Gowin EDA V1.9.12.03 and RiscV_AE350_SOC_V1.3 is not written in this repository.
@@ -215,14 +218,23 @@ Format the card as **FAT**. Put these files in the **root** of the card (not in 
    The on-screen menu's default name alone is not enough: TOS is only mounted when this
    `drive4=` line is present.
 
-   To start in RGB 50 Hz instead of VGA 60 Hz, you can also add:
+   All the lines `falcon.ini` understands (one per line; everything after a `;` is a comment):
 
    ```
-   var V=1
+   ; Falcon core settings
+   drive4=/sd/TOS404.IMG   ; TOS image (required, or TOS is not mounted)
+   drive0=/sd/games.st     ; floppy A: image mounted at power-on (optional)
+   var V=0                 ; monitor: 0 = VGA 60 Hz (default), 1 = RGB 50 Hz
+   option hotkey=69        ; OSD menu key, DECIMAL USB HID key code (69 = F12)
+   option led=0            ; board LED: 0 = blink, 1 = on, 2 = off
    ```
 
-   (`var V=0`, or no such line, is VGA.) Only write `falcon.ini` when you mean to. Do not use
-   the on-screen "Save settings" item unless you intend to overwrite this file.
+   - `option hotkey=` must be a **decimal** number. A hex value such as `0x45` is read as 0
+     and the menu can then no longer be opened.
+   - A missing line keeps the default (no TOS for `drive4=`, VGA, F12, blink).
+
+   Only write `falcon.ini` when you mean to. Do not use the on-screen "Save settings" item
+   unless you intend to overwrite this file.
 
 3. Optional **floppy images** (`.st` files). You can mount them from the on-screen menu
    (Disk A:) or from the helper console.
