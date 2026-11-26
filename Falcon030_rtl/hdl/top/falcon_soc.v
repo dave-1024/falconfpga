@@ -12,6 +12,7 @@
 // 68000-style select so each access is seen once (MFP UDR / ACIA RDR).
 module falcon_soc (
     input  wire        clk_32,
+    input  wire        clk_sd,           // SDR-1: 80 MHz SDRAM clock (pll_160m CLKOUT0, same VCO as clk_32 / clk_cpu)
     input  wire        clk_cpu,
     input  wire        clk_cpu_n,
     input  wire        clk_pixel,
@@ -73,6 +74,8 @@ module falcon_soc (
     wire [23:1] mem_a;
     wire [1:0]  mem_be;
     wire [15:0] mem_wdata, mem_rdata, mem_rdata2;
+    wire        mem_ack32;            // SDR-1: clk_32 copies of the CPU-port ack / data (blitter, write watch)
+    wire [15:0] mem_rdata32;
     wire        mem_rd2;
     wire        ext_wr_tog;   // BLI-11h: arbiter DMA/loader write slot toggle -> falcon_bus buf2 invalidate
 
@@ -88,10 +91,6 @@ module falcon_soc (
     wire [23:1] dma_a;
     wire [15:0] dma_d, dma_q;
 
-    wire        sd_cs_i, sd_we_i, sd_refresh, sd_ecs, sd_rd2;
-    wire [21:0] sd_waddr;
-    wire [1:0]  sd_ds, sd_st_ba;
-    wire [15:0] sd_din, sd_dout, sd_dout2;
 
     // CPU and falcon_bus reset must live in clk_cpu, like cpu030_st_bridge.v.
     // por / cpu_reset / user_reset are clk32 signals. clk_cpu rising coincides
@@ -141,34 +140,27 @@ module falcon_soc (
     reg [10:0]  w_seq = 11'd0;
     reg [15:0]  w_nblt = 16'd0;
     always @(posedge clk_32) begin
-        w_ack_q <= mem_ack;
-        if (a_cpu_req && a_cpu_we && mem_ack && !w_ack_q && a_cpu_a[23:3] == scan_probe_a[23:3]) begin
+        w_ack_q <= mem_ack32;
+        if (a_cpu_req && a_cpu_we && mem_ack32 && !w_ack_q && a_cpu_a[23:3] == scan_probe_a[23:3]) begin
             w_ring <= {blt_g32, a_cpu_a[2:1], a_cpu_be, w_seq, a_cpu_d, w_ring[255:32]};
             w_seq  <= w_seq + 11'd1;
             if (blt_g32) w_nblt <= w_nblt + 16'd1;
         end
     end
 
-    falcon_sdram_arb arb (
-        .clk(clk_32), .reset(por), .ram_ready(ram_ready),
-        .sd_cs(sd_cs_i), .sd_we(sd_we_i), .sd_refresh(sd_refresh), .sd_ecs(sd_ecs),
-        .sd_addr(sd_waddr), .sd_ds(sd_ds), .sd_din(sd_din), .sd_dout(sd_dout),
-        .sd_dout2(sd_dout2), .sd_rd2(sd_rd2), .sd_ba(sd_st_ba),
+    // SDR-1 (26 Nov 2026): 80 MHz controller + arbiter (replaces falcon_sdram_arb + sdram.v at 32 MHz).
+    // falcon_bus takes the clk_sd ack/data; the blitter and the write watch (clk_32) take the clk_32 copies.
+    falcon_sdram_fast sdram (
+        .clk_sd(clk_sd), .clk_32(clk_32), .reset(por),
+        .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
+        .sd_data(sd_data), .sd_addr(sd_addr), .sd_dqm(sd_dqm), .sd_ba(sd_ba), .ram_ready(ram_ready),
         .vid_req(vid_req), .vid_a(vid_a), .vid_ack(vid_ack), .vid_q(vid_q), .vid_q2(vid_q2),
         .dma_req(dma_req), .dma_we(dma_we), .dma_a(dma_a), .dma_d(dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
         .ld_req(use_ld), .ld_a(ld_a), .ld_d(ld_d), .ld_ack(ld_ack),
-        .cpu_req(a_cpu_req), .cpu_a(a_cpu_a), .cpu_we(a_cpu_we), .cpu_be(a_cpu_be),
-        .cpu_d(a_cpu_d), .cpu_ack(mem_ack), .cpu_q(mem_rdata),
-        .cpu_rd2(!blt_g32 && !cpu_reset && mem_rd2), .cpu_q2(mem_rdata2), .ext_wr_tog(ext_wr_tog)
-    );
-
-    sdram sdram (
-        .clk(clk_32), .reset_n(~por), .ready(ram_ready),
-        .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_data(sd_data), .sd_addr(sd_addr),
-        .sd_dqm(sd_dqm), .sd_ba(sd_ba), .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
-        .refresh(sd_refresh), .din(sd_din), .dout(sd_dout), .dout2(sd_dout2),
-        .addr(sd_waddr), .ds(sd_ds), .cs(sd_cs_i), .ecs(sd_ecs), .we(sd_we_i),
-        .zmask(1'b0), .st_ba(sd_st_ba), .st_rd2(sd_rd2)
+        .cpu_req(a_cpu_req), .cpu_a(a_cpu_a), .cpu_we(a_cpu_we), .cpu_be(a_cpu_be), .cpu_d(a_cpu_d),
+        .cpu_rd2(!blt_g32 && !cpu_reset && mem_rd2),
+        .cpu_ack(mem_ack), .cpu_q(mem_rdata), .cpu_q2(mem_rdata2),
+        .cpu_ack_32(mem_ack32), .cpu_q_32(mem_rdata32), .ext_wr_tog(ext_wr_tog)
     );
 
     // ---- clk_32 enables, same idea as atarist.v (no GSTMCU) ----
@@ -281,7 +273,7 @@ module falcon_soc (
         .rdata(blt_rdata), .done(blt_done),
         .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),
-        .m_ack(mem_ack), .m_rdata(mem_rdata), .irq_n(blt_irq_n), .dbg(blt_dbg), .dbg_snap(blt_snap)
+        .m_ack(mem_ack32), .m_rdata(mem_rdata32), .irq_n(blt_irq_n), .dbg(blt_dbg), .dbg_snap(blt_snap)
     );
 
     // ---- peripheral sub-bus (clk_32) ----

@@ -1,0 +1,250 @@
+// falcon_sdram_fast.v - SDR-1: SDRAM controller + arbiter at 80 MHz (clk_sd = pll_160m CLKOUT0, VCO 800 / 10)
+//
+// FalconFPGA, Falcon030_rtl. Copyright (C) 2026 FalconFPGA project (dave-1024).
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Replaces falcon_sdram_arb.v + sdram.v (32 MHz, fixed 8-clock = 250 ns slots). Same client ports.
+// Why 80 and not 64 MHz: 64 MHz cannot come from the 50 MHz board clock on the PLL that makes clk32 /
+// clk_cpu030 (needs a 1600 MHz VCO, out of range). The 2025 sdram64 attempt used a second PLL fed from
+// clk32; STA could not follow that cascade and the clk32 <-> 64 MHz handover was mistimed (BAD ROM CRC).
+// 80 MHz = VCO 800 / 10 on the SAME PLL: clk_cpu030 = clk_sd / 5, clk32 = clk_sd / 2.5, all phase-locked
+// and timed by STA (worst clk32 <-> clk_sd edge pair 6.25 ns, clk_cpu <-> clk_sd 12.5 ns).
+//
+// W9825G6KH-6 at 80 MHz (12.5 ns): CL2, BL1, tRCD 2, tRAS 4, tRP 2, tRC 5, tWR 2, tRFC 6 clocks.
+// One slot = 6 clocks (75 ns, was 250 ns), one bank opened and closed per access:
+//   read : a0 ACT, a2 READ, a4 PRE       | burst-2: a2 READ, a3 READ (col+1), a4 PRE
+//   write: a0 ACT, a2 WRITE (DQ, DQM), a4 PRE | refresh: a0 AUTO REFRESH; next slot a6
+// Read data: the DQ input register samples on READ+3 (as sdram.v at 32 MHz; pad clock leads clk_sd),
+// the client register is written on READ+4.
+// CPU word read (falcon_bus raises mem_req on a clk_cpu edge, idle SDRAM): captured +1, ACT +2, READ +4,
+// DQ +7, cpu_q/ack +8, falcon_bus sees ack on the next clk_cpu edge (+10) = 2 clk_cpu (was 4).
+//
+// Domains: every input is registered once in clk_sd. cpu_ack/cpu_q/cpu_q2 are clk_sd registers for
+// falcon_bus (clk_cpu, 12.5 ns). The clk32 clients (scanout, floppy DMA, loader, blitter on the CPU port,
+// debug) get clk32 copies (*_32), so their logic never sees the 6.25 ns clk_sd -> clk32 edge pair.
+// 4-phase handshake as before: req held until ack, ack held (internally) until req is seen low.
+// Priority per slot: refresh > scanout > floppy DMA > loader > CPU/blitter (as falcon_sdram_arb).
+module falcon_sdram_fast #(
+    parameter integer INIT_WAIT = 16000,  // clk_sd clocks of NOP after reset (200 us)
+    parameter integer REF_INT   = 300     // clk_sd clocks between AUTO REFRESH (3.75 us; 8192 rows in 31 ms)
+) (
+    input  wire        clk_sd,          // 80 MHz
+    input  wire        clk_32,          // 32 MHz, same PLL
+    input  wire        reset,           // clk32 domain, active high
+    // chip pins
+    output wire        sd_clk, sd_cke, sd_cs, sd_we, sd_ras, sd_cas,
+    inout  wire [31:0] sd_data,
+    output reg  [12:0] sd_addr,
+    output wire [3:0]  sd_dqm,
+    output reg  [1:0]  sd_ba,
+    output reg         ram_ready,       // clk32 copy
+    // scanout (clk32)
+    input  wire        vid_req,
+    input  wire [23:1] vid_a,
+    output reg         vid_ack,
+    output reg  [15:0] vid_q,
+    output reg  [15:0] vid_q2,
+    // floppy DMA (clk32)
+    input  wire        dma_req,
+    input  wire        dma_we,
+    input  wire [23:1] dma_a,
+    input  wire [15:0] dma_d,
+    output reg         dma_ack,
+    output reg  [15:0] dma_q,
+    // TOS loader (clk32, writes only)
+    input  wire        ld_req,
+    input  wire [23:1] ld_a,
+    input  wire [15:0] ld_d,
+    output reg         ld_ack,
+    // CPU port (falcon_bus on clk_cpu, or the blitter on clk32)
+    input  wire        cpu_req,
+    input  wire [23:1] cpu_a,
+    input  wire        cpu_we,
+    input  wire [1:0]  cpu_be,          // {UDS,LDS} active high
+    input  wire [15:0] cpu_d,
+    input  wire        cpu_rd2,         // aligned long read: also fetch A+2 (second word -> cpu_q2)
+    output reg         cpu_ack,         // clk_sd (falcon_bus)
+    output reg  [15:0] cpu_q,           // clk_sd, valid with cpu_ack
+    output reg  [15:0] cpu_q2,          // clk_sd, valid one clk_sd after cpu_ack
+    output reg         cpu_ack_32,      // clk32 copies (blitter, debug write watch)
+    output reg  [15:0] cpu_q_32,
+    output reg         ext_wr_tog       // toggles when a floppy-DMA / loader write is taken (falcon_bus buf2)
+);
+    localparam [2:0] CMD_NOP = 3'b111, CMD_ACT = 3'b011, CMD_RD = 3'b101, CMD_WR = 3'b100,
+                     CMD_PRE = 3'b010, CMD_REF = 3'b001, CMD_MRS = 3'b000;
+    // {WB single, op 00, CL2, sequential, BL1}
+    localparam [12:0] MODE = 13'h0220;
+    localparam [2:0] W_NONE = 3'd0, W_VID = 3'd2, W_DMA = 3'd3, W_LD = 3'd4, W_CPU = 3'd5;
+
+    (* syn_useioff = 1 *) reg [2:0]  sd_cmd = CMD_NOP;
+    (* syn_useioff = 1 *) reg [15:0] dq_out = 16'h0000;
+    (* syn_useioff = 1 *) reg [1:0]  dqm_r  = 2'b00;
+    (* syn_useioff = 1 *) reg [15:0] dq_in  = 16'h0000;
+    reg        dq_oe = 1'b0;
+    assign sd_clk = 1'b0;            // the pad clock comes from pll_160m CLKOUT2
+    assign sd_cke = 1'b1;
+    assign sd_cs  = 1'b0;
+    assign sd_ras = sd_cmd[2];
+    assign sd_cas = sd_cmd[1];
+    assign sd_we  = sd_cmd[0];
+    assign sd_data = {16'bz, dq_oe ? dq_out : 16'bz};
+    assign sd_dqm  = {2'bzz, dqm_r};
+
+    // ---- reset into clk_sd ----
+    reg [1:0] rst_s = 2'b11;
+    always @(posedge clk_sd) rst_s <= {rst_s[0], reset};
+    wire rst = rst_s[1];
+
+    // ---- input registers (one clk_sd stage, no logic in front) ----
+    reg        vreq_r = 1'b0, dreq_r = 1'b0, dwe_r = 1'b0, lreq_r = 1'b0, creq_r = 1'b0, cwe_r = 1'b0, crd2_r = 1'b0;
+    reg [23:1] va_r, da_r, la_r, ca_r;
+    reg [15:0] dd_r, ld_r, cd_r;
+    reg [1:0]  cbe_r;
+    always @(posedge clk_sd) begin
+        vreq_r <= vid_req; va_r <= vid_a;
+        dreq_r <= dma_req; dwe_r <= dma_we; da_r <= dma_a; dd_r <= dma_d;
+        lreq_r <= ld_req;  la_r <= ld_a; ld_r <= ld_d;
+        creq_r <= cpu_req; cwe_r <= cpu_we; ca_r <= cpu_a; cd_r <= cpu_d; cbe_r <= cpu_be; crd2_r <= cpu_rd2;
+    end
+
+    // ---- internal acks (clk_sd) ----
+    reg vack = 1'b0, dack = 1'b0, lack = 1'b0;
+    reg [15:0] vq = 16'h0, vq2 = 16'h0, dq = 16'h0;
+    wire take_vid = vreq_r && !vack;
+    wire take_dma = dreq_r && !dack;
+    wire take_ld  = lreq_r && !lack;
+    wire take_cpu = creq_r && !cpu_ack;
+
+    // ---- init / refresh / slot state ----
+    reg [14:0] icnt = 15'd0;
+    reg [3:0]  istep = 4'd0;
+    reg        ready = 1'b0;
+    reg [8:0]  reftmr = 9'd0;
+    reg        ref_pend = 1'b0;
+    reg        busy = 1'b0;
+    reg [2:0]  sc = 3'd0;            // slot clock of the NEXT edge (1..5)
+    reg [2:0]  win = W_NONE;
+    reg        s_we = 1'b0, s_rd2 = 1'b0;
+    reg [8:0]  s_col = 9'd0;
+    reg [1:0]  s_ba = 2'b00;
+    reg [1:0]  s_be = 2'b00;
+    reg [15:0] s_d = 16'h0;
+    // read pipeline: bit k set k+1 clocks after the READ edge; [3] = dq_in holds the word now
+    reg [3:0]  rp0 = 4'd0, rp1 = 4'd0;
+    reg [2:0]  dwin = W_NONE;        // owner of the words in flight (set at the first READ)
+    reg        d_rd2 = 1'b0;
+
+    function [12:0] rowof; input [23:1] a; begin rowof = a[22:10]; end endfunction
+    function [8:0]  colof; input [23:1] a; begin colof = a[9:1];   end endfunction
+    function [1:0]  bankof; input [23:1] a; begin bankof = {1'b0, a[23]}; end endfunction
+
+    always @(posedge clk_sd) begin
+        sd_cmd <= CMD_NOP;
+        dq_oe  <= 1'b0;
+        dqm_r  <= 2'b00;
+        dq_in  <= sd_data[15:0];
+        rp0 <= {rp0[2:0], 1'b0};
+        rp1 <= {rp1[2:0], 1'b0};
+        // 4-phase: an ack falls once its request is seen low
+        if (vack && !vreq_r) vack <= 1'b0;
+        if (dack && !dreq_r) dack <= 1'b0;
+        if (lack && !lreq_r) lack <= 1'b0;
+        if (cpu_ack && !creq_r) cpu_ack <= 1'b0;
+
+        if (rst) begin
+            icnt <= 15'd0; istep <= 4'd0; ready <= 1'b0; busy <= 1'b0; sc <= 3'd0;
+            reftmr <= 9'd0; ref_pend <= 1'b0; win <= W_NONE; rp0 <= 4'd0; rp1 <= 4'd0;
+            vack <= 1'b0; dack <= 1'b0; lack <= 1'b0; cpu_ack <= 1'b0; ext_wr_tog <= 1'b0;
+        end else if (!ready) begin
+            // power-up: NOP wait, PRECHARGE ALL, 2 x AUTO REFRESH, LOAD MODE
+            icnt <= icnt + 15'd1;
+            case (istep)
+            4'd0: if (icnt == INIT_WAIT[14:0]) begin sd_cmd <= CMD_PRE; sd_addr <= 13'h0400; istep <= 4'd1; icnt <= 15'd0; end
+            4'd1: if (icnt == 15'd4)  begin sd_cmd <= CMD_REF; istep <= 4'd2; icnt <= 15'd0; end
+            4'd2: if (icnt == 15'd8)  begin sd_cmd <= CMD_REF; istep <= 4'd3; icnt <= 15'd0; end
+            4'd3: if (icnt == 15'd8)  begin sd_cmd <= CMD_MRS; sd_addr <= MODE; sd_ba <= 2'b00; istep <= 4'd4; icnt <= 15'd0; end
+            4'd4: if (icnt == 15'd4)  begin ready <= 1'b1; end
+            default: ;
+            endcase
+        end else begin
+            reftmr <= reftmr + 9'd1;
+            if (reftmr == REF_INT[8:0] - 9'd1) begin reftmr <= 9'd0; ref_pend <= 1'b1; end
+
+            if (busy) begin
+                sc <= sc + 3'd1;
+                if (sc == 3'd5) busy <= 1'b0;
+                if (sc == 3'd2 && win != W_NONE) begin
+                    sd_ba <= s_ba;
+                    if (s_we) begin
+                        sd_cmd <= CMD_WR; sd_addr <= {4'b0000, s_col};
+                        dq_out <= s_d; dq_oe <= 1'b1; dqm_r <= ~s_be;
+                    end else begin
+                        sd_cmd <= CMD_RD; sd_addr <= {4'b0000, s_col};
+                        rp0[0] <= 1'b1; dwin <= win; d_rd2 <= s_rd2;
+                    end
+                end
+                if (sc == 3'd3 && win != W_NONE && !s_we && s_rd2) begin
+                    sd_cmd <= CMD_RD; sd_addr <= {4'b0000, s_col + 9'd1}; sd_ba <= s_ba;
+                    rp1[0] <= 1'b1;
+                end
+                // explicit bank PRECHARGE at a4 (tRAS 50 ns, tWR 2 after the a2 WRITE, after the last READ of
+                // a burst-2 at a3 with CL2 the data is not cut); next ACT at a6 (tRP 25 ns, tRC 75 ns)
+                if (sc == 3'd4 && win != W_NONE) begin
+                    sd_cmd <= CMD_PRE; sd_addr <= 13'h0000; sd_ba <= s_ba;
+                end
+            end else begin
+                // slot start: ACT (or REFRESH) on this edge
+                sc <= 3'd1;
+                if (ref_pend) begin
+                    busy <= 1'b1; win <= W_NONE; ref_pend <= 1'b0; sd_cmd <= CMD_REF;
+                end else if (take_vid) begin
+                    busy <= 1'b1; win <= W_VID; s_we <= 1'b0; s_rd2 <= (va_r[9:1] != 9'h1FF);
+                    sd_cmd <= CMD_ACT; sd_addr <= rowof(va_r); sd_ba <= bankof(va_r);
+                    s_col <= colof(va_r); s_ba <= bankof(va_r);
+                end else if (take_dma) begin
+                    busy <= 1'b1; win <= W_DMA; s_we <= dwe_r; s_rd2 <= 1'b0; s_be <= 2'b11; s_d <= dd_r;
+                    sd_cmd <= CMD_ACT; sd_addr <= rowof(da_r); sd_ba <= bankof(da_r);
+                    s_col <= colof(da_r); s_ba <= bankof(da_r);
+                    if (dwe_r) begin dack <= 1'b1; ext_wr_tog <= ~ext_wr_tog; end   // posted write
+                end else if (take_ld) begin
+                    busy <= 1'b1; win <= W_LD; s_we <= 1'b1; s_rd2 <= 1'b0; s_be <= 2'b11; s_d <= ld_r;
+                    sd_cmd <= CMD_ACT; sd_addr <= rowof(la_r); sd_ba <= bankof(la_r);
+                    s_col <= colof(la_r); s_ba <= bankof(la_r);
+                    lack <= 1'b1; ext_wr_tog <= ~ext_wr_tog;
+                end else if (take_cpu) begin
+                    busy <= 1'b1; win <= W_CPU; s_we <= cwe_r; s_rd2 <= crd2_r && !cwe_r && (ca_r[9:1] != 9'h1FF);
+                    s_be <= cbe_r; s_d <= cd_r;
+                    sd_cmd <= CMD_ACT; sd_addr <= rowof(ca_r); sd_ba <= bankof(ca_r);
+                    s_col <= colof(ca_r); s_ba <= bankof(ca_r);
+                    if (cwe_r) cpu_ack <= 1'b1;   // posted write
+                end
+            end
+
+            // read data hand-off (READ+4; dq_in was sampled on READ+3)
+            if (rp0[3]) begin
+                case (dwin)
+                W_VID: begin vq <= dq_in; if (!d_rd2) vack <= 1'b1; end
+                W_DMA: begin dq <= dq_in; dack <= 1'b1; end
+                W_CPU: begin cpu_q <= dq_in; cpu_ack <= 1'b1; end
+                default: ;
+                endcase
+            end
+            if (rp1[3]) begin
+                case (dwin)
+                W_VID: begin vq2 <= dq_in; vack <= 1'b1; end
+                W_CPU: cpu_q2 <= dq_in;
+                default: ;
+                endcase
+            end
+        end
+    end
+
+    // ---- clk32 copies for the clk32 clients ----
+    always @(posedge clk_32) begin
+        ram_ready <= ready && !rst;
+        vid_ack <= vack; vid_q <= vq; vid_q2 <= vq2;
+        dma_ack <= dack; dma_q <= dq;
+        ld_ack  <= lack;
+        cpu_ack_32 <= cpu_ack; cpu_q_32 <= cpu_q;
+    end
+endmodule

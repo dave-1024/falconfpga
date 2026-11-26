@@ -31,7 +31,7 @@ add_file $F/hdl/top/tos_loader.v
 add_file $F/hdl/top/tos_mount_latch.v
 add_file $F/hdl/bus/falcon_bus.v
 add_file $F/hdl/bus/falcon_pbus.v
-add_file $F/hdl/bus/falcon_sdram_arb.v
+add_file $F/hdl/bus/falcon_sdram_fast.v
 add_file $F/hdl/video/videl_regs.v
 add_file $F/hdl/video/falcon_sdp_ram.v
 add_file $F/hdl/video/falcon_scanout.v
@@ -109,7 +109,7 @@ add_file $F/hdl/misc/sd_rw.v
 add_file $F/hdl/misc/sdcmd_ctrl.v
 add_file $F/hdl/misc/sysctrl.v
 add_file $F/hdl/misc/atarist_keymap.v
-add_file $F/hdl/tang/mega138kpro/sdram.v
+# SDR-1: sdram.v (32 MHz) replaced by hdl/bus/falcon_sdram_fast.v (80 MHz)
 add_file $F/hdl/tang/mega138kpro/gowin_dpb/fdc_dpram.v
 add_file $F/hdl/tang/mega138kpro/gowin_dpb/sector_dpram.v
 add_file $F/hdl/tang/console138k/gowin_pll/pll_160m.v

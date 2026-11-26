@@ -910,6 +910,7 @@ assign leds_int_n  = {4'b1111, cpu_halted_n, ~(cpu_reset | tos_err)};
 wire system_video;
 falcon_soc u_soc (
     .clk_32          ( clk32        ),
+    .clk_sd          ( clk_sd       ),
     .clk_cpu         ( clk_cpu030   ),
     .clk_cpu_n       ( clk_cpu030_n ),
     .clk_pixel       ( clk_hdmi     ),
@@ -1085,7 +1086,7 @@ Output4:
   Phase: 22.5°
 */
  
-wire	   clk_pixel_x5; // pll_160m clkout0: 160 MHz (not used for HDMI)
+wire	   clk_sd;       // SDR-1: pll_160m clkout0: 80 MHz SDRAM controller clock (VCO 800 / 10)
 wire	   clk_pixel;    // pll_160m clkout1: 32 MHz == clk32. NOT the 25.2 MHz HDMI clock.
 wire	   clk_cpu030;   // 16 MHz 68030 clock, phase-locked to clk32
 wire	   clk_cpu030_n; // clk_cpu030 at 180 degrees (WF68K30L falling-edge registers)
@@ -1093,9 +1094,9 @@ wire	   clk_hdmi;     // 25.2 MHz, CLKDIV/5 of gowin_pll_hdmi (scanout + hdmi_64
 wire	   clk_hdmi_x5;  // 126 MHz TMDS clock
 wire	   hdmi_pll_lock;
 pll_160m pll_hdmi (
-               .clkout0(clk_pixel_x5),       // 160 MHz
+               .clkout0(clk_sd),             // 80 MHz, SDRAM controller (falcon_sdram_fast)
                .clkout1(clk_pixel),          // 32 MHz
-               .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
+               .clkout2(O_sdram_clk),        // 80 MHz, 306 deg (-1.875 ns): SDRAM pad clock
                .clkout3(flash_clk),          // 100 MHz
 `ifdef AE350_SERIAL
                .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°
