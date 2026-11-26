@@ -44,6 +44,7 @@ module falcon_bus #(
     input  wire [15:0] mem_rdata,
     output reg         mem_rd2,       // BUS-1: aligned long read, the arbiter also fetches A+2 (burst-2)
     input  wire [15:0] mem_rdata2,    // BUS-1: that second word
+    input  wire        ext_wr_tog,    // BLI-11h: clk32 toggle per arbiter DMA/loader write slot (invalidates buf2)
     // IO byte/word port to the peripherals (falcon_io.v)
     output wire        io_cyc,        // valid IO cycle in progress (whitelisted)
     output reg  [15:1] io_a,          // $FF8000 + .., latched with the cycle
@@ -118,7 +119,7 @@ module falcon_bus #(
     assign io_cyc    = (state == S_IO) || io_wr;
 
     localparam S_IDLE = 3'd0, S_MEM = 3'd1, S_IO = 3'd2, S_IACK = 3'd3,
-               S_END = 3'd4, S_WEND = 3'd5, S_WAITACK = 3'd6;
+               S_END = 3'd4, S_WEND = 3'd5, S_WAITACK = 3'd6, S_CHK = 3'd7;
     // BUS-1 (25 Nov 2026): mem_ack and mem_rdata are clk32 registers (the arbiter ack and sdram.v dout,
     // written on the same phase-4 edge) and clk_cpu rises on a clk32 edge, so they are sampled directly
     // (timed clk32 -> clk_cpu path, one clk32 = 31.25 ns) without the old extra mem_ack_s stage.
@@ -136,15 +137,29 @@ module falcon_bus #(
     // is A+2, already fetched by the same sd_rd2 slot, so the fill is answered from buf2 with no SDRAM slot.
     // Because the next cycle is no longer guaranteed to be the continuation (D-cache off/frozen, RMC, no
     // fill), buf_hit compares the full physical word address (was A3:1), read, SIZ word or byte.
+    // BLI-11h C5 (26 Nov 2026, C4 bombed on GEMBENCH launch): buf2 was valid until the next CPU cycle with no
+    // time limit, so a floppy-DMA write to A+2 in between was missed. Now buf2 is also dropped (a) on any
+    // arbiter DMA/loader write slot (ext_wr_tog, 2-flop sync; a write still in the sync is ordered after the
+    // fill), (b) after BUF_IDLE clocks with no CPU cycle. The byte/word buffer (buf2_lng=0) is checked in
+    // S_CHK one clock later against a_eq, registered from a24 in S_IDLE (keeps the 23-bit compare out of the
+    // S_IDLE decode; C4 clk_cpu030 16.3 vs C3 17.0 MHz); mem_* are set up in S_IDLE and mem_req only rises in
+    // S_CHK on a miss (+1 clock). The long-read continuation (buf2_lng=1) keeps the S_IDLE A3:1 fast hit.
     reg [23:1] buf2_a;
-    reg        buf2_v, rd2_pend;
+    reg        buf2_v, rd2_pend, buf2_lng, rd2_lng, a_eq;
+    reg [2:0]  ewt_s;
+    reg [2:0]  b_idle;
+    localparam [2:0] BUF_IDLE = 3'd4;
+    always @(posedge clk) ewt_s <= {ewt_s[1:0], ext_wr_tog};
+    wire       ext_wr = ewt_s[2] ^ ewt_s[1];
     wire       long_rd = cpu_rw && cpu_siz == 2'b00 && !a24[1];
     // BLI-11 (25 Nov 2026): instruction fetches from ROM and ST-RAM cachable (bisect4: boots, GEMBENCH
     // CPU 234% vs 218% ROM-I only). Data reads stay inhibited: ROM data caching (bisect3) halts TOS at
     // $E1C3B8, under investigation (WF68K30L D-cache fill path). Full target: (is_rom && !is_vec) || is_ram.
     wire       cachable = (is_rom && !is_vec) || is_ram; // BLI-11g BUILD C3: ROM and ST-RAM I+D (with CACR WA in ST-RAM, falcon_core)
     wire       wb_rd2  = cpu_rw && (cpu_siz == 2'b10 || cpu_siz == 2'b01) && !a24[1] && cachable;
-    wire       buf_hit = buf2_v && cpu_rw && (cpu_siz == 2'b10 || cpu_siz == 2'b01) && a24[23:1] == buf2_a;
+    wire       sz_wb   = cpu_siz == 2'b10 || cpu_siz == 2'b01;
+    wire       buf_hit = buf2_v && buf2_lng && cpu_rw && cpu_siz == 2'b10 && a24[3:1] == buf2_a[3:1];  // long continuation
+    wire       buf_chk = buf2_v && !buf2_lng && cpu_rw && sz_wb;                                       // byte/word: S_CHK
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;
@@ -158,6 +173,7 @@ module falcon_bus #(
             io_a <= 15'd0; io_uds <= 1'b0; io_lds <= 1'b0; io_rw <= 1'b1; io_wdata <= 16'd0;
             cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1;
             cpu_ciin_n <= 1'b0; mem_rd2 <= 1'b0; buf2_v <= 1'b0; rd2_pend <= 1'b0;
+            buf2_lng <= 1'b0; rd2_lng <= 1'b0; a_eq <= 1'b0; b_idle <= 3'd0;
         end else case (state)
             S_IDLE: if (bus_grant || br_s[1]) begin
                 bus_grant <= br_s[1];             // grant only between cycles; release when BR drops
@@ -180,8 +196,11 @@ module falcon_bus #(
                         mem_a <= mem_a_c; mem_we <= mem_we_c;
                         mem_be <= mem_be_c; mem_wdata <= mem_wdata_c;
                         mem_rd2 <= long_rd || wb_rd2; rd2_pend <= long_rd || wb_rd2; buf2_a <= {a24[23:2], 1'b1}; // A1=0 -> A+2
+                        rd2_lng <= long_rd;
+                        a_eq <= a24[23:1] == buf2_a;
                         // 4-phase: do not raise req while a leftover ack is still high
-                        if (mem_ack_s) state <= S_WAITACK;
+                        if (buf_chk) state <= S_CHK;
+                        else if (mem_ack_s) state <= S_WAITACK;
                         else begin mem_req <= 1'b1; state <= S_MEM; end
                     end
                 end else if (is_cart) begin cpu_din <= 32'hFFFFFFFF; cpu_dsack_n <= 2'b01; state <= S_END; end
@@ -192,6 +211,10 @@ module falcon_bus #(
                 end
                 else begin cpu_berr_n <= 1'b0; state <= S_END; end
             end
+            S_CHK: if (a_eq) begin   // byte/word buffer hit: the 030 fill for A+2, no SDRAM slot
+                cpu_din <= {buf2, buf2}; cpu_dsack_n <= 2'b01; rd2_pend <= 1'b0; mem_rd2 <= 1'b0; state <= S_END;
+            end else if (mem_ack_s) state <= S_WAITACK;
+            else begin mem_req <= 1'b1; state <= S_MEM; end
             S_WAITACK: if (!mem_ack_s) begin mem_req <= 1'b1; state <= S_MEM; end
             S_MEM: if (mem_ack_s) begin
                 mem_req <= 1'b0; cpu_din <= {mem_rdata_s, mem_rdata_s}; cpu_dsack_n <= 2'b01; state <= S_END;
@@ -210,12 +233,17 @@ module falcon_bus #(
             end
             S_END, S_WEND: begin
                 // second burst word: written by sdram.v one clk32 after the ack edge, so one clk_cpu later
-                if (rd2_pend) begin buf2 <= mem_rdata2; buf2_v <= 1'b1; rd2_pend <= 1'b0; end
+                if (rd2_pend) begin buf2 <= mem_rdata2; buf2_v <= 1'b1; buf2_lng <= rd2_lng; rd2_pend <= 1'b0; end
                 if (cpu_as_n) begin
                 cpu_dsack_n <= 2'b11; cpu_berr_n <= 1'b1; cpu_avec_n <= 1'b1; state <= S_IDLE;
                 end
             end
             default: state <= S_IDLE;
         endcase
+        // BLI-11h C5: buf2 lifetime (after the case so it wins over the S_END capture)
+        if (!reset) begin
+            b_idle <= (state == S_IDLE && cpu_as_n) ? (b_idle == BUF_IDLE ? b_idle : b_idle + 3'd1) : 3'd0;
+            if (ext_wr || (state == S_IDLE && cpu_as_n && b_idle == BUF_IDLE)) buf2_v <= 1'b0;
+        end
     end
 endmodule
