@@ -3,7 +3,10 @@
 // Board model: pad clock leads clk_sd by PAD_LEAD, pad/board delay TPAD on clock and commands, tAC/tOH on reads.
 // Traffic: loader fills region L, then scanout (burst-2) reads L, floppy DMA writes/reads region D, the CPU
 // (030 bus BFM through falcon_bus) writes/reads region C and long-reads L, all at once. Every read is checked.
-// Run: iverilog -g2012 -o t tb_sdram_fast.v ../hdl/bus/falcon_sdram_fast.v ../hdl/bus/falcon_bus.v && vvp t
+// Run: iverilog -g2012 -s tb_sdram_fast -o t tb_sdram_fast.v ../hdl/bus/falcon_sdram_fast.v ../hdl/bus/falcon_bus.v \
+//        ../hdl/peri/falcon_fdc.v && vvp t        (add -DFDC_OLD for the pre-S7 FDC RAM master: the FDC stream test FAILS)
+// S7: FDC stream test = falcon_fdc_ram_master (the real falcon_fdc RAM master) fed like dma.v (registered FIFO word,
+// pointer advances on the rdy_i rising edge) writes 512 words back to back, then they are read back 4-phase and checked.
 `timescale 1ns/1ps
 module tb_sdram_fast;
     parameter real PAD_LEAD = 1.875, TPAD = 3.0, TCO = 3.0, TAC = 6.0, TOH = 3.0, TBRD = 1.0;
@@ -22,6 +25,25 @@ module tb_sdram_fast;
     reg ld_req = 0; reg [23:1] ld_a = 0; reg [15:0] ld_d = 0; wire ld_ack;
     wire mem_req, mem_we, mem_ack, mem_rd2; wire [23:1] mem_a; wire [1:0] mem_be; wire [15:0] mem_wdata, mem_rdata, mem_rdata2;
     wire ext_wr_tog;
+    // S7 FDC stream test: falcon_fdc_ram_master drives the DMA port while fdc_mode = 1
+    reg fdc_mode = 0, fdc_go = 0; reg [15:0] fbuf [0:511]; reg [9:0] frp = 0; reg [15:0] fdat = 0; reg frdy_d = 0;
+    reg [23:1] fdc_a = 0; wire f_req, f_rdy; wire [15:0] f_q;
+`ifdef FDC_OLD
+    localparam FDC_WAIT = 0;
+`else
+    localparam FDC_WAIT = 1;
+`endif
+    falcon_fdc_ram_master #(.WAIT_ACK_LOW(FDC_WAIT)) u_frm (.clk(clk32), .reset(por), .br(fdc_go && frp < 10'd512),
+        .ram_ack(fdc_mode && dma_ack), .ram_rdata(dma_q), .ram_req(f_req), .ram_q(f_q), .rdy_i(f_rdy));
+    always @(posedge clk32) begin
+        frdy_d <= f_rdy; fdat <= fbuf[frp[8:0]];                   // dma.v: fifo_data_out <= fifo[rptr]
+        if (f_rdy && !frdy_d) frp <= frp + 10'd1;                 // dma.v: rptr++ on ram_access_strobe
+        if (f_req && dma_ack && fdc_mode) fdc_a <= fdc_a + 23'd1; // falcon_fdc: dma_a++ on ram_req && ram_ack
+    end
+    wire        x_dma_req = fdc_mode ? f_req : dma_req;
+    wire        x_dma_we  = fdc_mode ? 1'b1  : dma_we;
+    wire [23:1] x_dma_a   = fdc_mode ? fdc_a : dma_a;
+    wire [15:0] x_dma_d   = fdc_mode ? fdat  : dma_d;
 `ifdef OLD
     // baseline: falcon_sdram_arb + sdram.v at 32 MHz (pad clock from clk32)
     wire sd_cs_i, sd_we_i, sd_refresh, sd_ecs, sd_rd2; wire [21:0] sd_waddr; wire [1:0] sd_ds, sd_st_ba; wire [15:0] sd_din, sd_dout, sd_dout2;
@@ -44,7 +66,7 @@ module tb_sdram_fast;
         .sd_clk(), .sd_cke(), .sd_cs(sd_cs), .sd_we(sd_we), .sd_ras(sd_ras), .sd_cas(sd_cas),
         .sd_data(sd_data), .sd_addr(sd_addr), .sd_dqm(sd_dqm), .sd_ba(sd_ba), .ram_ready(ram_ready),
         .vid_req(vid_req), .vid_a(vid_a), .vid_ack(vid_ack), .vid_q(vid_q), .vid_q2(vid_q2),
-        .dma_req(dma_req), .dma_we(dma_we), .dma_a(dma_a), .dma_d(dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
+        .dma_req(x_dma_req), .dma_we(x_dma_we), .dma_a(x_dma_a), .dma_d(x_dma_d), .dma_ack(dma_ack), .dma_q(dma_q),
         .ld_req(ld_req), .ld_a(ld_a), .ld_d(ld_d), .ld_ack(ld_ack),
         .cpu_req(mem_req), .cpu_a(mem_a), .cpu_we(mem_we), .cpu_be(mem_be), .cpu_d(mem_wdata), .cpu_rd2(mem_rd2),
         .cpu_ack(mem_ack), .cpu_q(mem_rdata), .cpu_q2(mem_rdata2), .cpu_ack_32(), .cpu_q_32(), .ext_wr_tog(ext_wr_tog));
@@ -210,6 +232,19 @@ module tb_sdram_fast;
         $display("stale-buffer check: A+2 after DMA write = %h (%0d clk_cpu)", r1, c1);
         if (r1 !== 16'hBEEF) begin errors = errors + 1; $display("STALE BUFFER ERR"); end
         dma_we <= 0; cyc(0, {wa(2'd0, 41), 1'b0}, 2'b10, pat(41), r1, c1);   // restore region 0
+        // S7 FDC stream test: 512 back-to-back words from falcon_fdc_ram_master into region 3, then read back 4-phase
+        for (k = 0; k < 512; k = k + 1) fbuf[k] = k[15:0] ^ 16'h5A00;
+        @(posedge clk32); fdc_a <= wa(2'd3, 0); frp <= 0; @(posedge clk32); fdc_mode <= 1; @(posedge clk32); fdc_go <= 1;   // frp <= 0: dma.v FIFO reset
+        ci = 0; while (frp < 10'd512 && ci < 200000) begin @(posedge clk32); ci = ci + 1; end
+        repeat (20) @(posedge clk32); fdc_go <= 0; fdc_mode <= 0; @(posedge clk32);
+        c0 = 0;
+        for (k = 0; k < 512; k = k + 1) begin
+            @(posedge clk32); dma_a <= wa(2'd3, k); dma_we <= 0; dma_req <= 1;
+            @(posedge clk32); while (!dma_ack) @(posedge clk32); r0 = dma_q; dma_req <= 0; @(posedge clk32); while (dma_ack) @(posedge clk32);
+            if (r0 !== fbuf[k]) begin c0 = c0 + 1; if (c0 < 6) $display("FDC STREAM ERR i=%0d %h exp %h", k, r0, fbuf[k]); end
+        end
+        $display("FDC stream (falcon_fdc_ram_master WAIT_ACK_LOW=%0d): 512 words, dma_a advanced %0d, bad %0d", FDC_WAIT, fdc_a - wa(2'd3, 0), c0);
+        if (c0 != 0 || fdc_a - wa(2'd3, 0) != 512) errors = errors + 1;
         // everything at once
         traffic = 1;
         lat_min = 99; lat_max = 0; lat_sum = 0; lat_n = 0;

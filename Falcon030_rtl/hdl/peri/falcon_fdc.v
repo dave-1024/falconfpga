@@ -29,7 +29,7 @@ module falcon_fdc (
     output wire        irq,              // FDC INTRQ -> MFP GPIP5 (active high here)
     input  wire [7:0]  ym_porta,
     // SDRAM arbiter word port
-    output reg         ram_req,
+    output wire        ram_req,
     output wire        ram_we,
     output wire [23:1] ram_a,
     output wire [15:0] ram_wdata,
@@ -50,10 +50,10 @@ module falcon_fdc (
     input  wire        sd_dout_strobe
 );
     wire fdc_drq, fdc_sel, fdc_rw; wire [1:0] fdc_addr; wire [7:0] fdc_din, fdc_dout;
-    wire rdy_o; reg rdy_i = 1'b1;
+    wire rdy_o; wire rdy_i;
     wire [15:0] dma_dout;
     reg  [23:1] dma_a;
-    reg  [15:0] ram_q;
+    wire [15:0] ram_q;
     reg         dir_out;                  // 1: RAM -> FDC (disk write), dma.v dma_direction_out
     always @(posedge clk_32) begin
         if (reset) dir_out <= 1'b0;
@@ -81,14 +81,11 @@ module falcon_fdc (
     end
     // RAM master: one word per dma.v request, rdy_i rises when it is done
     wire br = rdy_o && !sel_dma;
-    always @(posedge clk_32) begin
-        if (reset) begin ram_req <= 1'b0; rdy_i <= 1'b0; end
-        else begin
-            rdy_i <= 1'b0;
-            if (!ram_req && br && !rdy_i) ram_req <= 1'b1;
-            else if (ram_req && ram_ack) begin ram_req <= 1'b0; ram_q <= ram_rdata; rdy_i <= 1'b1; end
-        end
-    end
+    // SDR-1 S7: 4-phase handshake (wait for ram_ack low before the next request). The 80 MHz controller drops its clk32
+    // ack 3 clk32 after the request falls; the old code re-requested after 2 and took the stale ack as done (S5: a word
+    // skipped per false ack, garbled floppy directory). Logic in falcon_fdc_ram_master below (tb_sdram_fast tests it).
+    falcon_fdc_ram_master #(.WAIT_ACK_LOW(1)) rm (.clk(clk_32), .reset(reset), .br(br), .ram_ack(ram_ack), .ram_rdata(ram_rdata),
+        .ram_req(ram_req), .ram_q(ram_q), .rdy_i(rdy_i));
     assign ram_we    = !dir_out;          // disk read: FIFO -> RAM
     assign ram_a     = dma_a;
     assign ram_wdata = dma_dout;
@@ -104,4 +101,26 @@ module falcon_fdc (
         .img_type(3'd1), .img_mounted(img_mounted), .img_wp(img_wp), .img_ds(1'b0), .img_size(img_size),
         .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack), .sd_err(sd_err),
         .sd_buff_addr(sd_buff_addr), .sd_dout(sd_dout), .sd_din(sd_din), .sd_dout_strobe(sd_dout_strobe));
+endmodule
+
+// falcon_fdc RAM master: one word per dma.v request (br), rdy_i pulses one clk when it is done.
+// WAIT_ACK_LOW=1: full 4-phase handshake (SDR-1 S7). WAIT_ACK_LOW=0: the pre-S7 behaviour (sim only, shows the S5 bug).
+module falcon_fdc_ram_master #(parameter WAIT_ACK_LOW = 1) (
+    input  wire        clk,
+    input  wire        reset,
+    input  wire        br,
+    input  wire        ram_ack,
+    input  wire [15:0] ram_rdata,
+    output reg         ram_req = 1'b0,
+    output reg  [15:0] ram_q = 16'h0000,
+    output reg         rdy_i = 1'b1
+);
+    always @(posedge clk) begin
+        if (reset) begin ram_req <= 1'b0; rdy_i <= 1'b0; end
+        else begin
+            rdy_i <= 1'b0;
+            if (!ram_req && br && !rdy_i && (!ram_ack || WAIT_ACK_LOW == 0)) ram_req <= 1'b1;
+            else if (ram_req && ram_ack) begin ram_req <= 1'b0; ram_q <= ram_rdata; rdy_i <= 1'b1; end
+        end
+    end
 endmodule
