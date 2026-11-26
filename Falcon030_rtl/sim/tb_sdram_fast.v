@@ -49,7 +49,7 @@ module tb_sdram_fast;
         .cpu_req(mem_req), .cpu_a(mem_a), .cpu_we(mem_we), .cpu_be(mem_be), .cpu_d(mem_wdata), .cpu_rd2(mem_rd2),
         .cpu_ack(mem_ack), .cpu_q(mem_rdata), .cpu_q2(mem_rdata2), .cpu_ack_32(), .cpu_q_32(), .ext_wr_tog(ext_wr_tog));
 
-    wire ctl_clk = clk_sd; localparam real TCK = 12.5; wire ctl_oe = dut.dq_oe;
+    wire ctl_clk = clk_sd; localparam real TCK = 12.5; wire ctl_oe = dut.dq_oe[0];
 `endif
     reg reset_cpu = 1'b1;
     reg cpu_as_n = 1, cpu_ds_n = 1, cpu_rw = 1; reg [31:0] cpu_a = 0, cpu_dout = 0; reg [1:0] cpu_siz = 0;
