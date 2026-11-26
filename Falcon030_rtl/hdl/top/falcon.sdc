@@ -206,6 +206,10 @@ set_output_delay -clock clk_32 -max 6.0 [get_ports {IO_sdram_dq[*] O_sdram_dqm[*
 // DQ output-enable turn-on (IOB OEN path 0.485 ns). Setup budget (-max 6.0) unchanged; DQM keeps -min 0.0.
 set_output_delay -clock clk_32 -min -0.8 [get_ports {IO_sdram_dq[*]}]
 set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_dqm[*]}]
+// S8 (David 15:45 UK): narrow hold exception, DQ output-enable registers -> DQ pins only. The only hold check on this path is the
+// OE turn-ON against the pad edge BEFORE the WRITE, where the SDRAM samples no DQ; the turn-off is one full clk_sd after the WRITE
+// edge (falcon_sdram_fast oe_hold, S5), far beyond tIH. Setup on this path and every other DQ/command check stay timed.
+set_false_path -hold -from [get_pins {u_soc/sdram/dq_oen_*/Q}] -to [get_ports {IO_sdram_dq[*]}]
 // Flash SCK: pll_hdmi CLKOUT4, 100 MHz at 22.5 deg, through the AE350/ST pad mux to mspi_clk.
 create_generated_clock -name st_sck_pll -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 -phase 22.5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}]
 create_generated_clock -name clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}] -master_clock st_sck_pll -divide_by 1 [get_ports {mspi_clk}]
