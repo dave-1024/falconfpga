@@ -11,26 +11,27 @@ Live branch: `falcon`. Project overview and credits: the root [`README.md`](../R
 flashing, and SD card setup). Lessons and every bug found, including Falcon-era items:
 [docs/FALCON_LESSONS.md](docs/FALCON_LESSONS.md). Design note: [docs/DESIGN.md](docs/DESIGN.md).
 
-## Status (25 Nov 2026)
+## Status (26 Nov 2026)
 
-Flash 0 holds **7f0611e** (written 25 Nov 2026, 16:56–16:59 UK, verified). clk_cpu030 Fmax 17.548 MHz (16 MHz
-floor), clk32_core 37.478 MHz, clk_hdmi640_pix 30.533 MHz, logic 53311/138240 (39%), REG 22184, BSRAM 165/340.
-`timing_pairs` passes, Gowin V1.9.12.03. Bitstream md5 `6c6172c600e3c643f07e50ec118943ff`.
-
-`ce97945` made this folder self-contained. That build has the same timing and resource use as 7f0611e and was
-not flashed.
+Flash 0 holds **B3** (`4334f74` plus ROM data caching in `falcon_bus.v`: ROM instruction and data
+cachable, ST-RAM instruction fetches only). Written 26 Nov 2026, 07:50–07:52 UK, verified: start
+`0x000000`, end `0x04C2400` (`< 0x500000`), `Program Flash finished`, cost 132.59 s, same log shape
+as the previous flash. clk_cpu030 Fmax 17.051 MHz (16 MHz floor), clk32_core 37.423 MHz,
+clk_hdmi640_pix 35.505 MHz. `timing_pairs` passes, Gowin V1.9.12.03. Bitstream
+`falcon_bli11f_B3.fs`, md5 `d71b644a977dd56ff9a2093adad5038f`. Previous flash 0 was `c563143`.
 
 - TOS 4.04 from the SD card (`TOS404.IMG`) boots to the GEM desktop. Default monitor is VGA.
 - HDMI output is 640x480@60. The core runs native Falcon VGA 60 Hz or RGB 50 Hz timing (RGB is forced to a
   313-line 50 Hz beam). An occasional torn frame is accepted. Switch from the OSD (Settings > Monitor), or
   with `var V=1` in `falcon.ini`. TOS is mounted only if `falcon.ini` contains `drive4=/sd/TOS404.IMG`
   (see [BUILD.md](BUILD.md)).
-- FrontBench (`FRNTBNCH.PRG`, ST-RAM) on 7f0611e: lastcount **1079** on VGA 60 Hz, **1319** on RGB 50 Hz.
-- GEMBENCH 6.31 runs. Last measured scores were on the ROM instruction-cache build `66940d0` (ST medium,
-  against a blitter STE): Display 122%, CPU 218%, average 163%. Not re-measured on 7f0611e.
-- Working: VIDEL boot modes, blitter, MFP, keyboard ACIA and IKBD, floppy A:, NVRAM/RTC, 14 MB ST-RAM, ROM
-  instruction cache (CIIN released for ROM instruction fetches only).
-- In progress: the data cache (ROM data caching halted the CPU at `$E1C3B8`; see
+- FrontBench (`FRNTBNCH.PRG`, ST-RAM) lastcount **1079** on VGA 60 Hz, **1319** on RGB 50 Hz, measured
+  on `7f0611e` (same video timing; not re-run on B3).
+- GEMBENCH 6.31 (ST medium, against a blitter STE) on B3: Display 124%, CPU 234%, average 170%.
+  ROM Access 49.180 s (same as `c563143`); a few GEM/VDI tests a little faster.
+- Working: VIDEL boot modes, blitter, MFP, keyboard ACIA and IKBD, floppy A:, NVRAM/RTC, 14 MB ST-RAM,
+  instruction cache (ROM and ST-RAM) and the ROM data cache.
+- In progress: the data cache for ST-RAM (enabling RAM data caching still bombs at `$E1C3C0`; see
   [FALCON_LESSONS.md](docs/FALCON_LESSONS.md#bugs-found-falcon-core)).
 - Not yet: DSP 56001, YM2149 / DMA sound and codec (JT49 and STE DMA sound are copied in but not wired),
   SCSI-2 and IDE, faster SDRAM, EmuTOS, helper firmware cleanup.
@@ -61,7 +62,7 @@ No ROM images in git: TOS 4.04 comes from the SD card.
 
 ## Planned
 
-In rough order after the data cache, and not a schedule.
+In rough order after caching data from ST-RAM, and not a schedule.
 
 **CPU cycle counts** (from the ST-era 98-instruction survey of this 68030 core, F172 vC1, 24 Nov 2026:
 1243 clocks on the board/DSACK model against the manual's 1059). The biggest remaining gaps, in the

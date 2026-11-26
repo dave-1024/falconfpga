@@ -745,15 +745,15 @@ commit that those sources do not state.
   booted, and GEMBENCH 6.31 (ST medium) measured Display 109%, CPU 218%, average 154%. ROM
   instruction-cache only was later shown to boot (`66940d0`).
 
-- **ROM data-cache halt at `$E1C3B8` (open).** *Symptom:* with ROM instruction *and* data caching
+- **ROM data-cache halt at `$E1C3B8` (later fixed).** *Symptom:* with ROM instruction *and* data caching
   enabled and RAM still inhibited (bisect3, 25 Nov 2026, 13:42 UK), the board came up on a white
   screen, the CPU halted, PC=`$E1C3B8`, and the bus-error count was 9 (the first was the normal
-  `$FF8E09` probe). *Cause (working theory, not yet proven in simulation):* a WF68K30L data-cache
+  `$FF8E09` probe). *Cause (working theory at the time, later proven):* a WF68K30L data-cache
   fill over the 16-bit DSACK port (dynamic sizing). ROM data caching alone was enough to kill
   the boot, so the earlier `d3bfb3d` hang is on the data-cache path, not the RAM instruction
-  cache. *Fix:* none yet. Cache-inhibit stays asserted for ROM data. Next step, as recorded in
-  the NOTES: a simulation of data-cache fills over a 16-bit DSACK port, then a report, with no
-  CPU-core change until there is evidence.
+  cache. *Fix:* none in this first note. The halt was later traced to a commented-out data-cache
+  guard and fixed in `901047d` (see below). ROM data caching is on in the current board build (B3).
+  RAM data caching is still open.
 
 - **Timer B was clocked from HDMI lines, not native lines (`d8e6a1f`).** *Symptom:* in FrontBench,
   the panel split (Timer B event count 168) appeared about 120 native lines too early: the palette
@@ -792,11 +792,12 @@ commit that those sources do not state.
   an extra data-cache fill read at `$E4984A`; the trace shows `$0001` going out, but a later read
   returns `$0000`. *Fix (`901047d`, 25 Nov 2026, approved by David):* the guard line is restored
   and always on. With ROM data caching (build B) the halt is gone: the CPU keeps running and the
-  halted flag stays off. *Still open:* data caching still doesn't boot. With ROM data caching, TOS
-  loops in the floppy wait at `$E0451A` and the bus-error count keeps climbing (it looks like
-  repeated boots). With ROM and RAM data caching, TOS bombs at `$E1C3C0`. So data reads stay
-  cache-inhibited in `falcon_bus.v`, and caching of ROM and ST-RAM instructions (`c563143`) is
-  what's in use.
+  halted flag stays off. *Still open at the time:* ROM data caching still failed later in boot
+  (TOS looped in the floppy wait at `$E0451A`, bus-error count climbing). With ROM and RAM data
+  caching, TOS bombed at `$E1C3C0`. *Follow-up:* a second fill-race on operand writes (`PW_GO`,
+  BLI-11e / `1ee33df`) and a MOVEM read-ahead fix (BLI-11f / `4334f74`) made ROM data caching
+  boot and score normally. Build B3 (ROM I+D, ST-RAM I) is in flash 0 as of 26 Nov 2026. RAM data
+  caching still bombs at `$E1C3C0`.
 
 - **Second data-cache race: operand write from IDLE overtook pending fills (BLI-11e, 25 Nov 2026).**
   *Symptom:* with the `901047d` guard in, the ROM-I+D and ROM+RAM-I+D simulations still wrote
@@ -829,3 +830,7 @@ commit that those sources do not state.
   data read by MOVEM does not enter the data cache. *Lesson:* measure a slower benchmark against
   the actual test loop (disassemble it) before blaming fill cycles; `tb_falcon` `CIMODE=6` and
   `BUF2W` model the board's B2 settings.
+  *Board (26 Nov 2026):* build B3 (`4334f74` plus ROM I+D / ST-RAM I in `falcon_bus.v`) booted,
+  completed GEMBENCH 6.31 ST medium with Display 124%, CPU 234%, average 170% (ROM Access 49.180 s,
+  same as `c563143`), and was written to flash 0 (bitstream md5 `d71b644a977dd56ff9a2093adad5038f`).
+  RAM data caching remains open (C2 still bombs at `$E1C3C0`).
