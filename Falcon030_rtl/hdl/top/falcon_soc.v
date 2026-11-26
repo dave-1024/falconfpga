@@ -224,6 +224,11 @@ module falcon_soc (
     wire        st_shifter;
     wire [191:0] scan_pal;    // debug: scanout ST palette copy, 16 x 12
 
+    // SDR-1 S3: blitter register write data re-registered in clk_32 (the clk_cpu io_wdata -> halftone BSRAM hold path was
+    // -0.045/-0.066 ns in S1/S2). The blitter starts its AS only after it has seen sel (>= 1 clk_32), the data is held all cycle.
+    reg [15:0] blt_wd32 = 16'h0000;
+    always @(posedge clk_32) blt_wd32 <= p_wdata;
+
     falcon_core core (
         .clk_cpu(clk_cpu), .clk_cpu_n(clk_cpu_n), .reset(core_reset),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be),
@@ -269,7 +274,7 @@ module falcon_soc (
     wire [23:1]  scan_probe_a;
     falcon_blitter blitter (
         .clk_32(clk_32), .reset(por | user_reset), .pwr_up(por),
-        .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(p_wdata),
+        .sel(p_sel_blt), .a(p_a[5:1]), .rw(p_rw), .uds(p_uds), .lds(p_lds), .wdata(blt_wd32),
         .rdata(blt_rdata), .done(blt_done),
         .br_want(blt_br), .bus_grant(blt_bg), .cpu_cyc_tog(cpu_cyc_tog),
         .grant_32(blt_g32), .m_req(blt_mreq), .m_a(blt_ma), .m_we(blt_mwe), .m_wdata(blt_mwd),

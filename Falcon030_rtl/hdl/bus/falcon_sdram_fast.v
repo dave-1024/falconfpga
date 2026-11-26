@@ -16,8 +16,8 @@
 //   write: a0 ACT, a2 WRITE (DQ, DQM), a4 PRE | refresh: a0 AUTO REFRESH; next slot a6
 // Read data: the DQ input register samples on READ+3 (as sdram.v at 32 MHz; pad clock leads clk_sd),
 // the client register is written on READ+4.
-// CPU word read (falcon_bus raises mem_req on a clk_cpu edge, idle SDRAM): captured +1, ACT +2, READ +4,
-// DQ +7, cpu_q/ack +8, falcon_bus sees ack on the next clk_cpu edge (+10) = 2 clk_cpu (was 4).
+// CPU word read (falcon_bus raises mem_req on a clk_cpu edge, idle SDRAM): captured +1, ACT reg +2 (pin +3),
+// READ pin +5, DQ +8, cpu_q/ack +9, falcon_bus sees ack on the next clk_cpu edge (+10) = 2 clk_cpu (was 4).
 //
 // Domains: every input is registered once in clk_sd. cpu_ack/cpu_q/cpu_q2 are clk_sd registers for
 // falcon_bus (clk_cpu, 12.5 ns). The clk32 clients (scanout, floppy DMA, loader, blitter on the CPU port,
@@ -76,15 +76,26 @@ module falcon_sdram_fast #(
     localparam [12:0] MODE = 13'h0220;
     localparam [2:0] W_NONE = 3'd0, W_VID = 3'd2, W_DMA = 3'd3, W_LD = 3'd4, W_CPU = 3'd5;
 
+    // SDR-1 S3: fabric command registers (*_f, with enables) feed one IOB register stage that loads every clock (no CE, so
+    // Gowin can pack it; S2's sa/sb with CE stayed in fabric: -10.3 ns pad path). Pins are one clk_sd behind the *_f regs.
+    reg [2:0]  cmd_f = CMD_NOP;
+    reg [15:0] dqo_f = 16'h0000;
+    reg [1:0]  dqm_f = 2'b00;
+    reg        oe_f  = 1'b0;
+    reg [12:0] sa = 13'h0000;
+    reg [1:0]  sb = 2'b00;
     (* syn_useioff = 1 *) reg [2:0]  sd_cmd = CMD_NOP;
     (* syn_useioff = 1 *) reg [15:0] dq_out = 16'h0000;
     (* syn_useioff = 1 *) reg [1:0]  dqm_r  = 2'b00;
     (* syn_useioff = 1 *) reg [15:0] dq_in  = 16'h0000;
-    (* syn_useioff = 1 *) reg [12:0] sa = 13'h0000;   // SDR-1 S2: address / bank in the IOB too (S1: -10.5 ns pad path)
-    (* syn_useioff = 1 *) reg [1:0]  sb = 2'b00;
-    assign sd_addr = sa;
-    assign sd_ba   = sb;
+    (* syn_useioff = 1 *) reg [12:0] sa_o = 13'h0000;
+    (* syn_useioff = 1 *) reg [1:0]  sb_o = 2'b00;
     reg        dq_oe = 1'b0;
+    always @(posedge clk_sd) begin
+        sd_cmd <= cmd_f; sa_o <= sa; sb_o <= sb; dq_out <= dqo_f; dqm_r <= dqm_f; dq_oe <= oe_f;
+    end
+    assign sd_addr = sa_o;
+    assign sd_ba   = sb_o;
     assign sd_clk = 1'b0;            // the pad clock comes from pll_160m CLKOUT2
     assign sd_cke = 1'b1;
     assign sd_cs  = 1'b0;
@@ -143,7 +154,7 @@ module falcon_sdram_fast #(
     reg [1:0]  s_be = 2'b00;
     reg [15:0] s_d = 16'h0;
     // read pipeline: bit k set k+1 clocks after the READ edge; [3] = dq_in holds the word now
-    reg [3:0]  rp0 = 4'd0, rp1 = 4'd0;
+    reg [4:0]  rp0 = 5'd0, rp1 = 5'd0;   // S3: +1 for the IOB stage (pin READ = issue+1, dq_in = issue+4, copy issue+5)
     reg [2:0]  dwin = W_NONE;        // owner of the words in flight (set at the first READ)
     reg        d_rd2 = 1'b0;
 
@@ -152,12 +163,12 @@ module falcon_sdram_fast #(
     function [1:0]  bankof; input [23:1] a; begin bankof = {1'b0, a[23]}; end endfunction
 
     always @(posedge clk_sd) begin
-        sd_cmd <= CMD_NOP;
-        dq_oe  <= 1'b0;
-        dqm_r  <= 2'b00;
+        cmd_f <= CMD_NOP;
+        oe_f  <= 1'b0;
+        dqm_f <= 2'b00;
         dq_in  <= sd_data[15:0];
-        rp0 <= {rp0[2:0], 1'b0};
-        rp1 <= {rp1[2:0], 1'b0};
+        rp0 <= {rp0[3:0], 1'b0};
+        rp1 <= {rp1[3:0], 1'b0};
         // 4-phase: an ack falls once its request is seen low
         if (vack && !vreq_r) vack <= 1'b0;
         if (dack && !dreq_r) dack <= 1'b0;
@@ -166,16 +177,16 @@ module falcon_sdram_fast #(
 
         if (rst) begin
             icnt <= 15'd0; istep <= 4'd0; ready <= 1'b0; busy <= 1'b0; sc <= 3'd0;
-            reftmr <= 9'd0; ref_pend <= 1'b0; win <= W_NONE; rp0 <= 4'd0; rp1 <= 4'd0;
+            reftmr <= 9'd0; ref_pend <= 1'b0; win <= W_NONE; rp0 <= 5'd0; rp1 <= 5'd0;
             vack <= 1'b0; dack <= 1'b0; lack <= 1'b0; cpu_ack <= 1'b0; ext_wr_tog <= 1'b0;
         end else if (!ready) begin
             // power-up: NOP wait, PRECHARGE ALL, 2 x AUTO REFRESH, LOAD MODE
             icnt <= icnt + 15'd1;
             case (istep)
-            4'd0: if (icnt == INIT_WAIT[14:0]) begin sd_cmd <= CMD_PRE; sa <= 13'h0400; istep <= 4'd1; icnt <= 15'd0; end
-            4'd1: if (icnt == 15'd4)  begin sd_cmd <= CMD_REF; istep <= 4'd2; icnt <= 15'd0; end
-            4'd2: if (icnt == 15'd8)  begin sd_cmd <= CMD_REF; istep <= 4'd3; icnt <= 15'd0; end
-            4'd3: if (icnt == 15'd8)  begin sd_cmd <= CMD_MRS; sa <= MODE; sb <= 2'b00; istep <= 4'd4; icnt <= 15'd0; end
+            4'd0: if (icnt == INIT_WAIT[14:0]) begin cmd_f <= CMD_PRE; sa <= 13'h0400; istep <= 4'd1; icnt <= 15'd0; end
+            4'd1: if (icnt == 15'd4)  begin cmd_f <= CMD_REF; istep <= 4'd2; icnt <= 15'd0; end
+            4'd2: if (icnt == 15'd8)  begin cmd_f <= CMD_REF; istep <= 4'd3; icnt <= 15'd0; end
+            4'd3: if (icnt == 15'd8)  begin cmd_f <= CMD_MRS; sa <= MODE; sb <= 2'b00; istep <= 4'd4; icnt <= 15'd0; end
             4'd4: if (icnt == 15'd4)  begin ready <= 1'b1; end
             default: ;
             endcase
@@ -189,52 +200,52 @@ module falcon_sdram_fast #(
                 if (sc == 3'd2 && win != W_NONE) begin
                     sb <= s_ba;
                     if (s_we) begin
-                        sd_cmd <= CMD_WR; sa <= {4'b0000, s_col};
-                        dq_out <= s_d; dq_oe <= 1'b1; dqm_r <= ~s_be;
+                        cmd_f <= CMD_WR; sa <= {4'b0000, s_col};
+                        dqo_f <= s_d; oe_f <= 1'b1; dqm_f <= ~s_be;
                     end else begin
-                        sd_cmd <= CMD_RD; sa <= {4'b0000, s_col};
+                        cmd_f <= CMD_RD; sa <= {4'b0000, s_col};
                         rp0[0] <= 1'b1; dwin <= win; d_rd2 <= s_rd2;
                     end
                 end
                 if (sc == 3'd3 && win != W_NONE && !s_we && s_rd2) begin
-                    sd_cmd <= CMD_RD; sa <= {4'b0000, s_col + 9'd1}; sb <= s_ba;
+                    cmd_f <= CMD_RD; sa <= {4'b0000, s_col + 9'd1}; sb <= s_ba;
                     rp1[0] <= 1'b1;
                 end
                 // explicit bank PRECHARGE at a4 (tRAS 50 ns, tWR 2 after the a2 WRITE, after the last READ of
                 // a burst-2 at a3 with CL2 the data is not cut); next ACT at a6 (tRP 25 ns, tRC 75 ns)
                 if (sc == 3'd4 && win != W_NONE) begin
-                    sd_cmd <= CMD_PRE; sa <= 13'h0000; sb <= s_ba;
+                    cmd_f <= CMD_PRE; sa <= 13'h0000; sb <= s_ba;
                 end
             end else begin
                 // slot start: ACT (or REFRESH) on this edge
                 sc <= 3'd1;
                 if (ref_pend) begin
-                    busy <= 1'b1; win <= W_NONE; ref_pend <= 1'b0; sd_cmd <= CMD_REF;
+                    busy <= 1'b1; win <= W_NONE; ref_pend <= 1'b0; cmd_f <= CMD_REF;
                 end else if (take_vid) begin
                     busy <= 1'b1; win <= W_VID; s_we <= 1'b0; s_rd2 <= (va_r[9:1] != 9'h1FF);
-                    sd_cmd <= CMD_ACT; sa <= rowof(va_r); sb <= bankof(va_r);
+                    cmd_f <= CMD_ACT; sa <= rowof(va_r); sb <= bankof(va_r);
                     s_col <= colof(va_r); s_ba <= bankof(va_r);
                 end else if (take_dma) begin
                     busy <= 1'b1; win <= W_DMA; s_we <= dwe_r; s_rd2 <= 1'b0; s_be <= 2'b11; s_d <= dd_r;
-                    sd_cmd <= CMD_ACT; sa <= rowof(da_r); sb <= bankof(da_r);
+                    cmd_f <= CMD_ACT; sa <= rowof(da_r); sb <= bankof(da_r);
                     s_col <= colof(da_r); s_ba <= bankof(da_r);
                     if (dwe_r) begin dack <= 1'b1; ext_wr_tog <= ~ext_wr_tog; end   // posted write
                 end else if (take_ld) begin
                     busy <= 1'b1; win <= W_LD; s_we <= 1'b1; s_rd2 <= 1'b0; s_be <= 2'b11; s_d <= ld_r;
-                    sd_cmd <= CMD_ACT; sa <= rowof(la_r); sb <= bankof(la_r);
+                    cmd_f <= CMD_ACT; sa <= rowof(la_r); sb <= bankof(la_r);
                     s_col <= colof(la_r); s_ba <= bankof(la_r);
                     lack <= 1'b1; ext_wr_tog <= ~ext_wr_tog;
                 end else if (take_cpu) begin
                     busy <= 1'b1; win <= W_CPU; s_we <= cwe_r; s_rd2 <= crd2_r && !cwe_r && (ca_r[9:1] != 9'h1FF);
                     s_be <= cbe_r; s_d <= cd_r;
-                    sd_cmd <= CMD_ACT; sa <= rowof(ca_r); sb <= bankof(ca_r);
+                    cmd_f <= CMD_ACT; sa <= rowof(ca_r); sb <= bankof(ca_r);
                     s_col <= colof(ca_r); s_ba <= bankof(ca_r);
                     if (cwe_r) cpu_ack <= 1'b1;   // posted write
                 end
             end
 
-            // read data hand-off (READ+4; dq_in was sampled on READ+3)
-            if (rp0[3]) begin
+            // read data hand-off (pin READ+4; dq_in was sampled on pin READ+3)
+            if (rp0[4]) begin
                 case (dwin)
                 W_VID: begin vq <= dq_in; if (!d_rd2) vack <= 1'b1; end
                 W_DMA: begin dq <= dq_in; dack <= 1'b1; end
@@ -242,7 +253,7 @@ module falcon_sdram_fast #(
                 default: ;
                 endcase
             end
-            if (rp1[3]) begin
+            if (rp1[4]) begin
                 case (dwin)
                 W_VID: begin vq2 <= dq_in; vack <= 1'b1; end
                 W_CPU: cpu_q2 <= dq_in;
