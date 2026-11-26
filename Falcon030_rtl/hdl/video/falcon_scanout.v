@@ -136,11 +136,24 @@ module falcon_scanout (
     // --------------- clk_32: palettes, fetch, decode ---------------
     reg [11:0] pal [0:15];
     integer pi;
+    // SDR-1 S8e: ST palette write re-registered in clk_32 first (S8d hold -0.045 ns clk_cpu stpal_wd -> pal RAM). The
+    // clk_cpu write pulse is two clk_32 long, so the delayed copy writes the same entry, one clk_32 later.
+    reg        stpal_we_r = 1'b0;
+    reg [3:0]  stpal_wa_r = 4'd0;
+    reg [11:0] stpal_wd_r = 12'd0;
     always @(posedge clk_32) begin
+        stpal_we_r <= stpal_we; stpal_wa_r <= stpal_wa; stpal_wd_r <= stpal_wd;
         if (reset) begin
             for (pi = 0; pi < 16; pi = pi + 1) pal[pi] <= 12'd0;
-        end else if (stpal_we) pal[stpal_wa] <= stpal_wd;
+        end else if (stpal_we_r) pal[stpal_wa_r] <= stpal_wd_r;
     end
+
+    // SDR-1 S8f: Falcon palette write re-registered in clk_32 before the palette RAM, like the ST palette (S8e hold -0.017 ns
+    // clk_cpu fpal_wd -> RAM). The clk_cpu pulse is two clk_32 long; the copy writes the same entry one clk_32 later.
+    reg        fpal_we_r = 1'b0;
+    reg [7:0]  fpal_wa_r = 8'd0;
+    reg [17:0] fpal_wd_r = 18'd0;
+    always @(posedge clk_32) begin fpal_we_r <= fpal_we; fpal_wa_r <= fpal_wa; fpal_wd_r <= fpal_wd; end
 
     genvar gp;
     generate for (gp = 0; gp < 16; gp = gp + 1) begin : g_dpal
@@ -151,7 +164,7 @@ module falcon_scanout (
     wire [17:0] fpal_q;
     reg  [7:0]  fpal_ra;
     falcon_sdp_ram #(.DEPTH(256), .AW(8), .DW(18)) u_fpal (
-        .wclk(clk_32), .we(fpal_we), .waddr(fpal_wa), .wdata(fpal_wd),
+        .wclk(clk_32), .we(fpal_we_r), .waddr(fpal_wa_r), .wdata(fpal_wd_r),
         .rclk(clk_32), .raddr(fpal_ra), .rdata(fpal_q)
     );
 

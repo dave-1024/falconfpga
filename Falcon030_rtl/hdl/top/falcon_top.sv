@@ -232,6 +232,15 @@ always @(posedge clk32) begin
             s1_release <= 1'b1;
     end
 end
+// S8d DEBUG (SDR-1 bomb / USB-drop chase, David 17:16 UK): count main-PLL (pll_160m) lock losses after the first lock.
+// clk_g is the raw 50 MHz board clock (no PLL in its path) and this logic has no por reset, so the count survives a
+// lock glitch; shown on the HUD row 3 yellow slot as {wd_status[7:0], lk_loss[7:0]}.
+reg [1:0] lk_s = 2'b00; reg lk_seen = 1'b0; reg [7:0] lk_loss = 8'd0;
+always @(posedge clk_g) begin
+    lk_s <= {lk_s[0], pll_lock};
+    if (lk_s == 2'b11) lk_seen <= 1'b1;
+    if (lk_seen && lk_s == 2'b10 && lk_loss != 8'hFF) lk_loss <= lk_loss + 8'd1;
+end
 wire por = !pll_lock;  // FalconFPGA: no BL616 jtagsel gating (stock BL616 firmware never drives it low; matches Nano 20K)
 // FalconFPGA 9 Oct 2026: por (= !pll_lock, a clk_osc flop in pll_hdmi's
 // pll_init) is asynchronous to every fabric clock. Each domain gets its own
@@ -910,6 +919,7 @@ assign leds_int_n  = {4'b1111, cpu_halted_n, ~(cpu_reset | tos_err)};
 wire system_video;
 falcon_soc u_soc (
     .clk_32          ( clk32        ),
+    .clk_sd          ( clk_sd       ),
     .clk_cpu         ( clk_cpu030   ),
     .clk_cpu_n       ( clk_cpu030_n ),
     .clk_pixel       ( clk_hdmi     ),
@@ -963,6 +973,7 @@ falcon_soc u_soc (
     .dbg_mnt         ( sd_img_mounted[4] ),
     .dbg_mnt_size    ( sd_img_mounted[4] ? sd_img_size[31:0] : tos_img_size_r ),
     .dbg_hold        ( soc_reset ),
+    .dbg_lock        ( {wd_status, lk_loss} ),   // S8d DEBUG
     .dbg_sticky      ( tos_mnt_sticky ),
     .loader_status   ( loader_status )
 );
@@ -1085,7 +1096,7 @@ Output4:
   Phase: 22.5°
 */
  
-wire	   clk_pixel_x5; // pll_160m clkout0: 160 MHz (not used for HDMI)
+wire	   clk_sd;       // SDR-1: pll_160m clkout0: 80 MHz SDRAM controller clock (VCO 800 / 10)
 wire	   clk_pixel;    // pll_160m clkout1: 32 MHz == clk32. NOT the 25.2 MHz HDMI clock.
 wire	   clk_cpu030;   // 16 MHz 68030 clock, phase-locked to clk32
 wire	   clk_cpu030_n; // clk_cpu030 at 180 degrees (WF68K30L falling-edge registers)
@@ -1093,9 +1104,9 @@ wire	   clk_hdmi;     // 25.2 MHz, CLKDIV/5 of gowin_pll_hdmi (scanout + hdmi_64
 wire	   clk_hdmi_x5;  // 126 MHz TMDS clock
 wire	   hdmi_pll_lock;
 pll_160m pll_hdmi (
-               .clkout0(clk_pixel_x5),       // 160 MHz
+               .clkout0(clk_sd),             // 80 MHz, SDRAM controller (falcon_sdram_fast)
                .clkout1(clk_pixel),          // 32 MHz
-               .clkout2(O_sdram_clk),        // 32 MHz, shifted by 338,4°
+               .clkout2(O_sdram_clk),        // 80 MHz, 306 deg (-1.875 ns): SDRAM pad clock
                .clkout3(flash_clk),          // 100 MHz
 `ifdef AE350_SERIAL
                .clkout4(mspi_clk_pll),       // 100 MHz, shifted by 22,5°

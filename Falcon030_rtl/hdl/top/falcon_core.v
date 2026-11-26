@@ -184,7 +184,9 @@ module falcon_core (
             // Last data write address (stack / pointer hint for the BERR).
             // (lastw_a capture dropped 19:10: 8010a45 stalled in routing)
             // First BERR: address, {FC, R/W, SIZ}, last program fetch, last write.
-            if (berr_d && !cpu_berr_n && !berr1_seen) begin
+            // SDR-1 bomb chase: the boot-time $FF8E09 probe BERR (every boot) no longer freezes the snapshot, so rows 4/8/9
+            // show the first UNEXPECTED bus error (S8 cold boot: repeated BERR @ $E80000): addr, {FC,RW,SIZ}, PC, ring.
+            if (berr_d && !cpu_berr_n && !berr1_seen && cpu_a[23:0] != 24'hFF8E09) begin
                 berr1_seen <= 1'b1;
                 berr1_a    <= cpu_a;
                 berr1_info <= {5'd0, cpu_fc, 7'd0, cpu_rw, 6'd0, cpu_siz, 8'hB1};

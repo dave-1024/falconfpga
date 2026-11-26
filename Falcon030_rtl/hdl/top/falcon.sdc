@@ -52,7 +52,7 @@ create_generated_clock -name clk_cpu030 -source [get_ports {clk}] -master_clock 
 // core's inverted CLK was a fabric LUT and those paths were not analysed).
 // Related to clk_cpu030 and clk32_core: every edge is a clk32 rising edge.
 create_generated_clock -name clk_cpu030_n -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 25 -invert [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT6}]
-set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_sd80 clk_cpu030 clk_cpu030_n}]
 // F66 ST-bridge MMU multicycle is not used: Falcon v1 has no 68000 bus bridge.
 // clk_cpu030 <-> clk32_core paths (arbiter/word port) are timed in one cycle.
 // F58: explicit reports for the 68030 clock pairs (half-cycle paths between
@@ -87,7 +87,7 @@ create_clock -name ddr3_memory_clk -period 5  -waveform {0 2.5} [get_nets {DDR3_
 // flash CS#, UART2_TXD), UART2_RXD (sampled by the UART's own oversampler)
 // and the static, once-switched flash pad mux. Without this group STA would
 // time those crossings as if the 50 MHz and 32 MHz PLL outputs were related.
-set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_sd80 clk_cpu030 clk_cpu030_n}]
 
 // ---------------------------------------------------------------------------
 // Clocks STA found but nobody created (TA1132, 9 Oct 2026). Before this, every
@@ -137,7 +137,7 @@ create_generated_clock -name ds2_clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_i
 // mux described above and in the AE350 group line further up; the clk32
 // dividers only meet the HDMI 640 domain through the existing frame-buffer
 // crossing.
-set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
+set_clock_groups -asynchronous -group [get_clocks {ae350_flash_clk spi_io_clk ddr3_sysclk}] -group [get_clocks {clk_osc clk_g clk_32 clk_spi sdram_pll_clk st_sck_pll clk32_core clk_sd80 clk_cpu030 clk_cpu030_n i2s_bclk_d ds2_clk_spi}]
 set_clock_groups -asynchronous -group [get_clocks {spi_io_clk}] -group [get_clocks {ae350_ddr_clk ae350_ahb_clk ae350_apb_clk ddr3_clkin ddr3_rw_clk ddr3_memory_clk ddr3_sysclk ae350_flash_clk}]
 set_clock_groups -asynchronous -group [get_clocks {i2s_bclk_d ds2_clk_spi}] -group [get_clocks {clk_hdmi640_x5 clk_hdmi640_pix}]
 
@@ -168,19 +168,48 @@ set_clock_groups -exclusive -group [get_clocks {ddr3_memory_clk}] -group [get_cl
 // F102 (30 Oct 2026): I/O timing for the SDRAM and the ST flash reader. Before this, none of these pads had
 // input/output delays, so pad<->flop timing moved with every placement unchecked (build-dependent failures,
 // f101h read TOS word 0 as $80B8 = $602E << 2: the flash sample slipped one SCK).
-// SDRAM clock: pll_hdmi CLKOUT2, 32 MHz at 338.4 deg (-1.88 ns vs clk32_core), forwarded to O_sdram_clk.
-create_generated_clock -name sdram_pll_clk -source [get_ports {clk}] -master_clock clk_osc -multiply_by 16 -divide_by 25 -phase 338.4 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}]
+// SDRAM clock: pll_hdmi CLKOUT2, forwarded to O_sdram_clk (SDR-1: 80 MHz at 306 deg, -1.875 ns vs clk_sd80).
+// SDR-1 (26 Nov 2026): the SDRAM runs at 80 MHz. Controller clock clk_sd80 = pll_hdmi CLKOUT0 (VCO 800 / 10), the same
+// VCO as clk32_core and clk_cpu030, phase 0: every clk_cpu030 edge is a clk_sd80 edge (ratio 5), every second clk32 edge
+// is one (ratio 2.5). Paths between them are timed (falcon_sdram_fast registers every crossing once).
+create_generated_clock -name clk_sd80 -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT0}]
+// SDRAM pad clock: CLKOUT2, 80 MHz at 306 deg (-1.875 ns vs clk_sd80, the same lead in ns as the old 32 MHz 338.4 deg).
+create_generated_clock -name sdram_pll_clk -source [get_ports {clk}] -master_clock clk_osc -multiply_by 8 -divide_by 5 -phase 306 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}]
 create_generated_clock -name clk_32 -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT2}] -master_clock sdram_pll_clk -divide_by 1 [get_ports {O_sdram_clk}] -add
+// SDR-1 S4 (David 13:39 UK, 26 Nov 2026): model the real SDRAM clock-pin delay. clk_32 is a generated clock ON THE PORT,
+// so Gowin STA gave it zero network latency, while the SDRAM pin registers get the PLL->IOB clock insertion plus the OBUF
+// (S2/S3 reports). The pad clock leaves the same PLL through the same kind of clock route and an OBUF, so it gets the same
+// delay as source latency, per corner (Gowin: -late used in setup analysis = slow corner, -early in hold = fast corner):
+//   late  7.2 = tCL 2.599 + PLL->IOB tNET 2.096 + OBUF 2.528 (slow corner, S3 dq_in_2 / S2 sa_6 paths)
+//   early 4.8 = tCL 1.552 + PLL->IOB tNET 0.732 + OBUF 2.482 (fast corner, S3 sd_cmd_2 -> O_sdram_ras_n)
+// The -max 6.0 / -min 0.0 output budget and the DQ input delays are unchanged (not a relaxation).
+// S5 (David 14:14 UK, option a): Gowin applies source latency per check type, not per corner (S4: setup capture took
+// -early 4.8 at the slow corner, hold capture took -late 7.2 at the fast corner, ~2.4 ns cross-corner pessimism each way).
+// One value, the FAST-corner 4.8 ns, for both: exact for hold (fast corner), pessimistic for output setup (real slow-corner
+// latency 7.2 is larger). Input setup with the slow 7.2 was +3.163 ns in S4 (DQ input regs in the IOB, fixed placement).
+set_clock_latency -source 4.8 [get_clocks {clk_32}]
 // SDRAM (W9825G6KH-6 class, CL2): tAC <= 6 ns, tOH >= 2.5 ns; tIS 1.5 ns, tIH 0.8 ns. Loose values (board + margin):
 // in max 8 / min 0.5, out max 6 / min 0 (also the starting values suggested by the Grok review).
 set_input_delay  -clock clk_32 -max 8.0 [get_ports {IO_sdram_dq[*]}]
 set_input_delay  -clock clk_32 -min 0.5 [get_ports {IO_sdram_dq[*]}]
 // Data for the READ issued at SDRAM edge n is captured by sdram.v on the clk32 edge after SDRAM edge n+CL (STATE_READ):
 // the first clk32 edge after an SDRAM edge is 1.88 ns later, the capture edge is the one after that.
-set_multicycle_path -setup -end 2 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk32_core}]
-set_multicycle_path -hold  -end 1 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk32_core}]
+// SDR-1: the capture register is falcon_sdram_fast dq_in (clk_sd80), READ+3 as before.
+set_multicycle_path -setup -end 2 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk_sd80}]
+set_multicycle_path -hold  -end 1 -from [get_ports {IO_sdram_dq[*]}] -to [get_clocks {clk_sd80}]
 set_output_delay -clock clk_32 -max 6.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*] O_sdram_cas_n O_sdram_ras_n O_sdram_wen_n}]
 set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_addr[*] O_sdram_ba[*] O_sdram_cas_n O_sdram_ras_n O_sdram_wen_n}]
+// SDR-1: DQ (write data) and DQM are registered in falcon_sdram_fast now (launched with the WRITE command), so they get the
+// same output timing as the command pins.
+set_output_delay -clock clk_32 -max 6.0 [get_ports {IO_sdram_dq[*] O_sdram_dqm[*]}]
+// S6 (David 14:40 UK): DQ hold budget = the W9825G6KH datasheet tIH 0.8 ns (min output delay -0.8). S5 missed by 59 ps on the
+// DQ output-enable turn-on (IOB OEN path 0.485 ns). Setup budget (-max 6.0) unchanged; DQM keeps -min 0.0.
+set_output_delay -clock clk_32 -min -0.8 [get_ports {IO_sdram_dq[*]}]
+set_output_delay -clock clk_32 -min 0.0 [get_ports {O_sdram_dqm[*]}]
+// S8 (David 15:45 UK): narrow hold exception, DQ output-enable registers -> DQ pins only. The only hold check on this path is the
+// OE turn-ON against the pad edge BEFORE the WRITE, where the SDRAM samples no DQ; the turn-off is one full clk_sd after the WRITE
+// edge (falcon_sdram_fast oe_hold, S5), far beyond tIH. Setup on this path and every other DQ/command check stay timed.
+set_false_path -hold -from [get_pins {u_soc/sdram/dq_oen_*/Q}] -to [get_ports {IO_sdram_dq[*]}]
 // Flash SCK: pll_hdmi CLKOUT4, 100 MHz at 22.5 deg, through the AE350/ST pad mux to mspi_clk.
 create_generated_clock -name st_sck_pll -source [get_ports {clk}] -master_clock clk_osc -multiply_by 2 -phase 22.5 [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}]
 create_generated_clock -name clk_spi -source [get_pins {pll_hdmi/u_pll/PLL_inst/CLKOUT4}] -master_clock st_sck_pll -divide_by 1 [get_ports {mspi_clk}]
@@ -189,11 +218,17 @@ set_clock_groups -exclusive -group [get_clocks {st_sck_pll clk_spi}] -group [get
 // MOSI to the AE350 (Gowin promotes it to an output), so the ST dual-I/O
 // set_input_delay / multicycle on {mspi_di mspi_do} does not apply. st_sck_pll
 // and clk_spi stay: they are in the clock groups and still describe the pad mux.
-// SDRAM DQ/DQM outputs are NOT constrained: sdram.v drives them combinationally from the chipset (din, cs/we/ds; f102a
-// first build: 16 logic levels from the blitter through the shifter mbus, -11.4 ns against a 1-cycle relation). They are
-// set up cycles ahead of the WRITE edge in practice; registering them is the proper fix (F103).
+// SDRAM DQ/DQM outputs: constrained since SDR-1 (falcon_sdram_fast registers them; the old sdram.v drove them combinationally).
 // Flash outputs (command/address phase) are not constrained yet: the sample edge relation needs checking first.
-report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk32_core}]
-report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk32_core}]
-report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
-report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_32}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk_sd80}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_32}] -to_clock [get_clocks {clk_sd80}]
+report_timing -setup -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk_32}]
+report_timing -hold -max_paths 10 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk_32}]
+// SDR-1 clock pairs
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk_sd80}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_cpu030}] -to_clock [get_clocks {clk_sd80}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk_cpu030}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_sd80}]
+report_timing -setup -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk32_core}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk32_core}] -to_clock [get_clocks {clk_sd80}]
+report_timing -hold -max_paths 5 -max_common_paths 1 -from_clock [get_clocks {clk_sd80}] -to_clock [get_clocks {clk32_core}]
