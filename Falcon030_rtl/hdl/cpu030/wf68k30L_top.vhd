@@ -205,6 +205,7 @@ entity WF68K30L_TOP is
         -- unchanged either way.
         FAST_HANDOFF    : integer := 0;
         WA_ADR_HI       : integer := -1; -- [F132] >= 0: CACR WA only allocates on writes with A31:24 = this value (board fast RAM); -1 = MC68030 (CIIN ignored on writes)
+        WA_ADR_LIM      : integer := -1; -- [BLI-11g] >= 0 (with WA_ADR_HI >= 0): and only with A23:0 below this (Falcon: ST-RAM, as TOS 4.04's page CI)
         NOCACHE         : integer := 0); -- [F90] debug: bit 0 forces the I-cache off, bit 1 the D-cache (as CDISn for that cache)
 
     port (
@@ -951,7 +952,8 @@ begin
     -- 0/40 with WA clear). The ST side is never meant to be cached (CIIN rule), so on this board a write
     -- miss only allocates in the fast-RAM range; hits on existing entries are still updated.
     DC_WA_EFF <= CACR(13) when WA_ADR_HI < 0 else
-                 CACR(13) when conv_integer(DC_WR_ADR(31 downto 24)) = WA_ADR_HI else '0';
+                 CACR(13) when conv_integer(DC_WR_ADR(31 downto 24)) = WA_ADR_HI and
+                               (WA_ADR_LIM < 0 or conv_integer(DC_WR_ADR(23 downto 0)) < WA_ADR_LIM) else '0';
     -- [PMMU2b] The MMU sits between the bus interface and the pins. With TC.E = 0 it is a wire.
     TT_HIT_ANY <= TT0_HIT or TT1_HIT;
     MMU_RESET <= '1' when RESET_CPU = '1' else '0';

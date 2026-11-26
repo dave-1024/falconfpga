@@ -17,8 +17,9 @@ this work stands on cores and tools written by other people.
 
 **Where it stands (26 Nov 2026).** TOS 4.04 boots to the desktop. Keyboard, mouse, floppy images and
 HDMI video work. Usual tests such as GEMBENCH and FrontBench run. The processor's instruction cache
-is on, and so is its data cache for TOS in ROM. Caching data from the computer's main memory is still
-being worked on. Sound, hard disk and the Falcon's DSP chip are not ready yet.
+is on, and so is its full data cache (TOS in ROM and the computer's main memory), with write-allocate
+as on a real Falcon. Next is making the memory faster, which is also what the missing screen modes
+need, and a FrontBench video of this build. Sound, hard disk and the Falcon's DSP chip are not ready yet.
 
 The live source is on the [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon) branch.
 A step-by-step guide to building and flashing it is in
@@ -34,9 +35,9 @@ This GitHub repository's default branch is `main`; clone or check out `falcon` f
 
 ## Screenshots
 
-![GEMBENCH 6.31 results on the current board build](docs/img/gembench_B3.png)
+![GEMBENCH 6.31 results on the current board build](docs/img/gembench_C5.png)
 
-GEMBENCH 6.31 in ST medium on the current board build: Display 124%, CPU 234%, average 170%.
+GEMBENCH 6.31 in ST medium on the current board build: Display 120%, CPU 237%, average 169%.
 
 ## What works
 
@@ -51,23 +52,17 @@ GEMBENCH 6.31 in ST medium on the current board build: Display 124%, CPU 234%, a
 - The **blitter** (a chip that draws blocks of graphics), the floppy drive, the keyboard, and the
   clock/settings memory (NVRAM).
 - **The processor's instruction cache** is on, for both TOS in ROM and programs in main memory.
-- **The data cache for TOS in ROM** is also on. Caching data from main memory is not on yet (see
-  [Work in progress](#work-in-progress)).
-- **GEMBENCH** and **FrontBench** both run. On the current board build, GEMBENCH 6.31 in ST medium
-  scored Display 124%, CPU 234% and an average of 170% (compared with a blitter STE). FrontBench's
-  lastcount was 1079 in VGA 60 Hz and 1319 in RGB 50 Hz, measured on an earlier build with the same
-  video timing. More detail is in the
+- **The data cache** is on for TOS in ROM and for the computer's main memory, with write-allocate
+  (the same setting a real Falcon uses).
+- **GEMBENCH** and **FrontBench** both run. On the current board build (C5, in flash 0), GEMBENCH 6.31
+  in ST medium scored Display 120%, CPU 237% and an average of 169% (compared with a blitter STE).
+  FrontBench's lastcount was 1079 in VGA 60 Hz and 1319 in RGB 50 Hz, measured on an earlier build
+  with the same video timing. More detail is in the
   [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md).
 
 The processor runs at 16 MHz. The long-term aim is that each instruction takes the same number of
 clock ticks as a real 68030. Where an exact match is not possible, slightly faster is preferred to
 slower. The detailed timing list is in the Falcon README.
-
-## Work in progress
-
-- **Caching data from main memory.** The processor already caches instructions, and it caches data
-  from TOS in ROM. Turning the data cache on for the computer's main memory still stops the
-  computer from booting, so that part is still being investigated.
 
 ## What doesn't work (yet)
 
@@ -102,13 +97,14 @@ Falcon README).
 
 ## Planned
 
-This is a map of the work, not a timetable. After caching data from main memory:
+This is a map of the work, not a timetable. Next:
 
-1. **Make the processor as fast as a real 68030.** A long list of instruction timings is still a
+1. **Faster memory.** First, start each memory access sooner. Then run the memory chips twice as
+   fast (64 MHz). That should also help the [heavier screen modes](#what-doesnt-work-yet). A
+   FrontBench video of the current build is also planned around this work.
+2. **Make the processor as fast as a real 68030.** A long list of instruction timings is still a
    little slower than Motorola's manual. The list, and the order of work, is in the
    [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md#planned).
-2. **Faster memory.** First, start each memory access sooner. Then run the memory chips twice as
-   fast (64 MHz). That should also help the [heavier screen modes](#what-doesnt-work-yet).
 3. **A full-height picture buffer so tall RGB modes stop drifting,** using the board's
    DDR3 memory (keeping the FPGA's block RAM free for the DSP).
 4. **The rest of the Falcon chipset:** the YM2149 sound chip, then DMA sound and the codec, then
@@ -291,7 +287,7 @@ Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano
 ### Where it is headed
 
 1. ~~An ST/STE test bed with a 68030, caches, TT-RAM and the PMMU~~ (done, October 2026).
-2. **Now:** the Falcon core (TOS 4.04 desktop is up). Instruction caching and the ROM data cache are on. Next is caching data from main memory, then the remaining 68030 timing work, then faster memory, then the rest of the Falcon chipset and the helper cleanup. See [Work in progress](#work-in-progress) and [Planned](#planned).
+2. **Now:** the Falcon core (TOS 4.04 desktop is up). The instruction cache and the full data cache (ROM and main memory, with write-allocate) are on. Next is faster memory (also needed for the remaining screen modes), a FrontBench video of this build, then the remaining 68030 timing work, the rest of the Falcon chipset and the helper cleanup. See [Planned](#planned).
 
 ### Methods
 

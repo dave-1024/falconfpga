@@ -21,6 +21,7 @@ module falcon_core (
     input  wire [15:0] mem_rdata,
     output wire        mem_rd2,         // BUS-1 burst-2 long read
     input  wire [15:0] mem_rdata2,
+    input  wire        ext_wr_tog,      // BLI-11h: clk32 toggle per DMA/loader SDRAM write slot
     // clk_32 peripheral sub-bus (MFP, ACIAs, floppy DMA/FDC)
     output wire        p_sel_mfp, p_sel_acia, p_sel_dma, p_sel_dmaaddr,
     output wire [15:1] p_a,
@@ -243,7 +244,7 @@ module falcon_core (
                        outpc, prevpc,
                        walk_a, walk_d, 8'h00};
 
-    WF68K30L_TOP #(.CLK_N_EXT(1), .CACHES(0), .WA_ADR_HI(1), .FAST_HANDOFF(1)) cpu (
+    WF68K30L_TOP #(.CLK_N_EXT(1), .CACHES(0), .WA_ADR_HI(0), .WA_ADR_LIM(14680064), .FAST_HANDOFF(1)) cpu (
         .CLK(clk_cpu), .CLK_N(clk_cpu_n), .ADR_OUT(cpu_a), .DATA_IN(cpu_din), .DATA_OUT(cpu_dout), .DATA_EN(),
         .BERRn(cpu_berr_n), .RESET_INn(!reset), .RESET_OUT(cpu_reset_out), .HALT_INn(!reset), .HALT_OUTn(cpu_halted_n),
         .FC_OUT(cpu_fc), .AVECn(cpu_avec_n), .IPLn(ipl_r), .IPENDn(), .DSACKn(cpu_dsack_n), .SIZE(cpu_siz),
@@ -263,7 +264,7 @@ module falcon_core (
         .clk(clk_cpu), .reset(reset),
         .cpu_a(cpu_a), .cpu_dout(cpu_dout), .cpu_din(cpu_din), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n),
         .cpu_rw(cpu_rw), .cpu_siz(cpu_siz), .cpu_fc(cpu_fc), .cpu_dsack_n(cpu_dsack_n), .cpu_berr_n(cpu_berr_n),
-        .cpu_avec_n(cpu_avec_n), .cpu_ciin_n(cpu_ciin_n), .mem_rd2(mem_rd2), .mem_rdata2(mem_rdata2),
+        .cpu_avec_n(cpu_avec_n), .cpu_ciin_n(cpu_ciin_n), .mem_rd2(mem_rd2), .mem_rdata2(mem_rdata2), .ext_wr_tog(ext_wr_tog),
         .mem_req(mem_req), .mem_a(mem_a), .mem_we(mem_we), .mem_be(mem_be), .mem_wdata(mem_wdata),
         .mem_ack(mem_ack), .mem_rdata(mem_rdata),
         .io_cyc(io_cyc), .io_a(io_a), .io_uds(io_uds), .io_lds(io_lds), .io_rw(io_rw), .io_wr(io_wr), .io_wdata(io_wdata),

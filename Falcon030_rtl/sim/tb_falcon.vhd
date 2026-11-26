@@ -35,7 +35,9 @@ entity tb_falcon is
            TRTO    : integer := 0;
            WAHI    : integer := -1;  -- BLI-11e: WF68K30L WA_ADR_HI (board falcon_core = 1: CACR WA allocates only A31:24=$01, i.e. never on the Falcon)
            MEMWAIT : integer := 2;   -- BLI-11e: clocks from AS to data for ROM/RAM cycles (board BUS-1 ~5-7)
-           BUF2W   : integer := 0);  -- BLI-11f: clocks for the A+2 word right after an aligned long read (falcon_bus BUS-1 buf2; 0 = off, MEMWAIT)
+           BUF2W   : integer := 0;
+           BUFWB   : integer := 0;   -- BLI-11h C5: falcon_bus buf2 also for cachable byte/word reads at A1=0 (hit/miss checked in S_CHK, +1 clk)   -- BLI-11f: clocks for the A+2 word right after an aligned long read (falcon_bus BUS-1 buf2; 0 = off, MEMWAIT)
+           WALIM   : integer := -1); -- BLI-11g: WF68K30L WA_ADR_LIM (Falcon: 16#E00000# = WA in ST-RAM only)
   -- BLI-11 CIIN model as falcon_bus: 0 inhibit all, 2 ROM I, 3 ROM I+D (bisect3), 4 ROM I + RAM I (bisect4, c563143), 5 ROM+RAM I+D, 6 ROM I+D + RAM I (B2)
 end;
 architecture sim of tb_falcon is
@@ -90,7 +92,7 @@ architecture sim of tb_falcon is
   end;
 begin
   clk <= not clk after 31.25 ns when not done;   -- 16 MHz
-  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1, WA_ADR_HI => WAHI) port map (
+  dut : entity work.WF68K30L_TOP generic map (FAST_HANDOFF => 1, WA_ADR_HI => WAHI, WA_ADR_LIM => WALIM) port map (
     CLK => clk, ADR_OUT => adr, DATA_IN => din, DATA_OUT => dout, DATA_EN => open,
     BERRn => berrn, RESET_INn => rstn, RESET_OUT => reso, HALT_INn => rstn, HALT_OUTn => halto,
     DBG_EXC => dbgx, FC_OUT => fc, AVECn => avecn, IPLn => ipl, IPENDn => ipendn, DSACKn => dsackn, SIZE => siz,
@@ -141,7 +143,7 @@ begin
     variable a : unsigned(31 downto 0); variable a24 : integer; variable r : integer;
     variable w : std_logic_vector(15 downto 0); variable l : line;
     variable n : integer := 0; variable nio : integer := 0; variable nberr : integer := 0;
-    variable isrom, isram, isio, iscart, iack, ok : boolean; variable plong : integer := -1; variable mw : integer; variable wi, b, s : integer;
+    variable isrom, isram, isio, iscart, iack, ok : boolean; variable plong : integer := -1; variable pwb, cach : boolean := false; variable mw : integer; variable wi, b, s : integer;
     variable lastpc : unsigned(31 downto 0) := (others => '0');
     variable hb : integer := 0; variable kind : string(1 to 2);
     procedure nv_init is variable sum : integer := 0; begin
@@ -243,9 +245,22 @@ begin
            (CIMODE = 4 and ((isrom and a24 >= 8) or isram) and fc(1 downto 0) = "10") or
            (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) or
            (CIMODE = 6 and ((isrom and a24 >= 8) or (isram and fc(1 downto 0) = "10"))) then ciinn <= '1'; end if;
+        cach := (CIMODE = 2 and isrom and a24 >= 8 and fc(1 downto 0) = "10") or
+                (CIMODE = 3 and isrom and a24 >= 8) or
+                (CIMODE = 4 and ((isrom and a24 >= 8) or isram) and fc(1 downto 0) = "10") or
+                (CIMODE = 5 and ((isrom and a24 >= 8) or isram)) or
+                (CIMODE = 6 and ((isrom and a24 >= 8) or (isram and fc(1 downto 0) = "10")));
         mw := MEMWAIT;
-        if BUF2W > 0 and rwn = '1' and siz = "10" and a24 = plong + 2 then mw := BUF2W; end if;
-        if (isrom or isram) and rwn = '1' and siz = "00" and a(1 downto 0) = "00" then plong := a24; else plong := -1; end if;
+        if pwb then   -- byte/word buffer: S_CHK one clock later, hit = BUF2W+1, miss = MEMWAIT+1
+          if (isrom or isram) and rwn = '1' and (siz = "10" or siz = "01") then
+            if a24 - (a24 mod 2) = plong + 2 then mw := BUF2W + 1; else mw := MEMWAIT + 1; end if;
+          end if;
+        elsif BUF2W > 0 and rwn = '1' and siz = "10" and a24 = plong + 2 then mw := BUF2W; end if;
+        pwb := false;
+        if (isrom or isram) and rwn = '1' and siz = "00" and a(1 downto 0) = "00" then plong := a24;
+        elsif BUFWB > 0 and BUF2W > 0 and cach and rwn = '1' and (siz = "10" or siz = "01") and a(1) = '0' then
+          plong := a24 - (a24 mod 2); pwb := true;
+        else plong := -1; end if;
         if isrom or isram then
           for k in 1 to mw loop wait until rising_edge(clk); n := n + 1; end loop;
         else

@@ -61,7 +61,8 @@ module falcon_sdram_arb (
     input  wire        cpu_rd2,         // BUS-1: aligned long read, fetch A and A+2 in one slot (burst-2)
     output reg         cpu_ack,
     output wire [15:0] cpu_q,           // BUS-1: sdram.v dout itself (valid from the phase-4 edge to the next read)
-    output wire [15:0] cpu_q2           // BUS-1: sdram.v dout2 (second burst word, valid from the phase-5 edge)
+    output wire [15:0] cpu_q2,          // BUS-1: sdram.v dout2 (second burst word, valid from the phase-5 edge)
+    output reg         ext_wr_tog       // BLI-11h: toggles at the start of every floppy-DMA / loader write slot (falcon_bus buf2 invalidate)
 );
     assign sd_ecs = 1'b0;
 
@@ -97,7 +98,7 @@ module falcon_sdram_arb (
             sd_cs <= 1'b0; sd_we <= 1'b0; sd_refresh <= 1'b0; sd_rd2 <= 1'b0;
             sd_ds <= 2'b00; sd_addr <= 22'd0; sd_ba <= 2'b00; sd_din <= 16'd0;
             vid_ack <= 1'b0; dma_ack <= 1'b0; ld_ack <= 1'b0; cpu_ack <= 1'b0;
-            vid_burst <= 1'b0;
+            vid_burst <= 1'b0; ext_wr_tog <= 1'b0;
         end else begin
             if (vid_ack && !vid_req) vid_ack <= 1'b0;
             if (dma_ack && !dma_req) dma_ack <= 1'b0;
@@ -134,10 +135,11 @@ module falcon_sdram_arb (
                         sd_rd2    <= (a_vid[9:1] != 9'h1FF);
                     end else if (take_dma) begin
                         win <= WIN_DMA; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
+                        if (dma_we) ext_wr_tog <= ~ext_wr_tog;
                         sd_cs <= 1'b1; sd_we <= dma_we; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_dma); sd_ba <= bank(a_dma); sd_din <= dma_d;
                     end else if (take_ld) begin
-                        win <= WIN_LD; vid_burst <= 1'b0; sd_rd2 <= 1'b0;
+                        win <= WIN_LD; vid_burst <= 1'b0; sd_rd2 <= 1'b0; ext_wr_tog <= ~ext_wr_tog;
                         sd_cs <= 1'b1; sd_we <= 1'b1; sd_ds <= 2'b00;
                         sd_addr <= waddr(a_ld); sd_ba <= bank(a_ld); sd_din <= ld_d;
                     end else if (take_cpu) begin
