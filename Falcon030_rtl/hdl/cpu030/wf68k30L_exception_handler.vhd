@@ -1,0 +1,1183 @@
+------------------------------------------------------------------------
+----                                                                ----
+---- WF68K30L IP Core: this is the exception handler module.        ----
+----                                                                ----
+---- Description:                                                   ----
+---- This is the exception handler which is responsible for the     ----
+---- interrupt management of the external interrupt and internal    ----
+---- exception processing. It manages auto-vectored interrupt       ----
+---- cycles, priority resolving and correct vector numbers.         ----
+---- For further information concerning the functionality of this   ----
+---- module refer to the MC68030 User's Manual and to the MC68K     ----
+---- family Programmer's Reference Manual.                          ----
+------------------------------------------------------------------------
+----                                                                ----
+---- Remarks:                                                       ----
+---- The relationship between the STATUSn signal and the execution  ----
+---- of the next pending exception is handled by the BUSY signals.  ----
+---- If the pending interrupt is not signaled in time, when the     ----
+---- main controller signal STATUSn, the next instruction is        ----
+---- executed and afterwards the exception. When the pending        ----
+---- exception is asserted before the STATUSn of one of the main    ----
+---- controller, the exception is executed immediately.             ----
+----                                                                ----
+---- A bus error at an instruction boundary may occur, when the     ----
+---- operation word fetched from the instruction pipe is invalid.   ----
+---- Bus errors which occur at the time of the instruction boundary ----
+---- but where released early or at the same time due to the pipe-  ----
+---- lined structure are treated as regular bus errors not related  ----
+---- with the instruction boundary. The signal IBOUND is used to    ----
+---- handle this situations correctly.                              ----
+----                                                                ----
+---- This exception handler uses a simple logic for the handling    ----
+---- the RTE instruction. In comparision to the full featured 68K30 ----
+---- it cannot complete from defective bus exception stack frames.  ----
+---- It is assumed, that a software handler has modified the images ----
+---- in the exception stack frame for a bus handler so that the RTE ----
+---- instruction restores from a correct stack frame.               ----
+----                                                                ----
+---- Author(s):                                                     ----
+---- - Wolfgang Foerster, wf@experiment-s.de; wf@inventronik.de     ----
+----                                                                ----
+------------------------------------------------------------------------
+----                                                                ----
+---- Copyright © 2014-2019 Wolfgang Foerster Inventronik GmbH.      ----
+----                                                                ----
+---- This documentation describes Open Hardware and is licensed     ----
+---- under the CERN OHL v. 1.2. You may redistribute and modify     ----
+---- this documentation under the terms of the CERN OHL v.1.2.      ----
+---- (http://ohwr.org/cernohl). This documentation is distributed   ----
+---- WITHOUT ANY EXPRESS OR IMPLIED WARRANTY, INCLUDING OF          ----
+---- MERCHANTABILITY, SATISFACTORY QUALITY AND FITNESS FOR A        ----
+---- PARTICULAR PURPOSE. Please see the CERN OHL v.1.2 for          ----
+---- applicable conditions                                          ----
+----                                                                ----
+------------------------------------------------------------------------
+-- 
+-- Revision History
+-- 
+-- Revision 2K14B 20141201 WF
+--   Initial Release.
+-- Revision 2K16A 20141201 WF
+--   Fixed a bug in PC_LOAD.
+-- Revision 2K18A 20180620 WF
+--   Removed REST_BIW_0.
+--   Removed PC_OFFSET.
+--   Fixed PC restoring during exception processing.
+--   Fixed the vector calculation of INT vectors.
+--   Fixed faulty modeling in IRQ_FILTER.
+--   Implemented the AVEC_FILTER to better meet bus timings.
+--   The RTE exception has now highest priority (avoids mismatch).
+--   TOP, CONTROL, Exception Handler Opcode Decoder: Rearranged PC_INC and ipipe flush logic.
+--   Update the IRQ mask only for RESET and interrupts.
+--   External interrupts are postponed if any system controllers are in initialize operation status.
+--   RTE now loads the address offset correctly when entering the handler.
+--   Rearranged address error handling.
+-- FalconFPGA modifications (David Dunne, github.com/dave-1024/falconfpga), CERN OHL v1.2.
+-- Changes are tagged Fnn in the code. Dates are from git history.
+-- Base: WF68K30L 2K19A (this repo's import of 2026-09-24).
+--   2026-11-04 F145: EXCEPTION_HANDLER_DEC sensitivity list completed (EX_P_MMUCFG).
+--   2026-09-30 F3/F4/F9: format $A RTE, version word x"1904", RTE reads last frame word.
+--   2026-09-30 F5/F6: bus-errored IACK is spurious; AVEC ends CPU-space IACK only.
+--   2026-09-30 F12: RTE abandoned by a fault is not retried.
+--   2026-09-30 F28: SSW RB bit for address errors (checked on MC68030).
+--   2026-09-30 F42-F54: reset and power-up values (SR $2700, no spurious traps).
+--   2026-10-03 F55: interrupt not taken when the new SR mask covers it.
+--   2026-10-04 F58: falling-edge flops on CLK_F for the synchronous ST bridge.
+--   2026-11-04 F141: IRQ_HOT, an interrupt is or may become pending (early instruction issue is held off).
+--   2026-11-09 F156: REFILL_PIPE counts two words for an OPCODE_RDY_2 delivery (pipe full after 3 words, not 3 strobes).
+--   2026-11-10 F157l: decode IRQ_HOT / IRQ_GT_MASK / IRQ_LVL7 on CLK_F (same edge as IRQ_FILTER) so the rising-edge PENDING/EARLY_OW cone reads flags, not raw IRQ bits.
+--   2026-11-10 F157m: rising-edge register IRQ_HOT (from IRQ_HOT_N) so EARLY_OW is not in the half-cycle cone.
+--   2026-11-10 F157p: PENDING takes from the same rising-edge registered flags as EARLY_OW
+--     (IRQ_GT_MASK_R / IRQ_LVL7_R, sibling of IRQ_HOT). F157m left take on the CLK_F flags,
+--     so EX_P_INT could latch one rising edge before IRQ_HOT hid early OW_REQ (FrontBench hang).
+-- 
+
+library work;
+use work.WF68K30L_PKG.all;
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.std_logic_unsigned.all;
+
+entity WF68K30L_EXCEPTION_HANDLER is
+    generic(VERSION         : std_logic_vector(15 downto 0) := x"1904"); -- F4/H11: default matched to the frame writer.
+    port(
+        CLK                 : in std_logic;
+        CLK_F               : in std_logic; -- [F58] falling-edge registers (180 degree clock)
+        RESET               : in bit;
+
+        BUSY_MAIN           : in bit;
+        BUSY_OPD            : in bit;
+
+        EXH_REQ             : out bit;
+        BUSY_EXH            : out bit;
+
+        ADR_IN              : in std_logic_vector(31 downto 0);
+        ADR_CPY             : out std_logic_vector(31 downto 0);
+        ADR_OFFSET          : out std_logic_vector(31 downto 0);
+        CPU_SPACE           : out bit;
+
+        DATA_0              : in std_logic;
+        DATA_RD             : out bit;
+        DATA_WR             : out bit;
+        DATA_IN             : in std_logic_vector(31 downto 0);
+
+        OP_SIZE             : out OP_SIZETYPE; -- Operand size.
+        DATA_RDY            : in bit;
+        DATA_VALID          : in std_logic;
+
+        OPCODE_RDY          : in bit; -- OPCODE is available.
+        OPCODE_RDY_2        : in bit; -- [F156] With OPCODE_RDY: a second opcode word in the same clock (F147).
+        OPD_ACK             : in bit; -- Opword is available.
+        OW_VALID            : in std_logic; -- Status from the opcode decoder.
+
+        STATUS_REG_IN       : in std_logic_vector(15 downto 0);
+        SR_CPY              : out std_logic_vector(15 downto 0);
+        SR_INIT             : out bit;
+        SR_CLR_MBIT         : out bit;
+        SR_WR               : out bit;
+
+        ISP_DEC             : out bit;
+        ISP_EARLY           : out bit; -- [XT1]
+        EXH_STK             : out bit; -- [XT2]
+        ISP_LOAD            : out bit;
+        PC_INC              : out bit;
+        PC_LOAD             : out bit;
+        PC_RESTORE          : out bit;
+
+        STACK_FORMAT        : out std_logic_vector(3 downto 0);
+        STACK_POS           : out integer range 0 to 46;
+
+        SP_ADD_DISPL        : out bit;
+        DISPLACEMENT        : out std_logic_vector(7 downto 0);
+
+        IPIPE_FILL          : out bit;
+        IPIPE_FLUSH         : out bit;
+        REFILLn             : out std_logic;
+        RESTORE_ISP_PC      : out bit;
+
+        HALT_OUTn           : out std_logic;
+        STATUSn             : out bit;
+
+        -- Interrupt controls:
+        INT_TRIG            : in bit;
+        IRQ_HOT             : out bit; -- [F141] Interrupt pending or above the mask (no early OW_REQ).
+        IRQ_IN              : in std_logic_vector(2 downto 0);
+        IRQ_PEND            : out std_logic_vector(2 downto 0);
+        AVECn               : in std_logic;
+        IPENDn              : out std_logic;
+        IVECT_OFFS          : out std_logic_vector(9 downto 0); -- Interrupt vector offset.
+        
+
+        -- Trap signals:
+        TRAP_AERR           : in bit;
+        TRAP_BERR           : in bit;
+        BERR_IBOUND         : in bit; -- [FLT2] From the control unit, with TRAP_BERR.
+        BERR_PCSTALE        : in bit; -- [F131] With BERR_IBOUND: PC_I not yet advanced past the faulted instruction.
+        TRAP_CHK            : in bit;
+        TRAP_DIVZERO        : in bit;
+        TRAP_ILLEGAL        : in bit;
+        TRAP_CODE_OPC       : in TRAPTYPE_OPC; -- T_1010, T_1111, T_ILLEGAL, T_TRAP, T_PRIV.
+        TRAP_VECTOR         : in std_logic_vector(3 downto 0);
+        TRAP_cc             : in bit;
+        TRAP_V              : in bit;
+        TRAP_MMUCFG         : in bit; -- [PMMU2] MMU configuration exception (MC68030UM 8.1.10), post-instruction.
+        EX_TRACE_IN         : in bit;
+        VBR_WR              : in bit;
+        VBR                 : out std_logic_vector(31 downto 0);
+        -- F28/H22: true while the exception being stacked is an ADDRESS
+        -- ERROR. The normal RC/RB path is driven from IPIPE_C_FAULT, a
+        -- prefetch BUS fault; an address error is not a bus fault, so RC
+        -- could never assert for one.
+        EX_IS_AERR          : out std_logic;
+        -- [PMMU3] RTE of a format $A frame with SSW DF = 1 and RW = 0 reruns the faulted write (MC68030UM 8.2.1,
+        -- 8.1.2): address ($10), data output buffer ($18), FC and size from the SSW ($0A).
+        RERUN_WR            : out std_logic;
+        RERUN_ADR           : out std_logic_vector(31 downto 0);
+        RERUN_DATA          : out std_logic_vector(31 downto 0);
+        RERUN_FC            : out std_logic_vector(2 downto 0)
+    );
+end entity WF68K30L_EXCEPTION_HANDLER;
+    
+architecture BEHAVIOR of WF68K30L_EXCEPTION_HANDLER is
+type EX_STATES is (IDLE, BUILD_STACK, BUILD_TSTACK, CALC_VECT_No, EXAMINE_VERSION, GET_VECTOR, HALTED, INIT, READ_BOTTOM, 
+                   READ_TOP, REFILL_PIPE, RESTORE_ISP, RESTORE_PC, RESTORE_STATUS, UPDATE_PC, SWITCH_STATE, VALIDATE_FRAME,
+                   RERUN_SSW, RERUN_FA, RERUN_DOB, RERUN_WRITE); -- [PMMU3]
+
+type EXCEPTIONS is (EX_NONE, EX_1010, EX_1111, EX_AERR, EX_BERR, EX_CHK, EX_DIVZERO, EX_FORMAT, EX_ILLEGAL,
+                    EX_INT, EX_PRIV, EX_RESET, EX_RTE, EX_TRACE, EX_TRAP, EX_TRAPcc, EX_TRAPV, EX_MMUCFG);
+
+signal ACCESS_ERR           : bit := '0';  -- [F54] measured warm-boot value
+signal AVEC                 : bit := '0';  -- [F54] measured warm-boot value
+signal DATA_RD_I            : bit := '0';  -- [F54] measured warm-boot value
+signal DATA_WR_I            : bit := '0';  -- [F54] measured warm-boot value
+signal DATA_RD_R            : bit := '0'; -- [XT1]
+signal DATA_WR_R            : bit := '0'; -- [XT1]
+signal ISP_EARLY_I          : bit; -- [XT1]
+signal DOUBLE_BUSFLT        : bit := '0';  -- [F54] measured warm-boot value
+signal EXCEPTION            : EXCEPTIONS := EX_RESET;  -- [F52] was uninitialised.
+-- EXCEPTION selects WHICH vector is taken (VECT_No is a case on it).  With no
+-- initialiser it powers up arbitrary on a cold boot, so the very first
+-- exception decision can be made against a garbage selector.  EX_RESET is the
+-- correct power-up value: reset IS the exception in progress at that moment.
+signal EX_STATE             : EX_STATES := IDLE;
+signal NEXT_EX_STATE        : EX_STATES := INIT;  -- [F52, corrected by measurement]
+-- MEASURED, not guessed.  A testbench probe dumped the whole exception-handler
+-- state at reset release in the WORKING (warm) configuration:
+--     EX_STATE = idle,  NEXT_EX_STATE = init,  EXCEPTION = ex_reset
+--     EX_P_RESET = '1', SYS_INIT = '1', all other EX_P_* = '0'
+-- So the healthy value here is INIT, not IDLE: EX_STATE sits in idle and
+-- NEXT_EX_STATE = init is what makes the machine BEGIN reset-exception
+-- processing on the next clock.  An initialiser of IDLE would leave it
+-- idle->idle and the reset exception would never start -- i.e. exactly the
+-- 'held, never executes' symptom we are trying to cure.  Corrected.
+signal EX_P_1010            : bit := '0';  -- [F52] init -- ..._P are the pending exceptions.
+signal EX_P_1111            : bit := '0';  -- [F52] init
+signal EX_P_AERR            : bit := '0';  -- [F51] no spurious pending exception out of cold reset
+signal EX_P_BERR            : bit := '0';  -- [F51] no spurious pending exception out of cold reset
+signal EX_P_CHK             : bit := '0';  -- [F52] init
+signal EX_P_DIVZERO         : bit := '0';  -- [F52] init
+signal EX_P_FORMAT          : bit := '0';  -- [F52] init
+signal EX_P_ILLEGAL         : bit := '0';  -- [F52] init
+signal EX_P_INT             : bit := '0';  -- [F52] init
+signal INT_REQ              : bit;  -- EX_P_INT still above the current SR mask (F55)
+signal EX_P_RESET           : bit := '1';  -- [F52] init
+signal EX_P_RTE             : bit := '0';  -- [F52] init
+signal EX_P_PRIV            : bit := '0';  -- [F52] init
+signal EX_P_TRACE           : bit := '0';  -- [F51] no spurious pending exception out of cold reset
+signal EX_P_TRAP            : bit := '0';  -- [F52] init
+signal EX_P_TRAPcc          : bit := '0';  -- [F50] belt-and-braces init
+signal EX_P_TRAPV           : bit := '0';  -- [F52] init
+signal EX_P_MMUCFG          : bit := '0';  -- [PMMU2]
+signal INT_VECT             : std_logic_vector(31 downto 0); -- Interrupt vector.
+signal IBOUND               : boolean := false;  -- [F54] measured warm-boot value
+signal IB_PCINC             : boolean := false;  -- [F131]
+signal IRQ                  : std_logic_vector(2 downto 0);
+signal IRQ_GT_MASK          : bit := '0'; -- [F157l] CLK_F: STATUS_REG mask < IRQ
+signal IRQ_LVL7             : bit := '0'; -- [F157l] CLK_F: IRQ = level 7
+signal IRQ_HOT_N            : bit := '0'; -- [F157l] CLK_F: decoded IRQ_HOT
+signal IRQ_GT_MASK_R        : bit := '0'; -- [F157p] rising-edge copy of IRQ_GT_MASK
+signal IRQ_LVL7_R           : bit := '0'; -- [F157p] rising-edge copy of IRQ_LVL7
+signal IRQ_PEND_I           : std_logic_vector(2 downto 0);
+signal MBIT                 : std_logic;
+signal PIPE_CNT             : std_logic_vector(1 downto 0);
+signal PIPE_FULL            : boolean := false;  -- [F54] measured warm-boot value
+signal STACK_CNT            : integer range 0 to 46 := 0;  -- [F54] measured warm-boot value
+signal STACK_FORMAT_I       : std_logic_vector(3 downto 0);
+signal RR_SIZE              : OP_SIZETYPE := LONG; -- [PMMU3]
+signal RR_FC                : std_logic_vector(2 downto 0) := "000";
+signal RR_ADR, RR_DATA      : std_logic_vector(31 downto 0) := (others => '0');
+signal SYS_INIT             : bit := '1';  -- [F54] measured warm-boot value
+begin
+    -- [F141/F157l] IRQ_GT_MASK, IRQ_LVL7 and IRQ_HOT_N are registered in IRQ_FILTER on CLK_F.
+    -- [F157m] IRQ_HOT to the control unit is a rising-edge copy of IRQ_HOT_N so
+    -- EARLY_OW does not sit on the clk_cpu030_n -> clk_cpu030 cone (F157l:
+    -- -1.096 ns IRQ_HOT -> EX_P_DIVZERO).
+    -- [F157p] PENDING uses rising-edge copies of the same CLK_F flags, so the take
+    -- and EARLY_OW see one view. Recognition is one rising edge later than F156/F157m
+    -- (never faster). IRQ_FILTER itself is unchanged.
+    IRQ_HOT_R_PROC: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        IRQ_HOT <= IRQ_HOT_N;
+        IRQ_GT_MASK_R <= IRQ_GT_MASK; -- [F157p]
+        IRQ_LVL7_R <= IRQ_LVL7; -- [F157p]
+    end process IRQ_HOT_R_PROC;
+
+    -- F28/H22: see the port declaration.
+    EX_IS_AERR <= '1' when EXCEPTION = EX_AERR else '0';
+
+    BUSY_EXH <= '1' when EX_STATE /= IDLE else '0';
+
+    IRQ_FILTER : process
+    -- This logic is intended to avoid spurious IRQs due
+    -- to setup / hold violations (IRQ_IN may operate in
+    -- a different clock domain).
+    -- [F157l] The raw IRQ word is captured on CLK_F (clk_cpu030_n). The
+    -- STATUS_REG < IRQ / level-7 / IRQ_HOT compares used to sit in the
+    -- half-cycle cone from those FFs to the rising edge (EARLY_OW, PENDING
+    -- EX_P_* CE, PC, fetch). Decode them here from the same IRQ value that
+    -- is being loaded, together with STATUS_REG and EX_P_INT (both updated
+    -- on the previous rising edge, so they are stable). Rising-edge logic
+    -- then reads these flags; interrupt clocks stay those of F156.
+    variable IRQ_TMP_1 : std_logic_vector(2 downto 0) := "000";
+    variable IRQ_TMP_2 : std_logic_vector(2 downto 0) := "000";
+    variable IRQ_HELD  : std_logic_vector(2 downto 0) := "000";
+    begin
+        wait until CLK_F = '1' and CLK_F' event; -- [F58] was the falling edge of CLK
+        if IRQ_TMP_1 = IRQ_TMP_2 then
+            IRQ <= IRQ_TMP_2;
+            IRQ_HELD := IRQ_TMP_2;
+        end if;
+        IRQ_TMP_2 := IRQ_TMP_1;
+        IRQ_TMP_1 := IRQ_IN;
+        if IRQ_HELD = "111" then
+            IRQ_LVL7 <= '1';
+        else
+            IRQ_LVL7 <= '0';
+        end if;
+        if STATUS_REG_IN(10 downto 8) < IRQ_HELD then
+            IRQ_GT_MASK <= '1';
+        else
+            IRQ_GT_MASK <= '0';
+        end if;
+        if STATUS_REG_IN(10 downto 8) < IRQ_HELD or IRQ_HELD = "111" or EX_P_INT = '1' then
+            IRQ_HOT_N <= '1';
+        else
+            IRQ_HOT_N <= '0';
+        end if;
+    end process IRQ_FILTER;
+
+    AVEC_FILTER : process
+    -- We need a flip flop for the incoming AVECn to meet
+    -- the timing requirements of the bus interface. AVECn
+    -- is asserted (low active) before DATA_RDY of the
+    -- bus interface. AVEC stays asserted until DATA_RDY.
+    begin
+        wait until CLK = '1' and CLK' event;
+        if AVECn = '0' then
+            AVEC <= '1';
+        elsif DATA_RDY = '1' or RESET = '1' then
+            AVEC <= '0';
+        end if;
+    end process AVEC_FILTER;
+
+    INSTRUCTION_BOUNDARY: process
+    -- This flip flop indicates a bus error exception,
+    -- when the micro sequencer is at an instruction
+    -- boundary.
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET = '1' then
+            IBOUND <= false;
+        elsif OPD_ACK = '1' and OW_VALID = '0' then
+            IBOUND <= true;
+        elsif TRAP_BERR = '1' and BERR_IBOUND = '1' then
+            IBOUND <= true; -- [FLT2] Data write fault taken at an instruction boundary: short frame (MC68030UM 8.1.2, table 8-6).
+            IB_PCINC <= BERR_PCSTALE = '1'; -- [F131]
+        elsif EX_STATE = BUILD_STACK then
+            IBOUND <= false;
+            IB_PCINC <= false;
+        end if;
+    end process INSTRUCTION_BOUNDARY;
+    
+    PENDING: process
+    -- The exceptions which occurs are stored in this pending register until the
+    -- interrupt handler handled the respective exception.
+    -- The TRAP_PRIV, TRAP_1010, TRAP_1111, TRAP_ILLEGAL, TRAP_OP and TRAP_V may be a strobe
+    -- of 1 clock period. All others must be strobes of 1 clock period..
+    variable INT7_TRIG  : boolean;
+    variable INT_VAR    : std_logic_vector(2 downto 0);
+    variable SR_VAR     : std_logic_vector(2 downto 0);
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET = '1' then
+            EX_P_RESET <= '1';
+        elsif EX_STATE = RESTORE_PC and DATA_RDY = '1' and EXCEPTION = EX_RESET then
+            EX_P_RESET <= '0';
+        end if;
+        --
+        if TRAP_BERR = '1' then
+            EX_P_BERR <= '1';
+        elsif EX_STATE /= IDLE and EX_STATE /= GET_VECTOR and DATA_RDY = '1' and DATA_VALID = '0' then -- F5/H13: BERR'd IACK is the DEFINED spurious signalling, not a stack fault.
+            EX_P_BERR <= '1';
+        elsif EX_STATE = INIT and EXCEPTION = EX_BERR then
+            EX_P_BERR <= '0'; -- Reset in the beginning to enable retriggering.
+        elsif SYS_INIT = '1' then
+            EX_P_BERR <= '0';
+        end if;
+        --
+        if TRAP_AERR = '1' then
+            EX_P_AERR <= '1';
+        elsif EX_STATE = BUILD_STACK and EXCEPTION = EX_AERR then
+            EX_P_AERR <= '0';
+        elsif SYS_INIT = '1' then
+            EX_P_AERR <= '0';
+        end if;
+        --
+        -- [PMMU2] MMU configuration exception: pending from the PMOVE writeback until its frame is built.
+        if TRAP_MMUCFG = '1' then
+            EX_P_MMUCFG <= '1';
+        elsif EX_STATE = BUILD_STACK and EXCEPTION = EX_MMUCFG then
+            EX_P_MMUCFG <= '0';
+        elsif SYS_INIT = '1' then
+            EX_P_MMUCFG <= '0';
+        end if;
+        --
+        if EX_TRACE_IN = '1' then
+            EX_P_TRACE <= '1';
+        elsif EX_STATE = BUILD_STACK and EXCEPTION = EX_TRACE then
+            EX_P_TRACE <= '0';
+        elsif SYS_INIT = '1' then
+            EX_P_TRACE <= '0';
+        end if;
+        --
+        -- [F157p] Level-7 detect uses the rising-edge flag (IRQ_LVL7_R), same view as IRQ_HOT.
+        if IRQ_LVL7_R = '1' and SR_VAR = "111" and STATUS_REG_IN(10 downto 8) /= "111" then
+            INT7_TRIG := true; -- Trigger by lowering the mask from 7 to any value.
+        elsif IRQ_LVL7_R = '1' and INT_VAR < "111" then
+            INT7_TRIG := true; -- Trigger when level 7 is entered.
+        else
+            INT7_TRIG := false;
+        end if;
+        --
+        SR_VAR := STATUS_REG_IN(10 downto 8); -- Update after use!
+        INT_VAR := IRQ; -- Update after use!
+        --
+        if SYS_INIT = '1' then -- Reset when disabling the interrupts.
+            EX_P_INT <= '0';
+            IRQ_PEND_I <= "111"; -- This is required for system startup.
+        elsif EX_STATE = GET_VECTOR and DATA_RDY = '1' then
+            EX_P_INT <= '0';
+        elsif INT7_TRIG = true then -- Level 7 is nonmaskable ...
+            EX_P_INT <= '1';
+            IRQ_PEND_I <= IRQ;
+            -- [F157p] IRQ_HOT is the same rising-edge view EARLY_OW uses; it must already
+            -- be '1' so the early OW_REQ term is held off in this take cycle.
+            assert IRQ_HOT = '1'
+                report "F157p: interrupt take while IRQ_HOT=0 (early OW_REQ not held)"
+                severity failure;
+        elsif INT_TRIG = '1' and IRQ_GT_MASK_R = '1' then -- [F157p] same rising-edge view as EARLY_OW
+            EX_P_INT <= '1';
+            IRQ_PEND_I <= IRQ;
+            assert IRQ_HOT = '1'
+                report "F157p: interrupt take while IRQ_HOT=0 (early OW_REQ not held)"
+                severity failure;
+        elsif EX_STATE = IDLE and EX_P_INT = '1' and INT_REQ = '0' then
+            EX_P_INT <= '0'; -- F55: the mask was raised (MOVE/ANDI/ORI/EORI to SR) before the interrupt was taken.
+        end if;
+        --
+        -- The following nine traps never appear at the same time:
+        if TRAP_CHK = '1' then
+            EX_P_CHK <= '1';
+        elsif TRAP_DIVZERO = '1' then
+            EX_P_DIVZERO <= '1';
+        elsif TRAP_CODE_OPC = T_TRAP then
+            EX_P_TRAP <= '1';
+        elsif TRAP_cc = '1' then
+            EX_P_TRAPcc <= '1';
+        elsif TRAP_V = '1' then
+            EX_P_TRAPV <= '1';
+        elsif TRAP_CODE_OPC = T_PRIV then
+            EX_P_PRIV <= '1';
+        elsif TRAP_CODE_OPC = T_1010 then
+            EX_P_1010 <= '1';
+        elsif TRAP_CODE_OPC = T_1111 then
+            EX_P_1111 <= '1';
+        elsif TRAP_CODE_OPC = T_ILLEGAL then
+            EX_P_ILLEGAL <= '1';
+        elsif TRAP_ILLEGAL = '1' then -- Used for BKPT.
+            EX_P_ILLEGAL <= '1';
+        elsif EX_STATE = VALIDATE_FRAME and DATA_RDY = '1' and DATA_VALID = '1' and NEXT_EX_STATE = IDLE then
+            EX_P_FORMAT <= '1';
+        elsif EX_STATE = EXAMINE_VERSION and DATA_RDY = '1' and DATA_VALID = '1' and NEXT_EX_STATE = IDLE then
+            EX_P_FORMAT <= '1';
+        elsif TRAP_CODE_OPC = T_RTE then
+            EX_P_RTE <= '1';
+        elsif EX_STATE = REFILL_PIPE and NEXT_EX_STATE /= REFILL_PIPE then -- Clear after IPIPE_FLUSH.
+            case EXCEPTION is
+                when EX_1010 | EX_1111 | EX_CHK | EX_DIVZERO | EX_ILLEGAL | EX_TRAP | EX_TRAPcc | EX_TRAPV | EX_FORMAT | EX_PRIV | EX_RTE =>
+                    EX_P_CHK <= '0';
+                    EX_P_DIVZERO <= '0';
+                    EX_P_PRIV <= '0';
+                    EX_P_1010 <= '0';
+                    EX_P_1111 <= '0';
+                    EX_P_ILLEGAL <= '0';
+                    EX_P_RTE <= '0';
+                    EX_P_TRAP <= '0';
+                    EX_P_TRAPcc <= '0';
+                    EX_P_TRAPV <= '0';
+                    EX_P_FORMAT <= '0';
+                -- F12/H16: an RTE unwind abandoned by a bus or address fault
+                -- must not be retried. EX_P_RTE re-arms from TRAP_CODE_OPC for
+                -- as long as the RTE opcode sits in the pipe, so it can only be
+                -- cleared here, at the IPIPE_FLUSH -- but the fault dispatch
+                -- runs under EX_BERR/EX_AERR, which were absent from the list
+                -- above. The stale pending therefore re-fired the instant the
+                -- fault handler was entered and unwound the just-built fault
+                -- frame instead of running the handler. Only EX_P_RTE is
+                -- cleared here: other pendings must survive a fault.
+                when EX_BERR | EX_AERR =>
+                    EX_P_RTE <= '0';
+                when others =>
+                    null;
+            end case;
+        -- Clear all possible traps during reset exception because the
+        -- signal EXCEPTION is not valid at this time:
+        elsif SYS_INIT = '1' then
+            EX_P_CHK <= '0';
+            EX_P_DIVZERO <= '0';
+            EX_P_PRIV <= '0';
+            EX_P_1010 <= '0';
+            EX_P_1111 <= '0';
+            EX_P_ILLEGAL <= '0';
+            EX_P_RTE <= '0';
+            EX_P_TRAP <= '0';
+            EX_P_TRAPV <= '0';
+            EX_P_TRAPcc <= '0';  -- [F50] WAS MISSING FROM THIS RESET LIST.
+            -- Every other pending-exception flag is cleared here, and this
+            -- block's own comment says "clear ALL possible traps during
+            -- reset exception".  EX_P_TRAPcc was omitted.  It IS cleared in
+            -- the dispatch case above, but that only runs when an exception
+            -- is taken -- not at reset.  With no declaration initialiser
+            -- either, it powers up ARBITRARY on a cold boot, and then
+            --     EX_STATE = IDLE and EX_P_TRAPcc = '1'  ->  EX_TRAPcc
+            --     -> VECT_No := x"07"  -> vector 7, format 2
+            -- which is EXACTLY the frame seen on every cold boot.  TRAPcc
+            -- and TRAPV share vector 7, so this read as a spurious TRAPV
+            -- and every fix aimed at the TRAPV path (F42/F44/F45/F46/F47/
+            -- F49) missed it.  Matches the silicon A/B precisely: cold
+            -- boot fails, warm reset boots, because a warm reset runs from
+            -- settled fabric where the flag has already been consumed.
+            EX_P_FORMAT <= '0';
+            -- [F51] These three also had NO declaration initialiser and were
+            -- NOT in this reset list.  After F50 removed the spurious TRAPcc,
+            -- cold boot changed from 'EXC printed' to 'NO UART, LED blinking'
+            -- -- i.e. the CPU never runs at all.  A stuck EX_P_TRACE does
+            -- exactly that: IPENDn is driven by it, so the CPU sits in
+            -- perpetual exception processing and never executes.  AERR/BERR
+            -- are the same class.  EX_P_RESET is deliberately NOT cleared
+            -- here (reset SETS it) and EX_P_INT is handled above.
+            EX_P_TRACE <= '0';
+            EX_P_AERR <= '0';
+            EX_P_BERR <= '0';
+        end if;
+    end process PENDING;
+
+
+    ACCESS_ERR <= '1' when EX_STATE = RESTORE_PC and DATA_RDY = '1' and DATA_0 = '1' else -- Odd PC value.
+                  '1' when DATA_RDY = '1' and DATA_VALID = '0' else '0'; -- Bus error.
+
+    IRQ_PEND <= IRQ_PEND_I when EXCEPTION = EX_RESET or EXCEPTION = EX_INT else STATUS_REG_IN(10 downto 8);
+    -- F55: an interrupt latched while the main controller sleeps in a MOVE/ANDI/ORI/EORI to SR
+    -- (INT_TRIG is active in SLEEP, the SR is not written yet) must not be taken when that
+    -- instruction raises the mask to its level or above. Like the 68030, the pending level is
+    -- compared with the current mask at the instruction boundary. Level 7 stays nonmaskable.
+    INT_REQ <= '1' when EX_P_INT = '1' and (IRQ_PEND_I = "111" or STATUS_REG_IN(10 downto 8) < IRQ_PEND_I) else '0';
+
+    IPENDn <= '0' when INT_REQ = '1' or EX_P_RESET = '1' or EX_P_TRACE = '1' else '1';
+
+    -- This signal is asserted eraly to indicate the respective controller to stay in its idle state.
+    -- The exception is then inserted before a new operation has been loaded and processed.
+    EXH_REQ <= '0' when EX_STATE /= IDLE else
+               '1' when TRAP_CODE_OPC /= NONE else
+               '1' when (EX_P_RESET or EX_P_BERR or EX_P_AERR or EX_P_DIVZERO or EX_P_CHK) = '1' else
+               '1' when (EX_P_TRAPcc or  EX_P_TRAPV or EX_P_TRACE or EX_P_FORMAT or INT_REQ or EX_P_MMUCFG) = '1' else '0';
+
+    INT_VECTOR: process
+    -- This process provides the vector base register handling and 
+    -- the interrupt vector number INT_VECT, which is determined 
+    -- during interrupt processing.
+    variable VECT_No    : std_logic_vector(9 downto 2) := "00000000";
+    variable VB_REG     : std_logic_vector(31 downto 0) := x"00000000";
+    begin
+        wait until CLK = '1' and CLK' event;
+        if VBR_WR = '1' then
+            VB_REG := DATA_IN;
+        elsif SYS_INIT = '1' then
+            VB_REG := (others => '0');
+        end if;
+        --
+        if EX_STATE = CALC_VECT_No or EX_STATE = GET_VECTOR then
+            case EXCEPTION is
+                when EX_RESET       => VECT_No := x"00";
+                when EX_BERR        => VECT_No := x"02";
+                when EX_AERR        => VECT_No := x"03";
+                when EX_ILLEGAL     => VECT_No := x"04";
+                when EX_DIVZERO     => VECT_No := x"05";
+                when EX_CHK         => VECT_No := x"06";
+                when EX_TRAPcc      => VECT_No := x"07";
+                when EX_TRAPV       => VECT_No := x"07";
+                when EX_PRIV        => VECT_No := x"08";
+                when EX_MMUCFG      => VECT_No := x"38"; -- [PMMU2] vector 56 (Table 8-1).
+                when EX_TRACE       => VECT_No := x"09";
+                when EX_1010        => VECT_No := x"0A";
+                when EX_1111        => VECT_No := x"0B";
+                when EX_FORMAT      => VECT_No := x"0E";
+                -- The uninitialized interrupt vector number x"0F"
+                -- is provided by the peripheral interrupt source
+                -- during the auto vector bus cycle.
+                when EX_INT =>
+                    if DATA_RDY = '1' and AVEC = '1' then
+                        VECT_No := x"18" + IRQ_PEND_I; -- Autovector.
+                    elsif DATA_RDY = '1' and DATA_VALID = '0' then
+                        VECT_No := x"18"; -- Spurious interrupt.
+                    elsif DATA_RDY = '1' then
+                        -- This is the vector number provided by the device.
+                        -- If the returned VECT_No is x"0F" then it is the
+                        -- uninitialized interrupt vector due to non initia-
+                        -- lized vector register of the peripheral device.
+                        VECT_No := DATA_IN(7 downto 0); -- Non autovector.
+                    end if;
+                when EX_TRAP => VECT_No := x"2" & TRAP_VECTOR;
+                when others => VECT_No := (others => '-'); -- Don't care.
+            end case;
+        end if;
+        --
+        INT_VECT <= VB_REG + (VECT_No & "00");
+        VBR <= VB_REG;
+        IVECT_OFFS <= VECT_No & "00";
+    end process INT_VECTOR;
+
+    STORE_CURRENT_EXCEPTION: process
+    -- The exceptions which occurs are stored in the following flags until the
+    -- interrupt handler handled the respective exception.
+    -- This process also stores the current processed exception for further use. 
+    -- The update takes place in the IDLE EX_STATE.
+    begin
+        wait until CLK = '1' and CLK' event;
+        -- Priority level 0:
+        if EX_STATE = IDLE and EX_P_RESET = '1' then
+            EXCEPTION <= EX_RESET;
+        -- Priority level 1:
+        elsif EX_STATE = IDLE and EX_P_AERR = '1' then
+            EXCEPTION <= EX_AERR;
+        elsif EX_STATE = IDLE and EX_P_BERR = '1' then
+            EXCEPTION <= EX_BERR;
+        -- Priority level 2:
+        -- BREAKPOINT is part of the main controller.
+        elsif EX_STATE = IDLE and EX_P_CHK = '1' then
+            EXCEPTION <= EX_CHK;
+        elsif EX_STATE = IDLE and EX_P_TRAPcc = '1' then
+            EXCEPTION <= EX_TRAPcc;
+        elsif EX_STATE = IDLE and EX_P_DIVZERO = '1' then
+            EXCEPTION <= EX_DIVZERO;
+        elsif EX_STATE = IDLE and EX_P_TRAP = '1' then
+            EXCEPTION <= EX_TRAP;
+        elsif EX_STATE = IDLE and EX_P_TRAPV = '1' then
+            EXCEPTION <= EX_TRAPV;
+        elsif EX_STATE = IDLE and EX_P_FORMAT = '1' then
+            EXCEPTION <= EX_FORMAT;
+        elsif EX_STATE = IDLE and EX_P_MMUCFG = '1' then
+            EXCEPTION <= EX_MMUCFG; -- [PMMU2] group 2 (Table 8-4).
+        -- Priority level 3:
+        elsif EX_STATE = IDLE and EX_P_ILLEGAL = '1' then
+            EXCEPTION <= EX_ILLEGAL;
+        elsif EX_STATE = IDLE and EX_P_RTE = '1' then
+            EXCEPTION <= EX_RTE;
+        elsif EX_STATE = IDLE and EX_P_1010 = '1' then
+            EXCEPTION <= EX_1010;
+        elsif EX_STATE = IDLE and EX_P_1111 = '1' then
+            EXCEPTION <= EX_1111;
+        elsif EX_STATE = IDLE and EX_P_PRIV = '1' then
+            EXCEPTION <= EX_PRIV;
+        elsif EX_STATE = IDLE and EX_P_TRACE = '1' then
+            EXCEPTION <= EX_TRACE;
+        elsif EX_STATE = IDLE and INT_REQ = '1' then
+            EXCEPTION <= EX_INT;
+        elsif NEXT_EX_STATE = IDLE then
+            EXCEPTION <= EX_NONE;
+        end if;
+    end process STORE_CURRENT_EXCEPTION;
+
+    CPU_SPACE <= '1' when NEXT_EX_STATE = GET_VECTOR else '0';
+
+    ADR_OFFSET <= x"000000" & "00000"  & PIPE_CNT & '0' when EX_STATE = REFILL_PIPE else
+                  x"00000004" when NEXT_EX_STATE = RESTORE_PC and EXCEPTION = EX_RESET else
+                  x"00000002" when NEXT_EX_STATE = RESTORE_PC else
+                  x"00000006" when NEXT_EX_STATE = VALIDATE_FRAME else
+                  x"00000036" when NEXT_EX_STATE = EXAMINE_VERSION else
+                  x"0000000A" when NEXT_EX_STATE = RERUN_SSW else -- [PMMU3] SSW
+                  x"00000010" when NEXT_EX_STATE = RERUN_FA else -- [PMMU3] data cycle fault address
+                  x"00000018" when NEXT_EX_STATE = RERUN_DOB else -- [PMMU3] data output buffer
+                  x"0000005A" when NEXT_EX_STATE = READ_BOTTOM else -- F9/H9: touch the frame's LAST word ($5A), not one past it; a $B frame ending at a protection boundary must not fault on its own RTE.
+                  INT_VECT when NEXT_EX_STATE = UPDATE_PC else x"00000000"; -- Default is top of the stack.
+
+    OP_SIZE <= LONG when EX_STATE = INIT else -- Decrement the stack by four (ISP_DEC).
+               LONG when NEXT_EX_STATE = RESTORE_ISP or NEXT_EX_STATE = RESTORE_PC else
+               LONG when NEXT_EX_STATE = BUILD_STACK or NEXT_EX_STATE = BUILD_TSTACK else -- Always long access.
+               LONG when NEXT_EX_STATE = UPDATE_PC or EX_STATE = UPDATE_PC else
+               LONG when EX_STATE = SWITCH_STATE else
+               LONG when NEXT_EX_STATE = RERUN_FA or NEXT_EX_STATE = RERUN_DOB else -- [PMMU3]
+               RR_SIZE when NEXT_EX_STATE = RERUN_WRITE or EX_STATE = RERUN_WRITE else
+               BYTE when NEXT_EX_STATE = GET_VECTOR else WORD;
+
+    with STACK_FORMAT_I select
+        DISPLACEMENT <= x"08" when x"0" | x"1",
+                        x"0C" when x"2",
+                        x"12" when x"9",
+                        x"20" when x"A",
+                        x"5C" when others; -- x"B".
+ 
+    SP_ADD_DISPL <= '1' when EX_STATE = RESTORE_STATUS and DATA_RDY = '1' and DATA_VALID = '1' else '0';
+
+    P_D: process
+    -- These flip flops are necessary to delay
+    -- the read and writes during BUILD_STACK
+    -- and restoring the system because the
+    -- address calculation in the address
+    -- section requires one clock.
+    -- [XT1] Plain flip flops masked by the registered DATA_RDY strobe (was an asynchronous clear by DATA_RDY:
+    -- same outputs, but a request decided in the DATA_RDY clock (ISP_EARLY) survives the edge).
+    begin
+        wait until CLK = '1' and CLK' event;
+        DATA_RD_R <= DATA_RD_I;
+        DATA_WR_R <= DATA_WR_I;
+    end process P_D;
+    DATA_RD <= DATA_RD_R and not DATA_RDY;
+    DATA_WR <= DATA_WR_R and not DATA_RDY;
+
+    -- [XT1] Next stack long on the ISP: requested in the DATA_RDY clock of the previous one (no bus error), its address
+    -- from ISP_M4 in the address section, its data by STACK_POS at the same edge. Only BUILD_STACK on the ISP (M = 0).
+    ISP_EARLY_I <= '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and DATA_VALID = '1' and
+                            NEXT_EX_STATE = BUILD_STACK and STATUS_REG_IN(13) = '1' and STATUS_REG_IN(12) = '0' else '0';
+    ISP_EARLY <= ISP_EARLY_I;
+    EXH_STK <= '1' when EX_STATE = BUILD_STACK or EX_STATE = UPDATE_PC else '0'; -- [XT2] Registered state: stack writes, vector read.
+
+    -- [XT3] Vector read after the last stack long: requested in that long's DATA_RDY clock (no bus error); its address
+    -- (VBR + offset, RESTORE_ISP_PC from NEXT_EX_STATE) is in the registered effective address at the same edge.
+    DATA_RD_I <= '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and DATA_VALID = '1' and NEXT_EX_STATE = UPDATE_PC else
+                 -- [XT4] RTE frame reads: the next read in the DATA_RDY clock of the previous one (no bus error). Its offset
+                 -- (ADR_OFFSET by NEXT_EX_STATE) and the unchanged SP are in the registered effective address at that edge.
+                 '1' when DATA_RDY = '1' and DATA_VALID = '1' and
+                          (EX_STATE = VALIDATE_FRAME or EX_STATE = EXAMINE_VERSION or EX_STATE = READ_TOP or EX_STATE = READ_BOTTOM or EX_STATE = RESTORE_PC) and
+                          (NEXT_EX_STATE = RESTORE_PC or NEXT_EX_STATE = RESTORE_STATUS or NEXT_EX_STATE = EXAMINE_VERSION or
+                           NEXT_EX_STATE = READ_TOP or NEXT_EX_STATE = READ_BOTTOM) else
+                 '0' when DATA_RDY = '1' else
+                 '1' when NEXT_EX_STATE = GET_VECTOR else 
+                 '1' when NEXT_EX_STATE = VALIDATE_FRAME else 
+                 '1' when NEXT_EX_STATE = EXAMINE_VERSION else 
+                 '1' when NEXT_EX_STATE = READ_TOP else 
+                 '1' when NEXT_EX_STATE = READ_BOTTOM else
+                 '1' when NEXT_EX_STATE = RERUN_SSW or NEXT_EX_STATE = RERUN_FA or NEXT_EX_STATE = RERUN_DOB else -- [PMMU3]
+                 '1' when NEXT_EX_STATE = RESTORE_ISP else
+                 '1' when NEXT_EX_STATE = RESTORE_STATUS else
+                 '1' when NEXT_EX_STATE = UPDATE_PC else
+                 '1' when NEXT_EX_STATE = RESTORE_PC else '0';
+
+    DATA_WR_I <= '1' when ISP_EARLY_I = '1' else -- [XT1]
+                 '0' when DATA_RDY = '1' else
+                 '1' when EX_STATE = BUILD_STACK else
+                 '1' when EX_STATE = BUILD_TSTACK else
+                 '1' when EX_STATE = RERUN_WRITE else '0'; -- [PMMU3]
+
+    -- [PMMU3] Frame values for the write rerun.
+    P_RERUN: process
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE = RERUN_SSW and DATA_RDY = '1' then
+            RR_FC <= DATA_IN(2 downto 0);
+            case DATA_IN(5 downto 4) is
+                when "01" => RR_SIZE <= BYTE;
+                when "10" => RR_SIZE <= WORD;
+                when others => RR_SIZE <= LONG;
+            end case;
+        end if;
+        if EX_STATE = RERUN_FA and DATA_RDY = '1' then RR_ADR <= DATA_IN; end if;
+        if EX_STATE = RERUN_DOB and DATA_RDY = '1' then RR_DATA <= DATA_IN; end if;
+    end process P_RERUN;
+    RERUN_WR <= '1' when EX_STATE = RERUN_WRITE else '0';
+    RERUN_ADR <= RR_ADR; RERUN_DATA <= RR_DATA; RERUN_FC <= RR_FC;
+
+    ISP_LOAD <= '1' when EX_STATE = RESTORE_ISP and DATA_RDY = '1' and DATA_VALID = '1' else '0';
+    PC_RESTORE <= '1' when EX_STATE = RESTORE_PC and DATA_RDY = '1' and DATA_VALID = '1' else '0';
+    PC_LOAD <= '1' when EXCEPTION /= EX_RESET and EXCEPTION /= EX_RTE and EX_STATE /= REFILL_PIPE and NEXT_EX_STATE = REFILL_PIPE else '0';
+
+    IPIPE_FILL <= '1' when EX_STATE = REFILL_PIPE else '0';
+
+    -- This signal forces the PC logic in the address register section to calculate the address
+    -- of the next instruction. This address is written on the stack. For the following
+    -- instructions the old PC value is stacked: BERR, AERR, ILLEGAL, PRIV, TRACE, 1010, 1111, FORMAT.
+    PC_INC <= '1' when EXCEPTION = EX_BERR and IBOUND = true and IB_PCINC = true and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else -- [F131]
+              '1' when EXCEPTION = EX_CHK and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
+              '1' when EXCEPTION = EX_DIVZERO and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
+              '1' when EXCEPTION = EX_INT and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
+              '1' when EXCEPTION = EX_TRAP and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else 
+              '1' when EXCEPTION = EX_TRAPcc and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
+              '1' when EXCEPTION = EX_TRAPV and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else
+              '1' when EXCEPTION = EX_MMUCFG and EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK else '0'; -- [PMMU2] next PC (8.1.10).
+
+    ISP_DEC <= '1' when EX_STATE = INIT and EXCEPTION /= EX_RESET and EXCEPTION /= EX_RTE else -- Early due to one clock cycle address calculation.
+               '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and NEXT_EX_STATE = BUILD_STACK else
+               '1' when EX_STATE = SWITCH_STATE else
+               '1' when EX_STATE = BUILD_TSTACK and DATA_RDY = '1' and NEXT_EX_STATE = BUILD_TSTACK else '0';
+
+    SR_INIT <= '1' when EX_STATE = INIT else '0';
+    SR_CLR_MBIT <= '1' when EX_STATE = BUILD_STACK and DATA_RDY = '1' and STACK_CNT = 2 and EXCEPTION = EX_INT and MBIT = '1' else '0';
+    SR_WR <= '1' when EX_STATE = RESTORE_STATUS and DATA_RDY = '1' and DATA_VALID = '1' else '0';
+
+    SYS_INIT <= '1' when EX_STATE = IDLE and EX_P_RESET = '1' else '0';
+
+    -- The processor gets halted, if a bus error occurs in the stacking or updating states during
+    -- the exception processing of a bus error, an address error or a reset.
+    HALT_OUTn <= '0' when EX_STATE = HALTED else '1';
+
+    RESTORE_ISP_PC <= '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_ISP or EX_STATE = RESTORE_ISP) else
+                      '1' when EXCEPTION = EX_RESET and (NEXT_EX_STATE = RESTORE_PC or EX_STATE = RESTORE_PC) else
+                      '1' when NEXT_EX_STATE = UPDATE_PC else '0';
+
+    REFILLn <= '0' when EX_STATE = REFILL_PIPE else '1';
+    
+    STACK_FORMAT <= STACK_FORMAT_I;
+
+    IPIPE_FLUSH <= '1' when EXCEPTION = EX_RESET and EX_STATE /= REFILL_PIPE else
+                   '1' when EXCEPTION /= EX_NONE and EX_STATE /= REFILL_PIPE and NEXT_EX_STATE = REFILL_PIPE else '0';
+
+    DOUBLE_BUSFLT <= '1' when (EXCEPTION = EX_AERR or EXCEPTION = EX_RESET) and EX_STATE = RESTORE_PC and DATA_RDY = '1' and DATA_0 = '1' else -- Odd PC value.
+                     '1' when EX_STATE /= IDLE and EXCEPTION = EX_AERR and DATA_RDY = '1' and DATA_VALID = '0' else
+                     '1' when EX_STATE /= IDLE and EXCEPTION = EX_BERR and DATA_RDY = '1' and DATA_VALID = '0' else
+                     '1' when EX_STATE /= IDLE and EXCEPTION = EX_RESET and DATA_RDY = '1' and DATA_VALID = '0' else '0';
+
+    P_TMP_CPY: process
+    -- These registers contain a copy of system relevant state information
+    -- which is necessary for restoring the exception. Copies are provided 
+    -- for the status register, the program counter and the effective address.
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE = IDLE and NEXT_EX_STATE /= IDLE then
+            SR_CPY <= STATUS_REG_IN;
+            ADR_CPY <= ADR_IN;
+            MBIT <= STATUS_REG_IN(12);
+        elsif EX_STATE = BUILD_STACK and NEXT_EX_STATE = SWITCH_STATE then
+            SR_CPY(13) <= '1'; -- Set S bit.
+        end if;
+    end process P_TMP_CPY;
+
+    STACK_CTRL: process
+    -- This process controls the stacking of the data to the stack. Depending
+    -- on the stack frame format, the number of words written to the stack is 
+    -- adjusted to long words. See the DATA_2_PORT multiplexer in the top level
+    -- file for more information.
+    variable STACK_POS_VAR  : integer range 0 to 46 := 0;
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE /= BUILD_TSTACK and NEXT_EX_STATE = BUILD_TSTACK then
+            STACK_POS_VAR := 4;
+            STACK_FORMAT_I <= x"1";
+        elsif EX_STATE /= BUILD_STACK and NEXT_EX_STATE = BUILD_STACK then 
+            case EXCEPTION is
+                when EX_INT | EX_ILLEGAL | EX_1010 | EX_1111 | EX_FORMAT | EX_PRIV | EX_TRAP =>
+                    STACK_POS_VAR := 4; -- Format 0.
+                    STACK_FORMAT_I <= x"0";
+                when EX_CHK | EX_TRAPcc | EX_TRAPV | EX_TRACE | EX_DIVZERO | EX_MMUCFG =>
+                    STACK_POS_VAR := 6; -- Format 2.
+                    STACK_FORMAT_I <= x"2";
+                when EX_AERR | EX_BERR =>
+                    if IBOUND = true then
+                        STACK_POS_VAR := 16; -- Format A.
+                        STACK_FORMAT_I <= x"A";
+                    else
+                        STACK_POS_VAR := 46; -- Format B.
+                        STACK_FORMAT_I <= x"B";
+                    end if;
+                when others => null;
+            end case;
+        elsif EX_STATE = VALIDATE_FRAME and DATA_RDY = '1' and DATA_VALID = '1' then
+            STACK_FORMAT_I <= DATA_IN(15 downto 12);
+        elsif (EX_STATE = BUILD_STACK or EX_STATE = BUILD_TSTACK) and DATA_RDY = '1' then
+            STACK_POS_VAR := STACK_POS_VAR - 2; -- Always long words are written.
+        end if;
+        --
+        STACK_CNT <= STACK_POS_VAR;
+        STACK_POS <= STACK_POS_VAR;
+    end process STACK_CTRL;
+
+    P_STATUSn : process
+    -- This logic asserts the STATUSn permanently when the CPU is halted.
+    -- STATUSn is asserted for three clock cycles when the exception
+    -- processing starts for RESET, BERR, AERR, 1111, spurious inter-
+    -- rupt and autovectored interrupt. And for TRACE or external
+    -- interrupt exception it is asserted for two clock cycles.
+    variable CNT    : std_logic_vector(1 downto 0);
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE = CALC_VECT_No then
+            case EXCEPTION is
+                when EX_RESET | EX_AERR | EX_BERR | EX_1111 => 
+                    CNT := "11";
+                    STATUSn <= '0';
+                when EX_INT | EX_TRACE =>
+                    CNT := "10";
+                when others =>
+                    CNT := "00";
+            end case;
+        end if;
+        
+        if EX_STATE = HALTED then
+            STATUSn <= '0';
+        elsif CNT > "00" then
+            CNT := CNT - '1';
+            STATUSn <= '0';
+        else
+            STATUSn <= '1';
+        end if;
+    end process P_STATUSn;
+
+    PIPE_STATUS: process
+    -- This logic detects the status of the
+    -- instruction pipe prefetch in the 
+    -- REFILL_PIPE state.
+    variable CNT : std_logic_vector(1 downto 0);
+    begin
+        wait until CLK = '1' and CLK' event;
+        if EX_STATE /= REFILL_PIPE then
+            PIPE_FULL <= false;
+            CNT := "00";
+        -- [F156] CNT = words received so far (0..2). Full on the clock the third word arrives;
+        -- an OPCODE_RDY_2 delivery brings two words in one strobe.
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and OPCODE_RDY_2 = '1' and CNT = "00" then
+            CNT := "10";
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and OPCODE_RDY_2 = '1' then
+            PIPE_FULL <= true;
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' and CNT < "10" then
+            CNT := CNT + '1';
+        elsif EX_STATE = REFILL_PIPE and OPCODE_RDY = '1' then
+            PIPE_FULL <= true;
+        end if;
+        PIPE_CNT <= CNT;
+    end process PIPE_STATUS;
+
+    EXCEPTION_HANDLER_REG: process
+    -- This is the register portion of the 
+    -- exception control state machine.
+    begin
+        wait until CLK = '1' and CLK' event;
+        if RESET = '1' then
+            EX_STATE <= IDLE;
+        else
+            EX_STATE <= NEXT_EX_STATE;
+        end if;
+    end process EXCEPTION_HANDLER_REG;
+
+    EXCEPTION_HANDLER_DEC: process(ACCESS_ERR, BUSY_MAIN, BUSY_OPD, DATA_IN, DATA_VALID, DOUBLE_BUSFLT, EX_STATE, EX_P_RESET, EX_P_AERR, EX_P_BERR, EX_P_TRACE, 
+                                   INT_REQ, EX_P_ILLEGAL, EX_P_1010, EX_P_TRAPcc, EX_P_RTE, EX_P_1111, EX_P_FORMAT, EX_P_PRIV, EX_P_TRAP, EX_P_TRAPV, 
+                                   EX_P_CHK, EX_P_DIVZERO, EXCEPTION, DATA_RDY, PIPE_FULL, MBIT, STACK_CNT, STACK_FORMAT_I, EX_P_MMUCFG) -- [F145] EX_P_MMUCFG
+    begin
+        case EX_STATE is
+            when IDLE =>
+                -- The priority of the exception execution is given by the
+                -- following construct. Although type 3 commands do not require
+                -- a prioritization, there is no drawback using these conditions.
+                -- The spurious interrupt and uninitialized interrupt never appear
+                -- as basic interrupts and therefore are not an interrupt source.
+                -- During IDLE, when an interrupt occurs, the status register copy
+                -- control is asserted and the current interrupt controll is given
+                -- to the STORE_EXCEPTION process. During bus or address errors,
+                -- the status register must be copied immediately to recognize
+                -- the current status for RWn etc. (before the faulty bus cycle is
+                -- finished).
+                if (BUSY_MAIN = '1' or BUSY_OPD = '1') and EX_P_RESET = '0' then
+                    NEXT_EX_STATE <= IDLE; -- Wait until the pipelined architecture is ready.
+                elsif EX_P_RESET = '1' or EX_P_AERR = '1' or EX_P_BERR = '1' then
+                    NEXT_EX_STATE <= INIT;
+                elsif EX_P_TRAP = '1' or EX_P_TRAPcc = '1' or EX_P_TRAPV = '1' or EX_P_CHK = '1' or EX_P_DIVZERO = '1' or EX_P_MMUCFG = '1' then
+                    NEXT_EX_STATE <= INIT;
+                elsif EX_P_FORMAT = '1' then
+                    NEXT_EX_STATE <= INIT;
+                elsif EX_P_TRACE = '1' or EX_P_ILLEGAL = '1' or EX_P_1010 = '1' or EX_P_1111 = '1' or EX_P_PRIV = '1' then
+                    NEXT_EX_STATE <= INIT;
+                elsif EX_P_RTE = '1' then
+                    NEXT_EX_STATE <= INIT;
+                elsif INT_REQ = '1' then
+                    NEXT_EX_STATE <= INIT;
+                else -- No exception.
+                    NEXT_EX_STATE <= IDLE;
+                end if;
+            when INIT =>
+                -- In this state, the supervisor mode is switched on (the S bit is set)
+                -- and the trace mode is switched off (the T bit is cleared).
+                -- Do not service, if halted. The current bus cycle is always finished
+                -- in this state. The worst case is a bus error which the finishes the
+                -- current bus cycle within the next clock cycle after BERR is asserted.
+                case EXCEPTION is
+                    when EX_RTE =>
+                        -- This state is foreseen to handle the address offset
+                        -- correctly in the case the ADR_ATN is already set
+                        -- by the main controller. So we have to wait one
+                        -- clock cycle to ensure this data hazard.
+                        NEXT_EX_STATE <= VALIDATE_FRAME; -- 68K10.
+                    when EX_INT =>
+                        NEXT_EX_STATE <= GET_VECTOR;
+                    when others =>
+                        NEXT_EX_STATE <= CALC_VECT_No;
+                end case;
+            when GET_VECTOR =>
+                -- This state is intended to determine the vector number for the current process.
+                -- See also the process EXC_VECTOR for the handling of the vector determination.
+                if DATA_RDY = '1' then
+                    NEXT_EX_STATE <= BUILD_STACK;
+                else
+                    NEXT_EX_STATE <= GET_VECTOR;
+                end if;
+            when CALC_VECT_No =>
+                -- This state is introduced to control the generation of the vector number
+                -- for all exceptions except the external interrupts.
+                case EXCEPTION is
+                    when EX_RESET => 
+                        NEXT_EX_STATE <= RESTORE_ISP; -- Do not stack anything but update the SSP and PC.
+                    when others => 
+                        NEXT_EX_STATE <= BUILD_STACK;
+                end case;
+            -- The following states provide writing to the stack pointer or reading
+            -- the exception vector address from memory. If there is a bus error
+            -- or an address error during the read or write cycles, the processor
+            -- proceeds in two different ways:
+            -- If the errors occur during a reset, bus error or address error
+            -- exception processing, a double bus fault has occured. In
+            -- consequence, the processor halts due to catastrophic system failure.
+            -- If the errors occur during other exception processings, the current
+            -- processing is aborted and this exception handler state machine will
+            -- immediately begin with the bus error exception handling.
+            when BUILD_STACK =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED;
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' and STACK_CNT = 2 and EXCEPTION = EX_INT and MBIT = '1' then
+                    NEXT_EX_STATE <= SWITCH_STATE; -- Build throwaway stack frame.
+                elsif DATA_RDY = '1' and STACK_CNT = 2 then
+                    NEXT_EX_STATE <= UPDATE_PC;
+                else
+                    NEXT_EX_STATE <= BUILD_STACK;
+                end if;
+            when SWITCH_STATE => -- Required to decrement the correct stack pointer.
+                NEXT_EX_STATE <= BUILD_TSTACK;
+            when BUILD_TSTACK => -- Build throwaway stack frame.
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' and STACK_CNT = 2 then
+                    NEXT_EX_STATE <= UPDATE_PC;
+                else
+                    NEXT_EX_STATE <= BUILD_TSTACK;
+                end if;
+            when UPDATE_PC =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED;
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= REFILL_PIPE;
+                else
+                    NEXT_EX_STATE <= UPDATE_PC;
+                end if;
+            when VALIDATE_FRAME =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    case DATA_IN(15 downto 12) is
+                        when x"A" => -- [PMMU3] Look at the SSW: rerun a faulted write first.
+                            NEXT_EX_STATE <= RERUN_SSW;
+                        when x"0" | x"1" | x"2" | x"9" => -- F3/H8: format $A has no version word ($36 is beyond its 16 words); a real 030 restores it without that access. Deallocation ($20) already correct.
+                            NEXT_EX_STATE <= RESTORE_PC;
+                        when x"B" =>
+                            NEXT_EX_STATE <= EXAMINE_VERSION;
+                        when others =>
+                            NEXT_EX_STATE <= IDLE; -- Format error.
+                    end case;
+                else
+                    NEXT_EX_STATE <= VALIDATE_FRAME;
+                end if;
+            when RERUN_SSW =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' and DATA_IN(8) = '1' and DATA_IN(6) = '0' then
+                    NEXT_EX_STATE <= RERUN_FA; -- DF = 1, write.
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= RERUN_SSW;
+                end if;
+            when RERUN_FA =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RERUN_DOB;
+                else
+                    NEXT_EX_STATE <= RERUN_FA;
+                end if;
+            when RERUN_DOB =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RERUN_WRITE;
+                else
+                    NEXT_EX_STATE <= RERUN_DOB;
+                end if;
+            when RERUN_WRITE =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE; -- The rerun faults again: a new bus error.
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= RERUN_WRITE;
+                end if;
+            when EXAMINE_VERSION =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    if DATA_IN(15 downto 0) /= VERSION then -- F4/H10: explicit width; survives strict-IEEE equality.
+                        NEXT_EX_STATE <= IDLE; -- Format error.
+                    else
+                        NEXT_EX_STATE <= READ_TOP;
+                    end if;
+                else
+                    NEXT_EX_STATE <= EXAMINE_VERSION;
+                end if;
+            when READ_TOP =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= READ_BOTTOM;
+                else
+                    NEXT_EX_STATE <= READ_TOP;
+                end if;
+            when READ_BOTTOM =>
+                if ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= READ_BOTTOM;
+                end if;
+            when RESTORE_STATUS =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED;
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' and STACK_FORMAT_I = x"1" then
+                    NEXT_EX_STATE <= VALIDATE_FRAME; -- Throwaway stack frame.
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= REFILL_PIPE;
+                else
+                    NEXT_EX_STATE <= RESTORE_STATUS;
+                end if;
+            when RESTORE_ISP =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED;
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_PC;
+                else
+                    NEXT_EX_STATE <= RESTORE_ISP;
+                end if;
+            when RESTORE_PC =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED; -- Double bus fault.
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif EXCEPTION = EX_RESET and DATA_RDY = '1' then
+                    NEXT_EX_STATE <= REFILL_PIPE;
+                elsif DATA_RDY = '1' then
+                    NEXT_EX_STATE <= RESTORE_STATUS;
+                else
+                    NEXT_EX_STATE <= RESTORE_PC;
+                end if;
+            when REFILL_PIPE =>
+                if DOUBLE_BUSFLT = '1' then
+                    NEXT_EX_STATE <= HALTED;
+                elsif ACCESS_ERR = '1' then
+                    NEXT_EX_STATE <= IDLE;
+                elsif PIPE_FULL = true then
+                    NEXT_EX_STATE <= IDLE;
+                else
+                    NEXT_EX_STATE <= REFILL_PIPE;
+                end if;
+            when HALTED =>
+                -- Processor halted, Double bus error!
+                NEXT_EX_STATE <= HALTED;
+        end case;
+    end process EXCEPTION_HANDLER_DEC;
+end BEHAVIOR;
+

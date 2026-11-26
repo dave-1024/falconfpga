@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Falcon030 v1 configuration. TOS 4.04 comes from the SD card, not flash.
+     Do not save atarist.ini (that file belongs to the ST core). -->
+<config name="Falcon030" version="0">
+  <actions>
+    <action name="init">
+      <!-- optional Falcon-only ini; never atarist.ini -->
+      <load file="falcon.ini"/>
+    </action>
+    <action name="ready">
+    </action>
+    <action name="save">
+      <save file="falcon.ini"/>
+    </action>
+    <action name="reset">
+      <set id="R" value="1"/>
+      <delay ms="10"/>
+      <set id="R" value="0"/>
+    </action>
+    <action name="reset_hide">
+      <link action="reset"/>
+      <hide/>
+    </action>
+  </actions>
+  <menu label="Falcon030">
+    <fileselector label="TOS ROM" ext="img;rom;bin" index="4" default="TOS404.IMG"/>
+    <fileselector label="Disk A:" ext="st" index="0"/>
+    <menu label="Storage">
+      <fileselector label="TOS ROM" ext="img;rom;bin" index="4" default="TOS404.IMG"/>
+      <fileselector label="Disk A:" ext="st" index="0" default="disk_a.st"/>
+    </menu>
+    <menu label="Settings">
+      <!-- VID-SPLIT: monitor sense ($FF8006 b7:6) and native Videl timing; HDMI stays 640x480@60.
+           Takes effect at the next reset (TOS reads the monitor type at boot). -->
+      <list label="Monitor:" id="V" default="0">
+        <listentry label="VGA 60Hz" value="0"/>
+        <listentry label="RGB 50Hz" value="1"/>
+      </list>
+      <button label="Save settings" action="save"/>
+    </menu>
+    <button label="Reset" action="reset_hide"/>
+  </menu>
+</config>

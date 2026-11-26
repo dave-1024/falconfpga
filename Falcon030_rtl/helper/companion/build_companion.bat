@@ -1,0 +1,62 @@
+@echo off
+REM Builds FPGA-Companion for the AE350 (ST_HELPER build, docs\ST_HELPER.md
+REM section 7, port steps 1-3). Output: output\helper_companion.bin.
+REM Flash it at 0x0600000 (leading 0, not 0x6000000) with programmer_cli
+REM op 56 --mcuFile --spiaddr 0x600000. Falcon TOS is on the SD card, not flash.
+REM Still never write 0x500000 by accident. See Falcon030_rtl\BUILD.md.
+REM Same toolchain, BSP, start-up files and linker script as
+REM ..\mailbox\build_mailbox.bat: loader.c holds the BUILD_BURN boot_loader
+REM (.bootloader at 0x80000000) that copies the DDR-linked image out of flash.
+REM Sources: ..\fpga-companion\src (FPGA-Companion, Till Harbaum and the
+REM MiSTle-Dev contributors, Apache-2.0) with the AE350 layer in src\ae350.
+setlocal
+set "HERE=%~dp0"
+if exist "%HERE%env.bat" call "%HERE%env.bat"
+if not defined FALCON_TC set "FALCON_TC=C:\Dev\AndeSight_RDS_v511\toolchains\nds32le-elf-newlib-v5\bin"
+if not defined FALCON_SDK set "FALCON_SDK=C:\Dev\RiscV_AE350_SOC_V1.3"
+if not defined FALCON_CYGBIN set "FALCON_CYGBIN=C:\Dev\AndeSight_RDS_v511\cygwin\bin"
+set "PATH=%FALCON_TC%;%FALCON_CYGBIN%;%PATH%"
+set "GCC=%FALCON_TC%\riscv32-elf-gcc.exe"
+set "OBJCOPY=%FALCON_TC%\riscv32-elf-objcopy.exe"
+set "OBJDUMP=%FALCON_TC%\riscv32-elf-objdump.exe"
+set "SIZE=%FALCON_TC%\riscv32-elf-size.exe"
+set "BSP=%FALCON_SDK%\library\bsp"
+set "S=%HERE%..\fpga-companion\src"
+set "OUT=%HERE%output"
+if not exist "%OUT%" mkdir "%OUT%"
+REM Two include sets: the BSP has its own config.h (CFG_BURN etc., needed
+REM for the .bootloader section) and FPGA-Companion has a different
+REM config.h, so the two groups are compiled separately and then linked.
+set BSPINC=-I"%BSP%\ae350" -I"%BSP%\config" -I"%BSP%\driver\ae350" -I"%BSP%\driver\include" -I"%BSP%\lib"
+set APPINC=-I"%S%\ae350\rtos_shim" -I"%S%\ae350" -I"%S%" -I"%S%\fatfs\source" -I"%S%\u8g2\csrc"
+set COMMON=-DREF_TEST_CLK -O2 -mcmodel=medium -g3 -Wall -Wno-unused-function -mcpu=a25 -ffunction-sections -fdata-sections -fno-builtin -fomit-frame-pointer
+set LDFLAGS=-mcpu=a25 -O2 -nostartfiles -static -T"%BSP%\sag\ae350-ddr.ld" -Wl,--gc-sections -Wl,-Map="%OUT%\helper_companion.map"
+set BSPSRC="%BSP%\ae350\start.S" "%BSP%\ae350\ae350.c" "%BSP%\ae350\cache.c" "%BSP%\ae350\initfini.c" "%BSP%\ae350\interrupt.c" "%BSP%\ae350\loader.c" "%BSP%\ae350\reset.c" "%BSP%\ae350\trap.c"
+set PORTSRC="%S%\ae350\main.c" "%S%\ae350\mcu_hw.c" "%S%\ae350\console.c" "%S%\ae350\stubs.c" "%S%\ae350\tinyprintf.c" "%S%\ae350\usb.c" "%S%\ae350\rtos_shim\coop.c"
+set COMPSRC="%S%\sdc.c" "%S%\sysctrl.c" "%S%\inifile.c" "%S%\config.c" "%S%\xml.c" "%S%\puff.c" "%S%\hid.c" "%S%\ps2helper.c" "%S%\menu.c" "%S%\osd_u8g2.c" "%S%\fatfs\source\ff.c" "%S%\fatfs\source\ffunicode.c"
+if not exist "%OUT%\obj" mkdir "%OUT%\obj"
+del /q "%OUT%\obj\*.o" 2>nul
+pushd "%OUT%\obj"
+"%GCC%" %COMMON% %BSPINC% -c %BSPSRC%
+if errorlevel 1 (popd & exit /b 1)
+"%GCC%" %COMMON% %APPINC% -c %PORTSRC% %COMPSRC%
+if errorlevel 1 (popd & exit /b 1)
+popd
+REM u8g2 (olikraus, BSD-2-Clause) for the OSD menu, own object directory
+if not exist "%OUT%\obj\u8g2" mkdir "%OUT%\obj\u8g2"
+del /q "%OUT%\obj\u8g2\*.o" 2>nul
+pushd "%OUT%\obj\u8g2"
+for %%f in ("%S%\u8g2\csrc\*.c" "%S%\u8g2\sys\bitmap\common\u8x8_d_bitmap.c") do ("%GCC%" %COMMON% %APPINC% -c "%%~f" || (popd & exit /b 1))
+setlocal enabledelayedexpansion
+set U8OBJ=
+for %%o in ("%OUT%\obj\u8g2\*.o") do set U8OBJ=!U8OBJ! "%%~o"
+popd
+"%GCC%" %LDFLAGS% "%OUT%\obj\start.o" "%OUT%\obj\ae350.o" "%OUT%\obj\cache.o" "%OUT%\obj\initfini.o" "%OUT%\obj\interrupt.o" "%OUT%\obj\loader.o" "%OUT%\obj\reset.o" "%OUT%\obj\trap.o" "%OUT%\obj\main.o" "%OUT%\obj\mcu_hw.o" "%OUT%\obj\console.o" "%OUT%\obj\stubs.o" "%OUT%\obj\tinyprintf.o" "%OUT%\obj\usb.o" "%OUT%\obj\hid.o" "%OUT%\obj\ps2helper.o" "%OUT%\obj\coop.o" "%OUT%\obj\menu.o" "%OUT%\obj\osd_u8g2.o" %U8OBJ% "%OUT%\obj\sdc.o" "%OUT%\obj\sysctrl.o" "%OUT%\obj\inifile.o" "%OUT%\obj\config.o" "%OUT%\obj\xml.o" "%OUT%\obj\puff.o" "%OUT%\obj\ff.o" "%OUT%\obj\ffunicode.o" -o "%OUT%\helper_companion.adx" -lc -lgcc
+if errorlevel 1 exit /b 1
+"%OBJCOPY%" -S -O binary "%OUT%\helper_companion.adx" "%OUT%\helper_companion.bin"
+"%OBJDUMP%" -h "%OUT%\helper_companion.adx" | findstr /i ".bootloader" >nul
+if errorlevel 1 echo WARNING: no .bootloader section. Do not flash.
+"%OBJDUMP%" -h "%OUT%\helper_companion.adx" | findstr /i ".text .data .bss .bootloader .loader"
+"%SIZE%" "%OUT%\helper_companion.adx"
+echo Flash output\helper_companion.bin at 0x0600000. Leading 0. Not 0x6000000.
+endlocal

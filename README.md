@@ -15,9 +15,10 @@ This is a personal workbench, not a finished product. Please read [This is not a
 before you buy any hardware because of this repository. Please also read the [Credits](#credits):
 this work stands on cores and tools written by other people.
 
-**Where it stands (25 Nov 2026).** TOS 4.04 boots to the desktop. Keyboard, mouse, floppy images and
-HDMI video work. Usual tests such as GEMBENCH and FrontBench run. Sound, hard disk and the Falcon's
-DSP chip are not ready yet. The job in hand is the processor's data cache.
+**Where it stands (26 Nov 2026).** TOS 4.04 boots to the desktop. Keyboard, mouse, floppy images and
+HDMI video work. Usual tests such as GEMBENCH and FrontBench run. The processor's instruction cache
+is on, and so is its data cache for TOS in ROM. Caching data from the computer's main memory is still
+being worked on. Sound, hard disk and the Falcon's DSP chip are not ready yet.
 
 The live source is on the [`falcon`](https://github.com/dave-1024/falconfpga/tree/falcon) branch.
 A step-by-step guide to building and flashing it is in
@@ -33,7 +34,9 @@ This GitHub repository's default branch is `main`; clone or check out `falcon` f
 
 ## Screenshots
 
-Coming soon.
+![GEMBENCH 6.31 results on the current board build](docs/img/gembench_B3.png)
+
+GEMBENCH 6.31 in ST medium on the current board build: Display 124%, CPU 234%, average 170%.
 
 ## What works
 
@@ -47,8 +50,13 @@ Coming soon.
   is not part of this Falcon build.
 - The **blitter** (a chip that draws blocks of graphics), the floppy drive, the keyboard, and the
   clock/settings memory (NVRAM).
-- **GEMBENCH** and **FrontBench** both run. On the current board build, FrontBench's lastcount was
-  1079 in VGA 60 Hz and 1319 in RGB 50 Hz. GEMBENCH scores are in the
+- **The processor's instruction cache** is on, for both TOS in ROM and programs in main memory.
+- **The data cache for TOS in ROM** is also on. Caching data from main memory is not on yet (see
+  [Work in progress](#work-in-progress)).
+- **GEMBENCH** and **FrontBench** both run. On the current board build, GEMBENCH 6.31 in ST medium
+  scored Display 124%, CPU 234% and an average of 170% (compared with a blitter STE). FrontBench's
+  lastcount was 1079 in VGA 60 Hz and 1319 in RGB 50 Hz, measured on an earlier build with the same
+  video timing. More detail is in the
   [Falcon README](https://github.com/dave-1024/falconfpga/blob/falcon/Falcon030_rtl/README.md).
 
 The processor runs at 16 MHz. The long-term aim is that each instruction takes the same number of
@@ -57,9 +65,9 @@ slower. The detailed timing list is in the Falcon README.
 
 ## Work in progress
 
-- **The processor's data cache.** This is a small, fast memory inside the CPU that should speed
-  things up. Turning it on has been seen to stop the computer, so it is being investigated before
-  it is switched on for good. The instruction cache for TOS in ROM already works.
+- **Caching data from main memory.** The processor already caches instructions, and it caches data
+  from TOS in ROM. Turning the data cache on for the computer's main memory still stops the
+  computer from booting, so that part is still being investigated.
 
 ## What doesn't work (yet)
 
@@ -94,7 +102,7 @@ Falcon README).
 
 ## Planned
 
-This is a map of the work, not a timetable. After the data cache:
+This is a map of the work, not a timetable. After caching data from main memory:
 
 1. **Make the processor as fast as a real 68030.** A long list of instruction timings is still a
    little slower than Motorola's manual. The list, and the order of work, is in the
@@ -283,7 +291,7 @@ Console-138K-only cut of [MiSTeryNano](https://github.com/MiSTle-Dev/MiSTeryNano
 ### Where it is headed
 
 1. ~~An ST/STE test bed with a 68030, caches, TT-RAM and the PMMU~~ (done, October 2026).
-2. **Now:** the Falcon core (TOS 4.04 desktop is up). Next is the data cache, then the remaining 68030 timing work, then faster memory, then the rest of the Falcon chipset and the helper cleanup. See [Work in progress](#work-in-progress) and [Planned](#planned).
+2. **Now:** the Falcon core (TOS 4.04 desktop is up). Instruction caching and the ROM data cache are on. Next is caching data from main memory, then the remaining 68030 timing work, then faster memory, then the rest of the Falcon chipset and the helper cleanup. See [Work in progress](#work-in-progress) and [Planned](#planned).
 
 ### Methods
 
