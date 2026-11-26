@@ -23,6 +23,18 @@ phase 2 follow-ups), [docs/ST_HELPER.md](docs/ST_HELPER.md) (helper, detailed la
 [docs/DIAG_OVERLAY.md](docs/DIAG_OVERLAY.md), lab notes in [docs/notes/](docs/notes/) (RAM_PATH, TF536_NOTES, SPI_SDC, DEBUG2).
 All HDL is under `hdl/` (since 9 Oct 2026); `helper_fw/` holds the helper firmware.
 
+## If the ST core is picked up again (26 Nov 2026)
+
+Port the Falcon core's 80 MHz SDRAM controller first:
+[`Falcon030_rtl/hdl/bus/falcon_sdram_fast.v`](../Falcon030_rtl/hdl/bus/falcon_sdram_fast.v) (SDR-1).
+Its slot is 75 ns instead of 250 ns. This core's weak memory-heavy GEMBENCH scores (RAM 48-61%, ROM 60-69%)
+were probably partly caused by the slow SDRAM path. For comparison, the Falcon core's C5 build, which
+still had the old SDRAM path, averaged 99% against a real Falcon in Łukasz Jokiel's GEMBENCH 6.31 run
+(weakest: blitting 81%, GEM window 80%). The 80 MHz build S8 then raised the Display score by about
+20% over C5. Bring over the lessons in [FALCON_LESSONS.md](../Falcon030_rtl/docs/FALCON_LESSONS.md)
+(SDR-1) too: route 80/32 MHz crossings through clk_cpu registers, and use 4-phase handshakes for
+every RAM client.
+
 ## Status (24 Nov 2026, main)
 
 Current core: **F172** vC1 (speed `cf51baa`), which includes **F171** (`f6a5429`). Flash 0 still holds **F170**
