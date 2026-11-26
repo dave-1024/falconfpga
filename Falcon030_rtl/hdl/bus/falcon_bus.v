@@ -131,14 +131,20 @@ module falcon_bus #(
     // words in one SDRAM slot (sd_rd2); the second portion is answered from buf2 with no SDRAM slot.
     // buf2 is good only for the very next cycle (cleared by any other cycle start and by a blitter grant).
     reg [15:0] buf2;
-    reg [3:1]  buf2_a;
+    // BLI-11h (26 Nov 2026): also for CACHABLE byte/word reads at A1=0. On a miss the 030 runs a fill cycle
+    // (one word, SIZ=word) for the other word of the long straight after (UM 6.1.3.1, Fig 6-6); that word
+    // is A+2, already fetched by the same sd_rd2 slot, so the fill is answered from buf2 with no SDRAM slot.
+    // Because the next cycle is no longer guaranteed to be the continuation (D-cache off/frozen, RMC, no
+    // fill), buf_hit compares the full physical word address (was A3:1), read, SIZ word or byte.
+    reg [23:1] buf2_a;
     reg        buf2_v, rd2_pend;
     wire       long_rd = cpu_rw && cpu_siz == 2'b00 && !a24[1];
-    wire       buf_hit = buf2_v && cpu_rw && cpu_siz == 2'b10 && a24[3:1] == buf2_a;
     // BLI-11 (25 Nov 2026): instruction fetches from ROM and ST-RAM cachable (bisect4: boots, GEMBENCH
     // CPU 234% vs 218% ROM-I only). Data reads stay inhibited: ROM data caching (bisect3) halts TOS at
     // $E1C3B8, under investigation (WF68K30L D-cache fill path). Full target: (is_rom && !is_vec) || is_ram.
     wire       cachable = (is_rom && !is_vec) || is_ram; // BLI-11g BUILD C3: ROM and ST-RAM I+D (with CACR WA in ST-RAM, falcon_core)
+    wire       wb_rd2  = cpu_rw && (cpu_siz == 2'b10 || cpu_siz == 2'b01) && !a24[1] && cachable;
+    wire       buf_hit = buf2_v && cpu_rw && (cpu_siz == 2'b10 || cpu_siz == 2'b01) && a24[23:1] == buf2_a;
     reg [2:0] state;
     reg [3:0] wcnt;
     reg [1:0] br_s;
@@ -173,7 +179,7 @@ module falcon_bus #(
                     else begin
                         mem_a <= mem_a_c; mem_we <= mem_we_c;
                         mem_be <= mem_be_c; mem_wdata <= mem_wdata_c;
-                        mem_rd2 <= long_rd; rd2_pend <= long_rd; buf2_a <= a24[3:1] + 3'd1;
+                        mem_rd2 <= long_rd || wb_rd2; rd2_pend <= long_rd || wb_rd2; buf2_a <= {a24[23:2], 1'b1}; // A1=0 -> A+2
                         // 4-phase: do not raise req while a leftover ack is still high
                         if (mem_ack_s) state <= S_WAITACK;
                         else begin mem_req <= 1'b1; state <= S_MEM; end
